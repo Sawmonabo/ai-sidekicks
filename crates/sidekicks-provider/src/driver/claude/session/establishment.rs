@@ -31,6 +31,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use tokio::sync::SetOnce;
 
 use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
@@ -92,9 +95,6 @@ use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::thread_frame_router::ThreadFrameRouter;
 use crate::usage_delta_accountant::UsageDeltaAccountant;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 /// Why a session's process could not be brought up and adopted.
 #[derive(Debug, thiserror::Error)]

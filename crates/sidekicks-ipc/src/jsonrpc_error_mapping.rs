@@ -23,13 +23,13 @@ use sidekicks_contracts::transcript::content::BodyReadOffsetRefused;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::record::Record;
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::events::log_service::{EventLogFollowError, EventLogReadError};
 
 use crate::domain_error::{DomainError, refusal_fields};
 use crate::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH};
 use crate::registry::{DispatchError, HandlerError};
 use crate::session_not_found::session_not_found;
-use sidekicks_std::text_cut::cut_to_code_points;
-use sidekicks_store::events::log_service::{EventLogFollowError, EventLogReadError};
 
 /// What replaces an absolute path in a message or a field.
 const REDACTED_PATH: &str = "<redacted-path>";

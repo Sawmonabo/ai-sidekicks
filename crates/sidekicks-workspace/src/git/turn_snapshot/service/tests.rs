@@ -5,6 +5,10 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use rstest::rstest;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::{
     TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotCaptureInput, TurnSnapshotCaptureOutcome,
@@ -18,10 +22,6 @@ use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
 use crate::git::turn_snapshot::retention::RunContextKey;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 const ENDED_AT: &str = "2026-10-19T10:00:00.000Z";
 

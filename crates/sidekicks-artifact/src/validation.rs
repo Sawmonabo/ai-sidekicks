@@ -22,6 +22,7 @@ use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{BoundedText, is_ecmascript_whitespace};
+use sidekicks_std::text_cut::cut_to_code_points;
 use unicode_normalization::UnicodeNormalization as _;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory as _};
 
@@ -29,7 +30,6 @@ use crate::detection::{DETECTION_PREFIX_BYTES, detect_media_type};
 use crate::payload_store::{ContentHash, PayloadStore};
 use crate::picture_size::{PictureFormat, read_picture_size};
 use crate::refusals::ArtifactError;
-use sidekicks_std::text_cut::cut_to_code_points;
 
 // The media type recorded for bytes that are neither a known signature nor UTF-8 text.
 const UNKNOWN_MEDIA_TYPE: &str = "application/octet-stream";

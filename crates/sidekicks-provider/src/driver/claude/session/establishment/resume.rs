@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_std::mutex_lock::lock;
 
 use super::{
     ClaudeEstablishmentError, ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart,
@@ -29,7 +30,6 @@ use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
-use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process, or answers the session's live

@@ -20,14 +20,9 @@ use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-
-use super::{
-    DenialOverrideError, REVIEWER_DENIALS_STATEMENT_CAPACITY, ReviewerDenialError, ReviewerDenials,
-};
-use crate::schema::schema_parts;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
@@ -46,6 +41,11 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::followers::FollowerAttachment;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+
+use super::{
+    DenialOverrideError, REVIEWER_DENIALS_STATEMENT_CAPACITY, ReviewerDenialError, ReviewerDenials,
+};
+use crate::schema::schema_parts;
 
 /// Bounds a call the test expects to answer, so one that hangs fails the test.
 const ANSWER_WAIT: Duration = Duration::from_secs(5);

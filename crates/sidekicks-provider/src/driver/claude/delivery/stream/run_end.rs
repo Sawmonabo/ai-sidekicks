@@ -9,6 +9,7 @@ use serde_json::Value;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound, report_engine_failure};
@@ -23,7 +24,6 @@ use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::terminal_emission_gate::{TerminalEmissionDecision, TerminalRunFrame};
 use crate::thread_frame_router::ThreadFrameRoute;
-use sidekicks_std::mutex_lock::lock;
 
 /// Why a run ended failed when the run engine could not take the end Claude Code reported.
 const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =

@@ -11,7 +11,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemSummary;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;

@@ -5,7 +5,6 @@ use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-
 use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, canonicalize_json};
 
 /// Names the first axis a spawn binds on which a run differs from its session's spawn posture,

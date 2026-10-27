@@ -13,6 +13,9 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::rules::{
@@ -29,9 +32,6 @@ use crate::driver::claude::spawn::settings::{
 use crate::driver::contract::DriverError;
 use crate::port::registration::PortRegistration;
 use crate::port::session_rules::SessionRulePort;
-use sidekicks_policy::ask_rule::ProviderAskRule;
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::mutex_lock::lock;
 
 /// Why a standing rule could not be handed to Claude Code or taken out of force there.
 #[derive(Debug, thiserror::Error)]

@@ -18,6 +18,7 @@ use sidekicks_contracts::terminal::{TerminalColors, TerminalId, TerminalShellSta
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_ipc::registry::TransportId;
 use sidekicks_terminal::{
     OutputFilter, ScrollbackRead, TerminalAnswers, TerminalError, TerminalHandle, TerminalScreen,
     TerminalWriteError, Terminals,
@@ -40,7 +41,6 @@ use crate::refusals::{output_subscription_not_found, terminal_not_found};
 use crate::resize::{ResizeTerminal, ShellResizeError, ShellResizeQueue, ShellSize};
 use crate::start::INITIAL_SHELL_SIZE;
 use crate::write::{ShellInput, ShellInputHooks};
-use sidekicks_ipc::registry::TransportId;
 
 /// A shell's screen copy and scrollback window, as the terminal shares them with its read loop.
 pub(crate) type ShellScreen = Arc<Mutex<TerminalScreen<ShellScreenListener>>>;

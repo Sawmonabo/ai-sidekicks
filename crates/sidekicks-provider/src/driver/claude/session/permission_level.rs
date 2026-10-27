@@ -11,7 +11,11 @@ use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use strum::VariantArray;
 
 use crate::driver::CommandSandboxAvailability;
@@ -36,10 +40,6 @@ use crate::driver::claude::spawn::settings::compose_claude_sandbox_settings;
 use crate::driver::contract::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::session_control::{UpdatePermissionLevelParams, permission_level_not_offered};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_policy::ask_rule::ProviderAskRule;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 // The key a session's starting mode is read from.
 const DEFAULT_MODE_KEY_PATH: [&str; 2] = ["permissions", "defaultMode"];

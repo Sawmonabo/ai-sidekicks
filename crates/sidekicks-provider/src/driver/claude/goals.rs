@@ -10,6 +10,7 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Deserialize;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
@@ -21,7 +22,6 @@ use crate::driver::contract::DriverError;
 use crate::driver::session_control::DriverGoalResult;
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use sidekicks_std::mutex_lock::lock;
 
 // Bare, as `system/init` lists `slash_commands`.
 const CLAUDE_GOAL_COMMAND_NAME: &str = "goal";

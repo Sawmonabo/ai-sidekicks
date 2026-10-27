@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
-use sidekicks_std::mutex_lock::lock;
 
 /// The daemon's provider processes by session, and the count their spawn sequences come from.
 #[derive(Default)]

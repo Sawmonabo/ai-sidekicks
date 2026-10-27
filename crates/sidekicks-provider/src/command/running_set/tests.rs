@@ -14,6 +14,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::mpsc;
 
 use super::{
@@ -25,9 +28,6 @@ use crate::driver::contract::{DriverError, MockProviderDriver};
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::mutex_lock::lock;
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const RUN: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";

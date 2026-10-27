@@ -37,13 +37,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio::sync::broadcast::error::RecvError;
-use tokio::sync::{Notify, broadcast};
-use tokio_util::task::AbortOnDropHandle;
-
-use crate::directory::list_feed::rows::{ListRowSql, OPENING_READ_PAGE_ROWS, SessionListRow};
-use crate::directory::list_feed::subscriber::{ListEnd, SessionListSubscriber, SubscriberChanges};
-use crate::plan_holds::PlanHolds;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::{Scheduler, WakeSignal};
@@ -53,6 +46,13 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_store::events::session::pending::PendingSessions;
 use sidekicks_workspace::managed::service::SessionListRefresh;
+use tokio::sync::broadcast::error::RecvError;
+use tokio::sync::{Notify, broadcast};
+use tokio_util::task::AbortOnDropHandle;
+
+use crate::directory::list_feed::rows::{ListRowSql, OPENING_READ_PAGE_ROWS, SessionListRow};
+use crate::directory::list_feed::subscriber::{ListEnd, SessionListSubscriber, SubscriberChanges};
+use crate::plan_holds::PlanHolds;
 
 // The sessions one read of changed rows takes at most, so a burst of changes reads in short reads.
 const CHANGED_READ_SESSIONS: usize = 64;

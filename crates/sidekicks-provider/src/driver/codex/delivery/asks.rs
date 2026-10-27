@@ -30,6 +30,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_policy::destructive_git::covers_destructive_git;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
@@ -64,10 +68,6 @@ use crate::project_rule_folders::write_into_project_folders;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
-use sidekicks_policy::ask_rule::ProviderAskRule;
-use sidekicks_policy::destructive_git::covers_destructive_git;
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_std::mutex_lock::lock;
 
 /// The two owners an admitted ask goes to, each registered at runtime.
 pub(crate) struct CodexAskOwners {

@@ -24,8 +24,6 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
-use tokio_util::sync::CancellationToken;
-
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, EventsReadAfterSequenceResponse, SessionService,
@@ -48,6 +46,7 @@ use sidekicks_store::events::projection::{
 };
 use sidekicks_store::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
 use sidekicks_store::events::session::read::SessionLogReadError;
+use tokio_util::sync::CancellationToken;
 
 /// The most events one page of a rebuild reads and writes: a page's envelopes and the statements
 /// built from them are what a rebuild holds at once, and each page is one write.

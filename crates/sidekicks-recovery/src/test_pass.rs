@@ -10,6 +10,13 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::params;
 use serde_json::{Value, json};
+use sidekicks_approval::permission_asks::{PermissionAsks, PermissionAsksDeps};
+use sidekicks_approval::permission_check::test_fixture::test_permission_check;
+use sidekicks_approval::run_blocking::ApprovalRunEnd;
+use sidekicks_approval::service::test_fixture::test_approval_service;
+use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_artifact::plans::store::StoredPlanHolds;
+use sidekicks_artifact::test_store::ArtifactTestStore;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -18,24 +25,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{Spawner, harness_test_name, pass_through_start};
-use tempfile::TempDir;
-use tokio::runtime::Handle;
-use tokio::sync::watch;
-
-use crate::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge};
-use crate::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
-use crate::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
-use crate::restart_settle::{RestartSettle, RestartSettleDeps};
-use crate::session_write_refusal::refuse_session_event;
-use crate::startup::{StartupRecovery, StartupRecoveryDeps};
-use crate::status::RecoveryStatusTracker;
-use sidekicks_approval::permission_asks::{PermissionAsks, PermissionAsksDeps};
-use sidekicks_approval::permission_check::test_fixture::test_permission_check;
-use sidekicks_approval::run_blocking::ApprovalRunEnd;
-use sidekicks_approval::service::test_fixture::test_approval_service;
-use sidekicks_artifact::plans::service::PlansService;
-use sidekicks_artifact::plans::store::StoredPlanHolds;
-use sidekicks_artifact::test_store::ArtifactTestStore;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_session::run::engine::RunEngine;
@@ -59,6 +48,17 @@ use sidekicks_store::events::projection::{
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
+use tempfile::TempDir;
+use tokio::runtime::Handle;
+use tokio::sync::watch;
+
+use crate::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge};
+use crate::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
+use crate::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
+use crate::restart_settle::{RestartSettle, RestartSettleDeps};
+use crate::session_write_refusal::refuse_session_event;
+use crate::startup::{StartupRecovery, StartupRecoveryDeps};
+use crate::status::RecoveryStatusTracker;
 
 // Statements every pool of the pass caches; a cache size, not a bound on what runs.
 const TEST_STATEMENT_CAPACITY: usize = 64;

@@ -19,12 +19,12 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_contracts::worktree::lifecycle::NewWorktreeSuggestion;
-
-use crate::auto_title::first_words_of;
 use sidekicks_workspace::git::branch_name_pattern::{
     BranchNamePatternValues, fill_branch_name_pattern, last_fatal_line, strip_lock_clause,
 };
 use sidekicks_workspace::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
+
+use crate::auto_title::first_words_of;
 
 const WORKTREES_FOLDER_NAME: &str = "worktrees";
 
@@ -452,10 +452,9 @@ impl WorktreeNaming {
 
 #[cfg(test)]
 mod tests {
-    use rstest::rstest;
-
     use std::path::PathBuf;
 
+    use rstest::rstest;
     use sidekicks_contracts::machine::settings::{BranchNamePattern, BranchNamePatternChange};
     use sidekicks_contracts::wire::text::FreeFormText;
 

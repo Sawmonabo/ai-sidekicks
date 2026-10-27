@@ -32,18 +32,6 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::sync::watch;
-use tokio_util::task::TaskTracker;
-use tracing::Instrument as _;
-
-use crate::delivery::QueueDelivery;
-use crate::error::QueueError;
-use crate::memory_gate::{
-    AdmissionWork, MemoryAdmission, MemoryAdmissionState, MemoryGate, ProviderStartEstimate,
-};
-use crate::provider_session::ProviderSessions;
-use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
-use crate::session_lock::QueueSessionLock;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{ProviderDriver, bound_failure_detail};
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -64,8 +52,19 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use tokio::sync::watch;
+use tokio_util::task::TaskTracker;
+use tracing::Instrument as _;
 
 pub(crate) use self::opening::RunOpenings;
+use crate::delivery::QueueDelivery;
+use crate::error::QueueError;
+use crate::memory_gate::{
+    AdmissionWork, MemoryAdmission, MemoryAdmissionState, MemoryGate, ProviderStartEstimate,
+};
+use crate::provider_session::ProviderSessions;
+use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::session_lock::QueueSessionLock;
 
 /// How long a queued run waits for the memory gate before its messages are not delivered: past
 /// five minutes a run is not getting memory soon, and the person is better told so.

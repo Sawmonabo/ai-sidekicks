@@ -25,16 +25,6 @@ use sidekicks_contracts::schema::received_check;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::typescript::TypeName;
 use sidekicks_contracts::wire::attachment::check_received;
-use sidekicks_platforms::PinnedProcess;
-use tokio::io::{AsyncRead, AsyncWriteExt as _, DuplexStream, ReadBuf, ReadHalf};
-use tokio::task::JoinHandle;
-use tokio_util::codec::{Encoder as _, Framed};
-use tokio_util::sync::CancellationToken;
-
-use super::connection::serve_connection;
-use super::writer::Outbox;
-use super::{GatewayServices, SupervisionDisconnectReason, SupervisionHooks, next_transport_id};
-use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use sidekicks_ipc::call_fixtures::{
     NamedSubscribe, Nothing, SUBSCRIBE_METHOD, channel_feed, subscription_id,
 };
@@ -47,8 +37,18 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::stream::feed::SendGate;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
+use sidekicks_platforms::PinnedProcess;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
+use tokio::io::{AsyncRead, AsyncWriteExt as _, DuplexStream, ReadBuf, ReadHalf};
+use tokio::task::JoinHandle;
+use tokio_util::codec::{Encoder as _, Framed};
+use tokio_util::sync::CancellationToken;
+
+use super::connection::serve_connection;
+use super::writer::Outbox;
+use super::{GatewayServices, SupervisionDisconnectReason, SupervisionHooks, next_transport_id};
+use crate::daemon::process::damage_gate::DispatchDamageWatch;
 
 mod call_cap;
 mod close;

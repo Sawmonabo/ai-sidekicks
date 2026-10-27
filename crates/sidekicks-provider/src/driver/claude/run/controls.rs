@@ -10,6 +10,7 @@ use futures::future::try_join_all;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
@@ -40,7 +41,6 @@ use crate::driver::run_control::{
 };
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use sidekicks_std::mutex_lock::lock;
 
 #[derive(Default, serde::Deserialize)]
 struct CancelAsyncMessageReply {

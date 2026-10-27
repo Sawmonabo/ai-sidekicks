@@ -8,13 +8,13 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use rusqlite::ErrorCode;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::missing_entry::MissingEntry as _;
 use tokio::sync::{SetOnce, SetOnceError};
 
 use crate::database::sibling_path;
 use crate::database::writer::sqlite_error_code;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use sidekicks_std::missing_entry::MissingEntry as _;
 
 /// The suffix of the damage record kept beside the database file.
 const DAMAGE_RECORD_SUFFIX: &str = ".damaged";

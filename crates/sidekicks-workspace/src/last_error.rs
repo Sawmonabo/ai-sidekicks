@@ -2,7 +2,6 @@
 
 use sidekicks_contracts::repo::workspace::WORKSPACE_LAST_ERROR_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
-
 use sidekicks_ipc::redaction::scrub_credentials;
 use sidekicks_std::text_cut::cut_to_code_points;
 

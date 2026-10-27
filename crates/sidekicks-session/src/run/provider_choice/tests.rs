@@ -20,21 +20,8 @@ use sidekicks_contracts::run::provider_choice::{
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::text::FreeFormText;
-use tempfile::TempDir;
-
-use super::{
-    PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceError,
-    ProviderChoiceResolver,
-};
-use crate::driver_resolution::LiveRunDriverError;
-use crate::questions::schema::schema_parts;
-use crate::run::engine::RunEngine;
-use crate::run::engine::tests::{append, insert_running_run, stored_run_state, test_engine};
-use crate::run::pause::test_answers::unanswered;
-use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::run_control::AnswerProviderChoiceResult;
 use sidekicks_provider::driver::test_registry::{
@@ -48,6 +35,19 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tempfile::TempDir;
+
+use super::{
+    PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceError,
+    ProviderChoiceResolver,
+};
+use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::schema::schema_parts;
+use crate::run::engine::RunEngine;
+use crate::run::engine::tests::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::pause::test_answers::unanswered;
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::RunStateChange;
 
 /// A run waiting on its switch-or-credits choice, the engine that moves it and the resolver.
 struct Fixture {

@@ -16,18 +16,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use super::{
-    QueueRecorder, QueueRecorderDeps, RecordSendError, RecordedSend, RetargetRun, SendRefusal,
-    SendRoute,
-};
-use crate::changes::{
-    QueueChangeSignals, QueueKey, read_current_queue_cursor, read_queue_changes_after,
-};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord,
@@ -37,6 +29,14 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_log::open_log;
+
+use super::{
+    QueueRecorder, QueueRecorderDeps, RecordSendError, RecordedSend, RetargetRun, SendRefusal,
+    SendRoute,
+};
+use crate::changes::{
+    QueueChangeSignals, QueueKey, read_current_queue_cursor, read_queue_changes_after,
+};
 
 /// The statements the recorder's read pool prepares: the read back of a send's item.
 const READ_STATEMENT_CAPACITY: usize = 1;

@@ -24,9 +24,22 @@ use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::run_control::DriverRunRefusal;
+use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::session::appender::SessionEventDraft;
+use sidekicks_workspace::run_setup_gates::{
+    RunSetupContext, RunSetupGateError, RunTerminalContext,
+};
 use tokio::sync::SetOnce;
 
 use crate::queue_store::take_over_interrupted_statement;
@@ -41,19 +54,6 @@ use crate::run::read::{RunRead, RunStateReader, read_run_provider};
 use crate::run::refusals::{RunRefusal, require_expected_version};
 use crate::run::start_request::{RunContinueRequest, RunStartRequest, RunTurnStart};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::contract::bound_failure_detail;
-use sidekicks_provider::driver::run_control::DriverRunRefusal;
-use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
-use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::statement::WriteStatement;
-use sidekicks_store::events::session::appender::SessionEventDraft;
-use sidekicks_workspace::run_setup_gates::{
-    RunSetupContext, RunSetupGateError, RunTerminalContext,
-};
 
 // The states a resume continues: a run still finishing its step, or one already held.
 const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];

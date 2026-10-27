@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::connection::McpConnectionScope;
@@ -15,7 +16,6 @@ use crate::client::tasks::{
     AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, QuestionTake, TaskWatches,
     compose_question,
 };
-use sidekicks_std::mutex_lock::lock;
 
 /// The calls in flight on one connection: one entry per call until it ends or is dropped, each
 /// holding its questions until they settle.

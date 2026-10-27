@@ -12,6 +12,7 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::mutex_lock::lock;
 
 use super::{resume_params, start_params};
 use crate::driver::claude::lifecycle::ClaudeDriver;
@@ -41,7 +42,6 @@ use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
 use crate::usage_delta_accountant::UsageAxisCounts;
-use sidekicks_std::mutex_lock::lock;
 
 // The full id the build resolves the session's `opus` to.
 const FULL_MODEL_ID: &str = "claude-opus-4-7";

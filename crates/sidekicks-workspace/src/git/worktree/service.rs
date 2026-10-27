@@ -31,6 +31,18 @@ use sidekicks_contracts::worktree::lifecycle::{
     RemovedWorktreeId, RetiredWorktreeState, WorktreeId, WorktreeRetireConflictDetails,
     WorktreeRetireResponse, WorktreeState,
 };
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::log_service::EventAppendError;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventEmitError, SessionEventLinkage,
+};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::GitRunner;
@@ -45,18 +57,6 @@ use crate::git::worktree::rows::{
 };
 use crate::repo::errors::RepoRefusal;
 use crate::trust_envelope::is_contained_within;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
-use sidekicks_store::events::log_service::EventAppendError;
-use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventEmitError, SessionEventLinkage,
-};
 
 // The `worktrees` columns [`worktree_row_of`] reads, in its order, for a query naming the table
 // `wt`.

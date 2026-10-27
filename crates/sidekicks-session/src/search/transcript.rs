@@ -24,18 +24,18 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText, TextError};
 use sidekicks_contracts::wire::{False, True};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_search::index::{
     IndexRowKind, SearchIndex, SearchIndexError, SearchQuery, SessionFind,
 };
+use sidekicks_store::database::stored_column::rowid_column;
 
 use crate::search::hits::{HitLine, HitLineReader};
 use crate::search::index::columns::index_key_of;
 use crate::search::index::rows::IndexRowReader;
 use crate::search::query::parse_find_query;
 use crate::search::rowid_floors::RowidFloorLog;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_store::database::stored_column::rowid_column;
 
 const SESSION_KEY_SQL: &str = "SELECT rowid FROM sessions WHERE id = ?";
 

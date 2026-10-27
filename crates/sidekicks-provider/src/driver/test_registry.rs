@@ -21,7 +21,15 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::Spawner;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+#[cfg(test)]
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio::runtime::Handle;
 #[cfg(test)]
 use tokio::sync::Notify;
@@ -43,14 +51,6 @@ use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
 use crate::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-#[cfg(test)]
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner};
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// The statements a test's read pool caches.
 const TEST_POOL_STATEMENT_CAPACITY: usize = 16;

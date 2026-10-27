@@ -21,11 +21,6 @@ use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, Eve
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
-use tokio_util::sync::CancellationToken;
-
-use crate::database_file::copy::copy_file_replacing;
-use crate::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
-use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::standard_error::write_error_line;
@@ -48,6 +43,11 @@ use sidekicks_store::events::log_service::{
 use sidekicks_store::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tokio_util::sync::CancellationToken;
+
+use crate::database_file::copy::copy_file_replacing;
+use crate::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
+use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
 
 /// The arguments the daemon's own program is started with to restore a backup; the backup's
 /// folder follows them.
@@ -458,14 +458,14 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::release_manifest::ReleaseVersion;
-
-    use super::{BACKUP_DATABASE_FILE_NAME, RestoreError, restore_backup};
     use sidekicks_store::data_folder::data_folder;
     use sidekicks_store::data_folder_lock::DataFolderLock;
     use sidekicks_store::database::connection::writer_open::{
         DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
     };
     use sidekicks_store::database::schema::{DatabaseSchema, schema_parts};
+
+    use super::{BACKUP_DATABASE_FILE_NAME, RestoreError, restore_backup};
 
     // A backup folder holding a store opened with `schema`, its `user_version` set to `version`,
     // its manifest naming `service_version`.

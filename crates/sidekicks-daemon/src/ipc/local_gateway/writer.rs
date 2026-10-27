@@ -26,16 +26,16 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SUBSCRIPTION_END_METHOD, SUBSCRIPTION_NOTIFY_METHOD, SubscriptionEndParams, SubscriptionId,
     SubscriptionNotifyParams,
 };
+use sidekicks_ipc::registry::EncodedValue;
+use sidekicks_ipc::stream::feed::{SendGate, SubscriptionClosed};
+use sidekicks_ipc::stream::subscriptions::{Subscription, SubscriptionFrame};
+use sidekicks_std::mutex_lock::lock;
 use tokio::io::AsyncWrite;
 use tokio::sync::{Notify, OwnedSemaphorePermit, oneshot};
 use tokio_util::codec::FramedWrite;
 
 use super::SupervisionDisconnectReason;
 use super::connection::ConnectionClose;
-use sidekicks_ipc::registry::EncodedValue;
-use sidekicks_ipc::stream::feed::{SendGate, SubscriptionClosed};
-use sidekicks_ipc::stream::subscriptions::{Subscription, SubscriptionFrame};
-use sidekicks_std::mutex_lock::lock;
 
 /// The bytes of each piece while more than one lane waits, so a lane waits behind at most one
 /// piece of each busy lane.

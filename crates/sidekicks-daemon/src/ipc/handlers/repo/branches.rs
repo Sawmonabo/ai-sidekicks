@@ -6,7 +6,6 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::repo::git_reads::ProjectBranchListRequest;
 use sidekicks_contracts::repo::methods::ProjectBranchList;
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 

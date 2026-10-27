@@ -15,7 +15,6 @@ use sidekicks_contracts::approval::{
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_ipc::domain_error::DomainError;
 
 /// `approval.notFound`: the daemon holds no ask under `approval_request_id`.

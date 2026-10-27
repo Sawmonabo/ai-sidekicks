@@ -16,6 +16,8 @@ use sidekicks_contracts::transcript::row::TranscriptOmittedPatch;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::transcript_whole_patch::{omitted_patches_of, stored_patch_files_body};
 
 use crate::driver::codex::delivery::patches::read_codex_patch_files;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
@@ -23,8 +25,6 @@ use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
-use sidekicks_std::text_cut::cut_to_code_points;
-use sidekicks_store::transcript_whole_patch::{omitted_patches_of, stored_patch_files_body};
 
 /// The item type of a command a conversation runs, which can outlive the turn that started it.
 pub(crate) const CODEX_COMMAND_ITEM_TYPE: &str = "commandExecution";

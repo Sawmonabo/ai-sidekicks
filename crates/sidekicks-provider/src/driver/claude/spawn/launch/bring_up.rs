@@ -10,6 +10,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::hooks::registration::compose_claude_initialize_request;
@@ -42,7 +43,6 @@ use crate::driver::session_control::SubagentPolicy;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::spawned_version::ResolvedProviderExecutable;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
-use sidekicks_policy::ask_rule::ProviderAskRule;
 
 /// The administrator's MCP file, whose presence makes Claude Code exit at startup when it is told
 /// to load only the servers it is given.

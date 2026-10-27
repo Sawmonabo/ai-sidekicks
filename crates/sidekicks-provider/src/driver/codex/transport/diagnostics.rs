@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::error_description::describe_error;
 use strum::IntoStaticStr;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -16,7 +17,6 @@ use crate::driver::codex::session::helper_roles::CodexRoleFileWithheldField;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use sidekicks_std::error_description::describe_error;
 
 /// A failure a diagnostic carries, logged with every cause.
 type DiagnosticCause = Box<dyn Error + Send + Sync>;

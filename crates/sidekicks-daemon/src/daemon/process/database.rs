@@ -20,31 +20,13 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use jiff::Timestamp;
-use sidekicks_platforms::DaemonRunFolder;
-use tokio::sync::{oneshot, watch};
-use tokio::task::{JoinError, JoinHandle};
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::AbortOnDropHandle;
-
-use crate::bootstrap::secure_defaults::SecureDefaults;
-use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
-use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;
-use crate::daemon::process::supervision::ProcessStateTracker;
-use crate::daemon::repairing_socket::{
-    DatabaseFileRepairEnd, RepairingSocketDeps, RepairingSocketError,
-    repair_database_file_while_answering,
-};
-use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
-use crate::data_acts::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
-use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
-use crate::ipc::handlers::driver::methods::DRIVER_METHODS_STATEMENT_CAPACITY;
-use crate::remote::shared_ports;
 use sidekicks_approval::reviewer_denials::REVIEWER_DENIALS_STATEMENT_CAPACITY;
 use sidekicks_approval::rules::APPROVAL_RULES_STATEMENT_CAPACITY;
 use sidekicks_approval::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_platforms::DaemonRunFolder;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
@@ -125,6 +107,24 @@ use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAP
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
+use tokio::sync::{oneshot, watch};
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::AbortOnDropHandle;
+
+use crate::bootstrap::secure_defaults::SecureDefaults;
+use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
+use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;
+use crate::daemon::process::supervision::ProcessStateTracker;
+use crate::daemon::repairing_socket::{
+    DatabaseFileRepairEnd, RepairingSocketDeps, RepairingSocketError,
+    repair_database_file_while_answering,
+};
+use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
+use crate::data_acts::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
+use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
+use crate::ipc::handlers::driver::methods::DRIVER_METHODS_STATEMENT_CAPACITY;
+use crate::remote::shared_ports;
 
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
 /// statement stays prepared on whichever connection a read borrows. A service whose set holds

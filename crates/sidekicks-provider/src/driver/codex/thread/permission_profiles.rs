@@ -152,12 +152,12 @@ mod tests {
     use serde_json::value::RawValue;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{CodexThreadPermissionProfiles, correct_codex_permission_profile_drift};
     use crate::driver::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
     use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
     use crate::driver::codex::thread::settings::CodexThreadSettings;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn ask_settings() -> CodexThreadSettings {
         CodexThreadSettings {

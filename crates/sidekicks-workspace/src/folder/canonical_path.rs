@@ -7,7 +7,6 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::PathRules;
-
 use sidekicks_std::file::real_location::resolve_real_location;
 
 /// The key every folder comparison uses: `folder` resolved, or for a folder that no longer exists

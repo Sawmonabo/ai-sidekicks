@@ -15,14 +15,10 @@ use sidekicks_contracts::run::queue::{AgentQueueItemReorderRequest, QueueItemId}
 use sidekicks_contracts::session::events::SessionLifecycleChangePayload;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
-use tokio::time::timeout;
-
-use super::{DriverCalls, Fixture, WAIT, client_key, fixture, queue_over, recording_driver};
-use crate::service::RunQueue;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
@@ -34,6 +30,10 @@ use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::writer::test_file::test_envelope;
 use sidekicks_store::events::session::followers::CommittedEvent;
+use tokio::time::timeout;
+
+use super::{DriverCalls, Fixture, WAIT, client_key, fixture, queue_over, recording_driver};
+use crate::service::RunQueue;
 
 fn new_intervention_id() -> InterventionId {
     InterventionId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an intervention id")

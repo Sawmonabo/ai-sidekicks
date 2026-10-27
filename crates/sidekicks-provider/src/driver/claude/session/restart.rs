@@ -16,6 +16,9 @@ use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::settle_all;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::crash_window::{CrashOutcome, CrashWindow};
@@ -41,9 +44,6 @@ use crate::driver::session_control::{
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::settle_all::settle_all;
 
 // Every session's crash window and what waits to start it again.
 #[derive(Default)]

@@ -5,7 +5,6 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::{
     WorkflowContentHash, WorkflowDocumentHashedBody,
 };
-
 use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, canonicalize_json};
 
 /// What every content hash starts with: the hash function's name.

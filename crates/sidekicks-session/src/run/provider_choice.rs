@@ -28,18 +28,6 @@ use sidekicks_contracts::run::provider_choice::{
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-
-use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
-use crate::run::engine::{RunEngine, RunEngineError};
-use crate::run::pause::run_control_response;
-use crate::run::read::{
-    RunRead, RunStateReader, SessionRun, read_run_provider, read_run_through, session_run_of_row,
-};
-use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
-};
-use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -59,6 +47,18 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventLinkage,
 };
+
+use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::pause::run_control_response;
+use crate::run::read::{
+    RunRead, RunStateReader, SessionRun, read_run_provider, read_run_through, session_run_of_row,
+};
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::{
+    RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
+};
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 #[cfg(test)]
 mod tests;

@@ -30,6 +30,8 @@ use std::io;
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
+use sidekicks_approval::rules::{ApprovalRuleError, ApprovalRules};
+use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_contracts::event::declared_variants::{
     SessionEventCompactedPayload, SessionEventCompactedRemovedSession,
 };
@@ -39,19 +41,11 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
-
-use crate::data_acts::purge::rows::{
-    MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
-    mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
-    session_deletion_statements,
-};
-use sidekicks_approval::rules::{ApprovalRuleError, ApprovalRules};
-use sidekicks_artifact::payload_store::PayloadStore;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_recovery::damaged_history::DamagedSessionPurge;
 use sidekicks_recovery::status::RecoveryStatusTracker;
@@ -81,6 +75,12 @@ use sidekicks_workspace::git::turn_snapshot::service::{
     TurnSnapshotPruneFailure, TurnSnapshotPruneOutcome, TurnSnapshotService,
 };
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
+
+use crate::data_acts::purge::rows::{
+    MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
+    mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
+    session_deletion_statements,
+};
 
 /// Why one session's purge stopped. A session refused before its rows' write keeps its mark and
 /// every row, though files already deleted stay gone, and purging it again finishes it.

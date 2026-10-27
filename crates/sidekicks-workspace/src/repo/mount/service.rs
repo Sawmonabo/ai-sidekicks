@@ -25,16 +25,8 @@ use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::folders::{RepoMountAttachRequest, RepoMountAttachResponse};
 use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::instant::WireInstant;
-
-use crate::event_emitter::WorkspaceEventEmitter;
-use crate::projector::{HealthProjectionError, RepoMountHealthRow};
-use crate::repo::errors::RepoRefusal;
-use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
-use crate::repo::root_resolver::RepoRootResolver;
-use crate::row_guards::COMMON_DIR_METADATA_PATH;
-use crate::schema::MountOrigin;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 #[cfg(test)]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::settle_all::SettleFailures;
@@ -47,6 +39,14 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
 use sidekicks_store::events::session::appender::SessionEventEmitError;
+
+use crate::event_emitter::WorkspaceEventEmitter;
+use crate::projector::{HealthProjectionError, RepoMountHealthRow};
+use crate::repo::errors::RepoRefusal;
+use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
+use crate::repo::root_resolver::RepoRootResolver;
+use crate::row_guards::COMMON_DIR_METADATA_PATH;
+use crate::schema::MountOrigin;
 
 /// The statements the service's reads keep prepared on each read connection.
 pub const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;

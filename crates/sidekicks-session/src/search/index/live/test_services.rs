@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use sidekicks_platforms::WallClockTimer;
-
-use crate::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+
+use crate::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 
 /// The read pool, writer and scheduler a live index's start takes, as the daemon makes them.
 pub struct TestDaemonServices {

@@ -192,6 +192,9 @@ mod tests {
     use sidekicks_contracts::daemon::config::DaemonConfigUpdateRequest;
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     use super::{
         RawProviderMessage, TOOL_TRACES_FOLDER_NAME, ToolTrace, provider_messages_folder,
@@ -202,9 +205,6 @@ mod tests {
     };
     use crate::observability::diagnostic_buckets::recorders::DIAGNOSTICS_FOLDER_NAME;
     use crate::remote::shared_ports::schema::schema_parts;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_log::open_log;
 
     // Each line of every day file in `folder`, parsed, oldest file first.
     fn recorded_lines(folder: &Path) -> Vec<Value> {

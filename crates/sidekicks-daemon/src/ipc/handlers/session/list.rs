@@ -11,7 +11,6 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::session::directory::{
     SessionListChange, SessionSubscribe, SessionSubscribeResponse,
 };
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_session::directory::list_feed::SessionListFeed;

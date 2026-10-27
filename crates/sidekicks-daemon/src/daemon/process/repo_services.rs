@@ -12,12 +12,6 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_platforms::{askpass_socket_path, inotify_watch_ceiling};
-use tokio::sync::{Notify, broadcast, mpsc};
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-
-use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
-use crate::daemon::process::stop::TaskStopFailure;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::live_folders::{
     LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
@@ -48,6 +42,12 @@ use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
 use sidekicks_workspace::repo::mount::health::{RepoMountHealthReprobe, ReprobeError};
 use sidekicks_workspace::repo::mount::service::RepoMountService;
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
+use tokio::sync::{Notify, broadcast, mpsc};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+
+use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
+use crate::daemon::process::stop::TaskStopFailure;
 
 // The chats' writes the watch may report ahead of their recording; a full channel holds the watch
 // until the versions catch up.
@@ -393,10 +393,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sidekicks_platforms::askpass_socket_path;
+    use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 
     use super::{RepoServiceStartError, askpass_or_unavailable};
     use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
-    use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 
     // The first case is killed by the `Unsupported` arm deleted, which fails the start where the
     // system has no askpass socket; the second by the `Unsupported` guard widened to every listen

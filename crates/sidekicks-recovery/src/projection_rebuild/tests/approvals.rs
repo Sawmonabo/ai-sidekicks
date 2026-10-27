@@ -6,15 +6,6 @@ use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use serde_json::json;
-use sidekicks_contracts::approval::ApprovalDecision;
-use sidekicks_contracts::approval::events::ApprovalResolvedPayload;
-use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
-
-use super::{cursor, rebuild_database, rebuild_whole, table_rows};
 use sidekicks_approval::projection::rebuild::ApprovalsProjection;
 use sidekicks_approval::request_create::ApprovalResourceDescriptor;
 use sidekicks_approval::store::{
@@ -22,11 +13,20 @@ use sidekicks_approval::store::{
     insert_request_statement, insert_resolution_statement, remembered_scope_statement,
     settle_pending_statement,
 };
+use sidekicks_contracts::approval::ApprovalDecision;
+use sidekicks_contracts::approval::events::ApprovalResolvedPayload;
+use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 use sidekicks_store::database::schema::recovery::ProjectionCursorState;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::test_file::{test_envelope, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
+
+use super::{cursor, rebuild_database, rebuild_whole, table_rows};
 
 // The statements the live service writes with each event, from the event as it is stored.
 fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<WriteStatement> {

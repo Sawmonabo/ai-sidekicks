@@ -10,12 +10,12 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::command::{AgentCommandSubscribeFrame, CommandId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::UniqueList;
-use tokio::sync::watch;
-
-use super::SessionCommands;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::stream::feed::{Feed, SendGate};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
+
+use super::SessionCommands;
 
 /// The most output bytes a command's live tail keeps: 64 KiB, a terminal's recent scrollback for a
 /// reader that joins late; the whole output lands as the tool call's result.

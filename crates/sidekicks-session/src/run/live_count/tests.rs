@@ -6,12 +6,6 @@ use std::sync::Arc;
 use rusqlite::types::Value;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-
-use super::test_log::counted_log;
-use crate::questions::schema::schema_parts;
-use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::run::engine::tests::insert_running_run;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
@@ -19,6 +13,12 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+
+use super::test_log::counted_log;
+use crate::questions::schema::schema_parts;
+use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use crate::run::engine::tests::insert_running_run;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
 
 // Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
 // write leaves the run's row.

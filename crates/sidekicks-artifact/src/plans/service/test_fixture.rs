@@ -5,10 +5,10 @@ use std::sync::Arc;
 #[cfg(test)]
 use serde_json::Value;
 use sidekicks_contracts::plan::PlanId;
+use sidekicks_provider::port::plan::ProviderPlan;
 
 use super::PlansService;
 use crate::test_store::ArtifactTestStore;
-use sidekicks_provider::port::plan::ProviderPlan;
 
 const PLAN_TEXT: &str = "# Ship the importer\n\n1. Read `src/import.rs`\n2. Write the tests\n";
 

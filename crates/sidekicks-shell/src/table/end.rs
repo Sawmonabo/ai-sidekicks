@@ -9,6 +9,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalCloseRequest;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_terminal::{TerminalError, TerminalHandle, Terminals};
 
 use crate::integration::injection::ShellMarkNonce;
@@ -18,7 +19,6 @@ use crate::record::ShellRecord;
 use crate::refusals::terminal_not_found;
 use crate::table::open::discard_unread_nonce;
 use crate::table::{ShellTable, TableShared};
-use sidekicks_ipc::registry::HandlerError;
 
 /// Holds a deleted session's opens refused until it drops.
 pub struct SessionShellsClosed {

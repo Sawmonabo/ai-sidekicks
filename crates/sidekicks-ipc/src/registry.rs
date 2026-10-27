@@ -20,13 +20,13 @@ use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType, Subsc
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::attachment::{ReceivedError, parse_received, write};
 use sidekicks_platforms::PinnedProcess;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::domain_error::DomainError;
 use crate::in_flight_mutations::RecordedCallId;
 use crate::stream::feed::{Feed, SendGate};
-use sidekicks_std::mutex_lock::lock;
 
 /// The gateway's id for one connection, unique for the daemon's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

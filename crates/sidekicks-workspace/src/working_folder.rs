@@ -10,14 +10,14 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
-use strum::VariantArray;
-
-use crate::projector::is_probe_bearing;
-use crate::schema::MountOrigin;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use strum::VariantArray;
+
+use crate::projector::is_probe_bearing;
+use crate::schema::MountOrigin;
 
 // The session's shape, the root of its newest workspace whose state carries a live root, the
 // session's place, and that workspace's mount while it is attached.

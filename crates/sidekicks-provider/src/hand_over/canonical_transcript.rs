@@ -25,7 +25,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::UserMessageSentPayload;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_store::events::session::read::{SessionEventReads, SessionLogReadError};
 
 /// Who wrote a turn. The transcript has no third author.
@@ -522,13 +521,6 @@ mod tests {
     use sidekicks_contracts::event::session::SessionEvent;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
-
-    use super::{
-        CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptRole,
-        CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
-        fold_canonical_transcript,
-    };
-    use crate::driver::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_store::database::writer::test_file::{
         TestDatabase, test_envelope, test_session_id,
@@ -539,6 +531,13 @@ mod tests {
     };
     use sidekicks_store::events::session::read::SessionEventReads;
     use sidekicks_store::events::test_log::SessionTestLog;
+
+    use super::{
+        CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptRole,
+        CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
+        fold_canonical_transcript,
+    };
+    use crate::driver::schema::schema_parts;
 
     /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
     /// body.

@@ -16,7 +16,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::integer::SafeInt;
-
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -428,12 +427,12 @@ mod tests {
     use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, RUN_START_POSITION};
-    use sidekicks_contracts::wire::integer::SafeInt;
-
-    use super::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_provider::driver::registry::test_provider;
     use sidekicks_provider::run::delivery::DeliveryOperation;
+
+    use super::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
 
     /// One delivery or fence the binding sees, in its delivery order.
     #[derive(Clone, Copy, Debug)]

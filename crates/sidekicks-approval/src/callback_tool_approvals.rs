@@ -19,15 +19,15 @@ use futures::future::BoxFuture;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
-
-use crate::permission_check::{PermissionCheck, ToolCallVerdict, WorkflowStartVerdict};
-use crate::service::RaisedRequestSettlement;
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
     CallbackToolPortError,
 };
 use sidekicks_provider::driver::callback_tool::CallbackToolInvocation;
 use sidekicks_provider::driver::registry::ProviderRegistry;
+
+use crate::permission_check::{PermissionCheck, ToolCallVerdict, WorkflowStartVerdict};
+use crate::service::RaisedRequestSettlement;
 
 /// What the agent reads when its call names a tool no gate was declared for.
 pub(crate) const UNGATED_TOOL_REFUSAL: &str = "This tool has no approval gate, so it does not run.";

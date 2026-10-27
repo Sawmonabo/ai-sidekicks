@@ -363,14 +363,14 @@ fn render_segment(segment: &CanonicalTranscriptSegment) -> Option<String> {
 mod tests {
     use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{BriefBudgetPolicy, BriefProjection};
     use crate::hand_over::canonical_transcript::{
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     fn words(position: u64, role: CanonicalTranscriptRole, text: &str) -> CanonicalTranscriptTurn {
         CanonicalTranscriptTurn {

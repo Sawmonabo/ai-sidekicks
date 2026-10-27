@@ -17,8 +17,6 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
-use tokio::sync::watch;
-
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
     COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of,
@@ -29,6 +27,7 @@ use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::events::session::read::{
     SessionEventReads, SessionLogReadError, readable_event_sql, session_read_bound,
 };
+use tokio::sync::watch;
 
 /// One queue: the lead's of a session, or a child's by its handle.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

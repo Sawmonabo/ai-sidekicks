@@ -17,6 +17,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_platforms::Spawner;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::process::{
@@ -25,7 +26,6 @@ use crate::driver::claude::session::process::{
 use crate::driver::claude::session::rules::ClaudeRulesError;
 use crate::driver::contract::DriverError;
 use crate::process_registry::ProviderProcessRegistry;
-use sidekicks_std::mutex_lock::lock;
 
 /// The data folder's folder a process that keeps nothing runs in: empty, so Claude Code reads no
 /// project there, and never the system's temporary folder or the daemon's own.

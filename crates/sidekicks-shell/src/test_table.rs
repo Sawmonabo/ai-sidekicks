@@ -8,8 +8,11 @@ use futures::FutureExt as _;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::{Spawner, create_private_folder};
+use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_terminal::{CommandLine, Terminals};
+use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -17,9 +20,6 @@ use tokio::sync::watch;
 use crate::integration::injection::ShellStartupFolders;
 use crate::orphan::guard::open_orphan_guard;
 use crate::table::{ReadSessionWorkingFolder, ShellSettings, ShellTable, ShellTableDeps};
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 /// The session the table's tests open shells in.
 pub(crate) const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";

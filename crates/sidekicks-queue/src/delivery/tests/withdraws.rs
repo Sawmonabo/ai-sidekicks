@@ -13,6 +13,12 @@ use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_session::queue_store::{QueueItemOutcome, RecordedQueueItemState};
+use sidekicks_session::run::engine::tests::test_engine;
+use sidekicks_session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use tokio::sync::{Notify, oneshot};
 use tokio::time::Instant;
 
@@ -22,12 +28,6 @@ use super::{
 };
 use crate::delivery::{QueueWithdrawal, WITHDRAW_DEADLINE};
 use crate::refusals::UnreturnedReason;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
-use sidekicks_session::queue_store::{QueueItemOutcome, RecordedQueueItemState};
-use sidekicks_session::run::engine::tests::test_engine;
-use sidekicks_session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 /// How long the test gives a call that does not wait for the session's hold to act.
 const HOLD_WATCH: Duration = Duration::from_millis(200);

@@ -14,7 +14,6 @@ use sidekicks_contracts::run::control::{
     AgentRunUsageCreditsChoiceResolve,
 };
 use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
-
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };

@@ -14,6 +14,10 @@ use jiff::{SignedDuration, Timestamp};
 use sidekicks_contracts::preview::port::{PreviewPortShareListFrame, PreviewSharedPort};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::Port;
+use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -27,10 +31,6 @@ use crate::remote::shared_ports::store::{
     SharedPortsReadError, delete_every_shared_port, delete_shared_port, insert_shared_port,
     read_shared_ports,
 };
-use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 pub(crate) mod listening;
 pub(crate) mod loopback;
@@ -357,6 +357,13 @@ mod tests {
     use sidekicks_contracts::preview::port::{PreviewPortShareListFrame, PreviewSharedPort};
     use sidekicks_contracts::wire::integer::Port;
     use sidekicks_contracts::wire::text::NonEmptyText;
+    use sidekicks_ipc::domain_error::refusal_fields;
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
+    use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+    use sidekicks_std::mutex_lock::lock;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use tokio::sync::watch;
     use tokio_util::sync::CancellationToken;
 
@@ -368,13 +375,6 @@ mod tests {
     use super::store::SHARED_PORTS_STATEMENT_CAPACITY;
     use super::{SharedPortAddError, SharedPorts, added_after};
     use crate::remote::shared_ports::schema::schema_parts;
-    use sidekicks_ipc::domain_error::refusal_fields;
-    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
-    use sidekicks_ipc::stream::latest_value::LatestValueFeed;
-    use sidekicks_std::mutex_lock::lock;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     const WAIT: Duration = Duration::from_secs(10);
 

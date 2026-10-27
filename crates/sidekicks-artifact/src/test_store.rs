@@ -13,17 +13,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::WallClockTimer;
-use tempfile::TempDir;
-
-use crate::admission::UploadAdmission;
-use crate::payload_store::{ContentHash, PayloadStore};
-use crate::plans::schema::schema_parts;
-use crate::publish::ArtifactPublishService;
-#[cfg(test)]
-use crate::refusals::ArtifactError;
-use crate::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_platforms::WallClockTimer;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -33,6 +24,15 @@ use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tempfile::TempDir;
+
+use crate::admission::UploadAdmission;
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::plans::schema::schema_parts;
+use crate::publish::ArtifactPublishService;
+#[cfg(test)]
+use crate::refusals::ArtifactError;
+use crate::schema::ARTIFACT_STATEMENT_CAPACITY;
 
 /// Free room the test volume reports: far more than any test writes.
 const TEST_VOLUME_FREE_BYTES: u64 = 1 << 40;

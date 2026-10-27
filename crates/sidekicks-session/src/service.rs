@@ -36,6 +36,17 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::events::session::read::{
+    DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
+    readable_event_sql, session_read_bound,
+};
 
 use crate::console_state::read_session_max_steps_per_turn;
 use crate::projector::{SessionRebuildError, rebuild_session};
@@ -51,17 +62,6 @@ use crate::transcript::patch_list::{PatchListError, list_patches};
 use crate::transcript::reasoning::read_reasoning;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::events::session::read::{
-    DamagedFromSequenceReader, SessionEventFilter, SessionEventReads, SessionLogReadError,
-    readable_event_sql, session_read_bound,
-};
 
 /// The statements the service's reads run: its own five (the row, the tags, the live runs, the
 /// standing sequences and the console read), the run facts' three, the five shared event reads

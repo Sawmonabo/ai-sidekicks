@@ -27,6 +27,7 @@ use std::time::Duration;
 use lru::LruCache;
 use memchr::memrchr;
 use sidekicks_contracts::highlight::HighlightLanguage;
+use sidekicks_ipc::registry::TransportId;
 use tokio::sync::oneshot;
 
 #[cfg(test)]
@@ -34,7 +35,6 @@ use crate::highlight::tokenizer::LineHook;
 use crate::highlight::tokenizer::{
     SettledLines, TokenizeEnd, TokenizeError, Tokenizer, TokenizerBuildError,
 };
-use sidekicks_ipc::registry::TransportId;
 
 /// The thread's name, as a debugger or a crash report shows it.
 const THREAD_NAME: &str = "colorer";
@@ -486,10 +486,10 @@ mod tests {
     use serde::Deserialize;
     use sha2::{Digest as _, Sha256};
     use sidekicks_contracts::highlight::HighlightLanguage;
+    use sidekicks_ipc::registry::TransportId;
     use tokio::time::timeout;
 
     use super::{BlockKey, TokenizeFailure, TokenizeJob, TokenizerThread, TokenizerThreadOptions};
-    use sidekicks_ipc::registry::TransportId;
 
     /// How long any one answer may take before the test fails instead of hanging.
     const WAIT: Duration = Duration::from_secs(60);

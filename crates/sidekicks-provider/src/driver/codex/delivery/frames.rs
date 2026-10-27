@@ -23,6 +23,7 @@ use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
@@ -45,7 +46,6 @@ use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::terminal_emission_gate::TerminalEmissionGate;
 use crate::thread_frame_router::ThreadFrameRoute;
-use sidekicks_std::mutex_lock::lock;
 
 /// What the rest of the Codex driver does for a frame, which the frame delivery cannot do itself.
 pub(crate) trait CodexFrameEffects: Send + Sync {

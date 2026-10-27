@@ -31,6 +31,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PinnedProcess;
+use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
 use tracing::Instrument as _;
 
@@ -39,7 +40,6 @@ use crate::registry::{
     Dispatch, DispatchError, HandlerContext, HandlerError, MethodRegistry, MethodRegistryBuilder,
     RegistrationError, Reply, Request, TransportId,
 };
-use sidekicks_std::mutex_lock::lock;
 
 /// How a handshake's caller is admitted, read once per connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

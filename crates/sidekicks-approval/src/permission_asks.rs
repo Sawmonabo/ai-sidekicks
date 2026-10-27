@@ -32,13 +32,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tokio_util::sync::CancellationToken;
-
-use crate::permission_check::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
-use crate::refusals::{approval_request_canceled, approval_rule_not_kept};
-use crate::rules::{ApprovalRuleError, ApprovalRules};
-use crate::service::{ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer};
-use crate::store::{StoredApprovalRequest, StoredApprovalResolution};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
@@ -56,6 +49,13 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use tokio_util::sync::CancellationToken;
+
+use crate::permission_check::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
+use crate::refusals::{approval_request_canceled, approval_rule_not_kept};
+use crate::rules::{ApprovalRuleError, ApprovalRules};
+use crate::service::{ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer};
+use crate::store::{StoredApprovalRequest, StoredApprovalResolution};
 
 /// What the agent reads when its call was refused because the check itself failed.
 pub(crate) const CHECK_FAILED_REFUSAL: &str = "This call could not be checked, so it did not run.";

@@ -19,6 +19,8 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::codex::attachments::resolve_codex_turn_message;
@@ -41,8 +43,6 @@ use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTrans
 use crate::driver::contract::StartRunParams;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::port::run_host::RunHost;
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_std::mutex_lock::lock;
 
 /// How long a turn's start may take before it counts as not started. `turn/start` answers once
 /// Codex accepted the turn, so it matches the ordinary request deadline.

@@ -15,11 +15,11 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
 use crate::driver::contract::{PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
 use crate::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
-use sidekicks_ipc::domain_error::DomainError;
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only
 /// the id, so nothing internal leaks.

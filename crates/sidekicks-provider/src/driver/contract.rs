@@ -42,6 +42,9 @@ use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPi
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 use crate::capability::probe::CapabilityProbeError;
 use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
@@ -71,9 +74,6 @@ use crate::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptE
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::runtime_binding::store::RuntimeBindingStoreError;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The fixed sentence every `provider.capability.unsupported` refusal carries.
 pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =

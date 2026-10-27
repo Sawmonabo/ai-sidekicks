@@ -19,14 +19,6 @@ use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use strum::VariantArray;
-
-use crate::driver::ProviderDescriptor;
-use crate::driver::capabilities::{
-    DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
-};
-use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
-use crate::output_validation::{ProviderOutputValidationError, check_contract_version};
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -36,6 +28,14 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use strum::VariantArray;
+
+use crate::driver::ProviderDescriptor;
+use crate::driver::capabilities::{
+    DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
+};
+use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
+use crate::output_validation::{ProviderOutputValidationError, check_contract_version};
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
 /// the flag rows and the tool rows.
@@ -505,6 +505,7 @@ mod tests {
     use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     use super::{
         CapabilitySnapshotChange, DriverCapabilitiesWriterError, test_capabilities_writer,
@@ -515,7 +516,6 @@ mod tests {
     };
     use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
     use crate::driver::schema::schema_parts;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     const SENTINEL: &str = "2000-01-01T00:00:00.000Z";
 

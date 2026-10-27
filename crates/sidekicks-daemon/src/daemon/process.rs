@@ -25,13 +25,41 @@ use std::time::{Duration, Instant};
 
 use futures::FutureExt as _;
 use jiff::Timestamp;
+use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::wire::text::TextError;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::caller_process::descent::CallerCheck;
+use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
+use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_platforms::{
     DaemonRunFolder, SocketPathRefused, Spawner, WakeWatch, WallClock, WallClockTimer,
     askpass_socket_path, check_socket_path, read_command_argument_limit, secret_store_offer,
 };
+use sidekicks_policy::authorizer::{Authorizer, RulesLoadError};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
+use sidekicks_shell::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::{ScheduleError, Scheduler};
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder_lock::DataFolderLock;
+use sidekicks_store::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
+};
+use sidekicks_store::machine::local::{LocalMachineError, read_or_mint_local_machine};
+use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
@@ -81,34 +109,6 @@ use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
 use crate::observability::diagnostic_buckets::expiry::{
     DiagnosticExpiryDeps, live_diagnostic_files,
 };
-use sidekicks_artifact::plans::store::StoredPlanHolds;
-use sidekicks_ipc::caller_process::contract::CallerProcessReader;
-use sidekicks_ipc::caller_process::descent::CallerCheck;
-use sidekicks_ipc::in_flight_mutations::InFlightMutations;
-use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
-use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
-use sidekicks_ipc::stream::subscriptions::Subscriptions;
-use sidekicks_policy::authorizer::{Authorizer, RulesLoadError};
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
-use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
-use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
-use sidekicks_session::directory::list_feed::SessionListFeed;
-use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
-use sidekicks_shell::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::{ScheduleError, Scheduler};
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
-use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
-use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::DataFolderLock;
-use sidekicks_store::database::connection::writer_open::{
-    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
-};
-use sidekicks_store::machine::local::{LocalMachineError, read_or_mint_local_machine};
-use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
 
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
 pub(crate) const DAEMON_STOP_DRAIN_BOUND: Duration =

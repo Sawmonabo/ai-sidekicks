@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
@@ -32,7 +33,6 @@ use crate::driver::codex::session::state::{CodexSessionRecord, CodexTurnInput};
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
 use crate::port::inbound_dispatch::InboundDispatch;
-use sidekicks_std::mutex_lock::lock;
 
 const NOT_LATEST_REJECTION: &str = "The turn is no longer the run's latest.";
 const REPLY_STARTED_REJECTION: &str = "The turn's reply has started.";

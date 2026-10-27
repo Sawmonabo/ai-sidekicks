@@ -3,12 +3,12 @@
 
 use rusqlite::Connection;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::run::ids::read_session_run_ids;
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingStoreError, read_bindings_of_runs,
 };
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+
+use crate::run::ids::read_session_run_ids;
 
 /// The session's leg, its newest binding with a conversation to resume, by when each was recorded
 /// and then by id, read through `pool`: the account it runs on and the handle of its conversation,

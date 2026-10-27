@@ -18,6 +18,11 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::Connection;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -25,11 +30,6 @@ use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::wal_truncation::WriteAheadLogTruncation;
 use crate::database::writer::thread::checkpoint;
 use crate::database::writer::{DatabaseWriter, MaintenanceError, is_interrupt};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::ScheduledJobOutcome;
-use sidekicks_std::scheduler::budget::{
-    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
 
 const REPACK_OPERATION: &str = "repacking the database";
 

@@ -9,6 +9,8 @@ use sidekicks_contracts::approval::events::ApprovalRuleRevokedPayload;
 use sidekicks_contracts::approval::{InvalidationTrigger, RememberedScopeKind};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -16,8 +18,6 @@ use super::{
     ApprovalRuleError, ApprovalRules, NOT_REVOKED_SQL, RULE_SOURCE_SQL, RuleRow,
     SELECT_OWN_RULES_SQL, is_project_rule, revoked_payload, session_id_of,
 };
-use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
-use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 
 // The ended sessions that still hold a session rule in force, which a start ends.
 static SELECT_ENDED_SESSIONS_WITH_RULES_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -160,11 +160,11 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::instant::WireInstant;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+    use sidekicks_policy::ask_rule::ProviderAskActionKind;
 
     use super::{RuleRow, revoked_payload, session_end_revocations};
     use crate::request_create::ApprovalResourceDescriptor;
     use crate::store::StoredApprovalRequest;
-    use sidekicks_policy::ask_rule::ProviderAskActionKind;
 
     const SESSION: &str = "0190a5a0-0000-7000-8000-000000000001";
 

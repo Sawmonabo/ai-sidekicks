@@ -29,17 +29,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemState};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use tokio::sync::oneshot;
-use tokio_util::task::TaskTracker;
-use tracing::Instrument as _;
-
-use crate::admission::QueueAdmission;
-use crate::delivery::{InterruptedRunContinuation, QueueDelivery};
-use crate::error::QueueError;
-use crate::memory_gate::MemoryGate;
-use crate::provider_session::ProviderSessions;
-use crate::recorder::QueueRecorder;
-use crate::session_lock::QueueSessionLock;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::port::run_pause::ContinuedMessages;
 use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
@@ -52,6 +41,17 @@ use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::events::session::followers::CommittedEvent;
+use tokio::sync::oneshot;
+use tokio_util::task::TaskTracker;
+use tracing::Instrument as _;
+
+use crate::admission::QueueAdmission;
+use crate::delivery::{InterruptedRunContinuation, QueueDelivery};
+use crate::error::QueueError;
+use crate::memory_gate::MemoryGate;
+use crate::provider_session::ProviderSessions;
+use crate::recorder::QueueRecorder;
+use crate::session_lock::QueueSessionLock;
 
 mod ends;
 #[cfg(test)]

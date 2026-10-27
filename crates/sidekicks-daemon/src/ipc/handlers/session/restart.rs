@@ -14,7 +14,6 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionRestart, SessionTargetRequest};
-
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -144,8 +143,6 @@ mod tests {
     use sidekicks_contracts::session::methods::SessionState;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
-
-    use super::{RestartTargetReader, SessionRestartTarget, restart};
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -160,6 +157,8 @@ mod tests {
     use sidekicks_store::database::schema::schema_parts;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::TestDatabase;
+
+    use super::{RestartTargetReader, SessionRestartTarget, restart};
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
 

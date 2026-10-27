@@ -15,11 +15,6 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tokio::sync::Notify;
-use tokio::time::timeout;
-
-use super::test_opening::{record_first_provider_capabilities, test_opening_composer};
-use super::{ProviderSessionError, ProviderSessions, ProviderSessionsDeps};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
@@ -43,6 +38,11 @@ use sidekicks_store::events::log_service::{
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use tokio::sync::Notify;
+use tokio::time::timeout;
+
+use super::test_opening::{record_first_provider_capabilities, test_opening_composer};
+use super::{ProviderSessionError, ProviderSessions, ProviderSessionsDeps};
 
 /// The statements the test's read pool prepares.
 const READ_STATEMENT_CAPACITY: usize = 16;

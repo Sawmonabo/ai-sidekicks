@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_std::mutex_lock::lock;
 
 /// A frame the service sent, held while a start or fork that may claim its thread is in flight.

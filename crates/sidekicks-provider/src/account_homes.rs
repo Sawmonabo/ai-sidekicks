@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
 use sidekicks_contracts::provider::id::ProviderId;
-
-use crate::driver::ProviderDescriptor;
-use crate::driver::registry::ProviderRegistry;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+
+use crate::driver::ProviderDescriptor;
+use crate::driver::registry::ProviderRegistry;
 
 const ACCOUNT_HOMES_SQL: &str =
     "SELECT account_id, provider, credential_home_path FROM provider_accounts";

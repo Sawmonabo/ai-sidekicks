@@ -26,8 +26,19 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::message_handing::MessageHanding;
+use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
+use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+use sidekicks_store::events::session::appender::SessionEventDraft;
 use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
@@ -42,17 +53,6 @@ use crate::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
 };
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
-use sidekicks_provider::driver::message_handing::MessageHanding;
-use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
-use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
-use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::statement::DATABASE_NOW_SQL;
-use sidekicks_store::events::session::appender::SessionEventDraft;
 
 // Records an `accepted` interrupt of the harness's run at `limit`, accepted at version 1, as
 // its write would, and answers its id.

@@ -27,19 +27,8 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::list::BoundedVec;
-use tempfile::TempDir;
-
-use super::{HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
-use crate::questions::projection::question_projection_statements;
-use crate::questions::schema::schema_parts;
-#[cfg(test)]
-use crate::run::engine::RunEngine;
-#[cfg(test)]
-use crate::run::engine::tests::stored_run_state;
-use crate::run::engine::tests::{insert_running_run, test_engine};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
@@ -61,6 +50,17 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tempfile::TempDir;
+
+use super::{HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
+use crate::questions::projection::question_projection_statements;
+use crate::questions::schema::schema_parts;
+#[cfg(test)]
+use crate::run::engine::RunEngine;
+#[cfg(test)]
+use crate::run::engine::tests::stored_run_state;
+use crate::run::engine::tests::{insert_running_run, test_engine};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// The secret the tests answer with, which no stored row may hold.
 #[cfg(test)]

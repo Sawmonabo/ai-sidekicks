@@ -13,7 +13,6 @@
 use std::sync::LazyLock;
 
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
 /// The per-session append lock every service over the daemon's database shares. A session id is

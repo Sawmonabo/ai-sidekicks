@@ -10,11 +10,11 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 
 use crate::registry::{Dispatch, DispatchError, HandlerContext, MethodRegistry, Reply, Request};
-use sidekicks_std::bounded_wait::wait_within;
-use sidekicks_std::mutex_lock::lock;
 
 /// A recorded mutating call's place: ids rise in the order the gate records calls, so a call
 /// recorded earlier has a smaller id.

@@ -9,7 +9,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionAddress;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_platforms::PathRules;
-
 use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser;
 
 /// A place listed for a computer whose own system cannot hold it: on Windows every place, the
@@ -96,11 +95,11 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::place::{Place, WindowsPlace};
     use sidekicks_platforms::PathRules;
-
-    use super::SessionInboxAddresses;
     use sidekicks_provider::driver::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
     use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser as _;
     use sidekicks_store::database::writer::test_file::test_session_id;
+
+    use super::SessionInboxAddresses;
 
     #[test]
     fn each_place_gets_its_own_form_and_the_session_s_own_place_comes_first() {

@@ -8,16 +8,16 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::directory::row::{
-    DirectoryEvent, directory_row_statement, fold_directory_row, open_directory_row,
-};
-use crate::records::SessionDirectoryRow;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
+
+use crate::directory::row::{
+    DirectoryEvent, directory_row_statement, fold_directory_row, open_directory_row,
+};
+use crate::records::SessionDirectoryRow;
 
 /// The `sessions` row as a rebuild replaces it. Almost every event moves the row's last activity,
 /// so the fold reads every registered event type.

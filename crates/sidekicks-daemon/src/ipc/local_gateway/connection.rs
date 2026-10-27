@@ -35,7 +35,14 @@ use sidekicks_contracts::method::{Method, MethodDescriptor, ProcedureType};
 use sidekicks_contracts::method_descriptor;
 use sidekicks_contracts::terminal::TerminalWrite;
 use sidekicks_contracts::wire::attachment::parse_received;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
+use sidekicks_ipc::registry::{
+    AfterReply, DispatchError, HandlerContext, Reply, Request, TransportId,
+};
+use sidekicks_ipc::stream::subscriptions::subscription_limit_reached;
 use sidekicks_platforms::PinnedProcess;
+use sidekicks_std::mutex_lock::lock;
 use tokio::io::{AsyncRead, AsyncWrite, ReadHalf};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::codec::{FramedRead, FramedWrite};
@@ -45,13 +52,6 @@ use super::writer::{Outbox, drive_subscription, encode_message, encode_response,
 use super::{
     CONNECTION_CLOSE_WAIT, GatewayServices, SupervisionDisconnectReason, SupervisionHooks,
 };
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
-use sidekicks_ipc::registry::{
-    AfterReply, DispatchError, HandlerContext, Reply, Request, TransportId,
-};
-use sidekicks_ipc::stream::subscriptions::subscription_limit_reached;
-use sidekicks_std::mutex_lock::lock;
 
 /// The contract of `method` the gateway's gates read: the protocol's own subscription cancel, or
 /// the method a contract table declares.

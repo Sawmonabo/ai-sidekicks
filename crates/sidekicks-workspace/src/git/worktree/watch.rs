@@ -29,6 +29,12 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::WorkingTreeChange;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 use tokio::sync::{Notify, broadcast, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -39,12 +45,6 @@ use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::working_folder::{WorkingFolderReadError, read_working_folder};
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
 
 mod branch_write_back;
 mod folder;

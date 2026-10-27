@@ -176,7 +176,6 @@ pub mod test_reader;
 #[cfg(test)]
 pub(crate) mod tests {
     use std::collections::HashSet;
-
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
 

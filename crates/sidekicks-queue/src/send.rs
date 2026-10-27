@@ -15,7 +15,19 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_session::changes::refuse_unchangeable_session;
+use sidekicks_session::queue_store::{
+    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+};
+use sidekicks_session::run::agent::read_lead_agent_through;
+use sidekicks_session::run::read::{RunRead, read_run_through};
+use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::schema::session_directory::read_session_state_through;
 
 use crate::admission::QueueAdmission;
 use crate::delivery::{QueueDelivery, QueueWithdrawal};
@@ -28,18 +40,6 @@ use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
 use crate::run_lifecycle::QueueRunLifecycle;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_session::changes::refuse_unchangeable_session;
-use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
-};
-use sidekicks_session::run::agent::read_lead_agent_through;
-use sidekicks_session::run::read::{RunRead, read_run_through};
-use sidekicks_std::keyed_lock::KeyHold;
-use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use sidekicks_store::database::schema::session_directory::read_session_state_through;
 
 /// Reads and writes of a send before a lead run that keeps moving under it is refused.
 const SEND_ATTEMPTS: usize = 3;

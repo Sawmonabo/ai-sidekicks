@@ -6,7 +6,6 @@
 //! storage key is counted from these rows, never kept in a column that could drift from them.
 
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
-
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 

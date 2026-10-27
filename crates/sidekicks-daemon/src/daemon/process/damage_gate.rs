@@ -6,11 +6,11 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-
-use crate::daemon::process::jobs::IdleMemoryCollect;
 use sidekicks_ipc::registry::{Dispatch, DispatchError, HandlerContext, Reply, Request};
 use sidekicks_ipc::stream::subscriptions::DispatchFailureWatch;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
+
+use crate::daemon::process::jobs::IdleMemoryCollect;
 
 /// The database damage watch, told of a call's or a feed's failure.
 #[derive(Clone)]
@@ -86,17 +86,17 @@ mod tests {
     use futures::future::BoxFuture;
     use rstest::rstest;
     use rusqlite::ffi;
-    use tokio::sync::watch;
-    use tokio_util::sync::CancellationToken;
-
-    use super::{DamageReportGate, DispatchDamageWatch};
-    use crate::daemon::process::jobs::IdleMemoryCollect;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{
         Dispatch, DispatchError, EncodedValue, HandlerContext, Reply, Request,
     };
     use sidekicks_store::database::damage::DatabaseDamageWatch;
     use sidekicks_store::database::writer::messages::WriteJobFailure;
+    use tokio::sync::watch;
+    use tokio_util::sync::CancellationToken;
+
+    use super::{DamageReportGate, DispatchDamageWatch};
+    use crate::daemon::process::jobs::IdleMemoryCollect;
 
     // What the dispatch behind the gate answers.
     #[derive(Clone, Copy, Debug)]

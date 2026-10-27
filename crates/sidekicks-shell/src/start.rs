@@ -10,8 +10,14 @@ use std::path::{Path, PathBuf};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{default_shell, login_shell, stable_working_folder};
+use sidekicks_provider::spawn_environment::{
+    SessionEnvironment, build_project_command_environment, remove_environment_names,
+};
 use sidekicks_terminal::{CommandLine, ShellCommand, SpawnRequest};
+use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 use crate::integration::injection::{
     ShellMarkNonce, ShellStartupError, ShellStartupFolders, prepare_shell_launch,
@@ -19,12 +25,6 @@ use crate::integration::injection::{
 use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
 use crate::refusals::chat_unsupported;
 use crate::resize::ShellSize;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::spawn_environment::{
-    SessionEnvironment, build_project_command_environment, remove_environment_names,
-};
-use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 /// The size a shell starts at before any pane sizes it: the conventional terminal's.
 pub(crate) const INITIAL_SHELL_SIZE: ShellSize = ShellSize {

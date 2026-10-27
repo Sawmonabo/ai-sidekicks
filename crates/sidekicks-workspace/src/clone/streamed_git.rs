@@ -14,14 +14,14 @@ use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{
     ChildEnd, ChildExit, ChildTree, ChildTreeOutputError, read_child_exit, read_stderr_left_at_exit,
 };
+use sidekicks_std::process_exit::OUTPUT_CHUNK_BYTES;
+use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 use tokio::io::AsyncReadExt as _;
 use tokio::process::ChildStderr;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::git::process::{GitCall, GitError, GitRunner, SHUTDOWN_STOP_GRACE};
-use sidekicks_std::process_exit::OUTPUT_CHUNK_BYTES;
-use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 
 /// How long git has to end after a person's cancel before it and its helpers are ended: long
 /// enough for git to remove what it was writing, short enough that a cancel is felt.
@@ -196,11 +196,11 @@ mod tests {
     use std::ffi::OsStr;
     use std::time::{Duration, Instant};
 
+    use sidekicks_std::file::atomic_write::write_file_atomically;
     use tokio_util::sync::CancellationToken;
 
     use super::run_streamed_git;
     use crate::git::process::{GitCall, test_git_runner};
-    use sidekicks_std::file::atomic_write::write_file_atomically;
 
     // Fails when the run waits past git's exit for the end of a standard error a hook's process
     // still holds, or loses what the hook wrote before git exited.

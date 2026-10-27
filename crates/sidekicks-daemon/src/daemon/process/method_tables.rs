@@ -6,6 +6,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
+use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_recovery::damaged_history::DamagedHistory;
+use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::addresses::SessionInboxAddresses;
+use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::links::service::SessionLinkService;
+use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::related::ranking::SessionRelatedRanking;
+use sidekicks_session::search::index::live::LiveIndex;
+use sidekicks_session::service::SessionService;
+use sidekicks_session::staged_attachments::StagedAttachments;
+use sidekicks_session::tags::SessionTagService;
+use sidekicks_shell::input_lookup::ShellInputLookup;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
+use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
@@ -41,29 +64,6 @@ use crate::ipc::handlers::session::restart::{RestartTargetReader, register_sessi
 use crate::ipc::handlers::session::tags::register_session_tags;
 use crate::ipc::handlers::terminal::register_terminal_write;
 use crate::ipc::handlers::transcript::register_transcript_reads;
-use sidekicks_ipc::in_flight_mutations::InFlightMutations;
-use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
-use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
-use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_recovery::damaged_history::DamagedHistory;
-use sidekicks_recovery::status::RecoveryStatusTracker;
-use sidekicks_recovery::write_gate::RecoveryWriteGate;
-use sidekicks_session::addresses::SessionInboxAddresses;
-use sidekicks_session::directory::list_feed::SessionListFeed;
-use sidekicks_session::draft_store::SessionDraftStore;
-use sidekicks_session::links::service::SessionLinkService;
-use sidekicks_session::questions::service::QuestionsService;
-use sidekicks_session::related::ranking::SessionRelatedRanking;
-use sidekicks_session::search::index::live::LiveIndex;
-use sidekicks_session::service::SessionService;
-use sidekicks_session::staged_attachments::StagedAttachments;
-use sidekicks_session::tags::SessionTagService;
-use sidekicks_shell::input_lookup::ShellInputLookup;
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::events::log_service::EventLogService;
-use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
-use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
 /// Every service the method tables take, each table's own inputs where its owner bundles them.
 pub(crate) struct MethodTableServices {

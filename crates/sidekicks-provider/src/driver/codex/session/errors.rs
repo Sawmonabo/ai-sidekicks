@@ -12,6 +12,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::codex::DESCRIPTOR;
@@ -22,7 +23,6 @@ use crate::driver::error_causes::{
     RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
 use crate::driver::registry::provider_capability_refused;
-use sidekicks_ipc::domain_error::DomainError;
 
 /// The request that forks a conversation, the one whose boundary member a build may refuse.
 const THREAD_FORK_METHOD: &str = "thread/fork";

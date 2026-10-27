@@ -16,12 +16,12 @@ use std::path::{Component, Path, PathBuf};
 
 use sidekicks_contracts::repo::folders::RepoMountOutsideTrustEnvelopeReason;
 use sidekicks_platforms::PathRules;
-
-use crate::repo::errors::RepoRefusal;
-use crate::repo::root_resolver::{RepoRootResolver, refusal_of_filesystem_failure};
 use sidekicks_std::file::bounded_read::read_within_ceiling;
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::is_missing_entry;
+
+use crate::repo::errors::RepoRefusal;
+use crate::repo::root_resolver::{RepoRootResolver, refusal_of_filesystem_failure};
 
 /// One picked folder; the caller supplies every root, so the validator looks nothing up.
 #[derive(Clone, Copy, Debug)]

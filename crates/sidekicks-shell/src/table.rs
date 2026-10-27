@@ -35,7 +35,12 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{HandlerError, TransportId};
+use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
+use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_terminal::{CommandLine, Terminals};
+use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
@@ -50,11 +55,6 @@ use crate::output::screen::{ShellScreenAppearance, cut_title};
 use crate::record::{ShellRecord, ShellRecordDeps};
 use crate::refusals::terminal_not_found;
 use crate::resize::{ShellResizeError, ShellSize};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::{HandlerError, TransportId};
-use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
-use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 /// Reads a session's shape and working folder; refuses a session this daemon does not hold
 /// `session.notFound`.

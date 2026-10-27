@@ -122,9 +122,9 @@ impl ClaudeSentPrompts {
 mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::ClaudeSentPrompts;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn run() -> RunId {
         RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")

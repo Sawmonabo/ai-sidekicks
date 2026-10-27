@@ -12,11 +12,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OpenFlags, params};
-
 use rusqlite::ErrorCode;
+use rusqlite::{Connection, OpenFlags, params};
 use sidekicks_platforms::volume_free_bytes;
-
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::mutex_lock::lock;
 

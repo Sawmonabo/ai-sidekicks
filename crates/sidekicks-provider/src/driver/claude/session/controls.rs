@@ -27,6 +27,8 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::DESCRIPTOR;
@@ -69,8 +71,6 @@ use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 // The bundled skill Claude Code's review runs, by the name the build's skill list gives it.
 const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";

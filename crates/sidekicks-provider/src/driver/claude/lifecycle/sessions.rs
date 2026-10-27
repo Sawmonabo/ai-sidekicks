@@ -8,6 +8,8 @@ use futures::future::join_all;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::settle_all;
 
 use super::{ClaudeDriver, internal};
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
@@ -32,8 +34,6 @@ use crate::driver::session_control::{
     PurgeSessionParams, ResumeSessionParams,
 };
 use crate::runtime_binding::store::RuntimeBinding;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::settle_all::settle_all;
 
 impl ClaudeDriver {
     /// Opens a session on a new conversation; see the establishment's create.

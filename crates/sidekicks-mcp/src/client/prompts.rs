@@ -16,10 +16,10 @@ use sidekicks_contracts::provider::driver::commands::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use crate::client::McpClient;
 use sidekicks_provider::port::server_prompts::ServerPromptPort;
 use sidekicks_std::mutex_lock::lock;
+
+use crate::client::McpClient;
 
 /// A listener of one session's prompts.
 type PromptListener = Arc<dyn Fn() + Send + Sync>;
@@ -155,12 +155,12 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::port::server_prompts::ServerPromptPort as _;
     use tokio::sync::mpsc;
 
     use crate::client::test_server::{
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
-    use sidekicks_provider::port::server_prompts::ServerPromptPort as _;
 
     // Mutation: in `connection.rs`, empty `on_prompt_list_changed`, or notify another session
     // there; or in `PromptWatchers::notify`, skip the listeners.

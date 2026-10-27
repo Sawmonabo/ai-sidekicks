@@ -10,7 +10,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::{BodyBlockCut, BodyBlockStart};
-
 use sidekicks_std::mutex_lock::lock;
 
 /// The most starts, in bytes, the cache holds.

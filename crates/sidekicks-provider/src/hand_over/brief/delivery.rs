@@ -11,11 +11,11 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
+use sidekicks_std::mutex_lock::lock;
 
 use crate::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection, BriefRendering};
 use crate::hand_over::canonical_transcript::CanonicalTranscriptProjection;
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use sidekicks_std::mutex_lock::lock;
 
 /// A target a coordinator established, named by its provider session id alone: a resume handle may
 /// rotate for one session, which would make one switch look like two. Only the coordinator that
@@ -222,6 +222,7 @@ mod tests {
     use futures::future::BoxFuture;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{
         BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefTargetGateway,
@@ -229,7 +230,6 @@ mod tests {
     };
     use crate::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection};
     use crate::hand_over::canonical_transcript::CanonicalTranscriptProjection;
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// A target whose every send fails after counting it.
     struct FailingGateway {

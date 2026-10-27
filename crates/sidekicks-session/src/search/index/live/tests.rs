@@ -9,6 +9,9 @@ use rusqlite::Connection;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
 use sidekicks_search::index::{IndexRowKind, SearchIndex, SearchQuery};
+use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{Notify, watch};
 use tokio::time::{Instant, timeout, timeout_at};
 use tracing::field::{Field, Visit};
@@ -25,9 +28,6 @@ use crate::search::index::rebuild::{SearchIndexOpening, make_index_at, open_sear
 use crate::search::index::schema::add_titled_session;
 use crate::search::rowid_floors::RowidFloorLog;
 use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
-use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-use sidekicks_store::database::schema::session_directory::insert_session_row;
-use sidekicks_store::database::writer::test_file::TestDatabase;
 
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
 // first session's outbox rows, opened as a start opens it; and the outbox's highest id. Past one

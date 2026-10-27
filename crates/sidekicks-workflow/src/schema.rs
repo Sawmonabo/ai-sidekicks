@@ -24,10 +24,10 @@ use sidekicks_contracts::workflow::run::status::{
 };
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_contracts::workflow::secret::WorkflowSecretScope;
-
-use crate::runs::record::GOING_RUN_STATUSES_SQL;
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
+
+use crate::runs::record::GOING_RUN_STATUSES_SQL;
 
 /// The workflow part of the daemon's schema: the definitions, their versions, the runs, the gate
 /// answers, the form drafts, the steps, the triggers, the webhook tokens, the node state, the

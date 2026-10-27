@@ -39,13 +39,13 @@ use rmcp::transport::streamable_http_client::{
     AuthRequiredError, InsufficientScopeError, SseError, StreamableHttpClient,
     StreamableHttpClientTransportConfig, StreamableHttpError, StreamableHttpPostResponse,
 };
+use sidekicks_provider::inbound_json::decode_inbound_json;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
 };
 use crate::client::raw_copy::RawReplyCopy;
-use sidekicks_provider::inbound_json::decode_inbound_json;
-use sidekicks_std::mutex_lock::lock;
 
 /// The bound rmcp's own HTTP client holds an SSE event to when the transport passes none, rmcp's
 /// `DEFAULT_MAX_SSE_EVENT_SIZE`, which it does not export.

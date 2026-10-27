@@ -7,6 +7,9 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::test_log::AT;
 
 use super::{TranscriptReadError, read_transcript_window};
 use crate::questions::schema::schema_parts;
@@ -16,9 +19,6 @@ use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::test_log::{
     STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
 };
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::test_log::AT;
 
 fn anchored_read(session_id: &SessionId, sequence: i64) -> TranscriptReadRequest {
     serde_json::from_value(json!({

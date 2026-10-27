@@ -7,6 +7,7 @@ use std::time::Duration;
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
+use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, WorkUnit};
 use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -16,7 +17,6 @@ use crate::database::schema::schema_parts;
 use crate::database::wal_truncation::WriteAheadLogTruncation;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, WorkUnit};
 
 const WAIT: Duration = Duration::from_secs(10);
 

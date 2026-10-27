@@ -9,13 +9,13 @@ use std::sync::LazyLock;
 
 use rusqlite::Connection;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_store::database::schema::recovery::ProjectionCursorState;
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::writer::CommitRead;
 use strum::VariantArray as _;
 use tokio::sync::watch;
 
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
-use sidekicks_store::database::schema::recovery::ProjectionCursorState;
-use sidekicks_store::database::sql_list::sql_list_of;
-use sidekicks_store::database::writer::CommitRead;
 
 // The live runs of the sessions whose cursor is current. The terminal-state term lets the count
 // search the live runs' covering index rather than read the whole table.

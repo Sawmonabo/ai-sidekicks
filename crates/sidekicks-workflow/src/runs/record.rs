@@ -25,12 +25,12 @@ use sidekicks_contracts::workflow::run::step::record::{
 use sidekicks_contracts::workflow::run::trigger::{
     WorkflowRunMode, WorkflowStartedBy, WorkflowTriggerKind,
 };
-
-use crate::runs::spent_account::SpentAccountColumns;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
+
+use crate::runs::spent_account::SpentAccountColumns;
 
 /// One run as its row stores it. `finished_at` once present is when the run ended, and `error`
 /// says why a failed, canceled or crashed run ended.

@@ -8,9 +8,6 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::run::agent::read_lead_binding;
-use crate::run::read::read_run_provider;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -20,6 +17,9 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
+
+use crate::run::agent::read_lead_binding;
+use crate::run::read::read_run_provider;
 
 /// Why the driver of a live run was not resolved.
 #[derive(Debug, thiserror::Error)]

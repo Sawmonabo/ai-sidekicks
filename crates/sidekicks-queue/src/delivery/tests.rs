@@ -20,17 +20,9 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
-use tokio::time::timeout;
-
-use super::{InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps};
-use crate::changes::QueueChangeSignals;
-use crate::recorder::{QueueRecorder, QueueRecorderDeps};
-use crate::session_lock::QueueSessionLock;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
@@ -53,6 +45,14 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
+use tokio::sync::oneshot;
+use tokio::task::JoinHandle;
+use tokio::time::timeout;
+
+use super::{InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps};
+use crate::changes::QueueChangeSignals;
+use crate::recorder::{QueueRecorder, QueueRecorderDeps};
+use crate::session_lock::QueueSessionLock;
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
 const READ_STATEMENT_CAPACITY: usize = 8;

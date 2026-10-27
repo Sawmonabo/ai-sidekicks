@@ -15,6 +15,10 @@ use sidekicks_platforms::{Spawner, flush_folder, remove_tree, rename_replacing};
 use sidekicks_search::index::{
     IndexBatch, IndexRowKind, SearchIndex, SearchIndexError, SearchIndexOptions,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::helper_mode::child::{
+    HelperModeChildError, HelperModeEnd, run_helper_mode_child,
+};
 use strum::VariantArray;
 use tokio::process::Command;
 use tokio::task::JoinError;
@@ -26,10 +30,6 @@ use crate::search::index::columns::source_rowid_of;
 use crate::search::index::rows::{
     INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, SourceRowRead,
     empty_index_batch_room,
-};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::helper_mode::child::{
-    HelperModeChildError, HelperModeEnd, run_helper_mode_child,
 };
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch

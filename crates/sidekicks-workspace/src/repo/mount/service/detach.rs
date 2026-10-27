@@ -13,17 +13,17 @@ use sidekicks_contracts::repo::mount::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use super::{RepoMountService, RepoMountServiceError};
-use crate::event_emitter::EmitWorkspaceEventInput;
-use crate::repo::errors::RepoRefusal;
-use crate::schema::MountOrigin;
 use sidekicks_std::settle_all::settle_all;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::WriteError;
 use sidekicks_store::events::session::appender::SessionEventLinkage;
+
+use super::{RepoMountService, RepoMountServiceError};
+use crate::event_emitter::EmitWorkspaceEventInput;
+use crate::repo::errors::RepoRefusal;
+use crate::schema::MountOrigin;
 
 // The detach write's statements, by position: the running check refuses when it finds a run, and
 // the flip refuses when another detach or a re-attach moved the mount first.

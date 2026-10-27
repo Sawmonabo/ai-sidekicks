@@ -15,16 +15,16 @@ use serde::{Deserialize, Serialize};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{create_private_folder, file_facts, flush_folder, remove_tree};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::random_hex::random_hex;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
 use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX, store_folder};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use sidekicks_std::missing_entry::MissingEntry as _;
-use sidekicks_std::random_hex::random_hex;
 
 /// The two files SQLite keeps beside a database in write-ahead-log mode.
 pub(crate) const DATABASE_COMPANION_FILE_SUFFIXES: [&str; 2] =

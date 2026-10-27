@@ -21,6 +21,7 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
@@ -55,7 +56,6 @@ use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
-use sidekicks_std::mutex_lock::lock;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";

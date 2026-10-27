@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
+use sidekicks_std::mutex_lock::lock;
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
@@ -31,7 +32,6 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::service_log::provider_service_log_file_of_key;
-use sidekicks_std::mutex_lock::lock;
 
 /// The folder under a Codex home that holds its control sockets.
 const CODEX_CONTROL_SOCKET_FOLDER: &str = "app-server-control";

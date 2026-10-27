@@ -11,6 +11,9 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::port::question::{ProviderQuestion, WaitingQuestionOpening};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
@@ -19,9 +22,6 @@ use crate::questions::service::{
 use crate::questions::store::{open_waiting_question_statement, settle_question_statement};
 use crate::run::engine::RunEngineError;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
-use sidekicks_provider::port::question::{ProviderQuestion, WaitingQuestionOpening};
-use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 
 impl QuestionsService {
     /// Records `question`, its answer sent on by `answered_by`: open, as

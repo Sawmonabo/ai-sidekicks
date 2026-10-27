@@ -6,7 +6,6 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::method::Method as _;
 use sidekicks_contracts::question::QuestionResolve;
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_session::questions::service::QuestionsService;
 

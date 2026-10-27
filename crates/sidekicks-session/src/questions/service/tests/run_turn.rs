@@ -8,14 +8,14 @@ use std::time::Duration;
 use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::question::QuestionId;
-
-use super::{Fixture, HandedAnswers, RecordingTaskAnswer, choice_page, failed};
-use crate::questions::service::HeldRequestAnswerer;
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_provider::port::question::{
     ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerQuestionAnswer,
     take_question_in_turn,
 };
+
+use super::{Fixture, HandedAnswers, RecordingTaskAnswer, choice_page, failed};
+use crate::questions::service::HeldRequestAnswerer;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// A tool server's answerer that records what it is sent into `sent`.
 fn task_answer(sent: &HandedAnswers) -> Arc<dyn ToolServerQuestionAnswer> {

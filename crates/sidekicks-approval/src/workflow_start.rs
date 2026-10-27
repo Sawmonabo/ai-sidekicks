@@ -5,7 +5,6 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::id::UserId;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
-
 use sidekicks_policy::authorizer::{Authorizer, PolicyDecision, PolicyRequest, PolicyResource};
 
 /// One start to check: the machine's owning user as the daemon resolved it, the workflow, and the
@@ -57,9 +56,9 @@ pub(crate) fn check_workflow_start(
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::provider::driver::capabilities::CredentialPolicyRef;
+    use sidekicks_provider::run::posture::CURATED_CREDENTIAL_POLICY_REF;
 
     use super::*;
-    use sidekicks_provider::run::posture::CURATED_CREDENTIAL_POLICY_REF;
 
     fn workflow_id() -> WorkflowDefinitionId {
         WorkflowDefinitionId::new("0190c8a0-0000-7000-8000-000000000002")

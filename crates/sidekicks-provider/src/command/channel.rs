@@ -16,15 +16,14 @@ use hpke::kdf::HkdfSha256;
 use hpke::kem::X25519HkdfSha256;
 use hpke::{Deserializable, Kem as _, OpModeR, OpModeS, Serializable};
 use serde::{Deserialize, Serialize};
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::{
     FolderArrivalWatch, LeftoverSweep, ParentProcess, PinnedProcess, TerminalDevice,
     TerminalMasterReading, create_file_atomically, create_private_folder, pin_running_process,
     read_process_start,
 };
-use zeroize::Zeroizing;
-
-use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_std::mutex_lock::lock;
+use zeroize::Zeroizing;
 
 pub(crate) mod party;
 pub(crate) mod records;

@@ -13,6 +13,11 @@ use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, WorkspaceStat
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::WallClockTimer;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::test_log::open_log;
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio::time::timeout;
@@ -28,11 +33,6 @@ use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
-use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::schema::session_directory::insert_session_row;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
 
 const WAIT: Duration = Duration::from_secs(10);
 

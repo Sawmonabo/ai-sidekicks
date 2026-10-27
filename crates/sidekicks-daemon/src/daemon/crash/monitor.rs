@@ -26,7 +26,6 @@ use sidekicks_platforms::{
     LeftoverSweep, SocketPathRefused, check_socket_path, create_held_file, create_private_folder,
     pin_running_process, rename_replacing, replace_file_atomically,
 };
-
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::missing_entry::MissingEntry as _;
@@ -526,7 +525,6 @@ mod tests {
 
     use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
     use rstest::rstest;
-
     use sidekicks_platforms::{entry_identity, open_file_identity};
 
     use super::{

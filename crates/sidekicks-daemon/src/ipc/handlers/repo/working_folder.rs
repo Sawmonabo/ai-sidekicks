@@ -10,7 +10,6 @@ use sidekicks_contracts::repo::git_reads::{
     SessionWorkingFolderSubscribeRequest, WorkingTreeChange,
 };
 use sidekicks_contracts::repo::methods::SessionWorkingFolderSubscribe;
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;

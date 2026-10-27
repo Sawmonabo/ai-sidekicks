@@ -10,13 +10,13 @@ use sidekicks_contracts::artifacts::operations::{ArtifactListEntry, ArtifactList
 use sidekicks_contracts::plan::{PlanId, PlanState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::ComposedText;
-
-use crate::manifest_write::{MANIFEST_COLUMN_COUNT, MANIFEST_COLUMNS, read_manifest};
-use crate::refusals::ArtifactError;
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
+
+use crate::manifest_write::{MANIFEST_COLUMN_COUNT, MANIFEST_COLUMNS, read_manifest};
+use crate::refusals::ArtifactError;
 
 // The session's plans, oldest first, each with the word its record holds, or accepted where this
 // session is the one the plan was handed off to.

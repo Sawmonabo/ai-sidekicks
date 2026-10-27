@@ -9,7 +9,6 @@ use sidekicks_contracts::run::queue::{
 };
 use sidekicks_contracts::skill::{SkillPathRefusedDetails, SkillPathRefusedReason};
 use sidekicks_contracts::wire::text::BoundedText;
-
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 

@@ -17,9 +17,10 @@ use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
-use tokio::time::Instant;
 
 use rusqlite::Connection;
+use sidekicks_approval::store::ApprovalRequestReader;
+use sidekicks_artifact::plans::store::read_held_plans;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRecoveryAttemptedPayload, DaemonRecoveryFailedPayload, DaemonRecoverySucceededPayload,
     RecoveryFailureKind, RecoveryId, RecoveryPhase, RecoveryTrigger,
@@ -36,18 +37,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio_util::sync::CancellationToken;
-
-use crate::damaged_history::{DamagedHistory, DamagedHistoryError};
-use crate::database_file::aside_copy::AsideCopyError;
-use crate::database_file::copy::DatabaseFileCopier;
-use crate::projection_rebuild::{
-    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
-};
-use crate::restart_settle::{RestartSettle, RestartSettleError, RestartTally};
-use crate::status::RecoveryStatusTracker;
-use sidekicks_approval::store::ApprovalRequestReader;
-use sidekicks_artifact::plans::store::read_held_plans;
 use sidekicks_provider::driver::contract::bound_failure_detail;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
@@ -64,6 +53,17 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
+use tokio::time::Instant;
+use tokio_util::sync::CancellationToken;
+
+use crate::damaged_history::{DamagedHistory, DamagedHistoryError};
+use crate::database_file::aside_copy::AsideCopyError;
+use crate::database_file::copy::DatabaseFileCopier;
+use crate::projection_rebuild::{
+    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
+};
+use crate::restart_settle::{RestartSettle, RestartSettleError, RestartTally};
+use crate::status::RecoveryStatusTracker;
 
 /// The statements the pass's own reads run: the failed passes since the last that succeeded, and
 /// the seven every-session listings of what the restart left (the live runs, the pending retries,

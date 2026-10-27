@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -19,8 +21,6 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::lenient_json::{lenient_object, read_lenient};
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
 
 // The frame that starts each turn.
 const CLAUDE_TURN_START_FRAME_KIND: &str = "system/init";

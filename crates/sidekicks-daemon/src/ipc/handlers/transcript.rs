@@ -24,7 +24,6 @@ use sidekicks_contracts::transcript::operations::{
 use sidekicks_contracts::transcript::search::TranscriptSearchRequest;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -132,9 +131,6 @@ mod tests {
         TranscriptBodyReadRequest, TranscriptBodyReadResponse,
     };
     use sidekicks_contracts::wire::text::FreeFormText;
-
-    use super::read_body;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_ipc::registry::HandlerError;
     use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -143,6 +139,9 @@ mod tests {
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
     use sidekicks_store::events::log_service::test_log::open_log;
+
+    use super::read_body;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     #[tokio::test]
     async fn a_row_the_session_lacks_is_refused_where_a_row_with_no_body_reads_absent() {

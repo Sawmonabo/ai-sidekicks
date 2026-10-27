@@ -5,7 +5,6 @@
 use std::path::{Path, PathBuf};
 
 use futures::future::BoxFuture;
-
 use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 
@@ -60,9 +59,9 @@ mod tests {
     use futures::FutureExt;
     use futures::future::BoxFuture;
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
+    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
     use super::write_into_project_folders;
-    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
     #[derive(Debug, PartialEq, Eq)]
     struct FolderFailure(PathBuf);

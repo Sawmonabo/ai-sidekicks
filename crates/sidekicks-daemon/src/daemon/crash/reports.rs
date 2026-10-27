@@ -37,10 +37,18 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_ipc::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
 use sidekicks_platforms::{
     LeftoverSweep, atomic_write_target_of, create_file_atomically, is_held,
     remove_atomic_write_leftovers, remove_unless_held, replace_file_atomically,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
+use sidekicks_std::text_cut::cut_to_code_points;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
@@ -51,14 +59,6 @@ use crate::daemon::crash::monitor::{
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-use sidekicks_ipc::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::missing_entry::MissingEntry as _;
-use sidekicks_std::scheduler::ScheduledJobOutcome;
-use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
-use sidekicks_std::text_cut::cut_to_code_points;
 
 /// A report's file extension in the crash reports folder.
 pub(crate) const REPORT_EXTENSION: &str = "json";

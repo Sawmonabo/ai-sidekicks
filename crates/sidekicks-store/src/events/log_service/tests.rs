@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
 
 use super::test_log::{TestLog, open_log};
@@ -17,7 +18,6 @@ use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds an append the test expects to answer, so one that waits on a lock fails the test.
 const APPEND_WAIT: Duration = Duration::from_secs(5);

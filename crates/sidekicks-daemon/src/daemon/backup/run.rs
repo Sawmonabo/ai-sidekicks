@@ -44,11 +44,6 @@ use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, flush_file, flush_folder,
     remove_tree, rename_replacing,
 };
-use tokio_util::sync::CancellationToken;
-
-use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
-use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
-use crate::daemon::release_version::this_build_release_version;
 use sidekicks_recovery::database_file::check::SOUND_ROW;
 use sidekicks_recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
 use sidekicks_std::error_description::describe_error;
@@ -73,6 +68,11 @@ use sidekicks_store::events::log_service::{EventLogAppendOptions, EventLogServic
 use sidekicks_store::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
+use tokio_util::sync::CancellationToken;
+
+use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
+use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
+use crate::daemon::release_version::this_build_release_version;
 
 /// The lock file in the backups folder a run holds while it writes there.
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";

@@ -27,14 +27,13 @@ use flexi_logger::writers::{ArcFileLogWriter, FileLogWriter, FileLogWriterHandle
 use flexi_logger::{Cleanup, Criterion, FileSpec, FlexiLoggerError, Naming};
 use jiff::{Timestamp, Zoned};
 use sidekicks_platforms::create_private_folder;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::data_folder::service_log_folder;
 use tracing::Dispatch;
 use tracing_subscriber::filter::{LevelFilter, Targets};
 use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
-
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::data_folder::service_log_folder;
 
 /// The folder in the data folder that holds the service's crash reports, one file per crash.
 pub(crate) const CRASH_REPORTS_FOLDER_NAME: &str = "crash-reports";
@@ -524,12 +523,12 @@ mod tests {
     use std::io::{self, Read as _, Write as _};
 
     use flexi_logger::writers::ArcFileLogWriter;
+    use sidekicks_store::data_folder::service_log_folder;
 
     use super::{
         FILE_FAILED_NOTICE, STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name,
         open_service_log,
     };
-    use sidekicks_store::data_folder::service_log_folder;
 
     // Each run of failed writes to the file, two in a row, says so once on standard error, and the
     // next line lands in the file again: on a line of its own after a write that failed halfway,

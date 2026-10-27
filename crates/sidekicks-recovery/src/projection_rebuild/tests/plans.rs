@@ -2,17 +2,17 @@
 
 use std::sync::Arc;
 
+use sidekicks_artifact::plans::projection::PlansProjection;
+use sidekicks_artifact::plans::service::test_fixture::Fixture;
+use sidekicks_artifact::plans::store::settle_verdict_statement;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanKeptPayload, PlanState};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
-
-use super::{rebuild_whole, table_rows};
-use sidekicks_artifact::plans::projection::PlansProjection;
-use sidekicks_artifact::plans::service::test_fixture::Fixture;
-use sidekicks_artifact::plans::store::settle_verdict_statement;
 use sidekicks_provider::port::plan::ProviderPlanHoldEnd;
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
+
+use super::{rebuild_whole, table_rows};
 
 const PLAN_ROWS_SQL: &str = "SELECT * FROM plans ORDER BY id";
 

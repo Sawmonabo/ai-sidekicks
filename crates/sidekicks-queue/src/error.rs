@@ -2,11 +2,6 @@
 //! the daemon, every cause kept.
 
 use sidekicks_contracts::run::id::RunId;
-
-use crate::delivery::DeliveryError;
-use crate::memory_gate::MemoryAdmissionError;
-use crate::provider_session::ProviderSessionError;
-use crate::recorder::QueueRecordError;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::DriverError;
@@ -16,6 +11,11 @@ use sidekicks_session::run::engine::RunEngineError;
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::database::writer::WriteError;
+
+use crate::delivery::DeliveryError;
+use crate::memory_gate::MemoryAdmissionError;
+use crate::provider_session::ProviderSessionError;
+use crate::recorder::QueueRecordError;
 
 /// Why a run queue call, or the work it runs on its own, failed.
 #[derive(Debug, thiserror::Error)]

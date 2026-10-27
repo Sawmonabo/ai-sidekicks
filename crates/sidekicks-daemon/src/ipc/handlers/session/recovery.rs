@@ -8,7 +8,6 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::session::methods::{
     SessionRecoveryContinue, SessionRecoveryDelete, SessionTargetRequest,
 };
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_recovery::damaged_history::DamagedHistory;
 

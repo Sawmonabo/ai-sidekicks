@@ -42,11 +42,6 @@ use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, Transcri
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::{False, True};
-
-use crate::transcript::block_cut::BlockParse;
-use crate::transcript::child_run::stamp_child_run_summaries;
-use crate::transcript::projector::{TranscriptProjectionError, project_window};
-use crate::transcript::run_facts::TranscriptRunFactsReader;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -55,6 +50,11 @@ use sidekicks_store::events::session::read::{
     SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
 use sidekicks_store::transcript_rejoin::RowReads;
+
+use crate::transcript::block_cut::BlockParse;
+use crate::transcript::child_run::stamp_child_run_summaries;
+use crate::transcript::projector::{TranscriptProjectionError, project_window};
+use crate::transcript::run_facts::TranscriptRunFactsReader;
 
 /// Why a transcript read failed.
 #[derive(Debug, thiserror::Error)]

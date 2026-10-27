@@ -6,7 +6,6 @@ use std::borrow::Cow;
 use rusqlite::types::Value;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::Port;
-
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };

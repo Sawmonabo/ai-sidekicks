@@ -7,12 +7,6 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::retention::WorkflowRunPurgePreviewResponse;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
-
-use super::{
-    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY,
-    WorkflowRunDeletion, WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
-};
-use crate::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -21,6 +15,12 @@ use sidekicks_store::events::log_service::{
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_workspace::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
+
+use super::{
+    DeletedWorkflowRun, RUNS_PER_DELETE_WRITE, RunGuard, WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY,
+    WorkflowRunDeletion, WorkflowRunDeletionError, WorkflowRunNotDeletable, read_removable_runs,
+};
+use crate::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
 
 const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
 const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";

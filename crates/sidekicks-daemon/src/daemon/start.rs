@@ -12,11 +12,18 @@ use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Instant;
 
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CodeSignatureError, StopRequest, contain_daemon_descendants, create_missing_private_folders,
     daemon_run_folder, install_tree_sitter_allocator, process_identity, restrict_library_search,
     stable_working_folder, turn_off_transparent_huge_pages,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::standard_error::write_error_line;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder_lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::events::session::insert::monotonic_ns_now;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::already_running_error::DaemonAlreadyRunningError;
@@ -28,13 +35,6 @@ use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess, DaemonStart
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::service_log::{ServiceLogFiles, open_service_log};
 use crate::daemon::service_status::record_start_failure;
-use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::standard_error::write_error_line;
-use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::{DataFolderLock, DataFolderLockError};
-use sidekicks_store::events::session::insert::monotonic_ns_now;
 
 // The runtime's worker threads.
 const RUNTIME_WORKER_THREADS: usize = 2;

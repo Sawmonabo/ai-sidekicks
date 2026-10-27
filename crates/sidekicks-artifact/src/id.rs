@@ -2,7 +2,6 @@
 //! time their manifest was written.
 
 use sidekicks_contracts::artifacts::id::ArtifactId;
-
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Mints the id of a new artifact manifest from the daemon-wide minter.

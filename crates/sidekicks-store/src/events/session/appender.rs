@@ -21,6 +21,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::{EventRun, SessionEvent};
 use sidekicks_contracts::event::version::{EVENT_FIELD_MAX_LEN, EventEnvelopeVersion};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -35,7 +36,6 @@ use crate::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventLogAppendReceipt, EventLogService,
 };
 use crate::events::session::append_lock::SessionAppendHold;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A payload that names the session it belongs to and who acted, so the envelope reads both from
 /// it and the two cannot disagree.

@@ -5,7 +5,6 @@ use std::borrow::Cow;
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::links::SessionLinkKind;
-
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 /// One link an event records, from the session that acted to the one it acted on.

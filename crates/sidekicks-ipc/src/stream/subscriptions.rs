@@ -18,6 +18,7 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SubscriptionCancel, SubscriptionCancelRequest, SubscriptionCancelResponse,
     SubscriptionEndParams, SubscriptionId,
 };
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tracing::Instrument as _;
 
@@ -28,7 +29,6 @@ use crate::registry::{
     RegistrationError, TransportId,
 };
 use crate::stream::feed::SendGate;
-use sidekicks_std::mutex_lock::lock;
 
 /// What a feed's failure is reported to, beside the subscription it ends.
 pub trait DispatchFailureWatch: Send + Sync {

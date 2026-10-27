@@ -15,11 +15,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_search::index::IndexRowKind;
-
-use crate::search::index::columns::{index_row_kind_of, source_rowid_of};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::stored_column::text_column;
+
+use crate::search::index::columns::{index_row_kind_of, source_rowid_of};
 
 const NEWEST_ENTRY_SQL: &str = "SELECT max(id) FROM session_search_rowid_floors";
 

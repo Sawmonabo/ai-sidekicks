@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
+use WorktreeSetupStepState::{Failed, Pending, Succeeded};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use notify::NullWatcher;
@@ -21,9 +22,12 @@ use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
 use sidekicks_platforms::{Spawner, WallClockTimer, command_shell};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use tempfile::TempDir;
-
-use WorktreeSetupStepState::{Failed, Pending, Succeeded};
 
 use super::steps::OUTPUT_LINGER;
 use super::{
@@ -35,11 +39,6 @@ use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

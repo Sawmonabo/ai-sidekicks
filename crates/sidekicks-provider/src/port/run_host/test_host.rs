@@ -19,6 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, oneshot};
 
 use crate::driver::test_registry::new_run_id;
@@ -32,7 +33,6 @@ use crate::run::start_request::DaemonTurnStartRequest;
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::runtime_binding::store::RuntimeBinding;
-use sidekicks_std::mutex_lock::lock;
 
 /// The refusal of every daemon turn a test asked the engine to refuse, before any run exists.
 #[derive(Debug, thiserror::Error)]

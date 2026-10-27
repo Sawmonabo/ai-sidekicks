@@ -10,10 +10,10 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::runtime_binding::store::{RuntimeBinding, read_binding, read_run_bindings};
 
 use crate::run::agent::is_agent_named;
 use crate::run::read::{RunStateReader, read_run_provider, read_session_live_runs};
-use sidekicks_provider::runtime_binding::store::{RuntimeBinding, read_binding, read_run_bindings};
 
 /// The statements live-binding reads prepare on a read connection: the run's row and its
 /// bindings, and for an agent's bindings the session's live runs, each run's provider, a binding

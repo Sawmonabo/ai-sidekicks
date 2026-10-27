@@ -16,12 +16,11 @@ use sidekicks_contracts::machine::settings::{
     SettingsFileRepairCause, parse_machine_settings_file,
 };
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_platforms::create_private_folder;
-use tokio::sync::watch;
-
 use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
+use sidekicks_platforms::create_private_folder;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::watch;
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
 // credentials.

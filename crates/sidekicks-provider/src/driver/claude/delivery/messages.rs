@@ -12,8 +12,10 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_store::transcript_whole_patch::WholePatchFile;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::patches::{
@@ -22,8 +24,6 @@ use crate::driver::claude::delivery::patches::{
 use crate::driver::reorder_buffer::ReorderPairingRole;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::transcript_whole_patch::WholePatchFile;
 
 /// A field of a transcript row, as the event's cap holds it.
 type EventText = FreeFormText<EVENT_FIELD_MAX_LEN>;

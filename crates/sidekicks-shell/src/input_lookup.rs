@@ -6,9 +6,9 @@ use std::sync::Arc;
 use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
+use sidekicks_ipc::registry::HandlerError;
 
 use crate::write::ShellInput;
-use sidekicks_ipc::registry::HandlerError;
 
 /// Finds the input of a session's shell at once, or answers the refusal of a write naming no shell,
 /// which may wait on a read: `session.notFound` for a session this daemon does not hold and

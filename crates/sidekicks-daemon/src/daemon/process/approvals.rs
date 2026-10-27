@@ -8,8 +8,6 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use futures::FutureExt as _;
-
-use crate::daemon::process::stop::TaskStopFailure;
 use sidekicks_approval::permission_asks::{PermissionAsks, PermissionAsksDeps};
 use sidekicks_approval::permission_check::{PermissionCheck, PermissionCheckDeps};
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
@@ -36,6 +34,8 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_store::machine::registry::MachineRegistry;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
+
+use crate::daemon::process::stop::TaskStopFailure;
 
 /// What the approval side is built from.
 pub(crate) struct ApprovalStart {
@@ -254,9 +254,6 @@ mod tests {
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::session::id::SessionId;
-
-    use super::revoke_at_session_provider;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
     use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
     use sidekicks_provider::driver::session_control::RevokeRuleParams;
@@ -265,6 +262,9 @@ mod tests {
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::events::log_service::test_log::open_log;
     use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+
+    use super::revoke_at_session_provider;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     // Killed by mapping the read's refusal to an internal failure, which the person would read as
     // a fault instead of the session being gone.

@@ -10,6 +10,7 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::answered_commands::{
     ClaudeCommandChoices, read_claude_command_choices, unreadable_claude_command_choices,
@@ -24,7 +25,6 @@ use crate::driver::claude::session::transport::readings::ClaudeSessionFolderRead
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use sidekicks_std::mutex_lock::lock;
 
 // What one creation-time process reads for a session, shared by its two figures.
 type CreationRead = Shared<BoxFuture<'static, ClaudeFigureResult<CreationFigures>>>;

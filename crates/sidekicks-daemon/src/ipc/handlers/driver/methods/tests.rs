@@ -21,14 +21,8 @@ use sidekicks_contracts::provider::driver::methods::{
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::FreeFormText;
-
-use super::{
-    DRIVER_METHODS_STATEMENT_CAPACITY, DriverMethodSources, list_models, list_modes,
-    list_provider_commands,
-};
-use crate::remote::shared_ports::schema::schema_parts;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::PROVIDERS;
@@ -44,6 +38,12 @@ use sidekicks_session::run::engine::tests::insert_running_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+
+use super::{
+    DRIVER_METHODS_STATEMENT_CAPACITY, DriverMethodSources, list_models, list_modes,
+    list_provider_commands,
+};
+use crate::remote::shared_ports::schema::schema_parts;
 
 /// The instant the tests' events carry.
 const AT: &str = "2026-10-19T12:00:00.000Z";

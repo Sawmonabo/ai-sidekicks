@@ -10,7 +10,6 @@ use serde_json::Value;
 use sidekicks_contracts::approval::{ApprovalRequestId, RememberedScopeKind};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 /// What the held call would do, read by the driver from its provider's own ask: run a command,

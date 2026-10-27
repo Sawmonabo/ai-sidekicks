@@ -5,6 +5,7 @@ use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandEntry, ProviderCommandListResponse,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{
@@ -14,7 +15,6 @@ use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
 use crate::port::registration::PortRegistration;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A listed skill's name, description, scope and switch.
 type SkillFields<'entry> = (

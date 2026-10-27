@@ -27,20 +27,6 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
-use tokio::task::JoinError;
-use tokio_util::sync::CancellationToken;
-
-use crate::ask_description::{
-    AskDescriptionError, ProviderAskDescription, derive_rule_subject, describe_provider_ask,
-    may_allow_stand, read_command_line,
-};
-use crate::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
-use crate::request_create::{
-    ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
-};
-use crate::rules::{ApprovalRuleError, ApprovalRules};
-use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
-use crate::workflow_start::{WorkflowStart, check_workflow_start};
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::authorizer::{Authorizer, PolicyDecision};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -58,6 +44,20 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::machine::registry::{MachineRegistry, MachineRegistryReadError};
+use tokio::task::JoinError;
+use tokio_util::sync::CancellationToken;
+
+use crate::ask_description::{
+    AskDescriptionError, ProviderAskDescription, derive_rule_subject, describe_provider_ask,
+    may_allow_stand, read_command_line,
+};
+use crate::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
+use crate::request_create::{
+    ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
+};
+use crate::rules::{ApprovalRuleError, ApprovalRules};
+use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
+use crate::workflow_start::{WorkflowStart, check_workflow_start};
 
 // A tool's name stands within a card's scope, so a tool call's card always reads it.
 const _: () = assert!(PROVIDER_TOOL_NAME_MAX_LEN <= FILE_PATH_MAX_LEN);

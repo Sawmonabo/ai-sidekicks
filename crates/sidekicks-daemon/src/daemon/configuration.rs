@@ -15,14 +15,13 @@ use sidekicks_contracts::daemon::config::{
 use sidekicks_contracts::daemon::retention::{DaemonRetentionBounds, DaemonRetentionUpdateRequest};
 use sidekicks_contracts::session::cost::{TokensPerRun, UsdMicros};
 use sidekicks_contracts::wire::integer::{Port, SafeInt};
-use tokio::sync::{Mutex, watch};
-
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use tokio::sync::{Mutex, watch};
 
 /// The statements the store's read prepares, counted into the read pool's statement capacity.
 pub(crate) const DAEMON_CONFIGURATION_STATEMENT_CAPACITY: usize = 1;

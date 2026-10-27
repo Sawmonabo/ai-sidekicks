@@ -8,7 +8,6 @@ use regex::Regex;
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::methods::SessionSearchCursor;
-
 use sidekicks_ipc::domain_error::DomainError;
 
 /// Where a page starts in a held search: at a session of the search's order, past its best hits

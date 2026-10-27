@@ -14,7 +14,6 @@ use sidekicks_contracts::session::links::{
     SessionLinkAdd, SessionLinkRemove, SessionLinkRequest, SessionRelatedListUpdate,
     SessionRelatedSessionSubscribe, SessionRelatedSessionSubscribeRequest,
 };
-
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -110,9 +109,6 @@ mod tests {
     use sidekicks_contracts::session::links::{
         SessionLinkAdd, SessionRelatedListUpdate, SessionRelatedSessionSubscribe,
     };
-
-    use super::register_session_links;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistryBuilder, Reply,
@@ -128,6 +124,9 @@ mod tests {
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::events::log_service::test_log::open_log;
+
+    use super::register_session_links;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     /// Long enough for a re-score round to store and raise, many times over.
     const ROUND_WAIT: Duration = Duration::from_secs(10);

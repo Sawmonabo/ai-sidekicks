@@ -29,9 +29,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_platforms::WallClock;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::events::session::appender::SessionEventAppender;
 
 use crate::admission::UploadAdmission;
 use crate::detection::DETECTION_PREFIX_BYTES;
@@ -43,11 +48,6 @@ use crate::manifest_write::{
 use crate::payload_store::{ContentHash, PayloadStore};
 use crate::refusals::{ArtifactError, file_publish_refused, publish_idempotency_conflict};
 use crate::validation::{SpooledPayload, normalize_metadata_file_name, validate_and_store};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::missing_entry::MissingEntry as _;
-use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use sidekicks_store::events::session::appender::SessionEventAppender;
 
 /// The mode of a spool file: its owner's alone.
 pub(crate) const SPOOL_FILE_MODE: u32 = 0o600;
@@ -369,14 +369,14 @@ mod tests {
     use sidekicks_contracts::wire::AnyValue;
     use sidekicks_contracts::wire::attachment::Bytes;
     use sidekicks_contracts::wire::id::ClientUuid;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_contracts::wire::text::NonEmptyText;
+    use sidekicks_provider::driver::attachments::{AttachmentResolver as _, ProviderAttachment};
 
     use super::PublishOrigin;
     use crate::attachment_resolver::ArtifactAttachmentResolver;
     use crate::test_store::{ArtifactTestStore, refusal_code_of};
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_provider::driver::attachments::{AttachmentResolver as _, ProviderAttachment};
 
     fn request(
         store: &ArtifactTestStore,

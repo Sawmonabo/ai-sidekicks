@@ -23,14 +23,13 @@ use sidekicks_contracts::worktree::events::{
 use sidekicks_contracts::worktree::lifecycle::{
     RemovedWorktreeId, WorktreeId, WorktreeLifecyclePayload, WorktreeState,
 };
-use uuid::Uuid;
-
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventEmitError,
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use uuid::Uuid;
 
 /// What every worktree event names: the session whose log takes it, the tree, and who acted.
 #[derive(Clone, Debug)]

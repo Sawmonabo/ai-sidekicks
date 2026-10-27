@@ -21,12 +21,12 @@ use sidekicks_platforms::{
     BashStartInput, LOGIN_SHELL_ARGUMENTS, PathRules, RUN_FOLDER_FILE_MODE,
     XDG_DEFAULT_DATA_FOLDERS, create_new_file, create_private_folder, remove_tree, start_bash,
 };
-use tokio::task::JoinError;
-
-use crate::integration::zsh_startup::prepare_zsh_startup_folder;
 use sidekicks_provider::spawn_environment::remove_environment_names;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically_if_changed};
 use sidekicks_std::random_hex::random_hex;
+use tokio::task::JoinError;
+
+use crate::integration::zsh_startup::prepare_zsh_startup_folder;
 
 /// bash's script, in the startup folder.
 const BASH_SCRIPT_FILE_NAME: &str = "startup.bash";

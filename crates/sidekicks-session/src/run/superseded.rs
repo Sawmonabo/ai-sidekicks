@@ -11,7 +11,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::row::TRANSCRIPT_ROLLBACK_BOUNDARY_TYPE;
 use sidekicks_contracts::transcript::turn_attribution::{SupersededTurns, add_superseding_cut};
-
 use sidekicks_store::database::stored_column::json_object_column;
 use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 

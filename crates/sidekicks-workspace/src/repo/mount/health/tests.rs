@@ -5,13 +5,6 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::SessionRebuildingDetails;
-use tokio_util::sync::CancellationToken;
-
-use super::{REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY, RepoMountHealthReprobe};
-use crate::event_emitter::WorkspaceEventEmitter;
-use crate::git::process::test_git_runner;
-use crate::repo::root_resolver::RepoRootResolver;
-use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -21,6 +14,13 @@ use sidekicks_store::events::log_service::{
     SessionAppendRefusal,
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use tokio_util::sync::CancellationToken;
+
+use super::{REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY, RepoMountHealthReprobe};
+use crate::event_emitter::WorkspaceEventEmitter;
+use crate::git::process::test_git_runner;
+use crate::repo::root_resolver::RepoRootResolver;
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 // The `repoMount.health.changed` rows `session_id`'s log holds.
 fn heard(rows: &Connection, session_id: SessionId) -> i64 {

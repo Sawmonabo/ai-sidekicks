@@ -23,10 +23,6 @@ use sidekicks_contracts::session::methods::{
 use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError, is_ecmascript_whitespace};
-use tokio_util::task::TaskTracker;
-
-use crate::run::ids::read_session_run_ids;
-use crate::run::state_change::refused_statement_index;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -48,6 +44,10 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tokio_util::task::TaskTracker;
+
+use crate::run::ids::read_session_run_ids;
+use crate::run::state_change::refused_statement_index;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.

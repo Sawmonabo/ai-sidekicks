@@ -8,6 +8,10 @@ use rusqlite::{Connection, params};
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
+use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
@@ -24,10 +28,6 @@ use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
-use sidekicks_std::settle_all::SettleFailures;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

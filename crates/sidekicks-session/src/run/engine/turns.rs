@@ -19,6 +19,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::safe_int_column;
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 use crate::interventions::store::run_at_version_statement;
 use crate::run::engine::limits::LimitStop;
@@ -31,14 +39,6 @@ use crate::run::read::RunRead;
 use crate::run::restart::{TurnCut, limit_turn_cause, read_turn_cuts};
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
-use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::sql_list::sql_list_of;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::safe_int_column;
-use sidekicks_store::events::session::append_lock::SessionAppendHold;
-use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 // The position among a run change's companions of the guard that the turn it ends has no end yet:
 // the turn's end rides first, so its guard leads the companions.

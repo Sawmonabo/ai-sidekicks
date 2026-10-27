@@ -3,11 +3,19 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused,
     askpass_socket_path, check_socket_path, create_missing_private_folders, process_identity,
     replace_file_atomically,
 };
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+use sidekicks_store::credential_store::os::TestStoreAccess;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder_lock::DataFolderLock;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
@@ -19,14 +27,6 @@ use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvi
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::service_log::open_service_log;
 use crate::data_acts::erase::{DataErase, DataEraseDeps};
-use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
-use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
-use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::test_registry::test_driver_services;
-use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
-use sidekicks_store::credential_store::os::TestStoreAccess;
-use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::DataFolderLock;
 
 // The variable the stand-in crash monitor reads its socket's path from.
 const MONITOR_SOCKET_VARIABLE: &str = "SIDEKICKS_TEST_CRASH_MONITOR_SOCKET";

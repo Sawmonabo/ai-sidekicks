@@ -11,14 +11,6 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::SessionId;
-
-use super::{
-    APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRuleError, ApprovalRules, SELECT_RULES_IN_FORCE_SQL,
-    provider_rule_of, query_rule_rows, rule_over,
-};
-use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
-use crate::schema::schema_parts;
-use crate::service::tests::{ApprovalFixture, from_json};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
@@ -31,6 +23,14 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, 
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+
+use super::{
+    APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRuleError, ApprovalRules, SELECT_RULES_IN_FORCE_SQL,
+    provider_rule_of, query_rule_rows, rule_over,
+};
+use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::schema::schema_parts;
+use crate::service::tests::{ApprovalFixture, from_json};
 
 // Appends the event `event` describes to the session's log and answers its sequence.
 async fn append(writer: &DatabaseWriter, session_id: SessionId, event: serde_json::Value) -> i64 {

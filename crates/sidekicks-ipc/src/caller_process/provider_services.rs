@@ -8,7 +8,6 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_platforms::{UnixDomainStream, unix_domain_peer_process};
-
 use sidekicks_std::mutex_lock::lock;
 
 /// Each serving process with the number of connections held to it.

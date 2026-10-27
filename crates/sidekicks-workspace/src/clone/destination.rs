@@ -13,11 +13,10 @@ use std::sync::LazyLock;
 use regex::Regex;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::{EntryIdentity, PathRules, entry_identity, resolve_path};
-use tokio::task::JoinError;
-use url::Url;
-
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::random_hex::random_hex;
+use tokio::task::JoinError;
+use url::Url;
 
 // `git@github.com:team/app.git`: a user and host, a colon, then a path that is not `//`. The user
 // is tried first and the address read again without one when its path starts `//`, as a pattern

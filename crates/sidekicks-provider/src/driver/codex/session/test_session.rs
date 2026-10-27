@@ -19,6 +19,8 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
@@ -92,8 +94,6 @@ use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";

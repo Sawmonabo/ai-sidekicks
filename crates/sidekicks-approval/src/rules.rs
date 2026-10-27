@@ -45,12 +45,6 @@ use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tokio::task::JoinError;
-
-use crate::refusals::{
-    approval_rule_already_revoked, approval_rule_not_found, approval_rule_revoke_not_kept,
-};
-use crate::store::{StoredApprovalRequest, remembered_scope_statement};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -74,6 +68,12 @@ use sidekicks_store::events::session::appender::{
 use sidekicks_store::events::session::pending::PendingSessions;
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use sidekicks_workspace::schema::MountOrigin;
+use tokio::task::JoinError;
+
+use crate::refusals::{
+    approval_rule_already_revoked, approval_rule_not_found, approval_rule_revoke_not_kept,
+};
+use crate::store::{StoredApprovalRequest, remembered_scope_statement};
 
 /// The distinct statements [`ApprovalRules`] prepares, for the reading connection's statement
 /// cache.

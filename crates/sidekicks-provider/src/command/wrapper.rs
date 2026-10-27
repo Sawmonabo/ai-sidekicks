@@ -22,15 +22,15 @@ use sidekicks_platforms::{
     name_program, pass_on_stop_signals, read_child_exit, read_descriptor_path, run_foreground_job,
     signal_command_group, start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
 };
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::standard_error::write_error_line;
+use terminal::run_in_terminal;
 
 use crate::command::channel::party::{
     ChannelParty, PartyRecords, PartyRequests, PartyStart, RequestError, own_arguments,
 };
 use crate::command::channel::{DaemonRequest, PARTY_SECRET_VARIABLE, PartyRecord};
 use crate::driver::shell_prefix_command_of;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::standard_error::write_error_line;
-use terminal::run_in_terminal;
 
 /// The name of the link a provider runs every shell command through, which reaches this mode.
 pub const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";

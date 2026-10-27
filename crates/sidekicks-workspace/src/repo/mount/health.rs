@@ -36,6 +36,18 @@ use sidekicks_contracts::repo::mount::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::processor_bound::map_with_processor_bound;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{
+    StoredJsonFault, optional_text_column, text_column,
+};
+use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
@@ -51,18 +63,6 @@ use crate::row_guards::{
     CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH, probe_filesystem_path,
 };
 use crate::trust_envelope::{components_equal, is_contained_within};
-use sidekicks_std::bounded_wait::wait_within;
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::processor_bound::map_with_processor_bound;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::stored_column::{
-    StoredJsonFault, optional_text_column, text_column,
-};
-use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
 /// The statements the re-probe's reads keep prepared on each read connection.
 pub const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;

@@ -22,6 +22,7 @@ use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactRes
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
+use sidekicks_ipc::domain_error::DomainError;
 
 use super::CodexDriver;
 use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status};
@@ -47,7 +48,6 @@ use crate::driver::session_control::{
     StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
 };
-use sidekicks_ipc::domain_error::DomainError;
 
 /// The id of the switch that runs a Codex service on the person's own folder.
 const TERMINAL_REACH_ROW_ID: &str = "terminalReach";

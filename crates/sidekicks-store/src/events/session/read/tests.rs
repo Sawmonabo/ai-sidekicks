@@ -2,12 +2,13 @@ use std::io;
 
 use rstest::rstest;
 use rusqlite::params;
-use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_contracts::event::envelope::{
     HydratedContentUnavailableReason, HydratedSessionEventContent,
 };
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use zstd::zstd_safe;
 
 use super::{MalformedStoredEventFault, SessionEventReads, SessionLogReadError, body_read_error};
 use crate::database::schema::schema_parts;
@@ -16,8 +17,6 @@ use crate::events::content::codec::{
     BodyDecodeError, BodyStreamError, ZSTD_OUT_OF_MEMORY, stream_read_failure,
 };
 use crate::events::test_log::SessionTestLog;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use zstd::zstd_safe;
 
 const WELL_FORMED_INSTANT: &str = "2026-10-14T09:00:00.000Z";
 

@@ -21,12 +21,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::attachment::Bytes;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
 use crate::manifest_write::{MANIFEST_COLUMN_COUNT, MANIFEST_COLUMNS, read_manifest};
 use crate::payload_store::{ContentHash, PayloadStore};
 use crate::refusals::{ArtifactError, artifact_not_found};
-use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use sidekicks_store::database::stored_column::{safe_int_column, text_column};
 
 // The one version of an artifact no chat wrote.
 const ONLY_VERSION: SafeInt<1> = SafeInt::new(1).expect("1 is a safe integer from 1");

@@ -27,15 +27,15 @@ use lru::LruCache;
 use notify::{RecommendedWatcher, Watcher};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{EntryIdentity, entry_identity};
+use sidekicks_std::file::bounded_read::run_on_own_thread;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_store::events::session::pending::PendingSessions;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::file_watch::{
     ChangeFeed, FileWatch, FileWatchError, FileWatchNotice, WalkFilter, WatchedRoot,
 };
-use sidekicks_std::file::bounded_read::run_on_own_thread;
-use sidekicks_std::missing_entry::is_missing_entry;
-use sidekicks_store::events::session::pending::PendingSessions;
 
 const GIT_METADATA_FOLDER_NAME: &str = ".git";
 
@@ -378,12 +378,12 @@ mod tests {
 
     use notify::event::{DataChange, ModifyKind};
     use notify::{Event, EventHandler, EventKind, NullWatcher};
+    use sidekicks_store::events::session::pending::PendingSessions;
     use tokio::sync::mpsc;
     use tokio::time::timeout;
 
     use super::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch, report_writes};
     use crate::file_watch::{FEED_CAPACITY, wait_for_the_next_whole_second};
-    use sidekicks_store::events::session::pending::PendingSessions;
 
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
     const OTHER_SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";

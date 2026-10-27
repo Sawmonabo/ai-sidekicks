@@ -8,12 +8,12 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::{DatabaseWriter, MaintenanceError};
-use sidekicks_std::mutex_lock::lock;
 
 // The first wait after a busy try, doubled after each until the last.
 const FIRST_RETRY_WAIT: Duration = Duration::from_millis(50);

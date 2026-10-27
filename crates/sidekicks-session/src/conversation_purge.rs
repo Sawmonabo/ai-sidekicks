@@ -8,8 +8,6 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::run::stored_leg::read_session_bindings;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -19,6 +17,8 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+
+use crate::run::stored_leg::read_session_bindings;
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
 /// bindings and the conversations the session left.
@@ -155,9 +155,6 @@ mod tests {
 
     use rusqlite::params;
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-
-    use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
-    use crate::run::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
@@ -166,6 +163,9 @@ mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+
+    use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
+    use crate::run::schema::schema_parts;
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.
     fn insert_binding(

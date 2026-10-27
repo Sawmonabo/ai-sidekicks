@@ -6,7 +6,6 @@ use rusqlite::Connection;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 

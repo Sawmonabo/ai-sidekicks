@@ -7,7 +7,6 @@ use std::borrow::Cow;
 use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{closed_word, text_column};
 

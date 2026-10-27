@@ -12,6 +12,7 @@ use sidekicks_contracts::{
     run::id::RunId, session::id::SessionId, wire::id::mint_uuid_v7, wire::instant::WireInstant,
     wire::integer::SafeInt,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
 use tempfile::TempDir;
 
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
@@ -25,7 +26,6 @@ use crate::events::{
         version::SESSION_EVENT_VERSION,
     },
 };
-use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// A database file in a folder of its own, removed when this drops, and the schema it is opened
 /// with.

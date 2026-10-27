@@ -5,6 +5,7 @@ use futures::future::BoxFuture;
 use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
@@ -20,7 +21,6 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::DriverError;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// How many items the test queues for its session.
 const QUEUED_ITEMS: usize = 3;

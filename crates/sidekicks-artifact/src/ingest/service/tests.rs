@@ -14,9 +14,11 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::attachment::Bytes;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
 use sidekicks_platforms::WallClockTimer;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 
 use super::{ArtifactIngestService, IngestStream};
 use crate::ingest::limits::{
@@ -25,8 +27,6 @@ use crate::ingest::limits::{
 };
 use crate::refusals::ArtifactError;
 use crate::test_store::{ArtifactTestStore, refusal_code_of};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
 
 fn service(store: &ArtifactTestStore) -> Arc<ArtifactIngestService> {
     Arc::new(ArtifactIngestService::new(

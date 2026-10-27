@@ -23,13 +23,13 @@ use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::attachment::Bytes as AttachedBytes;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_ipc::registry::{HandlerError, TransportId};
+use sidekicks_ipc::stream::feed::{Feed, SendGate};
 use sidekicks_terminal::ScrollbackRead;
 use tokio::sync::watch;
 
 use crate::control_lease::LeaseReading;
 use crate::resize::ShellSize;
-use sidekicks_ipc::registry::{HandlerError, TransportId};
-use sidekicks_ipc::stream::feed::{Feed, SendGate};
 
 /// How a shell stands for its output streams; every change of it, and every chunk of output, is
 /// signaled through the shell's progress watch.
@@ -372,14 +372,14 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::terminal::{TerminalId, TerminalOutputChange, TerminalOutputFrame};
     use sidekicks_contracts::wire::integer::SafeInt;
+    use sidekicks_ipc::registry::TransportId;
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
     use sidekicks_terminal::ScrollbackRead;
     use tokio::sync::watch;
 
     use super::{ShellOutputEnd, ShellOutputSource, ShellOutputStream};
     use crate::control_lease::LeaseReading;
     use crate::resize::ShellSize;
-    use sidekicks_ipc::registry::TransportId;
-    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
 
     /// A shell's window: its bytes and the output offset it ends at.
     struct FakeShell {

@@ -7,11 +7,11 @@ use sidekicks_contracts::run::intervention::{InterventionState, InterventionType
 use sidekicks_contracts::run::queue::{QueueItemNotDeliveredKind, QueueItemState};
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
-
-use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
+
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// The search index's list and the runs' own part.
 pub(crate) fn schema_parts() -> SchemaParts {

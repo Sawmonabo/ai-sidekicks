@@ -21,11 +21,11 @@ use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{CredentialStore, CredentialStoreError, SecretStoreOffer};
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::mutex_lock::lock;
 
 /// How long one keychain call may take, its waits and an unlock prompt included.
 pub const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);

@@ -24,14 +24,10 @@ use sidekicks_contracts::session::methods::{
     SessionFileSearchResponse,
 };
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_platforms::{is_link_loop, real_path};
-use sidekicks_search::ranking::score_subsequence;
-use tokio::task::JoinError;
-use tokio_util::task::TaskTracker;
-
-use crate::search::files::listing::{ListingError, WorkingFolderListing, list_working_folder};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_platforms::{is_link_loop, real_path};
+use sidekicks_search::ranking::score_subsequence;
 use sidekicks_std::missing_entry::is_gone;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
@@ -39,6 +35,10 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_workspace::git::process::{GitError, GitRunner};
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
+use tokio::task::JoinError;
+use tokio_util::task::TaskTracker;
+
+use crate::search::files::listing::{ListingError, WorkingFolderListing, list_working_folder};
 
 /// The statements the file search prepares on a read connection: the session's working folder.
 pub const FILE_SEARCH_STATEMENT_CAPACITY: usize = 1;
@@ -497,15 +497,15 @@ mod tests {
         SessionFileSearchResponse,
     };
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-    use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
-    use crate::questions::schema::schema_parts;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use sidekicks_workspace::git::process::{GitRunner, test_git_runner, write_link};
     use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+
+    use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
+    use crate::questions::schema::schema_parts;
 
     /// Bounds a wait the test expects to end, so one that never does fails the test.
     const WAIT: Duration = Duration::from_secs(10);

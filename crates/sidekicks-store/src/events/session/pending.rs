@@ -9,9 +9,8 @@ use std::mem;
 use std::sync::{Mutex, MutexGuard};
 
 use sidekicks_contracts::session::id::SessionId;
-use tokio::sync::Notify;
-
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 
 /// The waiting sessions and the wake of the one task that takes them. Holds at most one entry per
 /// session.

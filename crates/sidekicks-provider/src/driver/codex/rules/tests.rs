@@ -5,12 +5,12 @@ use std::time::Duration;
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 use super::{
     CodexProjectRule, CodexRuleSources, CodexRulesError, RULE_EVALUATION_TIME_LIMIT,
     read_codex_project_rules, remove_codex_project_rule, write_codex_project_rule,
 };
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 fn rule(
     sense: RememberedRuleSense,

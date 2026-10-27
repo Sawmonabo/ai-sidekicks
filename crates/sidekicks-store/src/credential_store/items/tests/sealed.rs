@@ -15,6 +15,7 @@ use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{
     SealHeader, SealKey, SecretStoreOffer, is_superuser, make_unreadable, secret_store_offer,
 };
+use sidekicks_std::random_hex::random_hex;
 
 use super::{
     Before, EARLIER, HELD_CALL_TIMEOUT, ITEMS, RECORD, SEALED, Status, file_before, read_text,
@@ -26,7 +27,6 @@ use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
-use sidekicks_std::random_hex::random_hex;
 
 pub(super) const NO_SEAL_SERVICE: &str =
     r#"{"place":{"kind":"plainFile","reason":"noSealService"}}"#;

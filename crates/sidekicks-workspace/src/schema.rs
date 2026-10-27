@@ -6,10 +6,9 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, VcsType, WorkspaceState};
-use strum::{IntoStaticStr, VariantArray};
-
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
+use strum::{IntoStaticStr, VariantArray};
 
 /// Where a project's clone stands while the project is `cloning`: git running, failed with git's
 /// words, canceled by the person, or interrupted by the service's restart or stop. Converts to the

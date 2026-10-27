@@ -5,10 +5,9 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_artifact::publish::{ArtifactPublishService, PublishOrigin};
 use sidekicks_contracts::artifacts::methods::ArtifactPublish;
 use sidekicks_contracts::method::Method as _;
-
-use sidekicks_artifact::publish::{ArtifactPublishService, PublishOrigin};
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 
 /// Registers `artifact.publish`, answered by `publisher`. A call on a connection that carries no

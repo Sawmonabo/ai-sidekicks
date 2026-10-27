@@ -16,7 +16,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
-
 use sidekicks_session::plan_holds::{HeldPlan, PlanHolds};
 use sidekicks_store::database::session_scope::SessionScopedSql;
 use sidekicks_store::database::statement::{

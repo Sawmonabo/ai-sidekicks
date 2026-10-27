@@ -9,6 +9,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
+use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
 use tokio::sync::{Notify, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
@@ -20,9 +23,6 @@ use crate::daemon::release_version::this_build_release_version;
 use crate::observability::diagnostic_buckets::expiry::{
     DIAGNOSTIC_LOG_EXPIRY_INTERVAL, DiagnosticExpiryDeps, diagnostic_expiry_job,
 };
-use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
-use sidekicks_store::database::writer::DatabaseWriter;
-use sidekicks_store::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
 
 /// How often the crash report pass runs after its first: hourly, as the diagnostic-log expiry, so a
 /// dump a crash left is reported within the hour.

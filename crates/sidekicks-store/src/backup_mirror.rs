@@ -19,11 +19,10 @@ use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
     create_missing_private_folders, flush_file, remove_tree, rename_replacing,
 };
-use tokio_util::sync::CancellationToken;
-use walkdir::WalkDir;
-
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
+use tokio_util::sync::CancellationToken;
+use walkdir::WalkDir;
 
 /// The mirror's folder inside the backups folder; it holds no manifest, so no reader takes it
 /// for a backup.

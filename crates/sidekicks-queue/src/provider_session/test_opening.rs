@@ -14,8 +14,6 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 #[cfg(test)]
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
 use sidekicks_provider::driver::PROVIDERS;
 #[cfg(test)]
 use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
@@ -25,6 +23,8 @@ use sidekicks_provider::driver::session_control::CreateSessionParams;
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
+
+use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
 
 /// The table's first provider.
 pub(crate) fn first_provider() -> ProviderId {

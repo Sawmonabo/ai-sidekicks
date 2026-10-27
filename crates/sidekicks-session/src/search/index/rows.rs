@@ -20,8 +20,6 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
-
-use crate::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{
     optional_text_column, rowid_column, wrong_type_failure,
@@ -30,6 +28,8 @@ use sidekicks_store::events::content::codec::{
     StoredBodyPlace, stored_body_encoding_sql, stored_body_length_sql,
 };
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
+
+use crate::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
 
 // The log rows the index holds: a person's message, an agent's message and a tool call, each
 // stored once settled. A thinking update is narration a later event supersedes, so it is never
@@ -533,11 +533,11 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
     use sidekicks_search::index::IndexRowKind;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::events::content::codec::out_of_memory_read_failure;
 
     use super::{IndexRowReader, SourceRow, SourceRowRead, damage_of, empty_index_batch_room};
     use crate::transcript::test_log::TranscriptTestLog;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
-    use sidekicks_store::events::content::codec::out_of_memory_read_failure;
 
     // Every page of the whole row `read`'s text, in order.
     fn pages_of(rows: &IndexRowReader<'_>, read: &SourceRowRead) -> Vec<String> {

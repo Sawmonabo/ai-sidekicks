@@ -3,12 +3,12 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use sidekicks_platforms::PathRules;
+use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use super::{
     GitCall, GitError, GitLimits, GitRunner, git_environment, in_folder, strip_line_end,
     test_git_runner,
 };
-use sidekicks_std::file::atomic_write::write_file_atomically;
 
 // The person's git with `limits`.
 fn test_runner(limits: GitLimits) -> GitRunner {

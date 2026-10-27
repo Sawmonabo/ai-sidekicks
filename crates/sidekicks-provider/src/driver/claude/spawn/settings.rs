@@ -10,6 +10,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 use crate::background_work::{BackgroundWorkForms, plain_background_work_forms};
 use crate::driver::claude::session::rules::{
@@ -19,7 +20,6 @@ use crate::driver::claude::session::transport::control::{
     ClaudePermissionsDocument, ClaudeSandboxFilesystem, ClaudeSandboxSettings,
 };
 use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
-use sidekicks_policy::ask_rule::ProviderAskRule;
 
 /// How many days Claude Code keeps a conversation file before cleaning it up: long enough that a
 /// session's own history never disappears under it. Written at every start and in each account

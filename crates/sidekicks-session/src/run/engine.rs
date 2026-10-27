@@ -33,22 +33,6 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::sync::{SetOnce, SetOnceError};
-
-use crate::interventions::interrupt_queue::{InterruptQueue, InterruptQueueError};
-use crate::interventions::store::run_at_version_statement;
-use crate::plan_holds::PlanHolds;
-use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
-use crate::run::daemon_turn::DaemonTurnQueueError;
-use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
-use crate::run::engine::turns::{TurnEnd, WriteWithResend};
-use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
-use crate::run::read::{RunRead, read_run_through, safe_run_version};
-use crate::run::refusals::{RunRefusal, ended_run_refusal};
-use crate::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
-    refused_statement_index,
-};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::delivery::RunMarker;
@@ -69,6 +53,22 @@ use sidekicks_store::events::session::appender::{
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_workspace::run_setup_gates::{
     RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalReleaseError,
+};
+use tokio::sync::{SetOnce, SetOnceError};
+
+use crate::interventions::interrupt_queue::{InterruptQueue, InterruptQueueError};
+use crate::interventions::store::run_at_version_statement;
+use crate::plan_holds::PlanHolds;
+use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
+use crate::run::daemon_turn::DaemonTurnQueueError;
+use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
+use crate::run::engine::turns::{TurnEnd, WriteWithResend};
+use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::run::refusals::{RunRefusal, ended_run_refusal};
+use crate::run::state_change::{
+    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
+    refused_statement_index,
 };
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live

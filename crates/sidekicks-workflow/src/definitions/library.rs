@@ -22,6 +22,10 @@ use sidekicks_contracts::workflow::definition::methods::{
     WorkflowWebhookLastFire,
 };
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
 
 use crate::definitions::stored_document::{
     StoredDocumentError, StoredWorkflowDocumentColumns, read_stored_workflow_document,
@@ -29,10 +33,6 @@ use crate::definitions::stored_document::{
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
 use crate::runs::record::column;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
-};
 
 /// The statements a [`WorkflowLibrary`] prepares on a read connection: the name holder, the
 /// definition read, the definition list and the list cursor's check.

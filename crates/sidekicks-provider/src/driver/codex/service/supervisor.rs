@@ -28,7 +28,9 @@ use futures::future::{BoxFuture, join_all};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::Spawner;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -67,8 +69,6 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
-use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
-use sidekicks_std::mutex_lock::lock;
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";

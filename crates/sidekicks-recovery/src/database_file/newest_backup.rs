@@ -11,9 +11,8 @@ use garde::Validate as _;
 use sidekicks_contracts::daemon::backup::{
     BACKUP_DATABASE_FILE_NAME, BACKUP_MANIFEST_FILE_NAME, BackupManifest,
 };
-use tracing::warn;
-
 use sidekicks_std::missing_entry::MissingEntry as _;
+use tracing::warn;
 
 /// Why a backup's manifest could not be read.
 #[derive(Debug, thiserror::Error)]

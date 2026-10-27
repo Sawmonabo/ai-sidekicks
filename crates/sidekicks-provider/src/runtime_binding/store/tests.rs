@@ -7,8 +7,10 @@ use rstest::rstest;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
 use super::{
     RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
@@ -18,8 +20,6 @@ use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{SessionToolServer, SubagentDefinition, SubagentPolicy};
 use crate::left_conversations::LeftConversation;
 use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
 fn token(text: &str) -> ProviderToken {
     FreeFormText::new(text.to_owned()).expect("the test's token is valid text")

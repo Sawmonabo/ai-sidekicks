@@ -122,6 +122,7 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::machine::id::MachineId;
     use sidekicks_contracts::session::id::UserId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
     use crate::database::connection::read_pool::DatabaseReadPool;
@@ -129,7 +130,6 @@ mod tests {
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::machine::local::LocalMachine;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn user_id() -> UserId {
         UserId::try_from(mint_uuid_v7()).expect("a minted UUID is a user id")

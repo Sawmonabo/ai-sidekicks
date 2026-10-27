@@ -26,6 +26,10 @@ use sidekicks_platforms::{
     ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
     wrap_child_command,
 };
+use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
+use stdin::ClaudeInputWriter;
+pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+use stdout::ClaudeOutputReader;
 use tokio::io::AsyncRead;
 use tokio::process::Command;
 use tokio::sync::watch;
@@ -49,11 +53,6 @@ use crate::driver::claude::session::transport::user_message::{
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
-use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
-
-use stdin::ClaudeInputWriter;
-pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
-use stdout::ClaudeOutputReader;
 
 /// How long a process asked to stop has before it is killed.
 const CLAUDE_STOP_KILL_GRACE: Duration = Duration::from_secs(5);

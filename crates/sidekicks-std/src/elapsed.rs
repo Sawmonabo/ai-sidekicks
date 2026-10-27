@@ -1,8 +1,7 @@
 //! Time measured on the runtime's monotonic clock, as the wire's millisecond figures carry it.
 
-use tokio::time::Instant;
-
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
+use tokio::time::Instant;
 
 /// The milliseconds since `started_at`, capped at the largest safe integer; a wall-clock change
 /// does not skew it.

@@ -6,6 +6,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use rstest::rstest;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::test_log::open_log;
 use tokio::sync::SetOnce;
 
 use super::LimitStop;
@@ -18,11 +23,6 @@ use crate::run::engine::tests::{
 };
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::state_change::RunStateChangeCompanions;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
 
 // A person's interrupt accepted at `accepted_run_version` ends the run, and a continue runs it
 // again.

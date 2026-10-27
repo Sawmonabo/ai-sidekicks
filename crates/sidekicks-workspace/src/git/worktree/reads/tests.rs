@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use sidekicks_contracts::repo::folders::RepoMountRootResolutionReason;
 use sidekicks_platforms::{Spawner, real_path};
+use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use super::{read_listed_worktrees, read_uncommitted_paths, unquote_git_text};
 use crate::git::process::{
@@ -12,7 +13,6 @@ use crate::git::process::{
 };
 use crate::repo::errors::RepoRefusal;
 use crate::repo::root_resolver::RepoRootResolver;
-use sidekicks_std::file::atomic_write::write_file_atomically;
 
 // Runs `arguments` in `folder` with a fixed identity and no signing or hook, whatever the
 // person's config, writing `input` to git; returns what git printed, its line end removed.

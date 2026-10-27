@@ -11,6 +11,9 @@ use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 use crate::driver::SessionSpawnContextResolver;
 use crate::driver::claude::spawn::environment::ClaudeAccountFolders;
@@ -18,9 +21,6 @@ use crate::driver::claude::spawn::legs::ClaudeSpawnContext;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::port::registration::PortRegistration;
 use crate::port::session_advisor_store::SessionAdvisorStore;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
 
 /// The id of the Settings row holding the output style new sessions start with.
 pub(crate) const CLAUDE_OUTPUT_STYLE_ROW_ID: &str = "outputStyle";

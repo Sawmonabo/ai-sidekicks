@@ -22,12 +22,6 @@ use sidekicks_contracts::session::events::SessionRenamedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
-use tokio::runtime::Handle;
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
-
-use crate::changes::SessionChanges;
-use crate::run::read::read_run_provider;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
     NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams,
@@ -41,6 +35,12 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
+use tokio::runtime::Handle;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+
+use crate::changes::SessionChanges;
+use crate::run::read::read_run_provider;
 
 /// The statements the self-naming prepares on a read connection: the first completed lead run,
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder

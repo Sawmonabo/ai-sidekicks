@@ -8,11 +8,6 @@ use futures::FutureExt as _;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::UserId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-use super::{PermissionCheck, PermissionCheckDeps};
-use crate::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
-use crate::service::ApprovalService;
-use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
@@ -26,6 +21,11 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_store::machine::registry::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
+
+use super::{PermissionCheck, PermissionCheckDeps};
+use crate::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
+use crate::service::ApprovalService;
+use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 
 /// The bound the tests read shell lines under.
 pub(crate) const LINE_LIMIT: usize = 4096;

@@ -17,6 +17,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::{FileAppendWatch, FolderArrivalWatch, InputTerminal};
+use sidekicks_std::utf8_stream::Utf8StreamDecoder;
+use sidekicks_workspace::askpass_prompt::is_masked_prompt;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
@@ -25,8 +27,6 @@ use crate::command::channel::{
 };
 use crate::command::running_set::{PromptAnswer, RunningCommandSets, WrapperCommand};
 use crate::command::waiting_checks::{InputWaitReader, WaitingChecks};
-use sidekicks_std::utf8_stream::Utf8StreamDecoder;
-use sidekicks_workspace::askpass_prompt::is_masked_prompt;
 
 #[cfg(test)]
 mod tests;

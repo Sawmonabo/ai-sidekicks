@@ -6,6 +6,12 @@ use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
+use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
 use super::{no_turn_end_statement, no_turn_start_from_statement};
 use crate::questions::schema::schema_parts;
@@ -16,12 +22,6 @@ use crate::run::engine::tests::{
 };
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChangeCompanions;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-use sidekicks_store::events::log_service::test_log::open_log;
-use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
 // NULL column, by the start guard reading `=` for `>=`, which lets a start numbered below the

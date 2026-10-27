@@ -12,6 +12,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_platforms::ProcessRecord;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
@@ -21,7 +22,6 @@ use crate::driver::codex::service::process::{
 use crate::driver::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
 use crate::driver::codex::service::supervisor::runner::report_stop_failed;
 use crate::driver::codex::service::supervisor::start::kept_records::on_record;
-use sidekicks_std::mutex_lock::lock;
 
 /// How a drain ended, as its one waiting task tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -14,7 +14,6 @@ use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemState};
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
-
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::text_column;
 

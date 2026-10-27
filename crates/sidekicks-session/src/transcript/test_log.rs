@@ -10,12 +10,12 @@ use serde_json::Value;
 use serde_json::json;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::attachment::write;
-
-use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
 #[cfg(test)]
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::events::test_log::SessionTestLog;
+
+use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
 
 /// A text [`stalling_parse`] stalls on.
 pub const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";

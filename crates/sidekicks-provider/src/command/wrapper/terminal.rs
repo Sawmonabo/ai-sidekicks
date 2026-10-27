@@ -18,6 +18,8 @@ use sidekicks_platforms::{
     signal_foreground_group, start_inner_terminal, terminal_options, wait_for_exit,
     wait_for_terminal_command,
 };
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::standard_error::write_error_line;
 
 use super::{
     ARG0_FLAG, CommandState, INNER_FLAG, SharedRecords, SharedState, WORDS_SEPARATOR,
@@ -26,8 +28,6 @@ use super::{
 use crate::command::channel::PartyRecord;
 use crate::command::channel::party::PartyRequests;
 use crate::command::waiting_checks::cheap_check_delay;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::standard_error::write_error_line;
 
 /// The window a command's terminal opens at when the wrapper's own standard input is no terminal.
 const FALLBACK_WINDOW: WindowSize = WindowSize {

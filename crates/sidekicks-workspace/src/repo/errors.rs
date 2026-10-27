@@ -26,7 +26,6 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
-
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 
 /// Why a repository call was refused; nothing was written for any of them. Converts into the

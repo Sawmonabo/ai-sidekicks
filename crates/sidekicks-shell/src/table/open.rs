@@ -6,7 +6,12 @@ use std::sync::Arc;
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TerminalId, TerminalOpenRequest, TerminalOpenResponse};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::PathRules;
+use sidekicks_provider::spawn_environment::SessionEnvironment;
+use sidekicks_std::error_description::describe_error;
 use sidekicks_terminal::TerminalError;
 use tokio::sync::watch;
 
@@ -18,11 +23,6 @@ use crate::start::{ShellStartInput, check_working_folder, plan_shell_start};
 use crate::table::end::{close_terminal, let_shell_go};
 use crate::table::output::drain_output;
 use crate::table::{ShellTable, TableShared, log_failure};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::spawn_environment::SessionEnvironment;
-use sidekicks_std::error_description::describe_error;
 
 #[cfg_attr(
     not(test),

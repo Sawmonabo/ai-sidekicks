@@ -21,6 +21,11 @@ use sidekicks_contracts::session::controls::events::{
 };
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::session::appender::SessionEventDraft;
 use tokio::sync::oneshot;
 use tracing::Instrument as _;
 
@@ -32,11 +37,6 @@ use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInter
 use crate::run::read::RunRead;
 use crate::run::refusals::RunRefusal;
 use crate::run::transitions::is_transition_allowed;
-use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::events::session::appender::SessionEventDraft;
 
 // A token-limit stop's guard that the run never reached its limit before follows the version guard.
 const TOKEN_LIMIT_ONCE_GUARD_INDEX: usize = 1;

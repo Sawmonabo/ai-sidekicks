@@ -31,16 +31,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_platforms::WallClock;
-use tokio::sync::mpsc;
-
-use crate::id::mint_artifact_id;
-use crate::manifest_write::{PublishedManifest, manifest_created_at, write_published_manifest};
-use crate::payload_store::{ContentHash, PayloadStore};
-use crate::publish::{SPOOL_FILE_MODE, new_spool_path, remove_spool};
-use crate::refusals::ArtifactError;
-use crate::validation::{
-    SpooledPayload, Utf8Check, file_name_metadata, keep_leading_bytes, validate_and_store,
-};
 use sidekicks_provider::port::file_tool_write::{
     FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort, FileToolWriteSettled,
 };
@@ -52,6 +42,16 @@ use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+};
+use tokio::sync::mpsc;
+
+use crate::id::mint_artifact_id;
+use crate::manifest_write::{PublishedManifest, manifest_created_at, write_published_manifest};
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::publish::{SPOOL_FILE_MODE, new_spool_path, remove_spool};
+use crate::refusals::ArtifactError;
+use crate::validation::{
+    SpooledPayload, Utf8Check, file_name_metadata, keep_leading_bytes, validate_and_store,
 };
 
 /// The media type a folder's manifest records.
@@ -470,18 +470,18 @@ mod tests {
     };
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_platforms::WallClockTimer;
-    use tempfile::TempDir;
-
-    use super::ChatFileVersions;
-    use crate::list::list_artifacts;
-    use crate::read::read_artifact;
-    use crate::test_store::ArtifactTestStore;
     use sidekicks_provider::port::file_tool_write::{
         FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort as _, FileToolWriteSettled,
     };
     use sidekicks_workspace::managed::write_watcher::{
         ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
     };
+    use tempfile::TempDir;
+
+    use super::ChatFileVersions;
+    use crate::list::list_artifacts;
+    use crate::read::read_artifact;
+    use crate::test_store::ArtifactTestStore;
 
     /// A chat's versions over the test store, its workspace in a folder of its own.
     struct Fixture {

@@ -6,12 +6,11 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_artifact::ingest::service::ArtifactIngestService;
 use sidekicks_contracts::artifacts::methods::{
     ArtifactIngestComplete, ArtifactIngestStart, ArtifactIngestWrite,
 };
 use sidekicks_contracts::method::Method as _;
-
-use sidekicks_artifact::ingest::service::ArtifactIngestService;
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 
 /// Registers the three ingest calls, answered by `ingest`. A completion on a connection that

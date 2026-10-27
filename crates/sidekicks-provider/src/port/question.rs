@@ -15,7 +15,6 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState, QuestionPrompt};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::{KeyHold, KeyWait, KeyedLock};
 

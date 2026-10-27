@@ -27,6 +27,12 @@ use sidekicks_contracts::worktree::lifecycle::{
     NewWorktreeSuggestion, RepoRootStatus, WorktreeId, WorktreeState, WorktreeStatusReadRequest,
     WorktreeStatusReadResponse,
 };
+use sidekicks_std::processor_bound::map_with_processor_bound;
+use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitError, GitRunner};
@@ -40,12 +46,6 @@ use crate::git::worktree::reads::{
     ListedWorktree, commit_count, read_branch_figures, read_listed_worktrees, tree_name_of,
 };
 use crate::git::worktree::risks::{RemovalRiskReadError, read_removal_risks};
-use sidekicks_std::processor_bound::map_with_processor_bound;
-use sidekicks_std::settle_all::SettleFailures;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 static SELECT_PROJECT_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(

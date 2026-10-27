@@ -16,6 +16,7 @@ use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use daemon_ends::ClaudeStreamDialogPorts;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -28,6 +29,7 @@ use sidekicks_contracts::session::events::SessionProviderStatusReportedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use crate::driver::claude::DESCRIPTOR;
@@ -69,9 +71,6 @@ use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::thread_frame_router::ThreadFrameRoute;
-use sidekicks_std::mutex_lock::lock;
-
-use daemon_ends::ClaudeStreamDialogPorts;
 
 /// Reports that Claude Code took a message the daemon handed: the session, the message's own id
 /// and the run it was taken by.

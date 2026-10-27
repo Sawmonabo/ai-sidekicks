@@ -3,13 +3,13 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::run::state::RunState;
-
-use crate::run::epochs::{DeliveryAttribution, EpochBinding};
-use crate::run::inbound::AbsorbedDelivery;
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use sidekicks_provider::run::delivery::{InboundOutcome, LateEventAbsorbReason};
+
+use crate::run::epochs::{DeliveryAttribution, EpochBinding};
+use crate::run::inbound::AbsorbedDelivery;
 
 // The reason as the diagnostic's details name it.
 fn reason_name(reason: LateEventAbsorbReason) -> &'static str {

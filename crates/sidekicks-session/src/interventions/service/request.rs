@@ -13,9 +13,9 @@ use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 
 use crate::interventions::interrupt_queue::InterruptChoice;
-use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 
 /// The type of intervention `request` asks for.
 pub(super) fn intervention_type_of(request: &AgentRunInterveneRequest) -> InterventionType {

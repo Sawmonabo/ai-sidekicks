@@ -7,7 +7,6 @@ use sidekicks_contracts::machine::settings::{
     EnvironmentNameRefusalReason, EnvironmentRow, ProjectBranchPatternRefusedDetails,
     ProjectEnvironmentNameRefusedDetails, environment_name_refusal,
 };
-
 use sidekicks_ipc::domain_error::DomainError;
 
 /// What the page says under a refused row, for each reason.

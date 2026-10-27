@@ -15,6 +15,9 @@ use sidekicks_contracts::workflow::definition::methods::{
     WorkflowDefinitionUpdateRequest,
 };
 use sidekicks_contracts::workflow::definition::refusals::WorkflowDefinitionFinding;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use super::{
     WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY, WorkflowDefinitionStore,
@@ -25,9 +28,6 @@ use crate::definitions::errors::DefinitionRefusal;
 use crate::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::schema::schema_parts;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 /// A document of `name` whose trigger feeds its one node, which the graph check passes.
 fn document(name: &str, path: &str) -> Value {

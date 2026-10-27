@@ -18,6 +18,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
 use crate::driver::claude::DESCRIPTOR;
@@ -29,7 +30,6 @@ use crate::driver::claude::session::transport::declarations::{
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use sidekicks_std::mutex_lock::lock;
 
 // The scope a command Claude Code runs only in its own terminal screen is listed with.
 const TERMINAL_COMMAND_SCOPE: &str = "terminal";

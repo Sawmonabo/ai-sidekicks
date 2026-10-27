@@ -12,7 +12,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
-
 use sidekicks_provider::port::permission_ask::ProviderAskAction;
 
 /// What an ask is about, kept as the request row's descriptor and drawn by the card; it holds only

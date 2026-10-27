@@ -6,7 +6,6 @@
 )]
 
 use sidekicks_contracts::wire::integer::SafeInt;
-
 use sidekicks_provider::driver::session_control::{SubagentDefinition, SubagentPolicy};
 
 /// What a session's helper policy is assembled from.

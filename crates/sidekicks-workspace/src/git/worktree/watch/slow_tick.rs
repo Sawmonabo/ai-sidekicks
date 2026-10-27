@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
 use sidekicks_contracts::place::Place;
+use sidekicks_std::missing_entry::is_gone;
 
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::reads::read_uncommitted_paths;
-use sidekicks_std::missing_entry::is_gone;
 
 /// One listed path and what its entry holds: its length and modified time, `None` for a path
 /// status lists that names nothing (a deleted file).

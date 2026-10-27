@@ -6,13 +6,13 @@
 
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::driver::tools::IdempotencyClass;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::output_validation::{
     CLI_VERSION_RAW_MAX_LEN, CLI_VERSION_SEMVER_MAX_LEN, RESUME_HANDLE_MAX_LEN,
 };
-use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
-use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The worktrees' list and the provider drivers' own part.
 pub fn schema_parts() -> SchemaParts {

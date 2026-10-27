@@ -9,7 +9,6 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-
 use sidekicks_store::credential_store::KeychainRefusal;
 use sidekicks_store::events::log_service::SessionAppendRefusal;
 

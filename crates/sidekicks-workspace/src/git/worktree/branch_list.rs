@@ -21,6 +21,12 @@ use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitError, GitRunner};
@@ -31,12 +37,6 @@ use crate::git::worktree::reads::{
 };
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
 use crate::repo::errors::RepoRefusal;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 static SELECT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(

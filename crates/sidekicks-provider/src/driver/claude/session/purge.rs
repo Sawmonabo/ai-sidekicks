@@ -9,6 +9,7 @@ use std::path::Path;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 use crate::driver::claude::session::conversation_file::{
     ClaudeConversation, ClaudeConversationFolders, delete_claude_conversations,
@@ -16,7 +17,6 @@ use crate::driver::claude::session::conversation_file::{
 use crate::driver::claude::session::rules::ClaudeProjectFolder;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::session_control::PurgeSessionParams;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 /// Where a session's conversations ran, the same for each of its account homes.
 pub(crate) struct ClaudePurgePlace<'a> {

@@ -4,7 +4,6 @@
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::app_diagnostic::{AppDiagnosticRecord, DaemonAppDiagnosticRecord};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };

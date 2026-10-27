@@ -11,14 +11,9 @@ use sidekicks_contracts::session::directory::{
     SessionActivity, SessionListChange, SessionListEntry,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::time::timeout;
-
-use crate::directory::list_feed::subscriber::SessionListSubscriber;
-use crate::directory::list_feed::{SessionListFeed, SessionListOpening};
-use crate::questions::schema::schema_parts;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::stream::feed::{CreditGate, Feed as _};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
@@ -27,6 +22,11 @@ use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_workspace::managed::service::SessionListRefresh as _;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::test_rows::PARENT_ROWS_AT;
+use tokio::time::timeout;
+
+use crate::directory::list_feed::subscriber::SessionListSubscriber;
+use crate::directory::list_feed::{SessionListFeed, SessionListOpening};
+use crate::questions::schema::schema_parts;
 
 // Past the renewal interval, so a paused clock reaches a renewal before the wait ends.
 const WAIT: Duration = Duration::from_secs(30);

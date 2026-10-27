@@ -13,14 +13,6 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-
-use super::{EMPTIED_RUN_DETAIL, RunQueue};
-use crate::delivery::{InterruptHoldRelease, QueueWithdrawal, reordered_of};
-use crate::error::QueueError;
-use crate::refusals::{
-    UnreturnedReason, left_queue_refusal, queue_item_not_found, unreturned_refusal,
-};
-use crate::session_lock::UnreleasedInterrupts;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 use sidekicks_session::interventions::interrupt_queue::{
     InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
@@ -40,6 +32,14 @@ use sidekicks_session::run::read::{read_run_through, safe_run_version};
 use sidekicks_session::run::refusals::RunRefusal;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_store::database::connection::read_pool::ReadLength;
+
+use super::{EMPTIED_RUN_DETAIL, RunQueue};
+use crate::delivery::{InterruptHoldRelease, QueueWithdrawal, reordered_of};
+use crate::error::QueueError;
+use crate::refusals::{
+    UnreturnedReason, left_queue_refusal, queue_item_not_found, unreturned_refusal,
+};
+use crate::session_lock::UnreleasedInterrupts;
 
 // What a release left unsettled records once its choice settled, applied or not due: nothing more
 // to apply, only what the hold held back to settle.

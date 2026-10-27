@@ -446,9 +446,9 @@ mod tests {
     use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{ClaudeRunRoutes, TurnHeld};
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn binding() -> RuntimeBindingId {
         RuntimeBindingId::new("binding".to_owned()).expect("a binding id")

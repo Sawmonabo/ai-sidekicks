@@ -14,7 +14,6 @@ use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, E
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::list::BoundedVec;
-
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::events::session::append_lock::SessionAppendHold;

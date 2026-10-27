@@ -21,18 +21,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::TextError;
-
-use crate::driver_resolution::LiveRunDriverError;
-use crate::questions::schema::QuestionState;
-use crate::questions::store::{
-    insert_question_statement, read_question, read_unsettled_among, settle_question_statement,
-};
-use crate::questions::waits::QuestionWaits;
-use crate::run::engine::{RunEngine, RunEngineError};
-use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -51,6 +42,15 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
+
+use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::schema::QuestionState;
+use crate::questions::store::{
+    insert_question_statement, read_question, read_unsettled_among, settle_question_statement,
+};
+use crate::questions::waits::QuestionWaits;
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod tests;

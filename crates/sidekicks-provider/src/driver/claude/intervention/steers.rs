@@ -8,6 +8,7 @@ use std::sync::Arc;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use super::held_steers::ClaudeSteer;
@@ -26,7 +27,6 @@ use crate::driver::claude::session::transport::user_message::{
 use crate::driver::contract::DriverError;
 use crate::driver::run_control::{ApplyInterventionResponse, SteerPayload, SteerTurnEndedError};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeInterventions {
     // A steer's place is taken before anything is awaited: the session's fair lock is asked for

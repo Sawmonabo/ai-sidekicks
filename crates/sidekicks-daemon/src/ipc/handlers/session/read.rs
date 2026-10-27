@@ -9,7 +9,6 @@ use futures::FutureExt as _;
 use sidekicks_contracts::session::methods::{
     SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
 };
-
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -111,13 +110,9 @@ mod tests {
     use sidekicks_contracts::session::draft::{SessionAttachmentSummary, SessionDraftUpdate};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionRead;
-    use sidekicks_platforms::PathRules;
-
-    use super::register_session_read;
-    use crate::ipc::handlers::session::draft_update::register_session_draft_update;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
+    use sidekicks_platforms::PathRules;
     use sidekicks_provider::driver::ClaudeSessionInboxAddresser;
     use sidekicks_session::addresses::SessionInboxAddresses;
     use sidekicks_session::draft_store::{
@@ -129,6 +124,10 @@ mod tests {
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::events::log_service::test_log::open_log;
+
+    use super::register_session_read;
+    use crate::ipc::handlers::session::draft_update::register_session_draft_update;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     /// A session with no files staged.
     struct NoStagedAttachments;

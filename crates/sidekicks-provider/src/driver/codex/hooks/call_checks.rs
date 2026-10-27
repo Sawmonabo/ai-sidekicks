@@ -22,6 +22,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::resolve_path_against;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_policy::shell_commands::unwrap_shell_command_line;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -39,9 +42,6 @@ use crate::port::permission_ask::{
 };
 use crate::port::registration::PortRegistration;
 use crate::port::session_rules::SessionRulePort;
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_policy::shell_commands::unwrap_shell_command_line;
-use sidekicks_std::mutex_lock::lock;
 
 /// The tool Codex names a shell command by at its hooks.
 const CODEX_HOOK_SHELL_TOOL: &str = "Bash";
@@ -454,6 +454,8 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
     use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
     use tokio_util::task::TaskTracker;
@@ -470,8 +472,6 @@ mod tests {
     };
     use crate::port::registration::PortRegistration;
     use crate::port::session_rules::SessionRulePort;
-    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 
     type PortFailure = Box<dyn Error + Send + Sync>;
 

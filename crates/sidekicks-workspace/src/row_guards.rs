@@ -11,14 +11,14 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::file::bounded_read::read_within_ceiling;
+use sidekicks_store::database::stored_column::{StoredJsonFault, parse_stored_json_object};
+use sidekicks_store::database::writer::WriteError;
 
 use crate::errors::{
     WorkspaceRefusal, WorkspaceServiceInvariantError, WorkspaceServiceInvariantKind,
 };
 use crate::projector::FilesystemPathProbe;
-use sidekicks_std::file::bounded_read::read_within_ceiling;
-use sidekicks_store::database::stored_column::{StoredJsonFault, parse_stored_json_object};
-use sidekicks_store::database::writer::WriteError;
 
 /// The JSON path in `repo_mounts.metadata` of the mount's identity anchor: the git common folder,
 /// each link resolved, that its attach recorded.

@@ -31,9 +31,6 @@ use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
-use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 use sidekicks_provider::driver::run_control::PickedSkill;
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
@@ -42,6 +39,9 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
+
+use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// What a queued message carries, as its payload stores it: the words and what rides with them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

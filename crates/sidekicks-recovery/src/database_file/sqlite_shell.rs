@@ -18,6 +18,9 @@ use std::sync::LazyLock;
 use memchr::memmem::Finder;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::Spawner;
+use sidekicks_std::helper_mode::child::start_helper_mode_child;
+use sidekicks_std::helper_mode::error_output::read_error_output_tail;
+use sidekicks_store::database::schema::SESSION_EVENTS_TABLE;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::watch;
@@ -27,9 +30,6 @@ use crate::database_file::stall_watch::{
     RECOVERY_STALL_WINDOW, RecoveryStallWatch, ShellProcessorTimeReader, ShellProcessorTimes,
 };
 use crate::database_file::{ERROR_OUTPUT_KEPT_BYTES, READ_BUSY_TIMEOUT};
-use sidekicks_std::helper_mode::child::start_helper_mode_child;
-use sidekicks_std::helper_mode::error_output::read_error_output_tail;
-use sidekicks_store::database::schema::SESSION_EVENTS_TABLE;
 
 /// The arguments the daemon's own program is started with to run SQLite's shell; the shell's own
 /// arguments follow them.

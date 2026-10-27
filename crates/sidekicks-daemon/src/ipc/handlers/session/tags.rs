@@ -8,7 +8,6 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::session::tags::{
     SessionTagAdd, SessionTagList, SessionTagRemove, SessionTagRequest,
 };
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_session::tags::SessionTagService;
 

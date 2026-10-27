@@ -20,14 +20,6 @@ use sidekicks_contracts::session::recovery::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio_util::sync::CancellationToken;
-
-use crate::projection_rebuild::{
-    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
-    mark_stale_statement,
-};
-use crate::restart_settle::{RestartSettle, RestartSettleError};
-use crate::status::{LastGoodPoint, RecoveryStatusTracker};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_session::directory::lookups::session_exists;
@@ -49,6 +41,14 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::read::SessionLogReadError;
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use tokio_util::sync::CancellationToken;
+
+use crate::projection_rebuild::{
+    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
+    mark_stale_statement,
+};
+use crate::restart_settle::{RestartSettle, RestartSettleError};
+use crate::status::{LastGoodPoint, RecoveryStatusTracker};
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
 /// whether a session has a row.

@@ -8,10 +8,10 @@ use sidekicks_contracts::workflow::run::step::methods::{
     WorkflowStepReadResponse,
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
+use sidekicks_store::database::stored_column::text_column;
 
 use crate::not_found::WorkflowNotFound;
 use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
-use sidekicks_store::database::stored_column::text_column;
 
 /// The statements a [`WorkflowStepPayloadReader`] prepares on a read connection: one per payload a
 /// step stores.

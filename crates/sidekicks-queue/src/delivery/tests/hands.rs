@@ -12,6 +12,14 @@ use rstest::rstest;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::ports::{
+    MessageGivenBackListener as _, MessageRefusedListener as _, MessageTakenListener as _,
+};
+use sidekicks_provider::driver::run_control::RunToolBoundary;
+use sidekicks_session::driver_resolution::read_run_driver;
+use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::timeout;
 
@@ -21,14 +29,6 @@ use super::{
     set_run_state, settle, steered_item, stored_item,
 };
 use crate::delivery::{DeliveryError, InterruptHoldRelease};
-use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
-use sidekicks_provider::driver::ports::{
-    MessageGivenBackListener as _, MessageRefusedListener as _, MessageTakenListener as _,
-};
-use sidekicks_provider::driver::run_control::RunToolBoundary;
-use sidekicks_session::driver_resolution::read_run_driver;
-use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 
 /// What the provider reports of a message it was handed, through the queue's listener ports.
 #[derive(Clone, Copy, Debug)]

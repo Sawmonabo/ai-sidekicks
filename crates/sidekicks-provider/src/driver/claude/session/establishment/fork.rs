@@ -8,6 +8,8 @@ use std::sync::Arc;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 use super::context::ClaudeSpawnContextError;
 use super::{
@@ -27,8 +29,6 @@ use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;
 use crate::runtime_binding::store::RuntimeBindingRebind;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeSessionEstablishment {
     /// Forks `predecessor`'s conversation at the turn `params` names and moves the session onto

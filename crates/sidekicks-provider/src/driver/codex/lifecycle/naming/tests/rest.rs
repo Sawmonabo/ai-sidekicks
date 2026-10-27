@@ -8,6 +8,7 @@ use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::service::home::CodexServiceHome;
@@ -21,7 +22,6 @@ use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::test_store::record_session_leg;
-use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// How long a rename that asks Codex nothing may take.
 const NOTHING_SENT_BOUND: Duration = Duration::from_secs(5);

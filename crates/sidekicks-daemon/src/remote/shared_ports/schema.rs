@@ -29,8 +29,9 @@ CREATE TABLE shared_ports (
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::schema_parts;
     use sidekicks_store::database::connection::writer_open::open_database;
+
+    use super::schema_parts;
 
     /// The daemon's whole schema opens with every foreign key naming a table it holds and nothing
     /// dangling. Mutation: misspell a `REFERENCES` target.

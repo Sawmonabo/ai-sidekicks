@@ -6,9 +6,6 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use secrecy::SecretString;
 use sidekicks_platforms::CredentialStore;
-use tokio::sync::{Notify, watch};
-
-use super::{DataErase, DataEraseDeps, DataEraseRefusal};
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -16,6 +13,9 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::credential_store::service::KeychainService;
+use tokio::sync::{Notify, watch};
+
+use super::{DataErase, DataEraseDeps, DataEraseRefusal};
 
 type CallLog = Arc<Mutex<Vec<String>>>;
 

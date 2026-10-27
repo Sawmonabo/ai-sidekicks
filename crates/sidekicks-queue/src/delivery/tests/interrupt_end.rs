@@ -5,6 +5,11 @@ use std::sync::Arc;
 
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
+use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventLinkage};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::time::timeout;
 
 use super::{
@@ -12,11 +17,6 @@ use super::{
     insert_item, item_ids, set_run_state, settle, stored_item,
 };
 use crate::delivery::InterruptEndWrites;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::run_control::InterruptPendingChoice;
-use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
-use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventLinkage};
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// A run with three messages waiting: the first two handed to the provider, the third not.
 async fn interrupted_fixture() -> (Fixture, [QueueItemRecord; 3]) {

@@ -19,13 +19,13 @@ use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use strum::IntoStaticStr;
 
 use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use sidekicks_std::mutex_lock::lock;
 
 /// An error a seam, executor or sink returns: anything that failed, with its causes.
 pub type CallbackToolPortError = Box<dyn Error + Send + Sync>;

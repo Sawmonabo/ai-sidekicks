@@ -7,12 +7,12 @@ use std::error::Error;
 use std::sync::Arc;
 
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_std::keyed_wait::KeyedWaits;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use super::{ApprovalService, RaisedCardKey, RaisedRequestSettlement};
-use sidekicks_std::keyed_wait::KeyedWaits;
-use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 
 /// The task that cancels closed sessions' asks and its follower of closes, from
 /// [`ApprovalService::start`] until [`ApprovalSweep::stop`].

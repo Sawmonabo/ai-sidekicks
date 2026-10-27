@@ -19,6 +19,7 @@ use sidekicks_contracts::name_fold::fold_name;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::id::UuidText;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
@@ -36,14 +37,6 @@ use sidekicks_contracts::workflow::definition::methods::{
 use sidekicks_contracts::workflow::definition::refusals::{
     WorkflowDefinitionFinding, WorkflowNodeHandles, check_workflow_graph,
 };
-
-use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
-use crate::definitions::drafts::clear_workflow_draft_statement;
-use crate::definitions::errors::DefinitionRefusal;
-use crate::definitions::kept_values::clear_kept_values_statement;
-use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
-use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -54,6 +47,13 @@ use sidekicks_store::database::statement::{
 use sidekicks_store::database::stored_column::safe_int_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
+
+use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
+use crate::definitions::drafts::clear_workflow_draft_statement;
+use crate::definitions::errors::DefinitionRefusal;
+use crate::definitions::kept_values::clear_kept_values_statement;
+use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
+use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
 /// version a refused save is told about.

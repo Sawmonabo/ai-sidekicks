@@ -24,6 +24,9 @@ use jiff::Timestamp;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_platforms::{create_new_file, path_from_program_output};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::missing_entry::MissingEntry;
 use tokio::task::JoinError;
 
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder, strip_line_end};
@@ -35,9 +38,6 @@ use crate::git::turn_snapshot::capture::{
     join_nul_terminated_listing, split_nul_terminated_listing_bytes, to_raw_git_date,
 };
 use crate::git::turn_snapshot::refs::USE_REPLACE_REFS_PIN;
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::missing_entry::MissingEntry;
 
 const INDEX_COPY_OPERATION: &str = "copying the live index to the scratch index";
 

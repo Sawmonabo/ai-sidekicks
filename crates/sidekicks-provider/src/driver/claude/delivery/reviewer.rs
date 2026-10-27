@@ -14,6 +14,8 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::system::read_provider_words;
@@ -23,8 +25,6 @@ use crate::driver::diagnostics::{
 use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::record_readers::read_non_empty_string;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
 
 /// The action as Claude Code's `PermissionDenied` hook received it, kept with the block so an
 /// `Allow once` still names it after a restart.

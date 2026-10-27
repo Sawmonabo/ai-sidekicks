@@ -22,14 +22,14 @@ use std::borrow::Cow;
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope, RememberedScopeKind};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::text::{NonEmptyText, TextError, is_ecmascript_whitespace};
-use tokio::task::JoinError;
-
-use crate::request_create::ApprovalResourceDescriptor;
 use sidekicks_policy::destructive_git::{read_git_subcommand, runs_destructive_git};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
 use sidekicks_provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use sidekicks_std::text_cut::cut_to_code_points;
+use tokio::task::JoinError;
+
+use crate::request_create::ApprovalResourceDescriptor;
 
 /// A provider ask as the approval service raises it.
 #[derive(Clone, Debug, PartialEq, Eq)]

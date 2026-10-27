@@ -14,7 +14,6 @@ use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, S
 use sidekicks_contracts::method_descriptor::NullPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::{False, True};
-
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,

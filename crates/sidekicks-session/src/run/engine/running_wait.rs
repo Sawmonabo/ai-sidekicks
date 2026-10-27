@@ -9,9 +9,8 @@ use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-use tokio::sync::Notify;
-
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 
 use crate::run::engine::live::LiveRuns;
 use crate::run::engine::{RunEngine, RunEngineError};

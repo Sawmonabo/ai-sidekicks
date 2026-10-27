@@ -21,13 +21,13 @@ use sidekicks_platforms::{
     Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
     leave_daemon_scope, read_child_exit, spawn_lasting_child, wrap_child_command,
 };
+use sidekicks_std::process_exit::{OUTPUT_CHUNK_BYTES, OutputTail, compose_process_exit};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
 use crate::service_log::{open_provider_service_log, read_provider_service_log_tail};
-use sidekicks_std::process_exit::{OUTPUT_CHUNK_BYTES, OutputTail, compose_process_exit};
 
 /// The variable that opens a lasting service's shutdown socket; Codex reads it only on Windows.
 const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME: &str = "CODEX_DAEMON_SHUTDOWN_SOCKET";

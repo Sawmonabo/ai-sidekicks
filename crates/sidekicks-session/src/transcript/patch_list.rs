@@ -24,8 +24,6 @@ use sidekicks_contracts::transcript::content::{
 use sidekicks_contracts::transcript::row::TranscriptOmittedPatch;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::BoundedText;
-
-use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
@@ -35,6 +33,8 @@ use sidekicks_store::events::session::read::{SessionEventReads, readable_event_s
 use sidekicks_store::transcript_whole_patch::{
     OMITTED_PATCHES_PAYLOAD_KEY, WholePatchFile, patch_file_of_header, text_of_part,
 };
+
+use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
 // The call's newest readable completion row, found by the call the insert stamped on it: its
 // sequence and the files it names.

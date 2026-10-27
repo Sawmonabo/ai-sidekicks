@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde_json::{Value, json};
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
 use tokio_util::task::AbortOnDropHandle;
 
@@ -20,7 +21,6 @@ use crate::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
     McpToolCallError, extract_mcp_task_id, observe_mcp_task_acceptance,
 };
-use sidekicks_std::mutex_lock::lock;
 
 /// A task's `tasks/result` held in a task of its own while the polls go on; dropped, it stops
 /// waiting and the server is told the request is canceled.
@@ -215,6 +215,7 @@ async fn read_result(
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
+    use sidekicks_provider::port::question::QuestionPort as _;
     use tokio::time::{Duration, Instant, timeout};
 
     use super::read_task;
@@ -227,7 +228,6 @@ mod tests {
         method_not_found, open_test_server, test_client, text_result, track_call, track_dispatch,
         v1_initialize_result,
     };
-    use sidekicks_provider::port::question::QuestionPort as _;
 
     /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
     /// through `poll_reply` with the poll's number and `tasks/result` through `result_reply`.

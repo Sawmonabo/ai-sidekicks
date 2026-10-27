@@ -10,11 +10,6 @@ use rstest::rstest;
 use sidekicks_contracts::run::control::AgentRunResumeRequest;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::integer::SafeInt;
-
-use super::{
-    HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand, insert_item,
-    set_run_state, settle, stored_item,
-};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::TakenMessages;
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
@@ -25,6 +20,11 @@ use sidekicks_session::run::engine::tests::test_engine;
 use sidekicks_session::run::pause::test_answers::unanswered;
 use sidekicks_session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+
+use super::{
+    HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand, insert_item,
+    set_run_state, settle, stored_item,
+};
 
 /// A provider whose process keeps a message past its run's end, for a turn it starts with it.
 const KEPT_BY_PROCESS: MessageHanding = MessageHanding {

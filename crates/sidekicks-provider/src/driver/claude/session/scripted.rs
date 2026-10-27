@@ -22,6 +22,10 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::SetOnce;
@@ -63,10 +67,6 @@ use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::spawned_build;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner};
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {

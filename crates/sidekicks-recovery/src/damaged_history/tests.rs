@@ -4,22 +4,22 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use serde_json::json;
+use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::SessionRecoveryRefusedReason;
-use tokio_util::sync::CancellationToken;
-
-use super::RecoveryActionError;
-use crate::session_write_refusal::refuse_call_naming_session;
-use crate::test_pass::PassFixture;
-use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_session::run::engine::tests::stored_run_state;
 use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SESSION_SERVICE_STATEMENT_CAPACITY, SessionService,
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::test_session_id;
+use tokio_util::sync::CancellationToken;
+
+use super::RecoveryActionError;
+use crate::session_write_refusal::refuse_call_naming_session;
+use crate::test_pass::PassFixture;
 
 // A pass leaves a session damaged mid-log beside a healthy one; `Continue from here` then skips
 // the damaged events through the head under the hold it took, settles the session's run, its

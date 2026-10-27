@@ -5,10 +5,9 @@ use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use tokio::task::JoinError;
-
 use sidekicks_std::processor_bound::map_with_processor_bound;
 use sidekicks_std::settle_all::SettleFailures;
+use tokio::task::JoinError;
 
 /// Why one flush to disk failed.
 #[derive(Debug, thiserror::Error)]

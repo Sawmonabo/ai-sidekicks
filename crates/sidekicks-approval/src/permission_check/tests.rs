@@ -12,14 +12,6 @@ use sidekicks_contracts::approval::{
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tempfile::TempDir;
-use tokio_util::sync::CancellationToken;
-
-use super::test_fixture::{TestPermissionCheck, test_permission_check};
-use super::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
-use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
-use crate::rules::ApprovalRules;
-use crate::service::tests::{ApprovalFixture, from_json};
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::PROVIDERS;
@@ -29,6 +21,14 @@ use sidekicks_provider::port::permission_ask::{
 };
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_std::mutex_lock::lock;
+use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
+
+use super::test_fixture::{TestPermissionCheck, test_permission_check};
+use super::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
+use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::rules::ApprovalRules;
+use crate::service::tests::{ApprovalFixture, from_json};
 
 /// The approval fixture with the permission check and the rules over it.
 pub(crate) struct CheckFixture {

@@ -12,19 +12,13 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use sidekicks_platforms::{WallClock, volume_free_bytes};
-use tokio_util::sync::CancellationToken;
-
-use crate::ipc::handlers::artifact::ingest::register_artifact_ingest;
-use crate::ipc::handlers::artifact::list::register_artifact_list;
-use crate::ipc::handlers::artifact::publish::register_artifact_publish;
-use crate::ipc::handlers::artifact::read::register_artifact_read;
 use sidekicks_artifact::admission::UploadAdmission;
 use sidekicks_artifact::attachment_resolver::ArtifactAttachmentResolver;
 use sidekicks_artifact::ingest::service::ArtifactIngestService;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
+use sidekicks_platforms::{WallClock, volume_free_bytes};
 use sidekicks_std::scheduler::budget::{
     BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
 };
@@ -35,6 +29,12 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tokio_util::sync::CancellationToken;
+
+use crate::ipc::handlers::artifact::ingest::register_artifact_ingest;
+use crate::ipc::handlers::artifact::list::register_artifact_list;
+use crate::ipc::handlers::artifact::publish::register_artifact_publish;
+use crate::ipc::handlers::artifact::read::register_artifact_read;
 
 /// The artifact store's folder in the data folder.
 pub(crate) const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
@@ -216,13 +216,13 @@ mod tests {
     use std::sync::Arc;
 
     use sha2::{Digest as _, Sha256};
+    use sidekicks_artifact::payload_store::ContentHash;
+    use sidekicks_artifact::test_store::{ArtifactTestStore, write_payload_reference};
+    use sidekicks_ipc::registry::MethodRegistryBuilder;
     use sidekicks_platforms::WallClockTimer;
     use tokio_util::sync::CancellationToken;
 
     use super::{ARTIFACTS_FOLDER_NAME, ArtifactMethodsDeps, register_artifact_methods};
-    use sidekicks_artifact::payload_store::ContentHash;
-    use sidekicks_artifact::test_store::{ArtifactTestStore, write_payload_reference};
-    use sidekicks_ipc::registry::MethodRegistryBuilder;
 
     // One reaper pass sweeps the payloads no reference names and keeps a referenced one. Killed by
     // the sweep left out of the reaper's pass.

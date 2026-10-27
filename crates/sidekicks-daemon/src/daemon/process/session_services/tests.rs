@@ -4,6 +4,10 @@
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, Weak};
 
+use sidekicks_artifact::admission::UploadAdmission;
+use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_artifact::plans::store::StoredPlanHolds;
+use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -11,23 +15,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::events::SessionLifecycleChangePayload;
 use sidekicks_contracts::session::id::{SessionId, UserId};
 use sidekicks_contracts::session::methods::SessionState;
-
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{Spawner, WallClockTimer};
-use tempfile::TempDir;
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
-
-use super::{
-    SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
-};
-use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
-use crate::remote::shared_ports::schema::schema_parts;
-use sidekicks_artifact::admission::UploadAdmission;
-use sidekicks_artifact::payload_store::PayloadStore;
-use sidekicks_artifact::plans::store::StoredPlanHolds;
-use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
@@ -61,6 +51,15 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceService, managed_wor
 use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
 };
+use tempfile::TempDir;
+use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
+
+use super::{
+    SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
+};
+use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
+use crate::remote::shared_ports::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 64;

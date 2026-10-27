@@ -6,8 +6,9 @@
 
 use std::sync::Arc;
 
-use crate::driver::{BackgroundWork, ProviderDescriptor};
 use sidekicks_policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
+
+use crate::driver::{BackgroundWork, ProviderDescriptor};
 
 /// Every registered provider's background work: the names its command runs under, the
 /// subcommands and flags that start the work, and the refusal an agent reads. Built once at the
@@ -161,10 +162,10 @@ fn is_option(word: impl WordText, option: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
+    use sidekicks_policy::shell_commands::ShellLineReader;
 
     use super::{BackgroundWorkForms, refuse_background_work};
     use crate::driver::PROVIDERS;
-    use sidekicks_policy::shell_commands::ShellLineReader;
 
     // Far past every line here, so the cases read the walk and never the cap.
     const LIMIT: usize = 4096;

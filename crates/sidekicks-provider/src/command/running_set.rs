@@ -19,6 +19,9 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
@@ -31,9 +34,6 @@ use crate::port::running_command_publisher::{
     WriteCommandInputParams, command_act_unsupported,
 };
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::mutex_lock::lock;
 
 mod feed;
 

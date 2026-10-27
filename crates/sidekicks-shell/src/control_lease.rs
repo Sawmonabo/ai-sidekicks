@@ -44,11 +44,11 @@ use sidekicks_contracts::terminal::control::{
 };
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::TransportId;
 
 use crate::control_lease::write_admission::WaitingWrite;
 pub(crate) use crate::control_lease::write_admission::WriteAdmission;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::TransportId;
 
 /// One device connection: the device and the connection it called on.
 #[derive(Clone, Debug)]

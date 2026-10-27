@@ -10,9 +10,9 @@ use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 /// The statements [`read_unfinished_discards`] runs: the one listing read.
 pub const UNFINISHED_DISCARD_STATEMENT_CAPACITY: usize = 1;

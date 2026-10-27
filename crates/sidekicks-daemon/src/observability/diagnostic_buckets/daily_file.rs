@@ -18,7 +18,6 @@ use jiff::civil::Date;
 use serde::Serialize;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
-
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::mutex_lock::lock;
 

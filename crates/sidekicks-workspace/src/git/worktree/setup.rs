@@ -32,6 +32,10 @@ use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
 use sidekicks_platforms::Spawner;
+use sidekicks_std::elapsed::elapsed_ms_since;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 
@@ -45,10 +49,6 @@ use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
 use crate::trust_envelope::is_contained_within;
-use sidekicks_std::elapsed::elapsed_ms_since;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 /// How long a command ended because its tree is being removed has after it is asked to stop
 /// before every process it started is ended: the grace terminal programs give a process they close.

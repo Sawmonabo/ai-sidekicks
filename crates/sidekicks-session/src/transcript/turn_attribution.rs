@@ -22,14 +22,14 @@ use sidekicks_contracts::transcript::turn_attribution::{
     standing_after_turn_started, transcript_run_stamp_at, transcript_tool_call_id_of,
 };
 use sidekicks_contracts::wire::id::IdError;
+use sidekicks_store::database::stored_column::json_object_column;
+use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
 use crate::run::superseded::{
     StoredRollbackMismatchError, SupersededTurnsReadError, parse_stored_rollback,
     read_superseded_turns,
 };
 use crate::run::transitions::is_run_terminal_event_type;
-use sidekicks_store::database::stored_column::json_object_column;
-use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
 /// Why an event could not be attributed to its turn.
 #[derive(Debug, thiserror::Error)]
@@ -395,11 +395,11 @@ mod tests {
     use sidekicks_contracts::event::registry::SessionEventType;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
     use super::{RunTurnReads, SessionTurnAttribution};
     use crate::questions::schema::schema_parts;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
     fn run_event(
         session_id: &SessionId,

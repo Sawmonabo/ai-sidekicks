@@ -16,12 +16,12 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{UuidText, UuidTextForm};
-
-use crate::questions::schema::QuestionState;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+
+use crate::questions::schema::QuestionState;
 
 const INSERT_QUESTION_SQL: &str = "INSERT INTO questions
   (id, session_id, run_id, wait_id, is_agent_waiting, state)

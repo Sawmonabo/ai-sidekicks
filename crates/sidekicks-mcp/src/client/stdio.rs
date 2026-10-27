@@ -22,6 +22,13 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     ChildEnd, Spawner, ask_child_to_stop, read_child_exit, wrap_session_child_command,
 };
+use sidekicks_provider::spawn_environment::{
+    ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
+    remove_environment_names,
+};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
+use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 use tokio::io::AsyncRead;
 use tokio::process::Command;
 use tokio::sync::{mpsc, watch};
@@ -31,13 +38,6 @@ use crate::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
 };
 use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
-use sidekicks_provider::spawn_environment::{
-    ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
-    remove_environment_names,
-};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
-use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 
 /// How long a closed server may take to end after its input closed, and again after `SIGTERM`.
 const CLOSE_STEP_WAIT: Duration = Duration::from_secs(2);
@@ -350,16 +350,16 @@ mod tests {
     use sidekicks_platforms::{
         POSIX_SHELL, PathRules, Spawner, shell_line_command, wrap_session_child_command,
     };
+    use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::spawn_environment::{
+        ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
+    };
     use tokio::io::AsyncReadExt as _;
 
     use super::{LOGGED_LINE_MAX_BYTES, McpStdioServer, StdioProcess, error_output_line_text};
     use crate::client::connection::{McpConnectionError, McpServerConnection};
     use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, test_scope, v1_initialize_result,
-    };
-    use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_provider::spawn_environment::{
-        ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     };
 
     // Mutations: in `start_stdio`, leave stderr unpiped, or drop the tail `supervise_child`

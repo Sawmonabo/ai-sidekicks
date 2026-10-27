@@ -6,10 +6,9 @@ use std::sync::LazyLock;
 
 use sidekicks_contracts::repo::mount::ExecutionMode;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
-use strum::VariantArray;
-
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
+use strum::VariantArray;
 
 /// The worktree part of the daemon's schema: worktrees, the kept copies of removed ones, branch
 /// contexts and each run's execution context, in foreign-key order.

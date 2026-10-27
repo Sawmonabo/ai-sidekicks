@@ -42,6 +42,15 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
 use sidekicks_platforms::WallClock;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::session::appender::SessionEventAppender;
 use tokio::task::JoinError;
 
 use crate::admission::{AdmittedUpload, UploadAdmission};
@@ -61,15 +70,6 @@ use crate::validation::{
     FILE_NAME_MEMBER, SpooledPayload, Utf8Check, keep_leading_bytes, normalize_file_name,
     validate_and_store,
 };
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::missing_entry::MissingEntry as _;
-use sidekicks_std::mutex_lock::lock;
-#[cfg(test)]
-use sidekicks_std::pause_point::PausePoint;
-use sidekicks_std::scheduler::budget::ProcessorMeter;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::events::session::appender::SessionEventAppender;
 
 // The mode of a spool file: its owner's alone.
 const SPOOL_FILE_MODE: u32 = 0o600;

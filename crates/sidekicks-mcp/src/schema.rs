@@ -2,11 +2,12 @@
 //! side-effecting tool call from running twice across a restart, and the handle a task-augmented
 //! call is resumed by.
 
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
+
 use crate::client::tasks::McpTaskGeneration;
 use crate::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::command_receipts::{CommandAcceptance, CommandOutcome};
-use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
-use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The provider drivers' list and the command receipts' own part.
 pub fn schema_parts() -> SchemaParts {

@@ -7,13 +7,13 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use notify::{Config, ErrorKind, EventHandler, NullWatcher, RecursiveMode, Watcher, WatcherKind};
 use sidekicks_platforms::WATCHES_TREES;
+use sidekicks_std::mutex_lock::lock;
 use tokio::time::timeout;
 
 use super::{
     FileWatch, FileWatchNotice, WalkFilter, WatchedRoot, lowered_for_clock_step,
     wait_for_the_next_whole_second,
 };
-use sidekicks_std::mutex_lock::lock;
 
 const WAIT: Duration = Duration::from_secs(15);
 

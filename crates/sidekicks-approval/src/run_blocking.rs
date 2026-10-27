@@ -20,13 +20,6 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use tokio::task::{JoinError, JoinHandle};
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
-
-use crate::permission_asks::PermissionAsks;
-use crate::service::ApprovalService;
-use crate::store::ApprovalRequestReader;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_session::run::engine::{RunEngine, RunEngineError};
 use sidekicks_session::run::refusals::RunRefusal;
@@ -41,6 +34,13 @@ use sidekicks_store::events::session::pending::PendingSessions;
 use sidekicks_workspace::run_setup_gates::{
     RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+
+use crate::permission_asks::PermissionAsks;
+use crate::service::ApprovalService;
+use crate::store::ApprovalRequestReader;
 
 /// Why a run's hold was not reconciled; the run keeps the state it had.
 #[derive(Debug, thiserror::Error)]

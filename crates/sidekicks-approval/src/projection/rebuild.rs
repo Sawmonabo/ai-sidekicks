@@ -24,16 +24,16 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::events::projection::{
+    ProjectionContradiction, SessionProjection, SessionProjectionFold,
+};
 
 use crate::request_create::ApprovalResourceDescriptor;
 use crate::store::{
     ApprovalSettlement, InsertedApprovalRequest, InsertedApprovalResolution,
     remembered_scope_statement, rewrite_request_statement, rewrite_resolution_statement,
     settle_pending_statement,
-};
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
-use sidekicks_store::events::projection::{
-    ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 
 // The asks a workflow gate's answer names, which outlive the clear.

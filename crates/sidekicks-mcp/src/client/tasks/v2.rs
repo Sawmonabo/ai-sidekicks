@@ -25,6 +25,9 @@ use rmcp::model::{
 use rmcp::service::ServiceError;
 use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
+use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
+use sidekicks_provider::port::question::ToolServerQuestionAnswer;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use crate::client::calls::TrackedCall;
@@ -35,9 +38,6 @@ use crate::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
     McpToolCallError, QuestionOutcome, QuestionTake, observe_mcp_task_acceptance,
 };
-use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
-use sidekicks_provider::port::question::ToolServerQuestionAnswer;
-use sidekicks_std::mutex_lock::lock;
 
 /// The most input requests of one task the client answers; the rest are ignored.
 const MAX_TASK_INPUT_REQUESTS: usize = 16;

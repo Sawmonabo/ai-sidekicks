@@ -9,14 +9,14 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::time::timeout;
-
-use super::{DriverCalls, WAIT, fixture, recording_driver};
-use crate::error::QueueError;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::RecordedQueueItemState;
+use tokio::time::timeout;
+
+use super::{DriverCalls, WAIT, fixture, recording_driver};
+use crate::error::QueueError;
 
 // A send into a paused run resumes it with the message, which the provider is handed on the
 // continue and reads admitted, and the run is running. Killed by leaving the message waiting

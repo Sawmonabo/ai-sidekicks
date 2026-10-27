@@ -13,6 +13,11 @@ use std::error::Error;
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use answers::{
+    ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,
+    ClaudeHeldQuestion, ClaudeQuestionRoute, compose_claude_ask_answer,
+    compose_claude_question_answer, compose_claude_question_refusal, compose_pre_tool_use_allow,
+};
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -22,12 +27,12 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
-use sidekicks_std::mutex_lock::lock;
-
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::ask_action::read_claude_ask_action;
 use crate::driver::claude::delivery::claude_delivery_origin;
@@ -75,13 +80,6 @@ use crate::port::question::{
 use crate::port::registration::PortRegistration;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome};
-use sidekicks_std::error_description::describe_error;
-
-use answers::{
-    ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,
-    ClaudeHeldQuestion, ClaudeQuestionRoute, compose_claude_ask_answer,
-    compose_claude_question_answer, compose_claude_question_refusal, compose_pre_tool_use_allow,
-};
 
 // The decision reason of an ask an ask rule sent to the host.
 const CLAUDE_RULE_DECISION: &str = "rule";

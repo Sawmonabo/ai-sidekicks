@@ -5,16 +5,15 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_approval::permission_asks::PermissionAsks;
+use sidekicks_approval::projection::read::{ApprovalProjectionReadError, read_approval_projection};
+use sidekicks_approval::reviewer_denials::ReviewerDenials;
+use sidekicks_approval::rules::ApprovalRules;
 use sidekicks_contracts::approval::{
     ApprovalDenialOverride, ApprovalList, ApprovalListRequest, ApprovalListResponse,
     ApprovalResolve, ApprovalRuleList, ApprovalRuleRevoke,
 };
 use sidekicks_contracts::method::Method as _;
-
-use sidekicks_approval::permission_asks::PermissionAsks;
-use sidekicks_approval::projection::read::{ApprovalProjectionReadError, read_approval_projection};
-use sidekicks_approval::reviewer_denials::ReviewerDenials;
-use sidekicks_approval::rules::ApprovalRules;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };

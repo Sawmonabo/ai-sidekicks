@@ -11,12 +11,12 @@ use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_o
 use sidekicks_contracts::session::directory::{SessionListChange, SessionListEntry};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
-use tokio::sync::Notify;
-
-use crate::directory::list_feed::{SessionListFeed, SessionListNotCurrent, SharedList};
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::stream::feed::{Feed, SendGate};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
+
+use crate::directory::list_feed::{SessionListFeed, SessionListNotCurrent, SharedList};
 
 // The opening list's entries one page is cut from at most, so a page never clones the whole list.
 const PAGE_CANDIDATE_LIMIT: usize = 500;

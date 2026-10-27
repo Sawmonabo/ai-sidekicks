@@ -10,11 +10,11 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::DriverError;
 use crate::driver::session_control::SubagentDefinition;
-use sidekicks_std::file::atomic_write::write_file_atomically;
 
 /// A role file is readable and writable by the person alone.
 const ROLE_FILE_MODE: u32 = 0o600;

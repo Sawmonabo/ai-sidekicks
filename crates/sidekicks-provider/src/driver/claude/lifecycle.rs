@@ -19,6 +19,8 @@ use sidekicks_contracts::provider::driver::commands::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
@@ -71,8 +73,6 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
 use crate::spawn_environment::SessionEnvironment;
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {

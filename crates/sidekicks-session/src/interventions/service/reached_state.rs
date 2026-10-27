@@ -16,10 +16,10 @@ use sidekicks_contracts::run::intervention::{
     AgentRunInterveneResponse, InterventionId, InterventionType,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 use super::InterventionTarget;
 use crate::run::read::{RunRead, safe_run_version};
-use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 /// A state an intervention reached, with the reason a rejected or failed one carries.
 pub(in crate::interventions) enum ReachedState {

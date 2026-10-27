@@ -26,15 +26,6 @@ use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPay
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use crate::console_state::advisor_model_change_statement;
-use crate::run::engine::turns::run_live_or_turn_open_statement;
-use crate::run::engine::{RunEngine, RunEngineError};
-use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
-use crate::run::inbound::absorb::absorb;
-use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChange, refused_statement_index};
-use crate::transcript::reasoning::split_reasoning_text;
 use sidekicks_provider::port::inbound_dispatch::InboundDispatch;
 use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
 use sidekicks_provider::run::delivery::{
@@ -51,6 +42,15 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+
+use crate::console_state::advisor_model_change_statement;
+use crate::run::engine::turns::run_live_or_turn_open_statement;
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
+use crate::run::inbound::absorb::absorb;
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::{RunStateChange, refused_statement_index};
+use crate::transcript::reasoning::split_reasoning_text;
 
 /// Why a delivery was neither written, routed nor absorbed; nothing of it is kept.
 #[derive(Debug, thiserror::Error)]

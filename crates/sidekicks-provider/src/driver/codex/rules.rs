@@ -21,12 +21,6 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
-
-use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::delivery::asks::CodexProjectRules;
-use crate::driver::codex::rules::evaluator::RuleFileEvaluator;
-use crate::port::registration::PortRegistration;
-use crate::port::repository_reader::RepositoryReader;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::destructive_git::covers_destructive_git;
 use sidekicks_std::bounded_wait::wait_within;
@@ -36,6 +30,12 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
+
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::delivery::asks::CodexProjectRules;
+use crate::driver::codex::rules::evaluator::RuleFileEvaluator;
+use crate::port::registration::PortRegistration;
+use crate::port::repository_reader::RepositoryReader;
 
 // The folder a project keeps its Codex settings in, and in it and in every other folder Codex
 // reads settings from, the folder of rule files and the extension Codex reads.

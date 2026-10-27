@@ -9,6 +9,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::{TERMINAL_WRITE_MAX_BYTES, TerminalId};
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_ipc::registry::TransportId;
 use sidekicks_platforms::Spawner;
 use sidekicks_terminal::{
     CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalAnswers,
@@ -19,7 +20,6 @@ use tokio::runtime::Handle;
 use super::{AdmittedShellWrite, ShellInput, ShellInputHooks, ShellWriteInput};
 use crate::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
 use crate::paste::ShellPastePart;
-use sidekicks_ipc::registry::TransportId;
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const FIRST_PANE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001";

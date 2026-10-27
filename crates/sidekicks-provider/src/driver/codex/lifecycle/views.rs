@@ -12,11 +12,11 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::commands::CodexCommandSource;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::state::CodexSessionRecord;
-use sidekicks_std::mutex_lock::lock;
 
 /// One live session's view.
 struct CodexSessionView {

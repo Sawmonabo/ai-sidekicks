@@ -24,8 +24,16 @@ use futures::future::{BoxFuture, Shared};
 use rusqlite::Connection;
 use sidekicks_contracts::session::methods::{SessionSearchRequest, SessionSearchResponse};
 use sidekicks_contracts::transcript::search::{TranscriptSearchRequest, TranscriptSearchResponse};
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::Spawner;
 use sidekicks_search::index::{SearchIndex, SearchIndexError};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, watch};
 use tokio::task::JoinError;
 use tokio::time::Instant;
@@ -41,14 +49,6 @@ use crate::search::merging::SearchIndexMerging;
 use crate::search::rowid_floors::{FloorPositionInFlight, FloorPositionsInFlight};
 use crate::search::service::{SessionSearchError, SessionSearchService};
 use crate::search::transcript::{TranscriptSearchError, search_transcript};
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
-use sidekicks_store::database::writer::DatabaseWriter;
 
 // The scheduler's name for the job that lets go of expired held searches.
 const HELD_SEARCH_EXPIRY_JOB: &str = "search_held_expiry";

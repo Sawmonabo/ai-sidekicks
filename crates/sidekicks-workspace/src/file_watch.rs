@@ -37,15 +37,14 @@ use notify::{
     Config, ErrorKind, Event, EventHandler, EventKind, EventKindMask, RecommendedWatcher, Watcher,
 };
 use sidekicks_platforms::is_on_network_file_system;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
-
 use sidekicks_std::file::bounded_read::{read_within_ceiling, run_on_own_thread};
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
 
 mod ceiling;
 mod root_watchers;

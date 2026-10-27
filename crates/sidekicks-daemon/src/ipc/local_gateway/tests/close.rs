@@ -9,6 +9,8 @@ use sidekicks_contracts::jsonrpc::framing::MAX_MESSAGE_BYTES;
 use sidekicks_contracts::jsonrpc::framing::frame::{Frame, LaneId};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_ipc::call_fixtures::{context, request};
+use sidekicks_ipc::registry::{Dispatch as _, DispatchError, HandlerContext, Reply, TransportId};
 use sidekicks_platforms::this_process;
 use tokio::io::AsyncWriteExt as _;
 use tokio_util::sync::CancellationToken;
@@ -17,8 +19,6 @@ use super::super::{CONNECTION_CLOSE_WAIT, SupervisionDisconnectReason};
 use super::{
     Harness, HookCall, assert_refusal, call, channel_feed, harness, settle, subscribe, within,
 };
-use sidekicks_ipc::call_fixtures::{context, request};
-use sidekicks_ipc::registry::{Dispatch as _, DispatchError, HandlerContext, Reply, TransportId};
 
 /// How the test ends the connection.
 #[derive(Clone, Copy, Debug)]

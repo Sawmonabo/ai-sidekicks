@@ -9,6 +9,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
@@ -22,8 +24,6 @@ use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
-use sidekicks_std::mutex_lock::lock;
 
 /// The request that lets a conversation go from a connection.
 pub(crate) const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";

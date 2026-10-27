@@ -31,6 +31,8 @@ use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::spawn_environment::SpawnEnvironmentError;
+use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
 use crate::client::calls::CallsInFlight;
@@ -40,8 +42,6 @@ use crate::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy}
 use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
 use crate::client::stdio::StdioProcess;
 use crate::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
-use sidekicks_provider::spawn_environment::SpawnEnvironmentError;
-use sidekicks_std::mutex_lock::lock;
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";

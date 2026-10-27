@@ -20,6 +20,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_attribution::transcript_run_id_of;
 use sidekicks_contracts::wire::id::UuidText;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
@@ -29,7 +30,6 @@ use crate::events::content::append::stored_index;
 use crate::events::content::codec::{BodyEncoder, StoredBody};
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::transcript_rejoin::ROW_ENDING_EVENT_TYPES_SQL;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The instant the daemon's clock counts from: the first read of [`monotonic_ns_now`], which the
 /// daemon's start makes, so zero is the start.
@@ -275,12 +275,12 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use crate::database::schema::schema_parts;
     use crate::events::session::read::SessionEventReads;
     use crate::events::test_log::{AT, SessionTestLog};
     use crate::transcript_rejoin::RowReads;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by a piece after its run's turn end or rollback joining the row that event closed, by
     // that row still listed as taking pieces, by the run's end closing a row, by a read that does

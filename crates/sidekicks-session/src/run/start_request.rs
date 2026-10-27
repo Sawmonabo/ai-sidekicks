@@ -8,7 +8,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemSummary;
-
 use sidekicks_provider::run::start_request::DriverStep;
 use sidekicks_store::database::statement::WriteStatement;
 

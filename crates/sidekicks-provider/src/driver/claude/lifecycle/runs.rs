@@ -4,6 +4,7 @@
 use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 
 use super::ClaudeDriver;
 use crate::driver::claude::compaction::compact_claude_context;
@@ -22,7 +23,6 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
-use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeDriver {
     /// Starts one run's turn on the session's live process. A process started with another step

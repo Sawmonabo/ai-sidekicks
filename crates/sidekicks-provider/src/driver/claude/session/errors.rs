@@ -10,6 +10,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::error_description::describe_error;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::claude::DESCRIPTOR;
@@ -23,7 +24,6 @@ use crate::driver::error_causes::{
     provider_failure_refusal,
 };
 use crate::driver::registry::provider_capability_refused;
-use sidekicks_std::error_description::describe_error;
 
 /// The detail an authentication probe records once the provider answered it, naming the evidence
 /// and never a credential source the probe did not report.
@@ -346,13 +346,12 @@ pub(crate) fn record_unheard_claude_failure(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-
     use sidekicks_contracts::agent::definition::AgentId;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_ipc::registry::HandlerError;
 
     use super::{ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause};
     use crate::driver::contract::DriverError;
-    use sidekicks_ipc::registry::HandlerError;
 
     // The refusal's code a driver error answers a call with; `None` for a failure that is none.
     fn refusal_code(error: DriverError) -> Option<RefusalCode> {

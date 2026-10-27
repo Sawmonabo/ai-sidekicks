@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::error_description::describe_error;
 use tokio::time::Instant;
 
 use crate::compaction_wait::PendingCompactionRegistry;
@@ -34,7 +35,6 @@ use crate::thread_frame_router::{
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageAxisCounts,
 };
-use sidekicks_std::error_description::describe_error;
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
 /// in order, and the output speed its handshake settled for the armed run.

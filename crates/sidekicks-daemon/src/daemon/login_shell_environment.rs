@@ -17,12 +17,12 @@ use sidekicks_platforms::{
     BaseEnvironmentSource, PathRules, Spawner, base_environment_source, is_no_such_process,
     name_as_login_shell, windows_drive_mounts, wrap_session_child_command,
 };
+use sidekicks_std::random_hex::random_hex;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::login_shell_environment::printing::{CaptureMarkers, ENVIRONMENT_MODE};
-use sidekicks_std::random_hex::random_hex;
 
 /// How long the login shell may take before the start goes on without it.
 pub(crate) const LOGIN_SHELL_DEADLINE: Duration = Duration::from_secs(5);

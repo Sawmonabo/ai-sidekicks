@@ -36,11 +36,9 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
-
-use crate::refusals::{reviewer_denial_not_found, reviewer_denial_not_overridable};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -73,6 +71,8 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
+
+use crate::refusals::{reviewer_denial_not_found, reviewer_denial_not_overridable};
 
 /// The statements [`ReviewerDenials`] prepares on a read connection: the blocked call's row, the
 /// session's state, the block, its override, the run and its provider, and the run's agent.

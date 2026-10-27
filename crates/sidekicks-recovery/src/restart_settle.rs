@@ -8,16 +8,13 @@
 
 use std::sync::Arc;
 
-use tokio_util::sync::CancellationToken;
-
 use rusqlite::Connection;
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_approval::service::{ApprovalService, ApprovalServiceError};
 use sidekicks_approval::store::ApprovalRequestReader;
 use sidekicks_artifact::plans::service::{PlanError, PlansService};
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_session::interventions::store::{read_pending_retries, settle_retry_after_restart};
 use sidekicks_session::run::engine::{RunEngine, RunEngineError};
 use sidekicks_session::run::provider_choice::{
@@ -33,6 +30,7 @@ use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraftError, SessionEventLinkage,
 };
+use tokio_util::sync::CancellationToken;
 
 /// The provider failure detail a run the restart left live ends `failed` with.
 pub(crate) const RESTART_FAILURE_DETAIL: &str =

@@ -20,15 +20,6 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_platforms::atomic_write_target_of;
-use tokio_util::sync::CancellationToken;
-use walkdir::WalkDir;
-
-use crate::daemon::configuration::ConfigurationStore;
-use crate::daemon::crash::monitor::{CRASH_DUMPS_FOLDER_NAME, is_partial_dump_name};
-use crate::daemon::service_log::{
-    CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name,
-};
-use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
 use sidekicks_provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -42,6 +33,15 @@ use sidekicks_std::scheduler::budget::{
 };
 use sidekicks_store::data_folder::service_log_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use tokio_util::sync::CancellationToken;
+use walkdir::WalkDir;
+
+use crate::daemon::configuration::ConfigurationStore;
+use crate::daemon::crash::monitor::{CRASH_DUMPS_FOLDER_NAME, is_partial_dump_name};
+use crate::daemon::service_log::{
+    CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name,
+};
+use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
@@ -355,6 +355,13 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use rusqlite::types::Value;
+    use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+    use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_log::open_log;
     use tokio_util::sync::CancellationToken;
 
     use super::{DiagnosticExpiryDeps, diagnostic_expiry_job};
@@ -365,13 +372,6 @@ mod tests {
     use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
     use crate::remote::shared_ports::schema::schema_parts;
-    use sidekicks_provider::driver::PROVIDERS;
-    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use sidekicks_provider::driver::test_registry::registry_of_first_providers;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_log::open_log;
 
     // Past the default bound of seven days.
     const OLD: Duration = Duration::from_hours(24 * 8);

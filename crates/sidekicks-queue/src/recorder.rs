@@ -26,8 +26,6 @@ use sidekicks_contracts::trust_statement::{DEVICE_ID_MAX_LEN, DeviceId};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use crate::changes::{QueueChangeSignals, QueueKey};
 use sidekicks_session::queue_store::send_now::clear_sent_now_statement;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
@@ -49,6 +47,8 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+
+use crate::changes::{QueueChangeSignals, QueueKey};
 
 /// Index of a send's session guard (the session takes messages), after its insert at 0.
 pub(crate) const SEND_SESSION_GUARD_STATEMENT_INDEX: usize = 1;

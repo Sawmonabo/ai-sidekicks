@@ -155,10 +155,10 @@ fn socket_folder(environment: &PlaceInboxEnvironment<'_>) -> String {
 mod tests {
     use serde_json::json;
     use sidekicks_contracts::place::Place;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
     use crate::port::session_inbox_address::SessionInboxAddresser as _;
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// The folder `session_inbox_address` puts a session's socket in.
     fn folder_of(addresser: &ClaudeSessionInboxAddresser, place: Option<&Place>) -> String {

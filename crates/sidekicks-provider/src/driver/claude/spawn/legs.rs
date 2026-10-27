@@ -13,6 +13,7 @@ use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::host::{
@@ -42,7 +43,6 @@ use crate::run::posture::{
 use crate::spawn_environment::{
     ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
 };
-use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 /// Why the callback tools are withheld while the daemon's in-process tool servers are not
 /// registered: the tools ride that route, so nothing could answer them.

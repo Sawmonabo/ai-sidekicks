@@ -34,14 +34,14 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::contract::SpawnedVersionBindingCarriers;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_policy::ask_rule::ProviderAskRule;
-use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.

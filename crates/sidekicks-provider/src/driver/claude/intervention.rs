@@ -22,6 +22,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 
 pub(crate) use self::foreground_helpers::ClaudeForegroundHelpers;
 use self::held_steers::ClaudeHeldSteers;
@@ -44,7 +45,6 @@ use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus,
 };
-use sidekicks_std::mutex_lock::lock;
 
 // The capability a build declares when its interrupt can drop the messages it holds and list them.
 const CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY: &str = "interrupt_cancel_queued_v1";

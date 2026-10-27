@@ -12,11 +12,6 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-
-use super::QueueAdmission;
-use crate::delivery::OpeningMessages;
-use crate::error::QueueError;
-use crate::provider_session::ProviderSessionError;
 use sidekicks_provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
 use sidekicks_provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, InterruptRunRequest,
@@ -27,6 +22,11 @@ use sidekicks_session::run::agent::read_lead_agent_through;
 use sidekicks_session::run::start_request::RunTurnStart;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+
+use super::QueueAdmission;
+use crate::delivery::OpeningMessages;
+use crate::error::QueueError;
+use crate::provider_session::ProviderSessionError;
 
 /// The message each run being started or continued opens with, until the start writes its
 /// outcome.

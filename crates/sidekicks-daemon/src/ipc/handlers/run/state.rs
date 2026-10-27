@@ -29,10 +29,6 @@ use sidekicks_contracts::session::event_cursor::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
-use tokio::sync::watch;
-use tokio::task::JoinHandle;
-
-use crate::ipc::handlers::run::safety_holds::{RunSafetyHolds, SafetyHoldsFollow};
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
@@ -42,6 +38,10 @@ use sidekicks_session::run::stored_state_change::{
 use sidekicks_session::run::superseded::{StoredRollbackMismatchError, parse_stored_rollback};
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::log_service::{EventLogReadError, EventLogService, FollowStart};
+use tokio::sync::watch;
+use tokio::task::JoinHandle;
+
+use crate::ipc::handlers::run::safety_holds::{RunSafetyHolds, SafetyHoldsFollow};
 
 /// The type of a stored rollback, which the stream carries beside the state changes.
 const ROLLBACK_EVENT_TYPE: &str = SessionEventType::AgentRunRolledBack.as_str();
@@ -403,9 +403,6 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
-
-    use super::*;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{
@@ -418,6 +415,9 @@ mod tests {
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
     use sidekicks_store::events::log_service::test_log::open_log;
+
+    use super::*;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

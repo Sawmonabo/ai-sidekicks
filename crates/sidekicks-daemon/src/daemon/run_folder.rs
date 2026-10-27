@@ -9,12 +9,12 @@ use sidekicks_platforms::{
     DaemonRunFolder, RUN_FOLDER_FILE_MODE, RunFolderRefused, SocketPathEntry, askpass_socket_path,
     check_private_run_folder, connect_socket, create_private_run_folder, read_socket_path_entry,
 };
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::random_hex::random_hex;
 use tokio::task::JoinError;
 
 use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 use crate::ipc::local_gateway::LocalGateway;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use sidekicks_std::random_hex::random_hex;
 
 // The session token's size: 256 bits from the system's secure random source.
 const SESSION_TOKEN_BYTES: usize = 32;

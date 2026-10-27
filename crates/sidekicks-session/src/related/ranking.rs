@@ -24,14 +24,6 @@ use sidekicks_contracts::session::links::{
 };
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::sync::watch;
-use tokio::task::{JoinError, JoinHandle};
-use tokio_util::sync::CancellationToken;
-
-use crate::directory::lookups::session_exists;
-use crate::related::score::{
-    SessionLinkEnd, score_related_sessions, session_link_kind_weight, session_link_weight,
-};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -45,6 +37,14 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_store::events::session::pending::PendingSessions;
+use tokio::sync::watch;
+use tokio::task::{JoinError, JoinHandle};
+use tokio_util::sync::CancellationToken;
+
+use crate::directory::lookups::session_exists;
+use crate::related::score::{
+    SessionLinkEnd, score_related_sessions, session_link_kind_weight, session_link_weight,
+};
 
 /// The statements the ranking's reads prepare: a session's links, its stored list and whether the
 /// session exists.
@@ -706,9 +706,9 @@ fn is_stronger(
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{RESCORE_ROUND_LIMIT, ScoringQueue};
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     #[test]
     fn a_round_takes_at_most_its_limit_and_the_rest_wait_for_the_next() {

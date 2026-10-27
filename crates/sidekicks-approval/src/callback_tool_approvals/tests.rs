@@ -11,14 +11,6 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::task::JoinHandle;
-
-use super::{
-    CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate, UNGATED_TOOL_REFUSAL,
-};
-use crate::permission_asks::tests::{AsksFixture, device};
-use crate::service::test_fixture::SETTLE_WAIT;
-use crate::service::tests::from_json;
 use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
     CallbackToolPortError,
@@ -30,6 +22,14 @@ use sidekicks_provider::driver::test_registry::registry_of_first_providers;
 use sidekicks_provider::port::permission_ask::ProviderAskAction;
 use sidekicks_provider::run::posture::CURATED_CREDENTIAL_POLICY_REF;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate};
+use tokio::task::JoinHandle;
+
+use super::{
+    CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate, UNGATED_TOOL_REFUSAL,
+};
+use crate::permission_asks::tests::{AsksFixture, device};
+use crate::service::test_fixture::SETTLE_WAIT;
+use crate::service::tests::from_json;
 
 // A tool that only reads, and one that acts.
 const READ_TOOL: &str = "session_list";

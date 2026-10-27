@@ -216,13 +216,13 @@ fn leading_levels_range(tag: &str, level_count: usize) -> MatchRange {
 mod tests {
     use rstest::rstest;
     use sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES;
+    use sidekicks_provider::driver::diagnostics::RecordedEvents;
     use sidekicks_search::index::{IndexRowKind, SearchQuery};
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
 
     use super::HitLineReader;
     use crate::search::index::rows::{IndexRowReader, SourceRowRead, empty_index_batch_room};
     use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
-    use sidekicks_provider::driver::diagnostics::RecordedEvents;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
 
     // A search whose two lists of hits both hold a reply damaged since it was indexed, in its
     // stored body's second frame or its payload's encoding, by a word no build writes or by one

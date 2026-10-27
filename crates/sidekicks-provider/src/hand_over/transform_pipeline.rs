@@ -327,6 +327,8 @@ mod tests {
     use rstest::rstest;
     use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{
         SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT, SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
@@ -336,8 +338,6 @@ mod tests {
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// A projection of one assistant turn holding `segments`.
     fn projection_of(segments: Vec<CanonicalTranscriptSegment>) -> CanonicalTranscriptProjection {

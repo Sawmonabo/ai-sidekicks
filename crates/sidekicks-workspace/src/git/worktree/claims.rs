@@ -8,14 +8,14 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 use rusqlite::Connection;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::rows::live_worktree_state_predicate;
 use crate::row_guards::COMMON_DIR_METADATA_PATH;
 use crate::trust_envelope::components_equal;
-use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, ReadLength,
-};
 
 // Each live tree's folder and branch, with the common folder its mount records, `NULL` for a mount
 // that records none.
@@ -199,13 +199,13 @@ mod tests {
     use std::sync::Arc;
 
     use rusqlite::params;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_log::open_log;
 
     use super::KeptCopyClaims;
     use crate::git::worktree::schema::schema_parts;
     use crate::test_rows::project_and_mount_rows;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_log::open_log;
 
     const READ_STATEMENT_CAPACITY: usize = 4;
 

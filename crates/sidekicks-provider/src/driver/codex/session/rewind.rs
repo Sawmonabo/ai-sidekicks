@@ -296,6 +296,7 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
+    use sidekicks_std::mutex_lock::lock;
     use tokio_util::task::TaskTracker;
 
     use super::CodexConversationRewind;
@@ -309,7 +310,6 @@ mod tests {
     use crate::driver::codex::session::test_session::{TestCodexSession, turn_reply};
     use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
     use crate::driver::test_registry::new_run_id;
-    use sidekicks_std::mutex_lock::lock;
 
     /// How long the test waits before it counts the rewind and the start as deadlocked.
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);

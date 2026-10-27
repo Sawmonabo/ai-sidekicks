@@ -26,19 +26,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tempfile::TempDir;
-
-use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
-use crate::changes::QueueChangeSignals;
-use crate::error::QueueError;
-use crate::memory_gate::{MemoryGate, MemoryGateFigures};
-use crate::provider_session::test_opening::{
-    record_first_provider_capabilities, test_opening_composer,
-};
-use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
@@ -68,6 +58,16 @@ use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use tempfile::TempDir;
+
+use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
+use crate::changes::QueueChangeSignals;
+use crate::error::QueueError;
+use crate::memory_gate::{MemoryGate, MemoryGateFigures};
+use crate::provider_session::test_opening::{
+    record_first_provider_capabilities, test_opening_composer,
+};
+use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 
 /// The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 32;

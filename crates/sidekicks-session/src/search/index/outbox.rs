@@ -13,15 +13,15 @@ use std::sync::LazyLock;
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_search::index::{GroupMembers, IndexBatch, IndexRowKind, RemovedOwner};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::database::stored_column::{rowid_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 use crate::search::index::batch_builder::IndexBatchBuilder;
 use crate::search::index::rows::{
     INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, empty_index_batch_room,
 };
 use crate::search::rowid_floors::{RowidFloorLog, floors_let_go_statement};
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
-use sidekicks_store::database::stored_column::{rowid_column, text_column};
-use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// What an outbox row asks of the index: read the row at its key again, take every row its owner
 /// held out, or read its group's members again. Stored by its camelCase name.

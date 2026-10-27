@@ -20,6 +20,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::bind_socket_listener;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use super::CodexDriver;
 use super::intake::CodexSessionIntake;
@@ -47,7 +48,6 @@ use crate::port::registration::PortRegistration;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
-use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";

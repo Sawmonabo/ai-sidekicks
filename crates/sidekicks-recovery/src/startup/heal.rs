@@ -6,6 +6,7 @@
 use std::error::Error;
 use std::path::PathBuf;
 
+use sidekicks_store::events::projection::ProjectionFailure;
 use tokio_util::sync::CancellationToken;
 
 use super::{PassFailure, PassTally, StartupRecovery, events_count};
@@ -14,7 +15,6 @@ use crate::database_file::aside_copy::{
     record_session_in_aside_copy,
 };
 use crate::projection_rebuild::{ProjectionRebuildError, ProjectionRebuildRequest};
-use sidekicks_store::events::projection::ProjectionFailure;
 
 /// The copy aside one pass took, so it copies the store's files once however many sessions it
 /// heals.

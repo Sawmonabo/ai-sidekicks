@@ -8,14 +8,8 @@ use std::time::Duration;
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{DaemonRunFolder, Spawner};
-use tempfile::TempDir;
-use tokio_util::sync::CancellationToken;
-
-use super::{DatabaseFile, DatabaseFileStart, close_database_file, open_database_file};
-use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
-use crate::daemon::process::supervision::ProcessStateTracker;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
+use sidekicks_platforms::{DaemonRunFolder, Spawner};
 use sidekicks_recovery::database_file::WRITE_AHEAD_LOG_SUFFIX;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
@@ -31,6 +25,12 @@ use sidekicks_store::events::log_service::{
     EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest,
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+use tempfile::TempDir;
+use tokio_util::sync::CancellationToken;
+
+use super::{DatabaseFile, DatabaseFileStart, close_database_file, open_database_file};
+use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
+use crate::daemon::process::supervision::ProcessStateTracker;
 
 /// The longest a close the tests run may drain.
 const CLOSE_BOUND: Duration = Duration::from_secs(4);

@@ -5,6 +5,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::caller_process::descent::CallerCheck;
+use sidekicks_ipc::caller_process::descent::test_reader::ScriptedReader;
+use sidekicks_ipc::protocol_negotiation::CallerAdmission;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, ParentProcess, ResponsibleProcess, short_socket_folder,
     this_process,
@@ -12,10 +16,6 @@ use sidekicks_platforms::{
 
 use super::{driver_on_codex_folder, listen_on_codex_folder};
 use crate::driver::daemon_stop::DaemonStopIntent;
-use sidekicks_ipc::caller_process::contract::CallerProcessReader;
-use sidekicks_ipc::caller_process::descent::CallerCheck;
-use sidekicks_ipc::caller_process::descent::test_reader::ScriptedReader;
-use sidekicks_ipc::protocol_negotiation::CallerAdmission;
 
 // A service already listening on the person's Codex folder, joined through the driver's registry,
 // its serving process this test's own; the daemon's caller check, over the services' one set of

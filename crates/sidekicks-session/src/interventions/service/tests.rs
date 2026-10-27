@@ -23,26 +23,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tempfile::TempDir;
-
-use super::{
-    INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionService, InterventionServiceDeps,
-};
-use crate::interventions::interrupt_queue::{
-    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
-    SendNowOutcome,
-};
-use crate::questions::schema::schema_parts;
-use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
-use crate::queue_store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
-use crate::run::engine::RunEngine;
-use crate::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
-use crate::run::pause::test_answers::unanswered;
-use crate::run::state_change::RunStateChange;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -59,6 +43,22 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_log::open_log;
+use tempfile::TempDir;
+
+use super::{
+    INTERVENTION_SERVICE_STATEMENT_CAPACITY, InterventionService, InterventionServiceDeps,
+};
+use crate::interventions::interrupt_queue::{
+    InterruptCause, InterruptChoice, InterruptEnd, InterruptQueue, InterruptQueueError, SendNow,
+    SendNowOutcome,
+};
+use crate::questions::schema::schema_parts;
+use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
+use crate::queue_store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
+use crate::run::engine::RunEngine;
+use crate::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::run::pause::test_answers::unanswered;
+use crate::run::state_change::RunStateChange;
 
 /// A run queue that holds nothing but counts each hold it takes, records each release's choice,
 /// and hands each end straight to the run engine; with a writer, it counts each `Send now` it is

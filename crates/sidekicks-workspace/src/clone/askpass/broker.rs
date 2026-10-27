@@ -20,7 +20,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::clone::AskpassAnswer;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::askpass_listener;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::random_hex::random_hex;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
@@ -28,9 +31,6 @@ use tracing::{debug, warn};
 
 use super::program::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE};
 use crate::askpass_prompt::is_masked_prompt;
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::random_hex::random_hex;
 
 // The bytes of an owner's id: random, so one owner's id never tells another's.
 const OWNER_ID_BYTES: usize = 16;
@@ -366,13 +366,13 @@ mod tests {
     use interprocess::local_socket::{GenericFilePath, ToFsName};
     use rstest::rstest;
     use sidekicks_contracts::repo::clone::AskpassAnswer;
+    use sidekicks_std::mutex_lock::lock;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::sync::mpsc;
 
     use super::{
         ASKPASS_OWNER_VARIABLE, AskpassBroker, AskpassOwner, AskpassRequest, REQUEST_MAX_BYTES,
     };
-    use sidekicks_std::mutex_lock::lock;
 
     const WAIT: Duration = Duration::from_secs(10);
 

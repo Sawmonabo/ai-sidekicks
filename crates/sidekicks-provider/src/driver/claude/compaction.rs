@@ -8,6 +8,7 @@ use sidekicks_contracts::provider::driver::compaction::{
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::error_description::describe_error;
 
 use crate::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
 use crate::driver::claude::DESCRIPTOR;
@@ -22,7 +23,6 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use sidekicks_std::error_description::describe_error;
 
 // Bare, as `system/init` lists `slash_commands`.
 const CLAUDE_COMPACTION_COMMAND_NAME: &str = "compact";

@@ -57,6 +57,7 @@ use secrecy::SecretString;
 use sidekicks_contracts::daemon::status::{DaemonSecretsFileUnopened, DaemonSecretsPlainReason};
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::SealFailure;
+use sidekicks_std::random_hex::random_hex;
 use tokio::sync::RwLock;
 
 use self::sealed_file::{Probe, is_definite_refusal, log_boot_bound};
@@ -72,7 +73,6 @@ use crate::credential_store::place::{self, PlaceRecord, SecretsPlace};
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain, holds_value};
-use sidekicks_std::random_hex::random_hex;
 
 // The random bytes of the check's value and of its probe account's name.
 const PROBE_VALUE_BYTES: usize = 32;

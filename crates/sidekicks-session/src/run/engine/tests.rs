@@ -39,22 +39,9 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 #[cfg(test)]
-use sidekicks_contracts::wire::integer::SafeInt;
-#[cfg(test)]
-use tokio::sync::oneshot;
-
-use crate::plan_holds::{NoPlanHolds, PlanHolds};
-#[cfg(test)]
-use crate::run::engine::limits::LimitStop;
-#[cfg(test)]
-use crate::run::engine::turns::StepCount;
-use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
-#[cfg(test)]
-use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-#[cfg(test)]
-use crate::run::start_request::{RunContinueRequest, RunTurnStart};
-#[cfg(test)]
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+#[cfg(test)]
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_provider::run::posture::ExecutionPostureService;
@@ -75,6 +62,19 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
+#[cfg(test)]
+use tokio::sync::oneshot;
+
+use crate::plan_holds::{NoPlanHolds, PlanHolds};
+#[cfg(test)]
+use crate::run::engine::limits::LimitStop;
+#[cfg(test)]
+use crate::run::engine::turns::StepCount;
+use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+#[cfg(test)]
+use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+#[cfg(test)]
+use crate::run::start_request::{RunContinueRequest, RunTurnStart};
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
 /// its own, so a call that waits on nothing, or a hand that never comes, fails the test.

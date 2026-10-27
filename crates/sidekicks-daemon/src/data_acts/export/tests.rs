@@ -5,23 +5,23 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
+use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
+use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::daemon::data::{DataExportJobId, DataExportProgress};
 use sidekicks_contracts::event::envelope::{HydratedSessionEvent, HydratedSessionEventContent};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio::sync::watch;
-
-use super::{
-    DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs, RunningExport, is_finished,
-};
-use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
-use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_session::transcript::test_log::TranscriptTestLog;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
+use tokio::sync::watch;
+
+use super::{
+    DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs, RunningExport, is_finished,
+};
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
 // pasted token and a workflow secret in the data folder's secrets file, and a key.

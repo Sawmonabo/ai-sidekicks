@@ -22,12 +22,6 @@ use rusqlite::Connection;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
-use tokio::runtime::Handle;
-use tokio_util::sync::CancellationToken;
-use tokio_util::task::TaskTracker;
-
-use crate::review_note::diff_line::NotedLineReader;
-use crate::review_note::store::{ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach};
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::is_gone;
@@ -47,6 +41,12 @@ use sidekicks_workspace::git::worktree::watch::{
 use sidekicks_workspace::working_folder::{
     SessionWorkingFolder, WorkingFolderReadError, read_working_folder,
 };
+use tokio::runtime::Handle;
+use tokio_util::sync::CancellationToken;
+use tokio_util::task::TaskTracker;
+
+use crate::review_note::diff_line::NotedLineReader;
+use crate::review_note::store::{ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach};
 
 // The events after which a session may work somewhere else, or stop or start being live.
 const SYNCING_EVENT_TYPES: [SessionEventType; 8] = [

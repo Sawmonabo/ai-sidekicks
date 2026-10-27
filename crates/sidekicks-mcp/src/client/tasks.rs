@@ -32,12 +32,6 @@ use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use strum::{IntoStaticStr, VariantArray};
-use tokio::sync::{Notify, oneshot, watch};
-use tokio_util::sync::CancellationToken;
-
-use crate::client::connection::{McpConnectionScope, McpServerConnection};
-use crate::client::requests::{McpRequestError, RequestWait};
 use sidekicks_provider::mcp::elicitation_form::{
     compose_elicitation_content, read_elicitation_questions,
 };
@@ -48,6 +42,12 @@ use sidekicks_provider::port::question::{
 use sidekicks_provider::port::registration::PortRegistration;
 use sidekicks_provider::record_readers::read_non_empty_string;
 use sidekicks_std::mutex_lock::lock;
+use strum::{IntoStaticStr, VariantArray};
+use tokio::sync::{Notify, oneshot, watch};
+use tokio_util::sync::CancellationToken;
+
+use crate::client::connection::{McpConnectionScope, McpServerConnection};
+use crate::client::requests::{McpRequestError, RequestWait};
 
 /// The identity of one task-augmented MCP dispatch. `command_id` is the client-supplied
 /// idempotency key on the dispatch's command receipt row; the server and tool name no stored row.
@@ -736,11 +736,11 @@ impl ToolServerQuestionAnswer for ElicitationAnswer {
 
 #[cfg(test)]
 mod tests {
+    use sidekicks_provider::port::question::QuestionPort as _;
     use tokio::sync::oneshot;
 
     use super::{ElicitationAnswer, PendingTake, compose_question};
     use crate::client::test_server::{board_form, test_client, test_scope, track_call};
-    use sidekicks_provider::port::question::QuestionPort as _;
 
     // Mutation: in `PendingTake::drop`, leave out the withdrawal of an outcome sent but not read.
     #[tokio::test(start_paused = true)]

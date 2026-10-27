@@ -10,9 +10,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 use sidekicks_platforms::ProcessRecord;
-use tokio::sync::Mutex;
-
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use tokio::sync::Mutex;
 
 /// The registry's file name in the data folder.
 const ORPHAN_REGISTRY_FILE_NAME: &str = "orphan-registry.json";

@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::value::RawValue;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::mpsc;
 
 use crate::driver::codex::run::turn_interrupt::{CodexTurnInterrupt, interrupt_codex_turn};
@@ -16,7 +17,6 @@ use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexForgottenRequest,
 };
-use sidekicks_std::mutex_lock::lock;
 
 /// How long a throwaway turn left early may take to stop, the answer that names it included: the
 /// bound Codex's own terminal gives each request of its throwaway turns, the interrupt among them.

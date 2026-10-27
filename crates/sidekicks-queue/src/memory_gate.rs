@@ -16,11 +16,10 @@ use std::pin::pin;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
+use sidekicks_provider::driver::ProviderDescriptor;
 use tokio::sync::{Notify, watch};
 use tokio::task::JoinError;
 use tokio::time::{Instant, sleep_until};
-
-use sidekicks_provider::driver::ProviderDescriptor;
 
 const MEBIBYTE: u64 = 1024 * 1024;
 

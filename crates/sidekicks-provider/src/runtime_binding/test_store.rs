@@ -11,7 +11,11 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 #[cfg(test)]
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use crate::driver::PROVIDERS;
 use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
@@ -21,10 +25,6 @@ use crate::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
     RuntimeBindingStore,
 };
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 /// The binding store on `database`, through a writer of its own that creates the daemon's schema.
 pub async fn open_store(database: &TestDatabase) -> RuntimeBindingStore {

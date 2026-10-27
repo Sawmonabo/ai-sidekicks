@@ -7,6 +7,9 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClockTimer;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::test_log::open_log;
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;
@@ -21,9 +24,6 @@ use crate::git::process::{
 };
 use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
-use sidekicks_std::scheduler::Scheduler;
-use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_log::open_log;
 
 const WAIT: Duration = Duration::from_secs(30);
 

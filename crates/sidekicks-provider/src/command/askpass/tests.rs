@@ -4,11 +4,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{harness_test_name, name_program};
 
 use super::{COMMAND_ASKPASS_PROGRAM_NAME, run_command_askpass};
 use crate::command::channel::{CommandChannel, DaemonRequest, PartyRecord};
-use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 
 /// The test the started askpass runs as.
 const ASKPASS_PROCESS_TEST: &str = "an_askpass_process_asks_its_prompt";

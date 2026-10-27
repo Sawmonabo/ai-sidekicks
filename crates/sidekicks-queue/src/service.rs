@@ -26,26 +26,9 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio_util::task::TaskTracker;
-
-use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
-use crate::changes::QueueChangeSignals;
-use crate::delivery::{
-    InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps, QueueWithdrawal,
-};
-use crate::error::QueueError;
-use crate::memory_gate::MemoryGate;
-use crate::provider_session::ProviderSessions;
-use crate::recorder::{QueueRecorder, QueueRecorderDeps};
-use crate::refusals::{
-    UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
-};
-use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycleListener};
-use crate::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
-use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
@@ -66,6 +49,23 @@ use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use tokio_util::task::TaskTracker;
+
+use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
+use crate::changes::QueueChangeSignals;
+use crate::delivery::{
+    InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps, QueueWithdrawal,
+};
+use crate::error::QueueError;
+use crate::memory_gate::MemoryGate;
+use crate::provider_session::ProviderSessions;
+use crate::recorder::{QueueRecorder, QueueRecorderDeps};
+use crate::refusals::{
+    UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
+};
+use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycleListener};
+use crate::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
+use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =

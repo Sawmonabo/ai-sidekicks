@@ -21,6 +21,9 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{RepoMountState, WorkspaceState};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -36,9 +39,6 @@ use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
 };
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 // The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
 // daemon holds a pass no longer than that.

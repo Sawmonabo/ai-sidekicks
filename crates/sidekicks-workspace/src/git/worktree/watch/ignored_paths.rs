@@ -11,10 +11,10 @@ use std::sync::{Arc, PoisonError, RwLock};
 
 use ignore::WalkBuilder;
 use sidekicks_contracts::place::Place;
+use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::file_watch::{WalkFilter, WatchedRoot};
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
-use sidekicks_std::missing_entry::is_missing_entry;
 
 const GIT_FOLDER_NAME: &str = ".git";
 

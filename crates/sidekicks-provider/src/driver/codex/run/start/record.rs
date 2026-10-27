@@ -15,6 +15,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::attachments::compose_codex_message_input;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
@@ -37,7 +38,6 @@ use crate::driver::codex::thread::settings::{
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
-use sidekicks_std::mutex_lock::lock;
 
 /// One run's turn to start: the person's messages with their skills and files, in send order, and
 /// what the turn carries.

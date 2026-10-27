@@ -27,18 +27,15 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
-use sidekicks_platforms::WallClock;
-
-use crate::payload_store::ContentHash;
-use crate::refusals::ArtifactError;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_platforms::WallClock;
 use sidekicks_session::directory::lookups::{session_exists, session_exists_statement};
 use sidekicks_session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
 use sidekicks_session::run::refusals::RunRefusal;
@@ -54,6 +51,9 @@ use sidekicks_store::events::log_service::EventAppendError;
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
+
+use crate::payload_store::ContentHash;
+use crate::refusals::ArtifactError;
 
 // One row whatever the group holds: an aggregate with no GROUP BY yields one row, so a path's
 // next version is counted on the writer's connection, and a manifest with no path is version 1.
@@ -400,9 +400,12 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::state::RunState;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::record::JsonRecord;
     use sidekicks_platforms::WallClockTimer;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{
         PublishedManifest, check_artifact_owner, manifest_created_at, write_published_manifest,
@@ -410,9 +413,6 @@ mod tests {
     use crate::id::mint_artifact_id;
     use crate::payload_store::ContentHash;
     use crate::test_store::{ArtifactTestStore, refusal_code_of};
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// A run of another session never owns an artifact here, so no client writes into another
     /// session's run; the session's own run does. Both the check before spooling and the write's

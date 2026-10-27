@@ -364,12 +364,12 @@ mod tests {
         TerminalDevice, TerminalMasterReading, blocking_terminal_master, read_input_wait,
         read_terminal_master, start_inner_terminal, terminal_options,
     };
+    use sidekicks_std::mutex_lock::lock;
     use tokio::time::Instant;
 
     use super::{
         CheckKind, InputWaitReader, WaitingChecks, is_marked_waiting, last_line, reads_as_prompt,
     };
-    use sidekicks_std::mutex_lock::lock;
 
     // Fails when the trailing line ends are kept (the `\n` row), when a carriage return is deleted
     // rather than the text before it dropped (the `50%` row), or when one family is dropped.

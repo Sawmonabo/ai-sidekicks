@@ -22,16 +22,16 @@ use sidekicks_contracts::transcript::row::{
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::list::BoundedVec;
-
-use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
-use crate::transcript::turn_attribution::{
-    RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
-};
 use sidekicks_store::events::session::read::{
     MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads,
 };
 use sidekicks_store::transcript_rejoin::{RowReads, joined_body_of, joined_row_content_of};
 use sidekicks_store::transcript_whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
+
+use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
+use crate::transcript::turn_attribution::{
+    RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
+};
 
 /// The most UTF-8 bytes a row's body is read with its row: a JSON string takes its text's bytes
 /// plus its two quotes, so a longer body cannot travel inline and is read as its size alone.

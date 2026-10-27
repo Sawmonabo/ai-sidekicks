@@ -13,12 +13,12 @@ use sidekicks_contracts::terminal::{
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_ipc::registry::{HandlerError, TransportId};
 use tokio::sync::watch;
 
 use super::ShellTable;
 use crate::output::stream::ShellOutputSource;
 use crate::test_table::{SESSION, session, table_fixture};
-use sidekicks_ipc::registry::{HandlerError, TransportId};
 
 const OTHER_SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";
 

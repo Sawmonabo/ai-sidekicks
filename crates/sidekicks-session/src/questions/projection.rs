@@ -13,16 +13,16 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::question::QuestionSettledState;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::questions::store::{
-    insert_question_statement, open_waiting_question_statement, queued_answer_statements,
-    settle_question_statement,
-};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+
+use crate::questions::store::{
+    insert_question_statement, open_waiting_question_statement, queued_answer_statements,
+    settle_question_statement,
+};
 
 const CLEAR_ANSWER_ITEMS_SQL: &str = "DELETE FROM question_answer_items
   WHERE question_id IN (SELECT id FROM questions WHERE session_id = ?)";

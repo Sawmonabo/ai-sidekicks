@@ -3,14 +3,14 @@
 //! against. The daemon's schema script runs it with the rest.
 
 use sidekicks_search::index::IndexRowKind;
+use sidekicks_store::database::schema::{SESSION_EVENTS_TABLE, SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
+use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
 use crate::search::index::columns::index_key_sql;
 use crate::search::index::outbox::OutboxOperation;
 use crate::search::index::rows::INDEXED_EVENT_TYPES_SQL;
 use crate::search::rowid_floors::rowid_floor_trigger_sql;
-use sidekicks_store::database::schema::{SESSION_EVENTS_TABLE, SchemaPart, SchemaParts};
-use sidekicks_store::database::sql_list::sql_list_of_every;
-use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
 /// mcp's schema list, then the search index's own part, whose triggers follow the
 /// session directory's tables they watch.

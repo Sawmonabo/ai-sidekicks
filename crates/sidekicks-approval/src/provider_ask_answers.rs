@@ -9,7 +9,6 @@ use std::io;
 use std::path::Path;
 
 use sidekicks_platforms::PathRules;
-
 use sidekicks_provider::port::permission_ask::ProviderAskAction;
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::trust_envelope::is_contained_within;
@@ -89,9 +88,9 @@ mod tests {
 
     use rstest::rstest;
     use sidekicks_platforms::make_folder_link;
+    use sidekicks_provider::port::permission_ask::ProviderAskAction;
 
     use super::{ProviderAskAnswer, answer_provider_ask};
-    use sidekicks_provider::port::permission_ask::ProviderAskAction;
 
     fn change(paths: &[&Path]) -> ProviderAskAction {
         ProviderAskAction::FileChange {

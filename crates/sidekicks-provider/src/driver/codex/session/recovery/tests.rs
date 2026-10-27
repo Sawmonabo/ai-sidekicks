@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio_util::task::TaskTracker;
 
 use super::{CodexServiceRecovery, CodexServiceRecoveryDependencies};
@@ -26,7 +27,6 @@ use crate::driver::test_registry::new_run_id;
 use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
-use sidekicks_std::mutex_lock::lock;
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it.

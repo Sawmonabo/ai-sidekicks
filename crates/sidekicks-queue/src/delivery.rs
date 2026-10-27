@@ -32,15 +32,6 @@ use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use tokio::sync::oneshot;
-use tokio_util::task::TaskTracker;
-use tracing::Instrument as _;
-
-use crate::delivery::chain::{ChainJob, SessionChain};
-use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
-use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
-use crate::refusals::UnreturnedReason;
-use crate::session_lock::QueueSessionLock;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -60,6 +51,15 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::appender::SessionEventDraft;
+use tokio::sync::oneshot;
+use tokio_util::task::TaskTracker;
+use tracing::Instrument as _;
+
+use crate::delivery::chain::{ChainJob, SessionChain};
+use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
+use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::refusals::UnreturnedReason;
+use crate::session_lock::QueueSessionLock;
 
 /// How long a change waits for a provider to give its handed messages back.
 pub(crate) const WITHDRAW_DEADLINE: Duration = Duration::from_secs(10);

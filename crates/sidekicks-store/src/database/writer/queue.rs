@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use sidekicks_std::cleanup_failures::CleanupFailures;
 use tokio::sync::oneshot::error::RecvError;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
@@ -31,7 +32,6 @@ use crate::database::writer::{
     WriteFailureListener, WriteRequest, WriterCloseError, WriterShared, WritesHeldError,
     is_interrupt, join_thread,
 };
-use sidekicks_std::cleanup_failures::CleanupFailures;
 
 mod maintenance;
 

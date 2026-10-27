@@ -8,7 +8,6 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::terminal::TerminalListUpdate;
-
 use sidekicks_ipc::stream::latest_value::{
     LatestValueOutlet, LatestValueOutletId, LatestValueOutlets,
 };

@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::routes::CodexRunBinding;
@@ -27,7 +28,6 @@ use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
 use crate::port::run_host::RunHost;
 use crate::run::start_request::DaemonTurnStartRequest;
-use sidekicks_std::mutex_lock::lock;
 
 const TURN_STARTED_METHOD: &str = "turn/started";
 

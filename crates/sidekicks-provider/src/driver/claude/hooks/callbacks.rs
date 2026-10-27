@@ -10,6 +10,8 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::error_description::describe_error;
 
 use crate::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::driver::claude::DESCRIPTOR;
@@ -28,8 +30,6 @@ use crate::driver::diagnostics::{
 };
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::lenient_json::{lenient_object, read_lenient};
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_std::error_description::describe_error;
 
 /// Where one request a process sent goes.
 #[derive(Debug)]
@@ -260,11 +260,12 @@ fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
 mod tests {
     use std::sync::Arc;
 
+    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+
     use super::answer_background_work_check;
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
     use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
-    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 
     // Killed by a hook that lets background work through, or that refuses an ordinary command.
     #[tokio::test]

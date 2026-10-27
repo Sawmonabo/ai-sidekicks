@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use crate::driver::codex::app_server_protocol::{ThreadResumeParams, ThreadUnsubscribeParams};
@@ -27,7 +28,6 @@ use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
-use sidekicks_std::mutex_lock::lock;
 
 const THREAD_RESUME_METHOD: &str = "thread/resume";
 

@@ -12,6 +12,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
@@ -22,7 +23,6 @@ use crate::driver::claude::session::transport::inbound::ClaudeControlAnswer;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
-use sidekicks_std::mutex_lock::lock;
 
 /// One thing the driver wrote to the scripted process, in the order written.
 #[derive(Clone, Debug, PartialEq)]

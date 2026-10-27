@@ -11,6 +11,7 @@ use futures::FutureExt;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
@@ -36,7 +37,6 @@ use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::start_request::DaemonTurnStartRequest;
-use sidekicks_std::mutex_lock::lock;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
 /// files a person's message carries, written to the session's own process under the message id a

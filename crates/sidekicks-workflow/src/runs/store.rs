@@ -13,6 +13,9 @@ use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::list::{WorkflowRunListCursor, WorkflowRunListRequest};
 use sidekicks_contracts::workflow::run::records::WorkflowChainRoot;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
 
 use crate::not_found::WorkflowNotFound;
 use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
@@ -21,9 +24,6 @@ use crate::runs::record::{
     stored_instant_bound, stored_run_from_row, stored_step_from_row,
 };
 use crate::runs::spent_account::spent_account_columns;
-use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
-};
 
 /// The statements a [`WorkflowRunStore`] prepares on a read connection: the run read and the runs
 /// list.

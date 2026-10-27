@@ -14,7 +14,6 @@
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalState, RememberedScopeKind,
 };
-
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
 

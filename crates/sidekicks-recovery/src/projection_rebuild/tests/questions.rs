@@ -4,11 +4,11 @@ use std::sync::Arc;
 
 use rusqlite::Connection;
 use rusqlite::types::Value;
-
-use super::{rebuild_whole, table_rows};
 use sidekicks_session::questions::projection::QuestionsProjection;
 use sidekicks_session::questions::service::tests::Fixture;
 use sidekicks_session::questions::service::tests::write_queued_answers;
+
+use super::{rebuild_whole, table_rows};
 
 fn question_rows(connection: &Connection) -> (Vec<Vec<Value>>, Vec<Vec<Value>>) {
     (

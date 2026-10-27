@@ -18,6 +18,8 @@ use std::time::Duration;
 use futures::future::join_all;
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::{CancellationToken, DropGuard};
@@ -30,8 +32,6 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::driver::registry::ProviderRegistry;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
 
 /// How long one driver's read and declare may take before the refresh cancels it, so a read that
 /// never settles cannot hold the refresh and every trigger after it.
@@ -279,6 +279,7 @@ mod tests {
     use std::time::Duration;
 
     use futures::FutureExt as _;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
     use tokio::sync::Semaphore;
 
     use super::CapabilityRefresher;
@@ -288,7 +289,6 @@ mod tests {
     use crate::driver::schema::schema_parts;
     use crate::driver::test_registry::test_driver_services;
     use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     // A permit for each capability read the driver starts.
     static READS_STARTED: Semaphore = Semaphore::const_new(0);

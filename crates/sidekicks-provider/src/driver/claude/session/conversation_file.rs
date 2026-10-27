@@ -19,6 +19,7 @@ use serde::de::{self, Deserializer, SeqAccess, Visitor};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::missing_entry::MissingEntry;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
 use crate::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
@@ -33,7 +34,6 @@ use crate::inbound_json::decode_inbound_json;
 use crate::lenient_json::{
     Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
 };
-use sidekicks_std::missing_entry::MissingEntry;
 
 /// The turns one conversation file holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

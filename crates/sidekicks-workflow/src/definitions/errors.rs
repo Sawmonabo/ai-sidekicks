@@ -9,7 +9,6 @@ use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use sidekicks_contracts::workflow::definition::refusals::{
     WorkflowDefinitionFinding, WorkflowDefinitionRefusedDetails,
 };
-
 use sidekicks_ipc::domain_error::DomainError;
 
 /// Why a save was refused; nothing was saved for either. Each answers its own code.

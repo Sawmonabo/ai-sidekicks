@@ -15,9 +15,13 @@ use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::command_search::ProviderCommandSearch;
@@ -30,10 +34,6 @@ use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
-use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 pub mod attachments;
 pub mod callback_tool;

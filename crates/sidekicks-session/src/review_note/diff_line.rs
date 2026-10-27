@@ -24,7 +24,6 @@ use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::review_note::{ReviewNoteComparison, ReviewNoteScope, ReviewNoteSide};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{PathRules, resolve_path, resolve_path_against};
-
 use sidekicks_std::missing_entry::is_gone;
 use sidekicks_workspace::git::process::{
     GIT_OUTPUT_MAX_BYTES, GitCall, GitError, GitRunner, background_read,
@@ -476,11 +475,11 @@ mod tests {
     };
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::NonEmptyText;
-
-    use super::{NoteLocation, NotedLineError, NotedLineReader, lines_of_refused_diff};
     use sidekicks_workspace::git::process::{
         GitCall, GitError, GitRunner, in_folder, test_git_runner,
     };
+
+    use super::{NoteLocation, NotedLineError, NotedLineReader, lines_of_refused_diff};
 
     // Runs `arguments` in `repository`; a read, so no hook of the person's runs in the test.
     async fn git_in(git: &GitRunner, repository: &Path, arguments: &[&str]) {

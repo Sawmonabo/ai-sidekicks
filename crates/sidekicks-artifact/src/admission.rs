@@ -8,13 +8,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
-use crate::refusals::{ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted};
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 #[cfg(test)]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::writer::repack::VolumeFreeBytesReader;
+
+use crate::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
+use crate::refusals::{ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted};
 
 // Each open upload's room yet to write, shared with the guard that releases it.
 type OpenUploads = Arc<Mutex<Vec<Arc<AtomicU64>>>>;

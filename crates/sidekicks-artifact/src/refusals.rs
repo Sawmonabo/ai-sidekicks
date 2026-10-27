@@ -13,14 +13,13 @@ use sidekicks_contracts::artifacts::operations::{
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio::task::JoinError;
-
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::settle_all::DescribeEach;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::appender::SessionEventAppendError;
+use tokio::task::JoinError;
 
 /// What an artifact call fails with: one of this module's refusals or another classified one, or
 /// a fault inside the daemon.

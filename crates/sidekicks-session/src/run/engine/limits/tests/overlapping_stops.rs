@@ -4,6 +4,11 @@ use futures::FutureExt as _;
 use rstest::rstest;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::pause_point::ArmedPause;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::test_log::open_log;
 use tokio::sync::oneshot;
 
 use crate::questions::schema::schema_parts;
@@ -14,11 +19,6 @@ use crate::run::engine::tests::{
 };
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::limit_interrupter::HandedCut;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::pause_point::ArmedPause;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
 
 // A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
 // before it reached its hand, the stop goes, and its end is reported on `ended`.

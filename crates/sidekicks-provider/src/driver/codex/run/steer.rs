@@ -11,7 +11,6 @@ use std::sync::{Arc, LazyLock};
 
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
-
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;

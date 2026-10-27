@@ -9,10 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rmcp::model::ProgressToken;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
-
-use sidekicks_std::mutex_lock::lock;
 
 /// What moves or holds one connection's tool calls' idle window: progress on each call in
 /// flight, by its token, and how many of the server's questions are open. It holds one entry per

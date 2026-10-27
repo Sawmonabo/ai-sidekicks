@@ -10,6 +10,7 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -18,7 +19,6 @@ use crate::driver::codex::hooks::server::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::hook_pauses::{EndedHookPause, HookPauses, PAUSED_REASON, PausedRole};
-use sidekicks_std::mutex_lock::lock;
 
 /// The run a conversation's pause stops, and the binding its `paused` is delivered on.
 #[expect(

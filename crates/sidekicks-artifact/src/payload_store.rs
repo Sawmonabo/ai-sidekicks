@@ -20,14 +20,14 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use rusqlite::OptionalExtension as _;
-
-use crate::refusals::ArtifactError;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+
+use crate::refusals::ArtifactError;
 
 // The digest's algorithm, the key's prefix and the store's top folder.
 const CONTENT_HASH_ALGORITHM: &str = "sha256";
@@ -325,12 +325,12 @@ mod tests {
     use std::sync::Arc;
 
     use sha2::{Digest as _, Sha256};
+    use sidekicks_std::scheduler::budget::ProcessorMeter;
     use tokio::sync::oneshot;
 
     use super::{ContentHash, PayloadStore};
     use crate::refusals::ArtifactError;
     use crate::test_store::{ArtifactTestStore, write_payload_reference};
-    use sidekicks_std::scheduler::budget::ProcessorMeter;
 
     fn content_hash_of(bytes: &[u8]) -> ContentHash {
         ContentHash::of_sha256(&Sha256::digest(bytes))

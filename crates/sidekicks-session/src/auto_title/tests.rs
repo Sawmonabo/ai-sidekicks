@@ -10,17 +10,9 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use tokio::runtime::Handle;
-use tokio::sync::Notify;
-
-use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
-use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
-use crate::directory::row::{DirectoryEvent, directory_statements_for};
-use crate::questions::schema::schema_parts;
-use crate::run::engine::tests::insert_running_run;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
@@ -35,6 +27,14 @@ use sidekicks_store::events::log_service::{
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use tokio::runtime::Handle;
+use tokio::sync::Notify;
+
+use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
+use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
+use crate::directory::row::{DirectoryEvent, directory_statements_for};
+use crate::questions::schema::schema_parts;
+use crate::run::engine::tests::insert_running_run;
 
 /// Bounds every wait a test expects to end, so one that never does fails the test.
 const WAIT: Duration = Duration::from_secs(10);

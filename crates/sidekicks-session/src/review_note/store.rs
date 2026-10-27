@@ -33,10 +33,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tokio::sync::Notify;
-
-use crate::directory::lookups::{SessionWriteError, session_exists, write_while_session_exists};
-use crate::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
@@ -52,6 +48,10 @@ use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use tokio::sync::Notify;
+
+use crate::directory::lookups::{SessionWriteError, session_exists, write_while_session_exists};
+use crate::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
 /// and whether the session has a row.
@@ -723,6 +723,11 @@ mod tests {
     };
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     use super::{
         REVIEW_NOTE_STORE_STATEMENT_CAPACITY, ReviewNoteFolderError, ReviewNoteFolders,
@@ -730,11 +735,6 @@ mod tests {
     };
     use crate::questions::schema::schema_parts;
     use crate::review_note::diff_line::NotedLineReader;
-    use sidekicks_ipc::registry::HandlerError;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
-    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     /// A session that works in no repository's folder.
     struct NoWorkingFolder;

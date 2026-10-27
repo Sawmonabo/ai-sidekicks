@@ -15,19 +15,8 @@ use sidekicks_contracts::run::control::{AgentRunPauseRequest, AgentRunResumeRequ
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
-use tempfile::TempDir;
-use tokio::sync::oneshot;
-
-use super::test_answers::unanswered;
-use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
-use crate::driver_resolution::LiveRunDriverError;
-use crate::questions::schema::schema_parts;
-use crate::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
-use crate::run::engine::{InterruptRoute, RunEngine};
-use crate::run::refusals::RunRefusal;
-use crate::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -41,6 +30,17 @@ use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
+use tempfile::TempDir;
+use tokio::sync::oneshot;
+
+use super::test_answers::unanswered;
+use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
+use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::schema::schema_parts;
+use crate::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
+use crate::run::engine::{InterruptRoute, RunEngine};
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::RunStateChange;
 
 /// How long a call held behind a resume is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);

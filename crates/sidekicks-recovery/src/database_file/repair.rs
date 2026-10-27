@@ -30,6 +30,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{
     flush_file, flush_folder, physical_memory, remove_tree, rename_replacing,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_store::database::damage::{read_database_damage, remove_database_damage};
+use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::sibling_path;
 use tokio::sync::watch;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
@@ -46,12 +52,6 @@ use crate::database_file::last_run::{LastRunError, record_clean_stop};
 use crate::database_file::newest_backup::find_newest_backup_database;
 use crate::database_file::sqlite_shell::{SqliteRecoveryError, SqliteShell};
 use crate::database_file::store_folder;
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use sidekicks_std::missing_entry::MissingEntry as _;
-use sidekicks_store::database::damage::{read_database_damage, remove_database_damage};
-use sidekicks_store::database::schema::DatabaseSchema;
-use sidekicks_store::database::sibling_path;
 
 // The fresh file a repair recovers into, beside the database file.
 const FRESH_FILE_SUFFIX: &str = ".recovered";
@@ -593,6 +593,10 @@ mod tests {
 
     use rstest::rstest;
     use sidekicks_platforms::Spawner;
+    use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+    use sidekicks_store::database::damage::{read_database_damage, record_database_damage};
+    use sidekicks_store::database::schema::schema_parts;
+    use sidekicks_store::database::sibling_path;
     use tokio::runtime::Handle;
 
     use super::{
@@ -603,10 +607,6 @@ mod tests {
     use crate::database_file::copy::DatabaseFileCopier;
     use crate::database_file::last_run::{LastRunEnd, read_last_run_end};
     use crate::database_file::sqlite_shell::SqliteShell;
-    use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-    use sidekicks_store::database::damage::{read_database_damage, record_database_damage};
-    use sidekicks_store::database::schema::schema_parts;
-    use sidekicks_store::database::sibling_path;
 
     const DAMAGED_BYTES: &[u8] = b"the damaged file";
     const FRESH_BYTES: &[u8] = b"the recovered file";

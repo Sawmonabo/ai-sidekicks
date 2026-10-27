@@ -19,8 +19,6 @@ use sidekicks_contracts::run::control::{
 use sidekicks_contracts::run::queue::{AgentQueueItemSubscribeRequest, RunQueueStreamFrame};
 use sidekicks_contracts::session::event_cursor::decode_event_cursor;
 use sidekicks_contracts::wire::list::BoundedVec;
-use tokio::sync::watch;
-
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -36,6 +34,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::events::log_service::{EventLogService, FollowStart};
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, SessionLogReadError};
+use tokio::sync::watch;
 
 /// What the queue methods act through.
 pub(crate) struct RunQueueMethods {

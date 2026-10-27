@@ -31,17 +31,17 @@ use sidekicks_contracts::transcript::row::TranscriptReadRow;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 use sidekicks_contracts::wire::{False, True};
-
-use crate::run::refusals::RunRefusal;
-use crate::transcript::block_cut::BlockParse;
-use crate::transcript::projector::project_window;
-use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, readable_event_sql, resolve_event_cursor,
 };
 use sidekicks_store::transcript_rejoin::{row_condition_sql, stored_patch_part_sql};
+
+use crate::run::refusals::RunRefusal;
+use crate::transcript::block_cut::BlockParse;
+use crate::transcript::projector::project_window;
+use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
 /// The payload member of an `agent.run.queued` that names the run it is a child of.
 const PARENT_RUN_ID_PAYLOAD_KEY: &str = "parentRunId";
@@ -408,14 +408,14 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::transcript::limits::TRANSCRIPT_READ_LIMIT_MAX;
     use sidekicks_contracts::transcript::operations::TranscriptChildRunExpandResponse;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_store::events::test_log::AT;
 
     use super::expand_child_run;
     use crate::transcript::block_cut::MARKDOWN_PARSE;
     use crate::transcript::test_log::{TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_store::events::test_log::AT;
 
     // `run_id`'s expansion after `after_cursor`.
     fn expand(

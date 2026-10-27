@@ -26,8 +26,6 @@ use sidekicks_contracts::session::methods::{
 };
 use sidekicks_contracts::transcript::content::TranscriptRowContent;
 use sidekicks_contracts::wire::instant::WireInstant;
-use tokio::sync::watch;
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
@@ -42,6 +40,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::log_service::{EventLogReadError, EventLogService, FollowStart};
 use sidekicks_store::events::session::read::session_read_bound;
+use tokio::sync::watch;
 
 /// Registers `session.event.subscribe` over `log`. Refuses a session the daemon does not hold
 /// `session.notFound` and a cursor it cannot read `session.event.cursorUnresolvable`, and fails the
@@ -316,9 +315,6 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::method::Method as _;
-
-    use super::*;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{Dispatch as _, EncodedFeed, Reply};
     use sidekicks_ipc::stream::feed::CreditGate;
@@ -331,6 +327,9 @@ mod tests {
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
     use sidekicks_store::events::log_service::test_log::open_log;
+
+    use super::*;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

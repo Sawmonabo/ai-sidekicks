@@ -6,10 +6,10 @@ use std::path::Path;
 
 use sidekicks_contracts::git::shared::GitRefName;
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
+use sidekicks_store::events::session::appender::SessionEventLinkage;
 
 use super::{WatchTarget, WatcherShared};
 use crate::git::worktree::reads::read_current_branch;
-use sidekicks_store::events::session::appender::SessionEventLinkage;
 
 /// The branch a folder was last seen on, and the check that writes a new one back.
 #[derive(Default)]

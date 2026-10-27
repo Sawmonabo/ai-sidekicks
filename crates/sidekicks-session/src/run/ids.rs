@@ -5,7 +5,6 @@ use std::borrow::Cow;
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::text_column;
 

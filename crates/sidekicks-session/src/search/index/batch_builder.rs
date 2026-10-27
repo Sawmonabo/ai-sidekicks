@@ -175,13 +175,13 @@ mod tests {
     use sidekicks_search::index::{
         IndexBatch, IndexRowKind, SearchIndex, SearchIndexOptions, SearchQuery, mark_matches,
     };
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
 
     use super::IndexBatchBuilder;
     use crate::search::hits::HitLineReader;
     use crate::search::index::applier::SearchIndexApplyError;
     use crate::search::index::rows::{IndexRowReader, SourceRowRead, empty_index_batch_room};
     use crate::transcript::test_log::TranscriptTestLog;
-    use sidekicks_store::database::schema::session_directory::insert_session_row;
 
     const OUTBOX_ID_BEFORE_ROW: u64 = 7;
     const LAST_OUTBOX_ID: u64 = 9;

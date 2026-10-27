@@ -24,6 +24,12 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_provider::run::turn_end::TurnOutcome;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 use crate::run::engine::limits::limit_run_end;
 use crate::run::engine::turns::TurnEnd;
@@ -37,12 +43,6 @@ use crate::run::restart::{
 };
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
 use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
-use sidekicks_provider::driver::contract::bound_failure_detail;
-use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_provider::run::turn_end::TurnOutcome;
-use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 // The position among an interrupt end's companions of its guard that the run has not ended since
 // the interrupt was accepted: the first of the caller's companions, before the verdict's.

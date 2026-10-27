@@ -13,6 +13,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
     bind_socket_listener, write_stand_in_program,
@@ -47,7 +48,6 @@ use crate::process_registry::ProviderProcessRegistry;
 use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
-use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 
 /// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
 /// runs none, so a terminal service starts, and is answered, with no hooks.

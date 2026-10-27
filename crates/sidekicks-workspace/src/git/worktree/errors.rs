@@ -24,10 +24,10 @@ use sidekicks_contracts::worktree::lifecycle::{
     CarryCheckoutRunningReason, RemovedWorktreeId, WorktreeCarryCheckoutRunningDetails, WorktreeId,
     WorktreeRetireConflictDetails, WorktreeRetireIncompleteDetails,
 };
+use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 use strum::IntoStaticStr;
 
 use crate::run_setup_gates::RunSetupGateError;
-use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
 
 /// Why making a worktree failed; closed and free of paths, so it is safe on the wire, where its
 /// name is the detail's `reason`. `branchNameInvalid` and `branchNameTaken` carry git's own line

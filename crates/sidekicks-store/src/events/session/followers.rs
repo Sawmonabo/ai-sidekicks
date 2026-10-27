@@ -14,10 +14,10 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::watch;
 
 use crate::events::session::appender::UnsequencedEventEnvelope;
-use sidekicks_std::mutex_lock::lock;
 
 /// A committed event as its followers hear it: the envelope its row was written from, shared
 /// with that row, and the sequence its write committed it at.

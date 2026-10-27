@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::terminal::control::TerminalControlChangedReason;
+use sidekicks_ipc::domain_error::DomainError;
 use tokio::sync::oneshot;
 
 use crate::control_lease::{
     DeviceHold, LeaseHolder, LeaseShared, LeaseState, ShellControlLease, ShellWriter, rejoin,
 };
-use sidekicks_ipc::domain_error::DomainError;
 
 /// A write's admission: made at once, or waiting in line for the change of holder in flight.
 pub(crate) enum WriteAdmission<T> {

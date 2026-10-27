@@ -10,13 +10,13 @@ use rusqlite::types::Value;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::UserId;
 use sidekicks_contracts::wire::id::IdError;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{MachineNameError, Spawner, machine_name};
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::{DatabaseWriter, WriteError};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const SELECT_LOCAL_MACHINE_SQL: &str =
     "SELECT machine_id, owner_user_id, name FROM local_machine WHERE singleton = 1";

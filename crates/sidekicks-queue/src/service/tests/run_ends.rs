@@ -9,12 +9,12 @@ use std::sync::atomic::Ordering;
 use rstest::rstest;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
-use tokio::time::{sleep, timeout};
-
-use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
 use sidekicks_session::queue_store::RecordedQueueItemState;
+use tokio::time::{sleep, timeout};
+
+use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
 
 /// How the session's lead runs stand when one of them ends with a message waiting.
 #[derive(Clone, Copy, Debug)]

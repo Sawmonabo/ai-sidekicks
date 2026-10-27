@@ -15,12 +15,6 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
-use tokio_util::sync::CancellationToken;
-
-use super::{
-    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildError, ProjectionRebuildRequest,
-    ProjectionRebuildService,
-};
 use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::damage::DatabaseDamageWatch;
@@ -33,6 +27,12 @@ use sidekicks_store::events::projection::{
     ProjectionContradiction, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use tokio_util::sync::CancellationToken;
+
+use super::{
+    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildError, ProjectionRebuildRequest,
+    ProjectionRebuildService,
+};
 
 const PINNED_ROWS_TABLE_SQL: &str =
     "CREATE TABLE pinned_rows (session_id TEXT NOT NULL, sequence INTEGER NOT NULL) STRICT";

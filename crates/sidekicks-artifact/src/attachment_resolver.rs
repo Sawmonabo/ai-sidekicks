@@ -10,16 +10,16 @@ use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::payload_store::{ContentHash, PayloadStore};
-use crate::refusals::ArtifactError;
-use crate::validation::FILE_NAME_MEMBER;
 use sidekicks_provider::driver::attachments::{
     AttachmentResolver, ProviderAttachment, ResolvedAttachment, UnresolvedAttachmentCause,
     UnresolvedAttachmentMarker,
 };
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::database::stored_column::text_column;
+
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::refusals::ArtifactError;
+use crate::validation::FILE_NAME_MEMBER;
 
 // The manifest's newest payload reference within the message's session; a manifest whose payload
 // was reclaimed has none.
@@ -143,16 +143,16 @@ mod tests {
     use std::borrow::Cow;
 
     use sidekicks_contracts::artifacts::id::ArtifactId;
-
-    use super::ArtifactAttachmentResolver;
-    use crate::id::mint_artifact_id;
-    use crate::test_store::ArtifactTestStore;
     use sidekicks_provider::driver::attachments::{
         AttachmentResolver, ProviderAttachment, ResolvedAttachment, UnresolvedAttachmentCause,
         UnresolvedAttachmentMarker,
     };
     use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
     use sidekicks_store::database::writer::test_file::test_session_id;
+
+    use super::ArtifactAttachmentResolver;
+    use crate::id::mint_artifact_id;
+    use crate::test_store::ArtifactTestStore;
 
     const CONTENT_HASH: &str =
         "sha256:0000000000000000000000000000000000000000000000000000000000000000";

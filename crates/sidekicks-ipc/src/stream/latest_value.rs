@@ -7,11 +7,11 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::Notify;
 
 use crate::registry::HandlerError;
 use crate::stream::feed::{Feed, SendGate};
-use sidekicks_std::mutex_lock::lock;
 
 /// What waits between a source and its feed.
 struct WaitingValue<Emission> {

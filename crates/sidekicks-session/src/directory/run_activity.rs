@@ -7,7 +7,6 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::directory::SessionActivity;
-
 use sidekicks_store::database::sql_list::sql_list_of;
 
 // The run states a session reads as waiting on the person, and those it reads as working.

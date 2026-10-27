@@ -8,10 +8,10 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::keyed_lock::KeyHold;
 
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::run_control::WaitingMessage;
-use sidekicks_std::keyed_lock::KeyHold;
 
 /// A failure the waiting-message queue reports, kept whole.
 pub type ContinuedMessagesError = Box<dyn Error + Send + Sync>;

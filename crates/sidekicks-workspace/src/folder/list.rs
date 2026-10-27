@@ -41,16 +41,16 @@ use sidekicks_platforms::{
     LocaleCategory, PathRules, is_hidden_entry, path_from_program_output, resolve_path,
     system_locale,
 };
-
-use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
-use crate::repo::errors::RepoRefusal;
-use crate::repo::root_resolver::{ROOT_RESOLUTION_GIT_TIMEOUT, refusal_of_filesystem_failure};
 use sidekicks_std::file::bounded_read::read_within_ceiling;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::processor_bound::map_with_processor_bound;
 use sidekicks_std::read_retry::{is_retryable_read_failure, read_with_one_retry};
 use sidekicks_std::settle_all::SettleFailures;
+
+use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
+use crate::repo::errors::RepoRefusal;
+use crate::repo::root_resolver::{ROOT_RESOLUTION_GIT_TIMEOUT, refusal_of_filesystem_failure};
 
 /// Why a folder listing failed.
 #[derive(Debug, thiserror::Error)]
@@ -468,10 +468,10 @@ mod tests {
         MachineFolderListFolderRequest, MachineFolderListRequest, MachineFolderListResponse,
     };
     use sidekicks_platforms::{path_from_program_output, real_path};
+    use sidekicks_std::file::bounded_read::stall_reads_of;
 
     use super::{FolderListService, numeric_collator, sort_folder_names};
     use crate::git::process::{GitCall, test_git_runner};
-    use sidekicks_std::file::bounded_read::stall_reads_of;
 
     // Which read of the held folder never answers.
     #[derive(Clone, Copy, Debug)]

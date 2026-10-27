@@ -7,8 +7,6 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionRenameRequest;
 use sidekicks_contracts::wire::text::FreeFormText;
-
-use super::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -20,6 +18,8 @@ use sidekicks_store::events::log_service::{
     SessionAppendRefusal,
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+
+use super::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 
 /// Bounds a change the test expects to answer, so one that waits forever fails the test.
 const CHANGE_WAIT: Duration = Duration::from_secs(10);

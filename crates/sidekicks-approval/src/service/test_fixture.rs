@@ -5,10 +5,6 @@ use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use sidekicks_platforms::WallClockTimer;
-
-use super::ApprovalService;
-use crate::run_blocking::ApprovalRunHolds;
-use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -20,6 +16,10 @@ use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
 use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
+
+use super::ApprovalService;
+use crate::run_blocking::ApprovalRunHolds;
+use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
 
 /// Bounds a wait the test expects to settle, so one that never does fails the test.
 pub const SETTLE_WAIT: Duration = Duration::from_secs(5);

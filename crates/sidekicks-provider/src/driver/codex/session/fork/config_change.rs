@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
@@ -24,7 +25,6 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use sidekicks_std::mutex_lock::lock;
 
 /// A config fork in flight, shared by every caller waiting on it: `true` once the session moved
 /// onto the fork, `false` when it owed none by the time the fork ran.

@@ -13,6 +13,8 @@ use futures::future::BoxFuture;
 use notify::Watcher;
 use sidekicks_contracts::repo::git_reads::{WorkingTreeChange, WorkingTreeChangeMode};
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle};
 use tokio::sync::{Notify, watch};
 
 use super::branch_write_back::BranchWriteBack;
@@ -25,8 +27,6 @@ use super::{FolderKey, FolderSignals, FolderStartError, StartOutcome, WatchTarge
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
 use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
-use sidekicks_std::missing_entry::is_missing_entry;
-use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle};
 
 /// Runs the folder `folder` of `target` until `signals.close` is canceled: starts its watches,
 /// answers `started` once they run and the branch was first checked, then reads them.

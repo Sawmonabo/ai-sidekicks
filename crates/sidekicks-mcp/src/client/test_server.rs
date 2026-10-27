@@ -14,6 +14,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_provider::port::question::QuestionPort;
+use sidekicks_provider::port::question::test_card::QuestionCard;
+use sidekicks_provider::port::registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
@@ -26,9 +29,6 @@ use crate::client::tasks::{
     McpTaskContact, McpTaskDispatchIdentity, McpTaskHandleObservation, McpTaskHandleSink,
     McpToolCall,
 };
-use sidekicks_provider::port::question::QuestionPort;
-use sidekicks_provider::port::question::test_card::QuestionCard;
-use sidekicks_provider::port::registration::PortRegistration;
 
 /// What the server does with one request.
 pub(super) enum Reply {

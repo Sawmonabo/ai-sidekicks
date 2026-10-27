@@ -5,22 +5,22 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde_json::{Value, json};
+use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::port::plan::ProviderPlan;
+use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state};
+use sidekicks_store::database::writer::test_file::test_run_id;
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 use tokio_util::sync::CancellationToken;
 
 use crate::restart_settle::RESTART_FAILURE_DETAIL;
 use crate::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
 use crate::status::RecoveryStatusTracker;
 use crate::test_pass::PassFixture;
-use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
-use sidekicks_provider::port::plan::ProviderPlan;
-use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state};
-use sidekicks_store::database::writer::test_file::test_run_id;
-use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 
 // The folders the store's files were copied aside into.
 fn aside_copies(data_folder: &Path) -> Vec<PathBuf> {

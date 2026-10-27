@@ -17,6 +17,11 @@ use sidekicks_contracts::run::intervention::{
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_store::database::session_scope::SessionScopedSql;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 use crate::interventions::interrupt_queue::InterruptChoice;
 use crate::interventions::service::InterventionTarget;
@@ -27,11 +32,6 @@ use crate::interventions::store::{
 };
 use crate::run::read::{SessionRun, session_run_of_row};
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
-use sidekicks_provider::driver::run_control::InterruptPendingChoice;
-use sidekicks_store::database::session_scope::SessionScopedSql;
-use sidekicks_store::database::statement::WriteStatement;
-use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
-use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 // The run's interventions with no outcome yet, with its session, oldest first.
 static SELECT_UNRESOLVED_SQL: LazyLock<String> = LazyLock::new(|| {

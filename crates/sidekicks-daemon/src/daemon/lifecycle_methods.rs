@@ -12,7 +12,6 @@ use sidekicks_contracts::daemon::lifecycle::{
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::BoolLiteral;
-
 use sidekicks_ipc::in_flight_mutations::RecordedCallId;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -96,9 +95,6 @@ mod tests {
     use sidekicks_contracts::schema::received_check;
     use sidekicks_contracts::typescript::TypeName;
     use sidekicks_contracts::wire::attachment::check_received;
-    use tokio::sync::oneshot;
-
-    use super::{LifecycleMethodsDeps, register_lifecycle_methods};
     use sidekicks_ipc::call_fixtures::{Named, Nothing, context, request};
     use sidekicks_ipc::in_flight_mutations::InFlightMutations;
     use sidekicks_ipc::registry::{
@@ -106,6 +102,9 @@ mod tests {
     };
     use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
     use sidekicks_std::mutex_lock::lock;
+    use tokio::sync::oneshot;
+
+    use super::{LifecycleMethodsDeps, register_lifecycle_methods};
 
     /// A method of another namespace sharing the flush's last segment.
     struct SessionFlush;

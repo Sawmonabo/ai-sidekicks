@@ -12,11 +12,11 @@ use std::sync::Arc;
 
 use deadpool::managed::{Manager, Metrics, Object, Pool, PoolError, RecycleResult};
 use rusqlite::Connection;
+use sidekicks_std::cleanup_failures::CleanupFailures;
 use tokio::sync::{RwLock, Semaphore};
 use tokio::task::JoinError;
 
 use crate::database::connection::setup::open_database_reader;
-use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// The read-only connections the pool holds at most. It is 4 until a measured workload of short
 /// reads beside long ones on the blocking pool sets it.

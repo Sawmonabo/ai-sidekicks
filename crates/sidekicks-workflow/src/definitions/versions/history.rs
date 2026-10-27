@@ -18,6 +18,11 @@ use sidekicks_contracts::workflow::definition::versions::{
     WorkflowVersionListResponse, WorkflowVersionReadRequest, WorkflowVersionReadResponse,
     WorkflowVersionSavedBy,
 };
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
 
 use crate::definitions::stored_document::{
     StoredDocumentError, StoredWorkflowDocumentColumns, parse_stored_workflow_body,
@@ -25,11 +30,6 @@ use crate::definitions::stored_document::{
 };
 use crate::definitions::versions::difference::{count_workflow_changes, diff_workflow_bodies};
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_store::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
-};
 
 /// The statements a [`WorkflowVersions`] prepares on a read connection: a version by number, a
 /// version by id, and a version's whole workflow.

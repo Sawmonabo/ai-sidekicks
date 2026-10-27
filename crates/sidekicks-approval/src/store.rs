@@ -18,8 +18,6 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
-
-use crate::request_create::ApprovalResourceDescriptor;
 use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
 use sidekicks_session::run::read::{SessionRun, session_run_of_row};
 use sidekicks_session::run::transitions::RUN_TERMINAL_STATES_SQL;
@@ -28,6 +26,8 @@ use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+
+use crate::request_create::ApprovalResourceDescriptor;
 
 /// The distinct statements [`ApprovalRequestReader`] prepares, for the reading connection's
 /// statement cache.

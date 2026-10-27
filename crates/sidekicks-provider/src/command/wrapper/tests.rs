@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
 use std::time::{Duration, Instant};
 
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_TAKE_IN_ORPHANS, DOES_POSIX_SHELL_LACK_BUILTIN, DOES_TERMINAL_OUTLIVE_ITS_LEADER,
     LeftoverSweep, POSIX_SHELL, TerminalSignal, create_file_atomically, harness_test_name,
@@ -17,7 +18,6 @@ use crate::command::channel::{
     CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
 };
 use crate::driver::PROVIDERS;
-use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 
 /// A command that prints `ready` and then a line every 50 ms until it is stopped.
 const TICKING_COMMAND: &str = "echo ready; while :; do echo tick; sleep 0.05; done";

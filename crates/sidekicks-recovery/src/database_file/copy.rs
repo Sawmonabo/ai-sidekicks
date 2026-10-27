@@ -13,16 +13,16 @@ use std::path::{Path, PathBuf};
 use std::process::{ExitCode, ExitStatus};
 
 use sidekicks_platforms::{ProgramStart, Spawner, flush_file};
-use tokio::process::Command;
-use tokio_util::sync::CancellationToken;
-
-use crate::database_file::ERROR_OUTPUT_KEPT_BYTES;
 use sidekicks_std::file::clone_or_copy::clone_or_copy;
 use sidekicks_std::helper_mode::child::{
     HelperModeChildError, HelperModeEnd, run_helper_mode_child,
 };
 use sidekicks_std::helper_mode::input_watch::run_until_input_ends;
 use sidekicks_std::missing_entry::MissingEntry as _;
+use tokio::process::Command;
+use tokio_util::sync::CancellationToken;
+
+use crate::database_file::ERROR_OUTPUT_KEPT_BYTES;
 
 /// The arguments the daemon's own program is started with to copy one file; the source and the
 /// copy's path follow them.

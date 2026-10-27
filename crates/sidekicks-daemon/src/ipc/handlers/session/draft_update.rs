@@ -8,7 +8,6 @@ use futures::FutureExt as _;
 use sidekicks_contracts::session::draft::{
     SessionDraftUpdate, SessionDraftUpdateRequest, SessionDraftUpdateResponse,
 };
-
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_session::draft_store::SessionDraftStore;
 

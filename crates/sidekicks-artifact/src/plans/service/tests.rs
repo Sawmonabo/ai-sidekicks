@@ -8,12 +8,6 @@ use serde_json::json;
 use sidekicks_contracts::artifacts::operations::ArtifactListEntry;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanState};
 use sidekicks_contracts::session::id::SessionId;
-use tempfile::TempDir;
-
-use super::test_fixture::Fixture;
-use crate::list::list_artifacts;
-use crate::plans::store::StoredPlanHolds;
-use crate::test_store::ArtifactTestStore;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::port::plan::ProviderPlanHoldEnd;
 use sidekicks_provider::run::state_entry::RunStateEntry;
@@ -22,6 +16,12 @@ use sidekicks_session::plan_holds::PlanHolds as _;
 use sidekicks_session::run::engine::tests::test_engine_with;
 use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
+use tempfile::TempDir;
+
+use super::test_fixture::Fixture;
+use crate::list::list_artifacts;
+use crate::plans::store::StoredPlanHolds;
+use crate::test_store::ArtifactTestStore;
 
 // A plan is kept as a `summary` artifact naming it, and `artifact.published` and the
 // `plan.proposed` that names the artifact land in one write, the artifact first. The list shows it

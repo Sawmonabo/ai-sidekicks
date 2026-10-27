@@ -11,11 +11,6 @@ use std::io;
 use std::path::Path;
 use std::process::ExitCode;
 
-use crate::daemon::crash::monitor::{CRASH_MONITOR_MODE, run_crash_monitor};
-use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_environment_mode};
-use crate::daemon::release_version::this_build_release_version;
-use crate::daemon::start::run_service;
-use crate::remote::shared_ports;
 use sidekicks_provider::command::askpass::{COMMAND_ASKPASS_PROGRAM_NAME, run_command_askpass};
 use sidekicks_provider::command::wrapper::{COMMAND_WRAPPER_PROGRAM_NAME, run_command_wrapper};
 use sidekicks_recovery::database_file::copy::{DATABASE_COPY_MODE, run_database_copy};
@@ -28,6 +23,12 @@ use sidekicks_shell::console::{CONSOLE_MODE, run_console_mode};
 use sidekicks_shell::mode::{SHELL_MODE, run_shell_mode};
 use sidekicks_std::standard_error::write_error_line;
 use sidekicks_workspace::clone::askpass::program::{GIT_ASKPASS_PROGRAM_NAME, run_git_askpass};
+
+use crate::daemon::crash::monitor::{CRASH_MONITOR_MODE, run_crash_monitor};
+use crate::daemon::login_shell_environment::printing::{ENVIRONMENT_MODE, run_environment_mode};
+use crate::daemon::release_version::this_build_release_version;
+use crate::daemon::start::run_service;
+use crate::remote::shared_ports;
 
 /// SQLite's own shell, run with C arguments, its first the program's name; it answers the shell's
 /// exit code. `main` supplies it, since the shell is a C function only `main` may call.

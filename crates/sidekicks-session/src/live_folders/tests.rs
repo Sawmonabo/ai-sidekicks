@@ -11,10 +11,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::WallClockTimer;
-use tokio::time::timeout;
-
-use super::{LiveSessionFolders, LiveSessionFoldersDeps};
-use crate::questions::schema::schema_parts;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -28,6 +24,10 @@ use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, BackgroundFetch
 use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use tokio::time::timeout;
+
+use super::{LiveSessionFolders, LiveSessionFoldersDeps};
+use crate::questions::schema::schema_parts;
 
 const WAIT: Duration = Duration::from_secs(30);
 

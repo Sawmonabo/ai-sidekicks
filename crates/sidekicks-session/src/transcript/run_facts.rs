@@ -19,7 +19,6 @@ use sidekicks_contracts::transcript::run_facts::{
 };
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{
     json_object_column, optional_text_column, safe_int_column,

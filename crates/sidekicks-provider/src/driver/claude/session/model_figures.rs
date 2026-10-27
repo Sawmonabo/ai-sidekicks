@@ -23,6 +23,7 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use sidekicks_platforms::PathRules;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::session::answered_commands::ClaudeCommandChoices;
 use crate::driver::claude::session::reply_reserve::{ClaudeReplyReserve, read_context_reply};
@@ -32,7 +33,6 @@ use crate::driver::claude::session::transport::readings::{
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::record_readers::{read_count, read_non_empty_string};
-use sidekicks_std::mutex_lock::lock;
 
 /// The variables that point Claude Code at an API endpoint other than its default: the switch to
 /// each provider it reaches besides Anthropic's own API, then each provider's base address.

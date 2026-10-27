@@ -10,21 +10,16 @@ use std::time::Duration;
 
 use futures::future::join_all;
 use serde_json::{Map, Value};
-use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingValues};
-use sidekicks_contracts::place::Place;
-use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
-use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_platforms::{PathRules, Spawner, current_user_id};
-use tokio::task::JoinError;
-use tokio_util::task::AbortOnDropHandle;
-
-use crate::daemon::machine::settings::file::MachineSettingsFile;
-use crate::program::dispatches_hook_mode;
 use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
 use sidekicks_approval::rules::ApprovalRules;
 use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingValues};
+use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
 use sidekicks_provider::callback_tools::host::CallbackToolHost;
@@ -62,6 +57,11 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
+use tokio::task::JoinError;
+use tokio_util::task::AbortOnDropHandle;
+
+use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::program::dispatches_hook_mode;
 
 /// What the providers' build takes from the steps before it.
 pub(crate) struct ProviderStart {
@@ -554,7 +554,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use futures::FutureExt as _;
-
     use sidekicks_contracts::machine::settings::{
         MachineSettings, ProviderRowValue, ProviderRowValues,
     };
@@ -565,14 +564,6 @@ mod tests {
     use sidekicks_contracts::wire::record::Record;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::Spawner;
-    use tempfile::TempDir;
-    use tokio::runtime::Handle;
-
-    use super::{
-        ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
-    };
-    use crate::daemon::machine::settings::file::MachineSettingsFile;
-    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -590,6 +581,14 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::events::log_service::test_log::open_log;
     use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+    use tempfile::TempDir;
+    use tokio::runtime::Handle;
+
+    use super::{
+        ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
+    };
+    use crate::daemon::machine::settings::file::MachineSettingsFile;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     /// The statements the tests' read pool caches.
     const READ_STATEMENT_CAPACITY: usize = 16;

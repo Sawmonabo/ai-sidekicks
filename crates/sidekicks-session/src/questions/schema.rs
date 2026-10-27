@@ -7,10 +7,9 @@
 //! written anywhere.
 
 use serde::Deserialize;
-use strum::{IntoStaticStr, VariantArray};
-
 use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 use sidekicks_store::database::sql_list::sql_list_of_every;
+use strum::{IntoStaticStr, VariantArray};
 
 /// Where a question record stands, as the `questions.state` column holds it: waiting for its run
 /// to read running where it was asked while the run was not, then open until it is answered or

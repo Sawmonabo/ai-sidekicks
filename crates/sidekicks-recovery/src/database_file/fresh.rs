@@ -21,6 +21,10 @@ use rusqlite::Connection;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::schema::recovery::ProjectionCursorState;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
@@ -31,10 +35,6 @@ use crate::database_file::sqlite_shell::{
     SqliteShell, SqliteShellRunError, SqliteShellScript, quote_sql_identifier, quote_sql_text,
 };
 use crate::database_file::store_folder;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::schema::DatabaseSchema;
-use sidekicks_store::database::schema::recovery::ProjectionCursorState;
-use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 
 /// The fresh file a repair readies, the backup copy it may take sessions from, and the shell its
 /// steps run in.

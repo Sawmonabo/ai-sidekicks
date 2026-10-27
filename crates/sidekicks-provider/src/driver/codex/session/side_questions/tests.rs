@@ -8,6 +8,7 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
@@ -26,7 +27,6 @@ use crate::driver::codex::session::test_session::{TestCodexSession, turn_reply};
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::session_control::AskSideQuestionParams;
 use crate::port::registration::PortRegistration;
-use sidekicks_std::mutex_lock::lock;
 
 /// How long the test waits for the copy to be served and let go.
 const SERVE_WAIT: Duration = Duration::from_secs(10);

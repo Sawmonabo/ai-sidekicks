@@ -9,11 +9,11 @@ use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-
-use crate::delivery::chain::SessionChain;
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::process_identity::ProviderProcessIdentity;
 use sidekicks_session::queue_store::QueueItemRecord;
+
+use crate::delivery::chain::SessionChain;
 
 /// How a message reached its provider: by the driver, which answered how it takes messages at the
 /// hand, or by the continue of a paused run, which delivers the messages that waited for it.

@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 
 use ignore::WalkBuilder;
 use sidekicks_platforms::recreate_link;
-
 use sidekicks_std::file::clone_or_copy::clone_or_copy;
 
 /// What a copy does with what its destination already has.

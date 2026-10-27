@@ -23,13 +23,13 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionRecoveryContinue, SessionRecoveryDelete};
-
-use crate::session_write_refusal::refuse_call_naming_session;
-use crate::status::RecoveryStatusTracker;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     Dispatch, DispatchError, HandlerContext, MethodRegistry, Reply, Request,
 };
+
+use crate::session_write_refusal::refuse_call_naming_session;
+use crate::status::RecoveryStatusTracker;
 
 // The calls taken however the recovery stands: how a person gets out of a stuck one.
 const METHODS_TAKEN_WHILE_RECOVERING: [&str; 3] = [
@@ -209,15 +209,15 @@ mod tests {
     use sidekicks_contracts::method::Method;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::{SessionArchive, SessionRecoveryContinue};
-
-    use super::RecoveryWriteGate;
-    use crate::status::RecoveryStatusTracker;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{
         Dispatch, DispatchError, EncodedValue, HandlerContext, HandlerError, MethodRegistry,
         MethodRegistryBuilder, Reply, Request,
     };
+
+    use super::RecoveryWriteGate;
+    use crate::status::RecoveryStatusTracker;
 
     // Where the recovery stands when the call arrives.
     #[derive(Clone, Copy, Debug)]

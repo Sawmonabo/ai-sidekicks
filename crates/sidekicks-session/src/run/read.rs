@@ -18,9 +18,6 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-
-use crate::run::engine::turns::{open_turns_sql, turn_holds_no_end_sql};
-use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 use sidekicks_provider::runtime_binding::store::StoredBindingIdInvalid;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -31,6 +28,9 @@ use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
 use sidekicks_store::events::session::read::readable_event_sql;
+
+use crate::run::engine::turns::{open_turns_sql, turn_holds_no_end_sql};
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
 /// A run as it stands now. `version` counts every progression of the run, state changes and
 /// applied interventions alike; a decision taken from it is guarded again inside the write it
@@ -364,13 +364,13 @@ pub fn safe_run_version(version: i64) -> SafeInt<0> {
 mod tests {
     use rusqlite::params;
     use sidekicks_contracts::run::id::RunId;
-
-    use super::read_run_provider;
-    use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+
+    use super::read_run_provider;
+    use crate::questions::schema::schema_parts;
 
     // Killed by reading the run's own binding alone, which finds none for a subagent, by climbing
     // only one level, or by climbing from a child reached any other way, which runs on a provider

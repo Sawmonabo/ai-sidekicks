@@ -18,16 +18,16 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-use tokio::sync::watch;
-
-use crate::data_acts::erase::{DataErase, DataEraseRefusal};
-use crate::data_acts::export::{DataExportStartRefusal, DataExports, is_finished};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
+use tokio::sync::watch;
+
+use crate::data_acts::erase::{DataErase, DataEraseRefusal};
+use crate::data_acts::export::{DataExportStartRefusal, DataExports, is_finished};
 
 /// What the data verbs act on.
 pub(crate) struct DataMethodsDeps {
@@ -170,6 +170,8 @@ mod tests {
     use futures::FutureExt as _;
     use rstest::rstest;
     use serde_json::{Value, json};
+    use sidekicks_artifact::payload_store::PayloadStore;
+    use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
     use sidekicks_contracts::daemon::data::{
         DaemonDataErase, DaemonDataExportCancel, DaemonDataExportStart, DaemonDataExportSubscribe,
         DataExportProgress,
@@ -177,20 +179,13 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::session::id::SessionId;
-    use sidekicks_platforms::CredentialStore;
-    use tempfile::TempDir;
-
-    use super::{DataMethodsDeps, register_data_methods};
-    use crate::data_acts::erase::{DataErase, DataEraseDeps};
-    use crate::data_acts::export::{DataExportDeps, DataExports};
-    use sidekicks_artifact::payload_store::PayloadStore;
-    use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::domain_error::DomainError;
     use sidekicks_ipc::registry::{
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, MethodRegistryBuilder, Reply,
     };
     use sidekicks_ipc::stream::feed::CreditGate;
+    use sidekicks_platforms::CredentialStore;
     use sidekicks_provider::driver::contract::MockProviderDriver;
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
@@ -200,6 +195,11 @@ mod tests {
     };
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
+    use tempfile::TempDir;
+
+    use super::{DataMethodsDeps, register_data_methods};
+    use crate::data_acts::erase::{DataErase, DataEraseDeps};
+    use crate::data_acts::export::{DataExportDeps, DataExports};
 
     const WAIT: Duration = Duration::from_secs(10);
     const UNKNOWN_JOB: &str = "0192f0c1-7a3b-7c00-8000-0000000000ff";

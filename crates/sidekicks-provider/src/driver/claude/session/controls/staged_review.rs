@@ -14,6 +14,10 @@ use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesError;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -28,10 +32,6 @@ use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::error_description::describe_error;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesError;
 
 // How a review of the staged set ended: refused by the model, or with its report.
 enum ClaudeStagedReviewEnd {

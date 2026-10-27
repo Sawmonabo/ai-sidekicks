@@ -11,6 +11,7 @@ use std::time::Instant;
 
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use starlark::ErrorKind;
 use starlark::any::ProvidesStaticType;
 use starlark::environment::{GlobalsBuilder, Module};
@@ -22,7 +23,6 @@ use starlark::values::list::{ListRef, UnpackList};
 use starlark::values::none::NoneType;
 
 use super::normalize_network_rule_host;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 // The endings Codex strips from a program's name on Windows before it looks the name up.
 const WINDOWS_PROGRAM_SUFFIXES: [&str; 4] = [".exe", ".cmd", ".bat", ".com"];

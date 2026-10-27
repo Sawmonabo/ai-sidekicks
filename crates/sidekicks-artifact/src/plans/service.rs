@@ -15,15 +15,6 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::JsonRecord;
-
-use crate::manifest_write::{
-    PublishedManifestWrite, manifest_write_failure, published_manifest_write,
-};
-use crate::plans::record::compose_plan_proposed_payload;
-use crate::plans::store::{hold_end_write, insert_plan_statement, read_held_plans};
-use crate::publish::{ArtifactPublishService, DaemonPayload};
-use crate::refusals::ArtifactError;
-use crate::validation::file_name_metadata;
 use sidekicks_provider::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
 use sidekicks_session::plan_holds::HeldPlan;
 use sidekicks_session::run::state_change::refused_statement_index;
@@ -34,6 +25,15 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
+
+use crate::manifest_write::{
+    PublishedManifestWrite, manifest_write_failure, published_manifest_write,
+};
+use crate::plans::record::compose_plan_proposed_payload;
+use crate::plans::store::{hold_end_write, insert_plan_statement, read_held_plans};
+use crate::publish::{ArtifactPublishService, DaemonPayload};
+use crate::refusals::ArtifactError;
+use crate::validation::file_name_metadata;
 
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_fixture;

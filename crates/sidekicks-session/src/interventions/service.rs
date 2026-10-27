@@ -43,8 +43,25 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::contract::{DriverError, bound_failure_detail};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::{
+    ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
+    InterventionResultStatus,
+};
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use self::errors::{DispatchError, InterventionError, failure_text_of};
 use self::reached_state::{ReachedState, draft};
@@ -66,23 +83,6 @@ use crate::run::read::{RunRead, read_run_through};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChangeCompanions, refused_statement_index};
 use crate::run::transitions::states_that_may_enter;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::contract::{DriverError, bound_failure_detail};
-use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_provider::driver::run_control::{
-    ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
-    InterventionResultStatus,
-};
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_std::text_cut::cut_to_code_points;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::statement::WriteStatement;
-use sidekicks_store::events::log_service::EventLogService;
-use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
 /// provider, and an intervention's row by its id and under a reused key.

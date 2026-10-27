@@ -33,7 +33,9 @@ use sidekicks_contracts::session::search::{
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_search::index::{HeldSearch, IndexRowKind, SearchIndex, SearchIndexError};
+use sidekicks_store::database::stored_column::{optional_text_column, rowid_column, text_column};
 
 use crate::search::cursor::{
     SearchCursorPosition, SearchPagePosition, decode_search_cursor, encode_search_cursor,
@@ -46,8 +48,6 @@ use crate::search::page::{PageCandidate, PageHit, SearchPage, assemble_search_pa
 use crate::search::query::{ParsedSearchQuery, parse_session_search_query};
 use crate::search::rowid_floors::{HeldRowCheck, RowidFloorLog};
 use crate::search::snapshots::{DEFAULT_SEARCH_SNAPSHOT_LIMITS, SearchSnapshot, SearchSnapshots};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_store::database::stored_column::{optional_text_column, rowid_column, text_column};
 
 // The sessions the directory holds among these keys; a session since purged has no row.
 const SESSIONS_BY_KEY_SQL: &str = "
@@ -584,6 +584,7 @@ mod tests {
     };
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_search::index::SearchIndex;
+    use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
     use tempfile::TempDir;
 
     use super::{SessionSearchError, SessionSearchService};
@@ -596,7 +597,6 @@ mod tests {
     use crate::search::index::rows::IndexRowReader;
     use crate::search::index::schema::add_titled_session;
     use crate::search::snapshots::SearchSnapshot;
-    use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 
     // How long a page the test expects is waited for before the test fails.
     const PAGE_BOUND: Duration = Duration::from_secs(30);

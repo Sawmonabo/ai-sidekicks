@@ -18,6 +18,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
 
 use super::binding_id;
 use crate::callback_tools::host::{
@@ -44,7 +45,6 @@ use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::usage_sink::{ProviderQuotaWindow, UsageSink};
 use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
-use sidekicks_std::mutex_lock::lock;
 
 /// What reached the approval ports, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]

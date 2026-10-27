@@ -15,7 +15,6 @@ use sidekicks_contracts::repo::mount::{
     WorkspaceLifecyclePayload, WorkspaceState,
 };
 use sidekicks_contracts::session::id::SessionId;
-
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,

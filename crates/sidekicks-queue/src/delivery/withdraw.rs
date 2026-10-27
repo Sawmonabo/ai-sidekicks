@@ -11,14 +11,6 @@ use futures::future::join_all;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
-use tokio::sync::oneshot;
-use tokio_util::sync::CancellationToken;
-use tracing::Instrument as _;
-
-use crate::delivery::chain::ChainJob;
-use crate::delivery::state::HandRoute;
-use crate::delivery::{DeliveryError, QueueDelivery, QueueWithdrawal, WITHDRAW_DEADLINE};
-use crate::refusals::UnreturnedReason;
 use sidekicks_provider::driver::run_control::{
     WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
@@ -28,6 +20,14 @@ use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
+use tokio::sync::oneshot;
+use tokio_util::sync::CancellationToken;
+use tracing::Instrument as _;
+
+use crate::delivery::chain::ChainJob;
+use crate::delivery::state::HandRoute;
+use crate::delivery::{DeliveryError, QueueDelivery, QueueWithdrawal, WITHDRAW_DEADLINE};
+use crate::refusals::UnreturnedReason;
 
 /// The answer a withdraw job sends its caller: each candidate's withdrawal, or the failure that
 /// stopped them.

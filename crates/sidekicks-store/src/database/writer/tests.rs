@@ -8,6 +8,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
@@ -25,7 +26,6 @@ use crate::database::writer::{
     ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
     WritesHeldError,
 };
-use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
 
 /// A read that counts to a million: slow enough that a write running it has not committed when
 /// the caller's next step runs, and bounded.

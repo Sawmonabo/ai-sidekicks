@@ -5,11 +5,11 @@
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::daemon::status::DaemonSecretsFileUnopened;
+use sidekicks_std::mutex_lock::lock;
 
 use super::{cannot_open, mismatch, unreadable_record};
 use crate::credential_store::KeychainRefusal;
 use crate::credential_store::place::{PlaceRecord, SecretsPlace};
-use sidekicks_std::mutex_lock::lock;
 
 // What this run knows of the place, behind the run's lock.
 pub(super) struct PlaceState {

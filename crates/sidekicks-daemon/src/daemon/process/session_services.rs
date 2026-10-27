@@ -7,21 +7,11 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
-use sidekicks_platforms::{Spawner, WallClock};
-use sidekicks_terminal::{CommandLine, Terminals};
-use tokio::sync::mpsc;
-use tokio::task::JoinHandle;
-
-use crate::daemon::process::approvals::{
-    ApprovalAttachments, ApprovalStart, Approvals, build_approvals, start_approval_attachments,
-};
-use crate::daemon::process::stop::TaskStopFailure;
-use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
-use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_artifact::publish::ArtifactPublishService;
+use sidekicks_platforms::{Spawner, WallClock};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
@@ -62,11 +52,21 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
+use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+use crate::daemon::process::approvals::{
+    ApprovalAttachments, ApprovalStart, Approvals, build_approvals, start_approval_attachments,
+};
+use crate::daemon::process::stop::TaskStopFailure;
+use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
+use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 
 /// What the session services are built from.
 pub(crate) struct SessionServiceStart {

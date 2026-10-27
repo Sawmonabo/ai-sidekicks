@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 use super::{
     ClaudeProjectFolder, ClaudeRepository, ClaudeRulesError, compose_claude_project_allow_update,
@@ -11,7 +12,6 @@ use super::{
     resolve_claude_local_settings_file, write_claude_project_rule,
 };
 use crate::driver::claude::session::settings_file::ClaudeSettingsFileError;
-use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 fn rule(
     sense: RememberedRuleSense,

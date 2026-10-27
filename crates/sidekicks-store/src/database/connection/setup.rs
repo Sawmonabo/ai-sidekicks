@@ -5,7 +5,6 @@
 use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
-
 use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// Applies what every connection to the daemon's database holds: a page cache of at most 2,000

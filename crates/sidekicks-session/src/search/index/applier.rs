@@ -9,12 +9,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 
 use sidekicks_search::index::{IndexBatch, SearchIndex, SearchIndexError};
-use tokio::task::JoinError;
-
-use crate::search::index::outbox::{OutboxRead, OutboxReader};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use tokio::task::JoinError;
+
+use crate::search::index::outbox::{OutboxRead, OutboxReader};
 
 /// Why a run did not apply every waiting row; the index is then behind the database.
 #[derive(Debug, thiserror::Error)]

@@ -8,12 +8,12 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::definition::item::WorkflowStepError;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
-
-use crate::runs::record::{GOING_RUN_STATUSES_SQL, parked_failed_run_condition};
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
+
+use crate::runs::record::{GOING_RUN_STATUSES_SQL, parked_failed_run_condition};
 
 /// A cancel as the run's rows record it.
 #[derive(Clone, Debug, PartialEq)]
@@ -105,12 +105,12 @@ mod tests {
     use sidekicks_contracts::workflow::run::status::{
         WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
     };
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
     use super::{WorkflowRunCancellation, workflow_run_cancellation_statements};
     use crate::schema::schema_parts;
     use crate::test_rows::{TestStep, insert_run, insert_step, insert_workflow_version};
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
 
     const CANCELED_AT: &str = "2026-10-02T00:10:00.000Z";
     const ENDED_AT: &str = "2026-10-02T00:05:00.000Z";

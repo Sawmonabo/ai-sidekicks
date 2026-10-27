@@ -12,10 +12,14 @@ use std::sync::Arc;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt as _, StreamExt as _};
 use notify::{RecommendedWatcher, RecursiveMode, Watcher as _};
+use sidekicks_ipc::caller_process::provider_services::{
+    ProviderServiceHold, ProviderServiceProcesses,
+};
 use sidekicks_platforms::{
     UnixDomainStream, connect_unix_domain_socket, create_private_folder, found_no_listener,
     real_path,
 };
+use sidekicks_std::error_description::describe_error;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::watch;
 use tokio_tungstenite::WebSocketStream;
@@ -24,10 +28,6 @@ use tokio_tungstenite::tungstenite::{Bytes, Message};
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::codex::session::errors::CodexError;
-use sidekicks_ipc::caller_process::provider_services::{
-    ProviderServiceHold, ProviderServiceProcesses,
-};
-use sidekicks_std::error_description::describe_error;
 
 /// The largest frame and message the daemon reads from the Codex service, in bytes: Codex's own
 /// client's figure, so nothing Codex's own tools read is refused here.

@@ -21,11 +21,11 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::daemon::status::DaemonSecretsPlainReason;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
+use sidekicks_std::file::atomic_write::write_file_atomically;
+use sidekicks_std::missing_entry::MissingEntry;
 
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
-use sidekicks_std::file::atomic_write::write_file_atomically;
-use sidekicks_std::missing_entry::MissingEntry;
 
 const RECORD_FILE_NAME: &str = "secrets-place.json";
 

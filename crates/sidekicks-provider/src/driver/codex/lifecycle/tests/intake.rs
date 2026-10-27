@@ -11,6 +11,7 @@ use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_std::mutex_lock::lock;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::driver::codex::run::control::record::{CodexContinuePlace, CodexRunControlCall};
@@ -29,7 +30,6 @@ use crate::port::question::QuestionPort;
 use crate::port::question::test_card::QuestionCard;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
-use sidekicks_std::mutex_lock::lock;
 
 // Real time under a timeout, since the session's task applies each frame on its own task. Two
 // handlers run on each prompt: the opening prompt's second blocks, the first steer

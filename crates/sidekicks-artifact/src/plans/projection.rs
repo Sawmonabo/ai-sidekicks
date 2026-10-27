@@ -13,12 +13,12 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::plan::PlanState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-
-use crate::plans::store::{end_hold_statement, insert_plan_statement, settle_verdict_statement};
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
 use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
+
+use crate::plans::store::{end_hold_statement, insert_plan_statement, settle_verdict_statement};
 
 const CLEAR_PLANS_SQL: &str = "DELETE FROM plans WHERE session_id = ?";
 

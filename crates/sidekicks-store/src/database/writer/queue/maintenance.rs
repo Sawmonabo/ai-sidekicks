@@ -10,6 +10,8 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::Measured;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::error::RecvError;
 use tokio_util::sync::CancellationToken;
@@ -20,8 +22,6 @@ use crate::database::writer::backup::BackupCopy;
 use crate::database::writer::messages::{CheckpointReport, ThreadRequest};
 use crate::database::writer::repack::RepackEnd;
 use crate::database::writer::{MaintenanceError, is_interrupt};
-use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::budget::Measured;
 
 /// Where a caller hears how its checkpoint, repack or copy went.
 pub(super) type MaintenanceReply<Report> = oneshot::Sender<Result<Report, MaintenanceError>>;

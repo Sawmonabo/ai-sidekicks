@@ -4,9 +4,8 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use sidekicks_contracts::artifacts::methods::ArtifactList;
-
 use sidekicks_artifact::list::list_artifacts;
+use sidekicks_contracts::artifacts::methods::ArtifactList;
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 

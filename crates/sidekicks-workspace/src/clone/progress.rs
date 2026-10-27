@@ -10,10 +10,9 @@ use sidekicks_contracts::repo::clone::{
 };
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::{ECMASCRIPT_WHITESPACE_CLASS, is_ecmascript_whitespace};
+use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
-
-use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The least time between two updates the card receives: four a second.
 pub(crate) const CLONE_UPDATE_INTERVAL: Duration = Duration::from_millis(250);
@@ -168,10 +167,10 @@ mod tests {
     use sidekicks_contracts::repo::clone::ProjectCloneProgress;
     use sidekicks_contracts::wire::integer::BoundedInt;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_std::mutex_lock::lock;
     use tokio::time::{Duration, Instant};
 
     use super::{CLONE_UPDATE_INTERVAL, GitProgressReader, LatestUpdateGate};
-    use sidekicks_std::mutex_lock::lock;
 
     #[tokio::test(flavor = "current_thread", start_paused = true)]
     async fn lets_at_most_four_updates_a_second_through_the_last_one_always_arriving() {

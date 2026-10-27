@@ -10,23 +10,16 @@ use futures::FutureExt as _;
 use rstest::rstest;
 use rusqlite::{Connection, params};
 use serde_json::json;
+use sidekicks_approval::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
+use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
-use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
-use tempfile::TempDir;
-use tokio::sync::{mpsc, watch};
-use tokio::time::timeout;
-
-use super::rows::{PurgeCaller, SESSION_PURGE_STATEMENT_CAPACITY};
-use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutcome};
-use crate::remote::shared_ports::schema::schema_parts;
-use sidekicks_approval::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
-use sidekicks_artifact::payload_store::PayloadStore;
-use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::workflow::run::status::{WorkflowRunStatus, WorkflowStepStatus};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
@@ -67,6 +60,13 @@ use sidekicks_workspace::repo::mount::service::{
     REPO_MOUNT_SERVICE_STATEMENT_CAPACITY, RepoMountService,
 };
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
+use tempfile::TempDir;
+use tokio::sync::{mpsc, watch};
+use tokio::time::timeout;
+
+use super::rows::{PurgeCaller, SESSION_PURGE_STATEMENT_CAPACITY};
+use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutcome};
+use crate::remote::shared_ports::schema::schema_parts;
 
 const WAIT: Duration = Duration::from_secs(10);
 

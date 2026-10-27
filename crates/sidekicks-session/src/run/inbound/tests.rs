@@ -16,8 +16,20 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::driver::diagnostics::RecordedEvents;
+use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
+use sidekicks_provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
+    LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
+};
+use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::test_log::open_log;
 use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};
@@ -31,18 +43,6 @@ use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, EpochBinding, Execut
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChangeCompanions;
 use crate::transcript::reasoning::read_reasoning;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_provider::driver::diagnostics::RecordedEvents;
-use sidekicks_provider::driver::registry::test_provider;
-use sidekicks_provider::driver::test_registry::new_run_id;
-use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
-use sidekicks_provider::run::delivery::{
-    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
-    LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
-};
-use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
 
 // A run-state stream no one reads.
 struct UnreadRunStates;

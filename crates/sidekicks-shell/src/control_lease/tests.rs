@@ -11,11 +11,11 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
 use sidekicks_contracts::terminal::control::TerminalControlChangedPayload;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::TransportId;
 use tokio::sync::oneshot;
 
 use super::{ShellConnection, ShellControlLease, ShellLeaseCaller, ShellLeaseRun, ShellWriter};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::TransportId;
 
 /// A lease whose broadcasts are recorded as sent, and whose next broadcasts a case can hold back
 /// and then land or fail.

@@ -27,18 +27,6 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use tempfile::TempDir;
-
-use super::test_fixture::{SETTLE_WAIT, test_approval_service};
-use super::{
-    ApprovalService, ApprovalServiceError, RaisedCard, RaisedRequestSettlement, ResolveAnswer,
-    refuse_unfit_answer,
-};
-use crate::request_create::{
-    ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
-};
-use crate::run_blocking::ApprovalRunHolds;
-use crate::store::StoredApprovalRequest;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::tests::{stored_run_state, test_engine};
@@ -56,6 +44,18 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tempfile::TempDir;
+
+use super::test_fixture::{SETTLE_WAIT, test_approval_service};
+use super::{
+    ApprovalService, ApprovalServiceError, RaisedCard, RaisedRequestSettlement, ResolveAnswer,
+    refuse_unfit_answer,
+};
+use crate::request_create::{
+    ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
+};
+use crate::run_blocking::ApprovalRunHolds;
+use crate::store::StoredApprovalRequest;
 
 /// A session with one running run, the approval service over it, and the run engine its holds
 /// move.

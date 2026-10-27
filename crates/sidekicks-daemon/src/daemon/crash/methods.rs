@@ -7,11 +7,11 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::daemon::status::{DaemonCrashReportList, DaemonCrashReportListResponse};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-
-use crate::daemon::crash::reports::read_crash_reports;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+
+use crate::daemon::crash::reports::read_crash_reports;
 
 /// Registers `daemon.crashReport.list` over the data folder `data_folder`. Fails the start when
 /// the method is already registered.

@@ -16,6 +16,7 @@ use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_store::transcript_whole_patch::stored_patch_files_body;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::messages::{
@@ -34,7 +35,6 @@ use crate::run::delivery::{
 };
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::terminal_emission_gate::TerminalEmissionGate;
-use sidekicks_store::transcript_whole_patch::stored_patch_files_body;
 
 /// The id of an event a row was written as.
 pub(crate) type ClaudeEventId = FreeFormText<EVENT_FIELD_MAX_LEN>;

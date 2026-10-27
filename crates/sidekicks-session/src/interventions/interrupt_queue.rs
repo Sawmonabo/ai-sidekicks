@@ -10,10 +10,10 @@ use sidekicks_contracts::run::intervention::{InterventionId, RunLimit};
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
-
-use crate::run::state_change::RunStateChangeCompanions;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+
+use crate::run::state_change::RunStateChangeCompanions;
 
 /// A failure of the run queue's part in an interrupt, kept whole.
 pub type InterruptQueueError = Box<dyn Error + Send + Sync>;

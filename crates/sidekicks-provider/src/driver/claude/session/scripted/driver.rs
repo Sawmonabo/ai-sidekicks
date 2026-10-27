@@ -22,6 +22,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 use tempfile::TempDir;
 use tokio::sync::Notify;
 
@@ -50,9 +53,6 @@ use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
 use crate::runtime_binding::store::{RuntimeBinding, RuntimeBindingSpawnConfig};
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// The statements the driver's read pool caches.
 const POOL_STATEMENT_CAPACITY: usize = 16;

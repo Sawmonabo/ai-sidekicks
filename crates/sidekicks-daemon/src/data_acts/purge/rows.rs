@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
+use sidekicks_artifact::payload_store::{ContentHash, NotAContentHash};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -15,8 +16,6 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
-
-use sidekicks_artifact::payload_store::{ContentHash, NotAContentHash};
 use sidekicks_session::groups::store::remove_empty_groups_of_session_project_statement;
 use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
 use sidekicks_store::database::sql_list::sql_list_of;
