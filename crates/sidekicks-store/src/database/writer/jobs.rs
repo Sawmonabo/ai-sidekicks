@@ -18,7 +18,7 @@ use crate::database::writer::{DatabaseWriter, MaintenanceError};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StoreWorkUnit {
     /// Bytes of the store a run copied or repacked.
-    StoreBytes,
+    Bytes,
     /// Bytes of write-ahead log a checkpoint moved into the store.
     CheckpointedLogBytes,
     /// Runs of the job, one each, for the fixed work every run does.

@@ -230,10 +230,7 @@ async fn run_repack(
                 "the database was repacked"
             );
             let store_bytes = u64::try_from(report.before.size_bytes()).unwrap_or(0);
-            Ok(Some(JobWorkload::of(
-                StoreWorkUnit::StoreBytes,
-                store_bytes,
-            )))
+            Ok(Some(JobWorkload::of(StoreWorkUnit::Bytes, store_bytes)))
         }
         Err(MaintenanceError::Failed(failure)) => {
             tracing::warn!(

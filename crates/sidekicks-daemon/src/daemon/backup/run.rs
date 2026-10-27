@@ -86,7 +86,7 @@ pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
 pub(crate) const BACKUP_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_secs(1),
     per: 256 * 1024 * 1024,
-    unit: StoreWorkUnit::StoreBytes,
+    unit: StoreWorkUnit::Bytes,
 }]);
 
 // How long a requested run other than `Back up now` waits for no run to be live before it runs
@@ -449,10 +449,7 @@ impl Backups {
             copied_through
         };
         *lock(&self.committed_at_last_copy) = Some(holds);
-        Ok(Some(JobWorkload::of(
-            StoreWorkUnit::StoreBytes,
-            total_bytes,
-        )))
+        Ok(Some(JobWorkload::of(StoreWorkUnit::Bytes, total_bytes)))
     }
 
     // Writes one backup into `folder` under its lock, then prunes the backups no day or week

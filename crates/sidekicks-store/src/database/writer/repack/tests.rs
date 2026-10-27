@@ -25,7 +25,7 @@ const WAIT: Duration = Duration::from_secs(10);
 const TEST_REPACK_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_secs(1),
     per: 256 * 1024 * 1024,
-    unit: StoreWorkUnit::StoreBytes,
+    unit: StoreWorkUnit::Bytes,
 }]);
 
 // A store holding free pages and live rows, the later half of a filler table deleted, so a `VACUUM`
