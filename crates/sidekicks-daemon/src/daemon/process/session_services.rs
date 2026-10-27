@@ -297,6 +297,11 @@ pub(crate) fn build_session_services(
         Arc::clone(&runtime_bindings),
         Arc::clone(&epochs),
     ));
+    let changes = Arc::new(SessionChanges::new(
+        Arc::clone(&reads),
+        Arc::clone(&event_log),
+        Arc::clone(&providers),
+    ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -304,6 +309,7 @@ pub(crate) fn build_session_services(
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
+        transition_lock: Arc::clone(changes.transition_lock()),
     }));
     let signals = Arc::new(QueueChangeSignals::new());
     let queue = RunQueue::new(RunQueueDeps {
@@ -348,11 +354,6 @@ pub(crate) fn build_session_services(
     let related_ranking = Arc::new(SessionRelatedRanking::new(
         Arc::clone(&reads),
         Arc::clone(&writer),
-    ));
-    let changes = Arc::new(SessionChanges::new(
-        Arc::clone(&reads),
-        Arc::clone(&event_log),
-        Arc::clone(&providers),
     ));
     let chat_versions = Arc::new(ChatFileVersions::new(
         Arc::clone(&appender),

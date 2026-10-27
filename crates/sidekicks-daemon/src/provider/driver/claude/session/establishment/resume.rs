@@ -1,7 +1,7 @@
-//! A resume of a session's conversation: brought up in a fresh process, or answered by the process
-//! a bring-up it waited out left running, as a restart's relaunch does, when that process runs the
-//! conversation and settings the resume asks for; one on other settings is ended and brought up
-//! again with the resume's own.
+//! A resume of a session's conversation: brought up in a fresh process, or answered by the
+//! session's live process, one a relaunch or the person's restart brought up, when that process
+//! runs the conversation and settings the resume asks for; one on other settings is ended and
+//! brought up again with the resume's own.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -12,7 +12,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
-use super::context::{CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID, read_claude_row_choice};
 use super::{
     ClaudeEstablishmentError, ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart,
     ClaudeSpawnRequest,
@@ -30,16 +29,15 @@ use crate::provider::driver::claude::session::state::{
 };
 use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 
 impl ClaudeSessionEstablishment {
-    /// Resumes the conversation `params` names in a fresh process, or answers the process a
-    /// bring-up it waited out left running that conversation at the settings `params` asks for,
-    /// on the binding that bring-up answered; every failure answers the `Failed` arm, nothing left
-    /// running.
+    /// Resumes the conversation `params` names in a fresh process, or answers the session's live
+    /// process when it runs that conversation at the settings `params` asks for, on the binding
+    /// the resume that brought it up answered; every failure answers the `Failed` arm, nothing
+    /// left running.
     pub(crate) async fn resume(&self, params: ResumeSessionParams) -> ClaudeResumeAnswer {
         match self.try_resume(params).await {
             Ok(answer) => answer,
@@ -155,18 +153,22 @@ impl ClaudeSessionEstablishment {
 
 // Whether `live` runs with everything `params` would start a process with: the lead, account, tool
 // servers, callback tools, helper policy, output schema, model, level, mode, output speed,
-// Ultracode value and the rows it sets. The output speed is compared as the level it resolves to,
-// which is the one a process takes; an unset row asks for nothing; the callback tools are compared
-// as the ones offered, none and an empty list alike. The status sink is the caller's per binding
-// and changes nothing a process starts with.
+// Ultracode value and Settings rows. The callback tools and rows are compared as `live`'s process
+// was asked for them, before the host trimmed the tools and the session's own advisor and style
+// overrode the rows, since a fresh process would be trimmed and overridden the same way. The output
+// speed is compared as the level it resolves to, which is the one a process takes; none and an
+// empty list of tools or callback tools are alike. The status sink is the caller's per binding and
+// changes nothing a process starts with.
 fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool {
     let legs = &live.spawn_bound_legs;
+    let requested = &live.requested_spawn;
     let settings = lock(&live.settings);
     live.agent_id == params.agent_id
         && live.admitted_provider_account_id == params.provider_account_id
         && legs.tool_servers.as_slice() == params.tool_servers.as_deref().unwrap_or_default()
-        && legs.callback_tools.as_deref().unwrap_or_default()
+        && requested.callback_tools.as_deref().unwrap_or_default()
             == params.callback_tools.as_deref().unwrap_or_default()
+        && requested.row_values == params.row_values
         && legs.subagent_policy == params.subagent_policy
         && legs.output_schema == params.output_schema
         && settings.running_model == params.model.as_str()
@@ -178,14 +180,10 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
                 .as_ref()
                 .map(|level| resolve_claude_output_speed(level.as_str()))
         && settings.ultracode_requested == requested_claude_ultracode(&params.options)
-        && read_claude_row_choice(&params.row_values, CLAUDE_OUTPUT_STYLE_ROW_ID)
-            .is_none_or(|style| style == settings.output_style)
-        && read_claude_row_choice(&params.row_values, CLAUDE_ADVISOR_ROW_ID)
-            .is_none_or(|advisor| ClaudeSessionAdvisor::of(advisor.as_deref()) == settings.advisor)
 }
 
-// The `Resumed` arm for a process a waited bring-up left running the conversation asked for, on
-// the binding its resume answered; a create's process has none, so it is answered on a new one.
+// The `Resumed` arm for the live process running the conversation asked for, on the binding its
+// resume answered; a create's process has none, so it is answered on a new one.
 async fn answer_came_up(
     live: &LiveClaudeSession,
 ) -> Result<DriverResumeResult, ClaudeEstablishmentError> {

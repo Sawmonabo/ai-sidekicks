@@ -8,9 +8,11 @@ use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -103,6 +105,18 @@ pub(crate) struct ClaudeSpawnBinding {
     pub(crate) output_schema_digest: Option<String>,
 }
 
+/// What a process was asked to start with where it runs something else: the callback tools before
+/// the host trims them to the ones it offers, and the Settings rows before the session's own advisor
+/// and style override them. A relaunch asks for these again, and a resume that finds the process
+/// up compares its own request against them.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ClaudeRequestedSpawn {
+    /// The callback tools requested.
+    pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
+    /// The Settings values the app stored for the provider.
+    pub(crate) row_values: ProviderRowValues,
+}
+
 /// The usage base a session's counts are measured from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeUsageEstablishment {
@@ -163,6 +177,9 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// What the process was started with, for a later run's check.
     pub(crate) spawn_binding: ClaudeSpawnBinding,
+    /// What the process was asked to start with where it runs something else, which a rewind's
+    /// fork inherits.
+    pub(crate) requested_spawn: ClaudeRequestedSpawn,
     /// The legs the process was started with; a rewind starts its fork from these, since
     /// deriving them again would guess, and a guess without the posture runs unsandboxed.
     pub(crate) spawn_bound_legs: ClaudeSpawnBoundLegs,

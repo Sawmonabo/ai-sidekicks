@@ -25,7 +25,7 @@ use crate::provider::driver::codex::service::record::{
 };
 use crate::provider::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
-    test_codex_service_dependencies,
+    test_codex_service_dependencies, write_failing_codex,
 };
 use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -83,18 +83,17 @@ fn stand_in_arguments(name: &str) -> Vec<String> {
 }
 
 // Starts a terminal service on `socket` as the home's own socket, under `folder`, whose Codex
-// program is `program`, and answers its start.
+// command fails at once, and answers its start.
 async fn start_terminal_service_on(
     folder: &Path,
     socket: &Path,
-    program: &str,
 ) -> Result<Result<StartedService, StartFailure>, tokio::time::error::Elapsed> {
     let codex_home = folder.join("home");
     std::fs::create_dir(&codex_home).expect("the home is made");
     let dependencies = test_codex_service_dependencies(
         folder,
         Arc::new(TestCodexProgram {
-            program: program.into(),
+            program: write_failing_codex(folder),
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
@@ -212,7 +211,7 @@ async fn a_start_on_a_listener_that_refuses_it_reports_the_refusal_within_its_de
     };
     tokio::spawn(refuse_every_initialize(listener));
 
-    let started = start_terminal_service_on(folder.path(), &socket, "/usr/bin/false").await;
+    let started = start_terminal_service_on(folder.path(), &socket).await;
 
     let Ok(Err(failure)) = started else {
         panic!("the start did not fail within its deadline");
@@ -239,7 +238,7 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
         }
     });
 
-    let started = start_terminal_service_on(folder.path(), &socket, "/usr/bin/false").await;
+    let started = start_terminal_service_on(folder.path(), &socket).await;
 
     let Ok(Ok(started)) = started else {
         panic!("the start did not join the listener");

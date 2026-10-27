@@ -3,7 +3,7 @@
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
 //! at once and a busy one when its turn settles.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
@@ -11,13 +11,10 @@ use std::time::SystemTime;
 use futures::future::join_all;
 use serde_json::json;
 use sidekicks_contracts::command::ExitCode;
-use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues};
-use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::task::AbortOnDropHandle;
 
@@ -29,14 +26,10 @@ use crate::provider::driver::claude::delivery::claude_delivery_origin;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::provider::driver::claude::session::establishment::ClaudeSessionEstablishment;
-use crate::provider::driver::claude::session::establishment::context::{
-    CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
-};
 use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
 use crate::provider::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::ultracode::relaunch_claude_options;
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::delivery_dispatch::dispatch_delivery;
 use crate::provider::driver::diagnostics::{
@@ -309,8 +302,8 @@ impl ClaudeSessionRestarts {
     }
 
     /// Records that the session's process runs again, and tells the person when it was their own
-    /// restart that brought it back, which ends a crash loop's banner. A resume a relaunch's
-    /// process answered reports nothing, since the relaunch reported it.
+    /// restart that brought it back, which ends a crash loop's banner. A resume a live process
+    /// answered reports nothing, since what brought that process up reported it.
     pub(crate) async fn report_restarted(&self, session_id: SessionId, is_persons: bool) {
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
@@ -529,30 +522,12 @@ pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
 }
 
 // The resume that brings `live` back on the legs and level it ran at, the person's later moves
-// included, under the account it was admitted on; `None` when the model it moved to has no name
-// a resume carries.
+// included, under the account it was admitted on, asking for the callback tools and Settings rows
+// its process was asked for, which the session's own advisor and style still override; `None` when
+// the model it moved to has no name a resume carries.
 fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
     let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
-    // The advisor and style the session ran with, read where a new session's would be; an advisor
-    // still unpicked is left out, so Claude Code's own settings resolve it again.
-    let row = |row_id: &str, value: Option<&str>| {
-        (
-            ProviderDeclarationId::new(row_id.to_owned()).expect("a row's id fits the id pattern"),
-            ProviderRowValue::Value(
-                value.and_then(|value| FreeFormText::new(value.to_owned()).ok()),
-            ),
-        )
-    };
-    let mut rows = BTreeMap::from([row(
-        CLAUDE_OUTPUT_STYLE_ROW_ID,
-        settings.output_style.as_deref(),
-    )]);
-    if settings.advisor != ClaudeSessionAdvisor::Unpicked {
-        rows.extend([row(CLAUDE_ADVISOR_ROW_ID, settings.advisor.model())]);
-    }
-    let row_values: ProviderRowValues =
-        Record::new(rows).expect("the rows' ids are no reserved key");
     Some(ResumeSessionParams {
         session_id: live.session_id,
         agent_id: live.agent_id,
@@ -567,8 +542,8 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
             .applied_output_speed
             .and_then(|level| FreeFormText::new(level).ok()),
         options: relaunch_claude_options(settings.ultracode_requested),
-        row_values,
-        callback_tools: legs.callback_tools.clone(),
+        row_values: live.requested_spawn.row_values.clone(),
+        callback_tools: live.requested_spawn.callback_tools.clone(),
         subagent_policy: legs.subagent_policy.clone(),
         tool_servers: Some(legs.tool_servers.clone()),
         output_schema: legs.output_schema.clone(),

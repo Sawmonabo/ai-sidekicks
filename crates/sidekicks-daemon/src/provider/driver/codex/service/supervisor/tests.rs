@@ -14,6 +14,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::test_service::{
     TestCodexProgram, UnheardEvents, bind_test_listener, test_codex_service_dependencies,
+    write_failing_codex,
 };
 use super::{
     CodexService, CodexServiceSocket, CodexWindowsSandboxReadiness, read_windows_sandbox_readiness,
@@ -159,7 +160,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
         test_codex_service_dependencies(
             folder.path(),
             Arc::new(TestCodexProgram {
-                program: "/usr/bin/false".into(),
+                program: write_failing_codex(folder.path()),
                 environment: Vec::new(),
             }),
             Arc::new(UnheardEvents),

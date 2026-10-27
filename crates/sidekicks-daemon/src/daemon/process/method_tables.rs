@@ -5,6 +5,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use sidekicks_contracts::session::id::SessionId;
+
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
 use crate::daemon::config_methods::{ConfigMethodsDeps, register_config_methods};
@@ -45,6 +47,7 @@ use crate::ipc::handlers::transcript::register_transcript_reads;
 use crate::ipc::in_flight_mutations::InFlightMutations;
 use crate::ipc::protocol_negotiation::ProtocolNegotiator;
 use crate::ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
+use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::pty::input_lookup::ShellInputLookup;
 use crate::questions::service::QuestionsService;
@@ -91,6 +94,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Reads where a session's restart lands.
     pub(crate) restart_targets: RestartTargetReader,
+    /// The session-wide transition lock a session's restart runs under.
+    pub(crate) session_transition_lock: Arc<KeyedLock<SessionId>>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
     /// Each session's live safety holds.
@@ -170,7 +175,12 @@ pub(crate) fn register_method_tables(
     register_session_draft_update(builder, services.drafts)?;
     register_session_tags(builder, services.tags)?;
     register_session_links(builder, services.links, services.related_ranking)?;
-    register_session_restart(builder, services.providers, services.restart_targets)?;
+    register_session_restart(
+        builder,
+        services.providers,
+        services.restart_targets,
+        services.session_transition_lock,
+    )?;
     register_session_recovery_methods(builder, services.damaged_history)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;

@@ -19,9 +19,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{
-    StandInAnswer, StandInProgram, bind_socket_listener, write_stand_in_program,
-};
+use sidekicks_platforms::bind_socket_listener;
 
 use super::CodexDriver;
 use super::intake::CodexSessionIntake;
@@ -34,6 +32,7 @@ use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::service::registry::home_socket_path;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
+    write_failing_codex,
 };
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
@@ -237,19 +236,7 @@ pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServi
         std::fs::create_dir_all(made).expect("a test folder is made");
     }
     // Found first on the search path as Codex's command.
-    write_stand_in_program(
-        &programs,
-        "codex",
-        &StandInProgram {
-            answers_by_first_argument: Vec::new(),
-            otherwise: StandInAnswer {
-                standard_output: String::new(),
-                exit_code: 1,
-                argument_record: None,
-            },
-        },
-    )
-    .expect("the command is written");
+    write_failing_codex(&programs);
     let mut services = test_driver_services();
     services.data_folder = folder.join("data");
     services.home_folder = folder.join("home");

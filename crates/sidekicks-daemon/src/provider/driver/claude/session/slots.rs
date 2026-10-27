@@ -55,7 +55,7 @@ pub(crate) enum ClaudeCloseStart {
 pub(crate) enum ClaudeResumeSlot {
     /// The slot was empty and is the resume's now.
     Claimed(ClaudeSlotClaim),
-    /// A transition the resume waited out left this process live.
+    /// This process is live, left by a transition the resume waited out or already up.
     CameUp(Arc<LiveClaudeSession>),
 }
 
@@ -150,14 +150,13 @@ impl ClaudeSessionSlots {
     }
 
     /// Claims the slot for a resume once no transition holds it, waiting out each one in flight,
-    /// one that settles into another included: an empty slot is claimed, and a process a waited
-    /// transition left live is answered. Refuses `SessionAlreadyLive` when the slot was live with
-    /// nothing waited for, or holds a quarantined process.
+    /// one that settles into another included: an empty slot is claimed, and a live process is
+    /// answered, whether a waited transition left it or it was already up. Refuses
+    /// `SessionAlreadyLive` when the slot holds a quarantined process.
     pub(crate) async fn claim_resume(
         &self,
         session_id: SessionId,
     ) -> Result<ClaudeResumeSlot, ClaudeSessionError> {
-        let mut has_waited = false;
         loop {
             let settled = {
                 let mut table = lock(&self.table);
@@ -170,13 +169,10 @@ impl ClaudeSessionSlots {
                         ClaudeSessionSlot::Establishing { settled, .. }
                         | ClaudeSessionSlot::Closing { settled, .. },
                     ) => Arc::clone(settled),
-                    Some(ClaudeSessionSlot::Live { session }) if has_waited => {
+                    Some(ClaudeSessionSlot::Live { session }) => {
                         return Ok(ClaudeResumeSlot::CameUp(Arc::clone(session)));
                     }
-                    Some(
-                        slot @ (ClaudeSessionSlot::Live { .. }
-                        | ClaudeSessionSlot::Quarantined { .. }),
-                    ) => {
+                    Some(slot @ ClaudeSessionSlot::Quarantined { .. }) => {
                         return Err(ClaudeSessionError::SessionAlreadyLive {
                             holder_state: state_of(slot),
                         });
@@ -184,7 +180,6 @@ impl ClaudeSessionSlots {
                 }
             };
             settled.wait().await;
-            has_waited = true;
         }
     }
 

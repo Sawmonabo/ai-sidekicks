@@ -6,13 +6,21 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use rstest::rstest;
-use sidekicks_contracts::machine::settings::ProviderRowValue;
+use rusqlite::params;
+use serde_json::json;
+use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValueText};
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
-use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADVISOR_ROW_ID;
+use crate::provider::driver::claude::session::establishment::context::{
+    CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
+};
 use crate::provider::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
@@ -20,7 +28,8 @@ use crate::provider::driver::claude::session::scripted::{binding_id, settle};
 use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::session_control::{
-    CloseSessionParams, DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
+    ResumeSessionParams,
 };
 use crate::provider::driver::test_registry::{new_run_id, new_session_id};
 
@@ -46,9 +55,12 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
-    assert_eq!(
-        fixture.relaunches.reported(4).await,
-        vec![(session_id, true); 4]
+    let reported = fixture.relaunches.reported(4).await;
+    assert_eq!(reported.len(), 4);
+    assert!(
+        reported.iter().all(
+            |(reported_session, binding)| *reported_session == session_id && binding.is_some()
+        )
     );
     let notices = fixture
         .engine
@@ -92,10 +104,10 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
-    assert_eq!(
-        fixture.relaunches.reported(1).await,
-        vec![(session_id, true)]
-    );
+    assert!(matches!(
+        fixture.relaunches.reported(1).await.as_slice(),
+        [(reported_session, Some(_))] if *reported_session == session_id
+    ));
     assert!(!fixture.driver.starts_process(session_id));
 }
 
@@ -110,24 +122,43 @@ enum RelaunchResume {
     OtherLevel,
     // The relaunched conversation on another account.
     OtherAccount,
+    // The relaunched conversation and the rows it was asked for, which the session's own output
+    // style overrides.
+    OwnStyle,
 }
 
 // Killed by a resume refused while a restart's relaunch holds the slot establishing, by one
 // answering the relaunched process for another conversation, by one answering it at another level
 // or on another account than asked (dropping the account from the comparison), which would leave
-// the session on the relaunch's, and by an answer on a binding other than the relaunch's own.
+// the session on the relaunch's, by one restarting a process whose own style differs from the row
+// both asked for (comparing the effective style again), and by an answer on a binding other than
+// the one the relaunch reported.
 #[rstest]
 #[case::same(RelaunchResume::Same)]
 #[case::other_conversation(RelaunchResume::OtherConversation)]
 #[case::other_level(RelaunchResume::OtherLevel)]
 #[case::other_account(RelaunchResume::OtherAccount)]
+#[case::own_style(RelaunchResume::OwnStyle)]
 #[tokio::test(start_paused = true)]
 async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked(
     #[case] ask: RelaunchResume,
 ) {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
-    let created = create_params(session_id);
+    let row_values = match ask {
+        RelaunchResume::OwnStyle => {
+            store_output_style(&fixture, session_id, "Explanatory");
+            output_style_row("Concise")
+        }
+        RelaunchResume::Same
+        | RelaunchResume::OtherConversation
+        | RelaunchResume::OtherLevel
+        | RelaunchResume::OtherAccount => Record::default(),
+    };
+    let created = CreateSessionParams {
+        row_values: row_values.clone(),
+        ..create_params(session_id)
+    };
     fixture
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
@@ -155,15 +186,17 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
         agent_id: created.agent_id,
         resume_handle: match ask {
             RelaunchResume::OtherConversation => "another conversation".to_owned(),
-            RelaunchResume::Same | RelaunchResume::OtherLevel | RelaunchResume::OtherAccount => {
-                relaunched_conversation.clone()
-            }
+            RelaunchResume::Same
+            | RelaunchResume::OtherLevel
+            | RelaunchResume::OtherAccount
+            | RelaunchResume::OwnStyle => relaunched_conversation.clone(),
         },
         execution_posture: match ask {
             RelaunchResume::OtherLevel => None,
             RelaunchResume::Same
             | RelaunchResume::OtherConversation
-            | RelaunchResume::OtherAccount => created.execution_posture.clone(),
+            | RelaunchResume::OtherAccount
+            | RelaunchResume::OwnStyle => created.execution_posture.clone(),
         },
         provider_account_id: match ask {
             RelaunchResume::OtherAccount => {
@@ -171,8 +204,10 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
             }
             RelaunchResume::Same
             | RelaunchResume::OtherConversation
-            | RelaunchResume::OtherLevel => None,
+            | RelaunchResume::OtherLevel
+            | RelaunchResume::OwnStyle => None,
         },
+        row_values,
         ..resume_params(session_id)
     };
 
@@ -183,6 +218,11 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
 
     let started = fixture.starts.take_started();
     let is_relaunch_closed = relaunched.writes().contains(&ScriptedWrite::Terminate);
+    let reported = fixture.relaunches.reported(1).await;
+    let [(reported_session, Some(relaunch_binding))] = reported.as_slice() else {
+        unreachable!("the relaunch resumed once: {reported:?}")
+    };
+    assert_eq!(*reported_session, session_id);
     match ask {
         RelaunchResume::OtherConversation => {
             assert!(
@@ -192,7 +232,10 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
             assert!(started.is_empty());
             assert!(!is_relaunch_closed);
         }
-        RelaunchResume::Same | RelaunchResume::OtherLevel | RelaunchResume::OtherAccount => {
+        RelaunchResume::Same
+        | RelaunchResume::OtherLevel
+        | RelaunchResume::OtherAccount
+        | RelaunchResume::OwnStyle => {
             let DriverResumeResult::Resumed {
                 resume_handle,
                 binding_id,
@@ -214,6 +257,7 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
                 .live_session(session_id)
                 .expect("the session runs");
             assert_eq!(live.resumed_binding_id.as_ref(), Some(binding_id));
+            assert_eq!(binding_id == relaunch_binding, !is_brought_up_again);
             assert_eq!(is_relaunch_closed, is_brought_up_again);
             assert_eq!(started.len(), usize::from(is_brought_up_again));
             assert!(started.iter().all(|start| matches!(
@@ -223,10 +267,6 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
             )));
         }
     }
-    assert_eq!(
-        fixture.relaunches.reported(1).await,
-        vec![(session_id, true)]
-    );
 }
 
 // Killed by moving a busy session to the new build at once, which would end its running reply,
@@ -263,10 +303,53 @@ async fn a_build_move_on_a_busy_session_waits_for_its_turn_to_settle() {
         moved.conversation,
         ClaudeConversationStart::Resume { .. }
     ));
-    assert_eq!(
-        fixture.relaunches.reported(1).await,
-        vec![(session_id, true)]
-    );
+    assert!(matches!(
+        fixture.relaunches.reported(1).await.as_slice(),
+        [(reported_session, Some(_))] if *reported_session == session_id
+    ));
+}
+
+// Killed by a resume refused because the session's process is live with no transition to wait
+// out, which refuses the first run's resume of a session the person's restart brought back.
+#[tokio::test(start_paused = true)]
+async fn a_resume_after_the_persons_restart_answers_the_restarted_process() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    fixture.next_start().await;
+    fixture
+        .driver
+        .close_session(CloseSessionParams { session_id })
+        .await
+        .expect("the close succeeds");
+    let restarted = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&restarted));
+    let params = resume_params(session_id);
+    let restart = fixture
+        .driver
+        .restart_session(params.clone())
+        .await
+        .expect("the restart answers");
+    let DriverResumeResult::Resumed {
+        binding_id: restart_binding,
+        ..
+    } = &restart
+    else {
+        unreachable!("the restart resumes: {restart:?}")
+    };
+    fixture.next_start().await;
+
+    let resumed = fixture
+        .driver
+        .resume_session(params)
+        .await
+        .expect("the resume answers");
+
+    let DriverResumeResult::Resumed { binding_id, .. } = &resumed else {
+        unreachable!("the restarted process answers the resume: {resumed:?}")
+    };
+    assert_eq!(binding_id, restart_binding);
+    assert!(fixture.starts.take_started().is_empty());
+    assert!(!restarted.writes().contains(&ScriptedWrite::Terminate));
 }
 
 // Killed by a relaunch that leaves the advisor unpicked again, so a later change to the person's
@@ -411,4 +494,41 @@ async fn a_process_end_lets_go_the_held_presses_of_every_binding_it_served(
 
     let released = PortCall::PressesReleased(binding_id("lead"));
     ScriptedDriver::wait_for(|| fixture.ports.calls().contains(&released)).await;
+}
+
+// Stores `output_style` as the session's own, as a change of it in the session is stored.
+fn store_output_style(fixture: &ScriptedDriver, session_id: SessionId, output_style: &str) {
+    let event_type = SessionEventType::SessionOutputStyleChanged;
+    fixture
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO session_events
+               (id, session_id, sequence, occurred_at, monotonic_ns, category, type, payload)
+             VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6)",
+            params![
+                mint_uuid_v7().to_string(),
+                session_id.text().as_str(),
+                WireInstant::now().as_str(),
+                event_type.category().as_str(),
+                event_type.as_str(),
+                json!({ "sessionId": session_id, "outputStyle": output_style }).to_string(),
+            ],
+        )
+        .expect("the test stores the session's output style");
+}
+
+// The Settings rows asking for `output_style`.
+fn output_style_row(output_style: &str) -> ProviderRowValues {
+    Record::new(
+        [(
+            ProviderDeclarationId::new(CLAUDE_OUTPUT_STYLE_ROW_ID.to_owned())
+                .expect("the row id fits"),
+            ProviderRowValue::Value(Some(
+                ProviderValueText::new(output_style.to_owned()).expect("the style fits"),
+            )),
+        )]
+        .into(),
+    )
+    .expect("one row is a record")
 }

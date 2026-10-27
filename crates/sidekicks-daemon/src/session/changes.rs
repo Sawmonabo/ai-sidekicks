@@ -179,13 +179,9 @@ impl SessionChanges {
     }
 
     /// The lock every session-wide transition holds for its whole run, keyed by session id:
-    /// archive, reactivate and close take it, and the session conversion and the purge take the
-    /// same one through this, so no two of them interleave on one session.
-    #[expect(
-        dead_code,
-        reason = "the session conversion, the purge and the idle sleep's stop take the session's \
-                  transition lock through it"
-    )]
+    /// archive, reactivate and close take it, and the queue's opening of a provider session, its
+    /// run bindings and level moves, the person's restart, the session conversion and the purge
+    /// take the same one through this, so no two of them interleave on one session.
     pub(crate) fn transition_lock(&self) -> &Arc<KeyedLock<SessionId>> {
         &self.lock
     }
@@ -367,14 +363,19 @@ impl SessionChanges {
     }
 
     /// Closes the session: ends its provider leg through each driver that ran one of its runs,
-    /// then appends `session.closed`; the session stays readable. Closing a closed session does
-    /// nothing. Refuses one still `provisioning` or being purged with `session.changeRefused`, and
-    /// one with a run on a provider no registered driver answers with `provider.notFound` before
-    /// any leg is ended, so it never reads closed while that provider may still run it. Fails with
-    /// [`SessionChangeError::Driver`] when a driver did not end its leg.
-    #[expect(
-        dead_code,
-        reason = "the session close handler answers a person's close through it"
+    /// then appends `session.closed`, holding the transition lock across both, so no opening or
+    /// restart brings a process up in between; the session stays readable. Closing a closed
+    /// session does nothing. Refuses one still `provisioning` or being purged with
+    /// `session.changeRefused`, and one with a run on a provider no registered driver answers with
+    /// `provider.notFound` before any leg is ended, so it never reads closed while that provider
+    /// may still run it. Fails with [`SessionChangeError::Driver`] when a driver did not end its
+    /// leg.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the session close handler answers a person's close through it"
+        )
     )]
     pub(crate) async fn close(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;

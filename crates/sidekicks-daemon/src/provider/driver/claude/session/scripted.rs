@@ -52,7 +52,7 @@ use crate::provider::driver::claude::session::answered_commands::{
 use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
 use crate::provider::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::provider::driver::claude::session::state::{
-    ClaudeLiveSettings, ClaudeSpawnBinding, LiveClaudeSession,
+    ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSpawnBinding, LiveClaudeSession,
 };
 use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::provider::driver::claude::session::transport::declarations::{
@@ -139,6 +139,7 @@ pub(crate) fn scripted_live_session(
         }),
         spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
         resumed_binding_id: None,
+        requested_spawn: ClaudeRequestedSpawn::default(),
         process_identity: ProviderProcessIdentity {
             process_id: 1,
             spawn_sequence: 0,

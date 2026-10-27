@@ -14,7 +14,8 @@ use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, bind_socket_listener,
+    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
+    bind_socket_listener, write_stand_in_program,
 };
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -338,6 +339,24 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
         .connection_handlers(dial)
         .events
         .dropped("the test dropped the connection");
+}
+
+/// Writes in `folder` a Codex command that prints nothing and exits 1 at every call, which the
+/// search path finds as `codex`, and answers its path. Panics where it cannot be written.
+pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
+    write_stand_in_program(
+        folder,
+        "codex",
+        &StandInProgram {
+            answers_by_first_argument: Vec::new(),
+            otherwise: StandInAnswer {
+                standard_output: String::new(),
+                exit_code: 1,
+                argument_record: None,
+            },
+        },
+    )
+    .expect("the failing Codex command is written")
 }
 
 /// A listener at `socket`, or `None` where the system binds no local socket listener. Panics

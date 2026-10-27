@@ -2,8 +2,10 @@
 //! the runtime binding that records it, or, when the session already has a conversation from before
 //! the daemon started, the driver's `resume_session` of it and the binding the resume minted. Each
 //! run after that gets a binding of its own on the session's current leg. A session's opening, its
-//! run bindings and its level moves take one lock, so a process never opens at a level a move is
-//! about to replace, and two moves never store one level while the process runs at the other.
+//! run bindings and its level moves take the session's transition lock, so a process never opens
+//! at a level a move is about to replace, two moves never store one level while the process runs
+//! at the other, and no process opens between a close's end of the provider leg and its
+//! `session.closed` write.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -101,6 +103,9 @@ pub(crate) struct ProviderSessionsDeps {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// The session-wide transition lock, which a session's close holds from its driver's close
+    /// until its `session.closed` write; each opening, run binding and level move takes it.
+    pub(crate) transition_lock: Arc<KeyedLock<SessionId>>,
 }
 
 /// Why a session's provider session was not opened, a run's binding not recorded or a level not
@@ -233,8 +238,6 @@ struct OpenedSession {
 pub(crate) struct ProviderSessions {
     deps: ProviderSessionsDeps,
     opened: Mutex<HashMap<SessionId, OpenedSession>>,
-    // One open, run binding or level move per session at a time.
-    open_lock: KeyedLock<SessionId>,
 }
 
 impl ProviderSessions {
@@ -243,7 +246,6 @@ impl ProviderSessions {
         Self {
             deps,
             opened: Mutex::new(HashMap::new()),
-            open_lock: KeyedLock::new(),
         }
     }
 
@@ -270,7 +272,7 @@ impl ProviderSessions {
         session_id: SessionId,
         level: PermissionLevel,
     ) -> Result<(), ProviderSessionError> {
-        let _hold = self.open_lock.acquire(session_id).await;
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
         let stored = self
             .deps
             .pool
@@ -328,7 +330,7 @@ impl ProviderSessions {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), ProviderSessionError> {
-        let hold = self.open_lock.acquire(session_id).await;
+        let hold = self.deps.transition_lock.acquire(session_id).await;
         if self.lock_opened().contains_key(&session_id) {
             return Ok(());
         }
@@ -348,7 +350,7 @@ impl ProviderSessions {
         run_id: RunId,
         session_id: SessionId,
     ) -> Result<RuntimeBindingId, ProviderSessionError> {
-        let hold = self.open_lock.acquire(session_id).await;
+        let hold = self.deps.transition_lock.acquire(session_id).await;
         self.bind_run(&hold, run_id).await
     }
 

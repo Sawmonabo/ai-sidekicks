@@ -15,6 +15,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -131,25 +132,23 @@ impl SessionAdvisorStore for RecordedAdvisors {
     }
 }
 
-/// Each relaunch the driver reported, with whether it resumed.
+/// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
-    taken: Mutex<Vec<(SessionId, bool)>>,
+    taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
     reported: Notify,
 }
 
 impl RecordedRelaunches {
-    /// Each relaunch reported so far.
-    pub(crate) fn taken(&self) -> Vec<(SessionId, bool)> {
-        lock(&self.taken).clone()
-    }
-
     /// The relaunches once `count` are reported, each after the process it started, which a start
     /// reader sees first.
-    pub(crate) async fn reported(&self, count: usize) -> Vec<(SessionId, bool)> {
+    pub(crate) async fn reported(
+        &self,
+        count: usize,
+    ) -> Vec<(SessionId, Option<RuntimeBindingId>)> {
         loop {
             let next = self.reported.notified();
-            let taken = self.taken();
+            let taken = lock(&self.taken).clone();
             if taken.len() >= count {
                 return taken;
             }
@@ -164,8 +163,11 @@ impl SessionRelaunchListener for RecordedRelaunches {
         session_id: SessionId,
         result: DriverResumeResult,
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
-        lock(&self.taken).push((session_id, is_resumed));
+        let binding_id = match result {
+            DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
+            DriverResumeResult::Failed { .. } => None,
+        };
+        lock(&self.taken).push((session_id, binding_id));
         self.reported.notify_waiters();
         async { Ok(()) }.boxed()
     }

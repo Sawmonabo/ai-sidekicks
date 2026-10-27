@@ -98,6 +98,7 @@ impl ClaudeSessionEstablishment {
             ultracode: settings.ultracode_requested,
             step_bound,
             resumed_binding_id: None,
+            requested_spawn: predecessor.requested_spawn.clone(),
         };
         let rebind = |resume_handle: &str, left: Vec<LeftConversation>| RuntimeBindingRebind {
             binding_id: params.binding_id.clone(),

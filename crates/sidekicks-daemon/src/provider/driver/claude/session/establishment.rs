@@ -67,7 +67,8 @@ use crate::provider::driver::claude::session::permissions::read_claude_session_r
 use crate::provider::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
 use crate::provider::driver::claude::session::state::{
     CLAUDE_THREAD_FRAME_ROUTER_CONFIG, ClaudeHeldCommandChoices, ClaudeLiveSettings,
-    ClaudeSessionRoutingBand, ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
+    ClaudeRequestedSpawn, ClaudeSessionRoutingBand, ClaudeSpawnBinding, ClaudeUsageEstablishment,
+    LiveClaudeSession,
 };
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
@@ -296,14 +297,15 @@ struct ClaudeSessionStart {
     step_bound: Option<SafeInt<1>>,
     // The binding a resume answers once the process is up; `None` for a create or a fork.
     resumed_binding_id: Option<RuntimeBindingId>,
+    requested_spawn: ClaudeRequestedSpawn,
 }
 
 /// A resume's result, and whether the resume brought the process it answers up itself.
 pub(crate) struct ClaudeResumeAnswer {
     /// The result the driver answers.
     pub(crate) result: DriverResumeResult,
-    /// Whether the resume started a process: `false` when it failed or answered one a transition
-    /// it waited out left running, as a restart's relaunch does.
+    /// Whether the resume started a process: `false` when it failed or answered the session's
+    /// live process.
     pub(crate) has_started_process: bool,
 }
 
@@ -414,6 +416,10 @@ impl ClaudeSessionEstablishment {
         let step_bound = context.step_bound;
         let host = sources.ports.callback_tool_host.require_port()?;
         let session_id = request.session_id;
+        let requested_spawn = ClaudeRequestedSpawn {
+            callback_tools: request.callback_tools.clone(),
+            row_values: request.row_values,
+        };
         let provider_account_id = request.provider_account_id.clone();
         let legs = build_claude_spawn_bound_legs(
             ClaudeSpawnLegsRequest {
@@ -468,6 +474,7 @@ impl ClaudeSessionEstablishment {
             ultracode: request.ultracode,
             step_bound,
             resumed_binding_id: None,
+            requested_spawn,
         })
     }
 
@@ -507,6 +514,7 @@ impl ClaudeSessionEstablishment {
             ultracode,
             step_bound,
             resumed_binding_id,
+            requested_spawn,
         } = start;
         let session_id = legs.session_id;
         let sources = &self.sources;
@@ -645,6 +653,7 @@ impl ClaudeSessionEstablishment {
             served_bindings: Mutex::default(),
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
+            requested_spawn,
             spawn_bound_legs: legs,
         });
         if let Err(error) = before_install(&live).await {

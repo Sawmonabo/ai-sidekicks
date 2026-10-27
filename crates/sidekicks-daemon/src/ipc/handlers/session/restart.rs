@@ -19,6 +19,7 @@ use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
@@ -40,21 +41,33 @@ pub(crate) type RestartTargetReader = Arc<
         + Sync,
 >;
 
-/// Registers `session.restart`. A session with no restart target is refused `session.notFound`,
-/// a provider no driver answers `provider.notFound`, a driver that cannot resume
-/// `provider.capability.unsupported` (the driver never called), a resume the provider refused for
-/// its sign-in `provider.account.notAuthenticated`, and any other resume it could not make
-/// `provider.unavailable`. Fails the start when the method is already registered.
+/// Registers `session.restart`, each restart run under the session's `transition_lock`, so none
+/// brings a process up while a close is ending the session. A session with no restart target is
+/// refused `session.notFound`, a provider no driver answers `provider.notFound`, a driver that
+/// cannot resume `provider.capability.unsupported` (the driver never called), a resume the
+/// provider refused for its sign-in `provider.account.notAuthenticated`, and any other resume it
+/// could not make `provider.unavailable`. Fails the start when the method is already registered.
 pub(crate) fn register_session_restart(
     registry: &mut MethodRegistryBuilder,
     providers: Arc<ProviderRegistry>,
     read_target: RestartTargetReader,
+    transition_lock: Arc<KeyedLock<SessionId>>,
 ) -> Result<(), RegistrationError> {
     registry.register::<SessionRestart, _>(
         move |request: SessionTargetRequest, _context: HandlerContext| {
             let providers = Arc::clone(&providers);
             let read_target = Arc::clone(&read_target);
-            async move { restart(&providers, &read_target, request.session_id).await }.boxed()
+            let transition_lock = Arc::clone(&transition_lock);
+            async move {
+                restart(
+                    &providers,
+                    &read_target,
+                    &transition_lock,
+                    request.session_id,
+                )
+                .await
+            }
+            .boxed()
         },
     )
 }
@@ -62,8 +75,10 @@ pub(crate) fn register_session_restart(
 async fn restart(
     providers: &ProviderRegistry,
     read_target: &RestartTargetReader,
+    transition_lock: &KeyedLock<SessionId>,
     session_id: SessionId,
 ) -> Result<EmptyPayload, HandlerError> {
+    let _hold = transition_lock.acquire(session_id).await;
     let Some(target) = read_target(session_id).await? else {
         return Err(session_not_found(&session_id).into());
     };
@@ -118,6 +133,7 @@ mod tests {
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
     use crate::ipc::registry::HandlerError;
+    use crate::keyed_lock::KeyedLock;
     use crate::provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
@@ -260,26 +276,13 @@ mod tests {
         #[case] fields: Value,
     ) {
         let session_id = SessionId::new(SESSION).expect("the id is a UUID");
-        let refusal = match setup {
-            Setup::UnknownSession => {
-                match restart(&providers(None, false), &targets(false), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
-            }
-            Setup::NoProvider => {
-                match restart(&providers(None, true), &targets(true), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
-            }
-            Setup::NoResume => {
-                let registry = providers(Some(|_| Arc::new(MockProviderDriver::new())), false);
-                match restart(&registry, &targets(true), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
-            }
+        let (registry, has_target) = match setup {
+            Setup::UnknownSession => (providers(None, false), false),
+            Setup::NoProvider => (providers(None, true), true),
+            Setup::NoResume => (
+                providers(Some(|_| Arc::new(MockProviderDriver::new())), false),
+                true,
+            ),
             Setup::ResumeFailed(condition) => {
                 let build: BuildDriver = match condition {
                     RecoveryCondition::RecoveryNeeded => {
@@ -289,11 +292,19 @@ mod tests {
                         |_| failing_driver(RecoveryCondition::ReauthRequired)
                     }
                 };
-                match restart(&providers(Some(build), true), &targets(true), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
+                (providers(Some(build), true), true)
             }
+        };
+        let refusal = match restart(
+            &registry,
+            &targets(has_target),
+            &KeyedLock::new(),
+            session_id,
+        )
+        .await
+        {
+            Err(HandlerError::Refused(refusal)) => refusal,
+            other => panic!("expected a refusal, got {:?}", other.err()),
         };
         assert_eq!(refusal.code, code, "{setup:?}");
         assert_eq!(

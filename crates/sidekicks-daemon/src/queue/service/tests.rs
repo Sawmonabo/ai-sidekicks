@@ -38,6 +38,7 @@ use crate::database::writer::test_file::{TestDatabase, insert_lead, test_session
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
+use crate::keyed_lock::KeyedLock;
 use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
 use crate::provider::driver::PROVIDERS;
@@ -273,6 +274,7 @@ fn queue_over(
         binding_cursors,
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),
+        transition_lock: Arc::new(KeyedLock::new()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {

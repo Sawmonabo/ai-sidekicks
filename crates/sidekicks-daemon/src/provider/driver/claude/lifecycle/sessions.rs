@@ -56,7 +56,7 @@ impl ClaudeDriver {
 
     /// The person's restart of a session whose process stayed down: its crash window and any
     /// restart still waiting are dropped, it resumes, and the person is told it runs again unless
-    /// the process a relaunch brought up answered it.
+    /// a process already live answered it.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
