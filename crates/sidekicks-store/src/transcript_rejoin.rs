@@ -46,7 +46,7 @@ static ROW_ENDING_EVENT_TYPES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
 pub(crate) static ROW_ENDING_EVENT_TYPES_SQL: LazyLock<String> =
     LazyLock::new(|| sql_list_of(ROW_ENDING_EVENT_TYPES.iter().copied()));
 
-/// Whether an event of `event_type` ends its run's rows, as [`ROW_ENDING_EVENT_TYPES_SQL`] lists.
+/// Whether an event of `event_type` ends its run's rows, as `ROW_ENDING_EVENT_TYPES_SQL` lists.
 pub fn is_row_ending_event_type(event_type: &str) -> bool {
     ROW_ENDING_EVENT_TYPES.contains(&event_type)
 }

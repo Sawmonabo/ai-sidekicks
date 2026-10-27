@@ -19,7 +19,7 @@ use sidekicks_store::database::stored_column::{
 use crate::runs::record::{GOING_RUN_STATUSES_SQL, column};
 use crate::runs::spent_account::{SpentAccountColumns, spent_account_columns};
 
-/// The statements a [`WorkflowRunAttentionList`] prepares on a read connection: the person waits
+/// The statements a `WorkflowRunAttentionList` prepares on a read connection: the person waits
 /// and the account waits.
 pub const WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY: usize = 2;
 

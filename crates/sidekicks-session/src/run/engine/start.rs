@@ -80,7 +80,7 @@ impl RunEngine {
     /// to the driver; a driver's failure ends the run `failed` and is returned, and so does a
     /// `running` write that fails once the driver has the run, after the driver's turn is
     /// interrupted. An interrupt that arrives after the gates is routed once the start settles (see
-    /// [`RunEngine::route_interrupt`]).
+    /// `RunEngine::route_interrupt`).
     pub async fn start_run(&self, request: RunStartRequest) -> Result<RunRead, RunEngineError> {
         let RunStartRequest {
             turn:

@@ -343,7 +343,7 @@ impl GitRunner {
         }
     }
 
-    /// Waits up to [`SHUTDOWN_STOP_GRACE`] for the end of every tree a failed call left, since a
+    /// Waits up to `SHUTDOWN_STOP_GRACE` for the end of every tree a failed call left, since a
     /// git the kernel holds may never be reaped, and logs how many are still ending past it. A call
     /// failing after this still ends its tree on a task of its own, which nothing waits for.
     pub async fn wait_for_tree_ends(&self) {

@@ -242,7 +242,7 @@ impl Refusal {
 }
 
 /// The daemon's one callback-tool dispatcher for every provider, holding each session's registry.
-/// Spawns reach it through [`super::spawn_binding::bind_callback_tools_for_spawn`]; the registry
+/// Spawns reach it through `super::spawn_binding::bind_callback_tools_for_spawn`; the registry
 /// lock is never held across an await.
 pub struct CallbackToolHost {
     executor: Arc<dyn CallbackToolExecutor>,

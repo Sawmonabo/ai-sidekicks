@@ -18,7 +18,7 @@ pub fn is_retryable_read_failure(error: &io::Error) -> bool {
         || sidekicks_platforms::is_out_of_open_files(error)
 }
 
-/// Runs `read`, and once more after [`READ_RETRY_DELAY`] when it fails in a way `is_retryable`
+/// Runs `read`, and once more after `READ_RETRY_DELAY` when it fails in a way `is_retryable`
 /// accepts; any other failure, and the retry's own, is returned as it came.
 pub async fn read_with_one_retry<Output, Failure, Read>(
     mut read: impl FnMut() -> Read,

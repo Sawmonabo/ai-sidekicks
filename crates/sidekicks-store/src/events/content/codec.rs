@@ -389,7 +389,7 @@ pub fn out_of_memory_read_failure() -> rusqlite::Error {
 }
 
 /// Where a stored body sits before it is read: its row and what its payload states, read back by
-/// [`StoredBodyPlace::read`] from the columns [`stored_body_place_sql`] selects.
+/// [`StoredBodyPlace::read`] from the columns `stored_body_place_sql` selects.
 #[derive(Clone, Debug)]
 pub struct StoredBodyPlace {
     /// The `session_events` row whose `content_payload` holds it.
@@ -440,7 +440,7 @@ impl StoredBodyPlace {
     /// through one zstd input buffer, so no more than that buffer and a page of text are held at
     /// once; a body stored as it is, under 1 KiB, is handed whole. Stops once `each` breaks,
     /// answering what it broke with, before the rest is read or the length checked. Fails as
-    /// [`StoredBodyPlace::decode`] does, after handing over the frames before a damaged one, and
+    /// `StoredBodyPlace::decode` does, after handing over the frames before a damaged one, and
     /// with [`BodyStreamError::Write`] when `each` fails.
     pub fn stream<Stop>(
         &self,

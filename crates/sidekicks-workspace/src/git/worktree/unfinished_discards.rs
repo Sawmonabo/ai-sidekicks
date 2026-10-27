@@ -14,7 +14,7 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
 
-/// The statements [`read_unfinished_discards`] runs: the one listing read.
+/// The statements `read_unfinished_discards` runs: the one listing read.
 pub const UNFINISHED_DISCARD_STATEMENT_CAPACITY: usize = 1;
 
 static SELECT_UNFINISHED_SQL: LazyLock<String> = LazyLock::new(|| {

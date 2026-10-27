@@ -388,7 +388,7 @@ impl SessionService {
     /// The part from `offset` of the body of `session_id`'s row standing at the event `row_id`,
     /// `None` when no row of the session stands there. A short read of the row's event alone
     /// decides the read's length: a short read answers it, except for a reply drawn as markdown,
-    /// whose whole body a long read loads to cut it into blocks. Fails with [`BodyReadError`] for
+    /// whose whole body a long read loads to cut it into blocks. Fails with `BodyReadError` for
     /// a session this daemon holds no events for (`session.notFound`), an offset that is no place
     /// to resume from, or a read that failed.
     pub async fn read_row_body(
@@ -471,7 +471,7 @@ impl SessionService {
         .await
     }
 
-    /// One page of the patches a tool call's row left out. Fails with [`PatchListError`] for a
+    /// One page of the patches a tool call's row left out. Fails with `PatchListError` for a
     /// session or call this daemon does not hold, a cursor that names no place in the call's
     /// files, or a read that failed.
     pub async fn list_patches(

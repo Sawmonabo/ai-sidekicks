@@ -34,7 +34,7 @@ use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
 use crate::runs::record::column;
 
-/// The statements a [`WorkflowLibrary`] prepares on a read connection: the name holder, the
+/// The statements a `WorkflowLibrary` prepares on a read connection: the name holder, the
 /// definition read, the definition list and the list cursor's check.
 pub const WORKFLOW_LIBRARY_STATEMENT_CAPACITY: usize = 4;
 

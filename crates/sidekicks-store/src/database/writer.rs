@@ -521,7 +521,7 @@ impl DatabaseWriter {
     }
 
     /// Copies the database into the new file at `destination` through SQLite's online backup on
-    /// the writer's connection, as [`backup`](crate::database::writer::backup) describes, while
+    /// the writer's connection, as [`backup`] describes, while
     /// writes go on; it waits out a hold before it starts, and once `cancel` is canceled it stops
     /// before its next step, answering [`BackupCopy::Stopped`]. The answer carries the thread's
     /// processor time around the copy's steps. Fails with SQLite's error, or once the writer is

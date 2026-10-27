@@ -61,7 +61,7 @@ pub(crate) fn resolve_live_run_driver(
 }
 
 /// The driver of the provider the live run `run_id` runs on, its binding read through `pool`.
-/// Fails as [`resolve_live_run_driver`] fails, and as the pool and the read do.
+/// Fails as `resolve_live_run_driver` fails, and as the pool and the read do.
 pub async fn read_run_driver<Failure>(
     pool: &DatabaseReadPool,
     providers: &ProviderRegistry,
@@ -95,7 +95,7 @@ pub(crate) fn resolve_session_driver(
 
 /// The provider the session's lead runs on, the account it is bound to (`None` for the provider's
 /// current account) and its driver, the lead's binding read through `pool` from the readable part
-/// of the session's log. Refused as [`resolve_session_driver`] refuses, and fails as the pool and
+/// of the session's log. Refused as `resolve_session_driver` refuses, and fails as the pool and
 /// the read do.
 pub async fn read_session_driver<Failure>(
     pool: &DatabaseReadPool,

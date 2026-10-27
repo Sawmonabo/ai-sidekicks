@@ -87,7 +87,7 @@ pub struct RepoRootResolver {
     expect(dead_code, reason = "the repository mount attach and its health read")
 )]
 impl RepoRootResolver {
-    /// The resolver asking `git`, each call held to [`ROOT_RESOLUTION_GIT_TIMEOUT`].
+    /// The resolver asking `git`, each call held to `ROOT_RESOLUTION_GIT_TIMEOUT`.
     pub fn new(git: GitRunner) -> Self {
         Self {
             git,

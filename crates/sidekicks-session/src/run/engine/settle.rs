@@ -322,7 +322,7 @@ impl RunEngine {
     }
 
     /// Settles a run a restart left live that recovery could not resume, without a driver, as
-    /// [`decide_restart_settlement`] decides, a run it leaves returned as it is: its end, every
+    /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end, every
     /// pending interrupt applied, and its open turns' ends, each a limit's row names with that
     /// limit and every other with `daemonRestart`, guarded on no interrupt appearing since, a
     /// `failed` end carrying `failure_detail`. An interrupt that moved or appeared since the facts

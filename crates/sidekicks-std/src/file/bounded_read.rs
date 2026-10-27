@@ -44,7 +44,7 @@ struct ReadFate {
 }
 
 /// Runs `read` of `path` on a thread of its own and returns its answer, or fails with `TimedOut`
-/// once [`FILE_READ_CEILING`] passes without one, the read left to finish on its thread; a read of
+/// once `FILE_READ_CEILING` passes without one, the read left to finish on its thread; a read of
 /// a path at or beneath one whose read is still abandoned fails with `TimedOut` at once. Fails with
 /// the read's own error, the thread's start failure, or `Other` when the read panics.
 pub async fn read_within_ceiling<Output: Send + 'static>(

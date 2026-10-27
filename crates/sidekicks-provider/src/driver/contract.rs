@@ -132,7 +132,7 @@ impl From<DriverError> for HandlerError {
     /// A driver's refusal, and a request that got no answer, answer the call by the refusal's
     /// code; a failed capability probe and an unreadable model catalog answer
     /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
-    /// command that names no runnable build as [`ExecutableUnresolvable::into_refusal`] says; a
+    /// command that names no runnable build as `ExecutableUnresolvable::into_refusal` says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
     /// agent, the axis and the value; a steer whose turn ended, a refused run start, a rule the
     /// provider could not keep or a skill pick it does not list, reaching a handler, is a fault in

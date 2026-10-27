@@ -285,7 +285,7 @@ impl ProviderChoiceResolver {
     /// run waits on no such choice because it was settled or never asked, then with
     /// [`ProviderChoiceError::NoDriver`], each with nothing sent or written. An answer the
     /// provider got with no reply back fails with [`ProviderChoiceError::Driver`] and is held, the
-    /// run left waiting, for [`ProviderChoiceResolver::settle_held_answer`] or a second answer to
+    /// run left waiting, for `ProviderChoiceResolver::settle_held_answer` or a second answer to
     /// settle.
     pub async fn resolve_refusal_choice(
         &self,

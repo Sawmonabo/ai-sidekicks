@@ -92,7 +92,7 @@ pub struct SecretItemsStart {
 }
 
 /// The daemon's secrets for one run; see the module doc. Built once at the start and shared by
-/// every feature, each through its own service's [`ItemsKeychain`].
+/// every feature, each through its own service's `ItemsKeychain`.
 pub struct SecretItems {
     /// The place record's path.
     record_path: PathBuf,

@@ -25,7 +25,7 @@ use crate::runs::record::{
 };
 use crate::runs::spent_account::spent_account_columns;
 
-/// The statements a [`WorkflowRunStore`] prepares on a read connection: the run read and the runs
+/// The statements a `WorkflowRunStore` prepares on a read connection: the run read and the runs
 /// list.
 pub const WORKFLOW_RUN_STORE_STATEMENT_CAPACITY: usize = 2;
 

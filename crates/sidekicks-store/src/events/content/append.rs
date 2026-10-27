@@ -156,7 +156,7 @@ pub(crate) struct PatchPartPlace {
     pub(crate) text_offset: Option<usize>,
 }
 
-/// A file's place or a text offset of a [`PatchPartPlace`] as its column stores it; panics only on
+/// A file's place or a text offset of a `PatchPartPlace` as its column stores it; panics only on
 /// a value past `i64`, which no stored file list or text reaches.
 pub fn stored_index(index: usize) -> i64 {
     i64::try_from(index).expect("a file's place or a text offset lies far below 2^63")

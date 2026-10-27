@@ -179,7 +179,7 @@ pub enum RunAgentReadError {
     Read(#[from] rusqlite::Error),
 }
 
-/// The session's lead agent, read through `pool`. Fails as [`RunAgentReader::read_lead_agent`]
+/// The session's lead agent, read through `pool`. Fails as `RunAgentReader::read_lead_agent`
 /// does, and as the pool does.
 pub async fn read_lead_agent_through<Failure>(
     pool: &DatabaseReadPool,

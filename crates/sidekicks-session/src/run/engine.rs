@@ -419,7 +419,7 @@ impl RunEngine {
     /// where the provider never stopped, hands again the interrupt of every limit the run owes
     /// once it is written, on a task of its own; a move that names no state it leaves hands
     /// nothing, its caller handing them once the provider runs. Refuses as
-    /// [`RunStateChangeWriter::write`] does; a running change's posture is the start's to stamp.
+    /// `RunStateChangeWriter::write` does; a running change's posture is the start's to stamp.
     pub async fn transition(
         self: &Arc<Self>,
         change: RunStateChange,

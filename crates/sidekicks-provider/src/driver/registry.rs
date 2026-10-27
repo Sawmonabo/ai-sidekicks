@@ -154,7 +154,7 @@ impl ProviderRegistry {
     }
 
     /// Passes when `provider`'s recorded snapshot declares `flag`. Refuses with
-    /// [`provider_not_found`] when no driver answers it, and [`provider_capability_unsupported`]
+    /// `provider_not_found` when no driver answers it, and `provider_capability_unsupported`
     /// when the flag is off or no snapshot is recorded yet.
     pub fn check_capability(
         &self,

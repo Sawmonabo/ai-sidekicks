@@ -42,7 +42,7 @@ pub enum CanonicalizationRefusal {
     /// The envelope's `occurredAt` cannot take the stored form.
     #[error("the envelope's occurredAt cannot take the stored form")]
     OccurredAt(#[from] OccurredAtNormalizationRefusal),
-    /// The value nests containers deeper than [`CANONICAL_JSON_MAX_DEPTH`].
+    /// The value nests containers deeper than `CANONICAL_JSON_MAX_DEPTH`.
     #[error("the value nests containers deeper than {CANONICAL_JSON_MAX_DEPTH} levels")]
     TooDeep,
     /// The serializer refused the value.
@@ -63,7 +63,7 @@ pub fn normalize_occurred_at(
 }
 
 /// `value`'s RFC 8785 bytes. Refuses a value nesting containers deeper than
-/// [`CANONICAL_JSON_MAX_DEPTH`], and one the serializer refuses.
+/// `CANONICAL_JSON_MAX_DEPTH`, and one the serializer refuses.
 pub fn canonicalize_json(value: &Value) -> Result<CanonicalBytes, CanonicalizationRefusal> {
     refuse_over_deep(value)?;
     Ok(CanonicalBytes(serde_json_canonicalizer::to_vec(value)?))

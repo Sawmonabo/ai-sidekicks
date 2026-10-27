@@ -310,7 +310,7 @@ impl ArtifactIngestService {
     /// `artifact.ingest.streamInvalid` for a stream that is unknown, completed or past its
     /// lifetime, or for a chunk out of sequence, which ends the stream; with `artifact.tooLarge`
     /// for a chunk past the declared size, which ends it too; and as
-    /// [`ArtifactError::StreamWriteDropped`], ending the stream, after a write dropped mid-chunk.
+    /// `ArtifactError::StreamWriteDropped`, ending the stream, after a write dropped mid-chunk.
     pub async fn write(
         &self,
         request: ArtifactIngestWriteRequest,
@@ -393,7 +393,7 @@ impl ArtifactIngestService {
     /// stream that is unknown or past its lifetime, or whose saved result no longer names the
     /// digest it committed, with `session.notFound` once its session is gone and
     /// `agent.run.notFound` for a run that is not the session's, and as
-    /// [`ArtifactError::StreamWriteDropped`] after a write dropped mid-chunk; every failure ends
+    /// `ArtifactError::StreamWriteDropped` after a write dropped mid-chunk; every failure ends
     /// the stream.
     pub async fn complete(
         &self,

@@ -43,7 +43,7 @@ const OPTIMIZE_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
 
 impl DatabaseWriter {
     /// The scheduler's passive WAL checkpoint job, run every [`PASSIVE_CHECKPOINT_INTERVAL`] and
-    /// metered against its budget; each run fails as [`DatabaseWriter::checkpoint`] does.
+    /// metered against its budget; each run fails as `DatabaseWriter::checkpoint` does.
     pub fn passive_checkpoint_job(
         writer: Arc<Self>,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
@@ -96,7 +96,7 @@ impl DatabaseWriter {
     }
 
     /// The scheduler's daily optimize job, run every [`OPTIMIZE_INTERVAL`] and metered against its
-    /// budget; each run fails as [`DatabaseWriter::optimize`] does.
+    /// budget; each run fails as `DatabaseWriter::optimize` does.
     pub fn optimize_job(
         writer: Arc<Self>,
     ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static

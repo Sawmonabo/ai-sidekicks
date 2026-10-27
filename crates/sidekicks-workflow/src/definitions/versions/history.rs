@@ -31,7 +31,7 @@ use crate::definitions::stored_document::{
 use crate::definitions::versions::difference::{count_workflow_changes, diff_workflow_bodies};
 use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
 
-/// The statements a [`WorkflowVersions`] prepares on a read connection: a version by number, a
+/// The statements a `WorkflowVersions` prepares on a read connection: a version by number, a
 /// version by id, and a version's whole workflow.
 pub const WORKFLOW_VERSIONS_STATEMENT_CAPACITY: usize = 3;
 

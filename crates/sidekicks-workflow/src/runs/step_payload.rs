@@ -13,7 +13,7 @@ use sidekicks_store::database::stored_column::text_column;
 use crate::not_found::WorkflowNotFound;
 use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
 
-/// The statements a [`WorkflowStepPayloadReader`] prepares on a read connection: one per payload a
+/// The statements a `WorkflowStepPayloadReader` prepares on a read connection: one per payload a
 /// step stores.
 pub const WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY: usize = 3;
 

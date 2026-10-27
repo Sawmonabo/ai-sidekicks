@@ -145,7 +145,7 @@ impl RunBindingCursors {
     }
 
     /// Records the binding a resume minted, with its cursor opened first as
-    /// [`RunBindingCursors::continue_binding`] opens it. Fails with
+    /// `RunBindingCursors::continue_binding` opens it. Fails with
     /// [`RunBindingCursorError::PredecessorMissing`] for a predecessor the store does not hold,
     /// and as the cursor's open or the store fails, recording nothing and leaving no cursor open.
     pub async fn record_relaunch(

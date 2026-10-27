@@ -82,7 +82,7 @@ pub type ProjectionError = Box<dyn Error + Send + Sync>;
 pub(crate) type SessionWriteCheck =
     dyn Fn(&SessionId, &str) -> Result<(), SessionAppendRefusal> + Send + Sync;
 
-/// Why a session refuses an append, raised by its [`SessionWriteCheck`]; its `Display` is the
+/// Why a session refuses an append, raised by its `SessionWriteCheck`; its `Display` is the
 /// message a person reads.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionAppendRefusal {

@@ -133,7 +133,7 @@ pub(crate) fn build_provider_process_environment(
 /// The whole environment of the commands a provider's conversation runs: the session's, the run's
 /// credential variables and the driver's withheld names removed, then every driver's
 /// background-work switch and the account's folders. Fails as
-/// [`build_provider_process_environment`] does for the account's folders.
+/// `build_provider_process_environment` does for the account's folders.
 pub fn build_conversation_command_environment(
     request: &ProviderEnvironmentRequest<'_>,
 ) -> Result<Vec<(String, String)>, SpawnEnvironmentError> {
