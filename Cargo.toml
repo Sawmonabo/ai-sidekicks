@@ -27,6 +27,7 @@ sidekicks-client = { path = "crates/sidekicks-client" }
 sidekicks-contracts = { path = "crates/sidekicks-contracts" }
 sidekicks-platforms = { path = "crates/sidekicks-platforms" }
 sidekicks-search = { path = "crates/sidekicks-search" }
+sidekicks-std = { path = "crates/sidekicks-std" }
 sidekicks-terminal = { path = "crates/sidekicks-terminal" }
 
 # Runtime, errors and logs.
