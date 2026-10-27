@@ -22,7 +22,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_std::file::bounded_read::run_without_read_ceiling;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
@@ -214,8 +213,6 @@ impl ScriptedDriver {
 
     /// The driver whose accounts run on `account_folders`, else on the person's own home.
     pub(crate) fn with_account_folders(account_folders: Option<ProviderAccountFolders>) -> Self {
-        // The tests pause the clock, whose advance would abandon a bounded read that is answering.
-        run_without_read_ceiling();
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database = TestDatabase::new(schema_parts());
         drop(

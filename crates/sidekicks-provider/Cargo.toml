@@ -77,8 +77,6 @@ rstest.workspace = true
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The stand-in programs, the harness's test names and the socket folders the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The bounded reads' switch the scripted Claude driver arms for its paused clock.
-sidekicks-std = { workspace = true, features = ["test-support"] }
 # The test database and the session test log the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The paused clock the drivers' and the command waits' tests drive.
