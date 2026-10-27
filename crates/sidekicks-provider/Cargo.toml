@@ -77,6 +77,7 @@ tracing-subscriber.workspace = true
 [build-dependencies]
 # Codex's app-server protocol types, generated from the release's schema bundle after its hash is
 # checked.
+base16ct.workspace = true
 serde_json.workspace = true
 sha3.workspace = true
 typify.workspace = true

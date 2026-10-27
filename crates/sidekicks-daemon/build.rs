@@ -3,7 +3,6 @@
 //! bundles, so the shell and the library always run the same SQLite.
 
 use std::error::Error;
-use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::{env, fs};
 
@@ -28,7 +27,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("cargo::rerun-if-changed={SHELL_SOURCE}");
     println!("cargo::rerun-if-changed={}", header.display());
 
-    let source_hash = sha3_256_hex(&fs::read(SHELL_SOURCE)?);
+    let source_hash = base16ct::lower::encode_string(&Sha3_256::digest(fs::read(SHELL_SOURCE)?));
     if source_hash != SHELL_SOURCE_SHA3_256 {
         return Err(format!(
             "{SHELL_SOURCE} hashes to {source_hash}, not the release's {SHELL_SOURCE_SHA3_256}"
@@ -65,14 +64,4 @@ fn read_source_id(header: &str) -> Option<&str> {
             .strip_prefix('"')?
             .strip_suffix('"')
     })
-}
-
-/// The SHA3-256 of `bytes`, in lowercase hex.
-fn sha3_256_hex(bytes: &[u8]) -> String {
-    Sha3_256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            write!(hex, "{byte:02x}").expect("writing to a String does not fail");
-            hex
-        })
 }

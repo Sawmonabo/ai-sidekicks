@@ -199,6 +199,7 @@ x-wing.workspace = true
 
 [build-dependencies]
 # The SQLite shell, compiled from its vendored source after its hash is checked.
+base16ct.workspace = true
 cc.workspace = true
 sha3.workspace = true
 

@@ -8474,6 +8474,7 @@ name = "sidekicks-daemon"
 version = "0.0.0"
 dependencies = [
  "alacritty_terminal",
+ "base16ct 1.0.0",
  "blake3",
  "bytes",
  "cc",

@@ -98,21 +98,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_codex_protocol(&PathBuf::from(env::var("OUT_DIR")?).join(CODEX_PROTOCOL_OUTPUT))
 }
 
-/// The SHA3-256 of `bytes`, in lowercase hex.
-fn sha3_256_hex(bytes: &[u8]) -> String {
-    Sha3_256::digest(bytes)
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            write!(hex, "{byte:02x}").expect("writing to a String does not fail");
-            hex
-        })
-}
-
 /// Writes to `output` the protocol types the daemon sends and the notification and server request
 /// methods the protocol names, once the bundle's hash is the release's.
 fn write_codex_protocol(output: &Path) -> Result<(), Box<dyn Error>> {
     let compressed = fs::read(CODEX_PROTOCOL_BUNDLE)?;
-    let bundle_hash = sha3_256_hex(&compressed);
+    let bundle_hash = base16ct::lower::encode_string(&Sha3_256::digest(&compressed));
     if bundle_hash != CODEX_PROTOCOL_BUNDLE_SHA3_256 {
         return Err(format!(
             "{CODEX_PROTOCOL_BUNDLE} hashes to {bundle_hash}, not the {CODEX_PROTOCOL_RELEASE} \
