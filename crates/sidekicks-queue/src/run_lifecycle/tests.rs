@@ -4,7 +4,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use super::SELECT_INTERRUPT_TRIGGER_SQL;
 

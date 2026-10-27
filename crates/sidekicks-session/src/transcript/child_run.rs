@@ -36,7 +36,7 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use sidekicks_store::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, readable_event_sql, resolve_event_cursor,
 };
-use sidekicks_store::transcript_rejoin::{row_condition_sql, stored_patch_part_sql};
+use sidekicks_store::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
 use crate::run::refusals::RunRefusal;
 use crate::transcript::block_cut::BlockParse;

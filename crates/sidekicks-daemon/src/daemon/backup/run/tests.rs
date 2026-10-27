@@ -18,7 +18,7 @@ use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_log::{TestLog, open_log};
+use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;

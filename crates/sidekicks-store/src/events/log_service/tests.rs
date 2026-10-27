@@ -8,7 +8,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
 
-use super::test_log::{TestLog, open_log};
+use super::test_fixture::{TestLog, open_log};
 use super::{
     EventAppendError, EventLogAppendOptions, EventReadAfterCursorRequest, UnsequencedEventEnvelope,
 };

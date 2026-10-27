@@ -12,7 +12,7 @@ use sidekicks_contracts::run::intervention::{InterventionId, InterventionType};
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use super::{
     LIMIT_INTERRUPT_ID, PERSON_INTERRUPT_ID, STEP_INTERRUPT_ID, interrupt_state, interrupted_at,

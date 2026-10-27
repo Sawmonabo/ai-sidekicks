@@ -15,7 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_store::transcript_whole_patch::WholePatchFile;
+use sidekicks_store::transcript::whole_patch::WholePatchFile;
 use tokio::time::Instant;
 
 use crate::driver::claude::delivery::patches::{

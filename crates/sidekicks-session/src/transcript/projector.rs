@@ -25,8 +25,8 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_store::events::session::read::{
     MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads,
 };
-use sidekicks_store::transcript_rejoin::{RowReads, joined_body_of, joined_row_content_of};
-use sidekicks_store::transcript_whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
+use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of, joined_row_content_of};
+use sidekicks_store::transcript::whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
 
 use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
 use crate::transcript::turn_attribution::{

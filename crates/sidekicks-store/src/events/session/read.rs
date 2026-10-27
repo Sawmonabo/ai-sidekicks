@@ -33,7 +33,7 @@ use crate::events::content::read::{
     StoredEventContentRow, hydrate_stored_event, joined_content_length,
 };
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::transcript_rejoin::{row_condition_sql, stored_patch_part_sql};
+use crate::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
 /// A stored event row that is not a well-formed event envelope, which only a write outside the
 /// append path can leave; it names the row by its stored event id, session id and sequence.

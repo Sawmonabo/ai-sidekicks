@@ -16,7 +16,7 @@ use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_store::transcript_whole_patch::stored_patch_files_body;
+use sidekicks_store::transcript::whole_patch::stored_patch_files_body;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::messages::{

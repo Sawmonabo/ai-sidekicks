@@ -44,7 +44,7 @@ use sidekicks_platforms::{
 use sidekicks_std::file::bounded_read::read_within_ceiling;
 use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::processor_bound::map_with_processor_bound;
-use sidekicks_std::read_retry::{is_retryable_read_failure, read_with_one_retry};
+use sidekicks_std::retry::read::{is_retryable_read_failure, read_with_one_retry};
 use sidekicks_std::settle_all::SettleFailures;
 
 use crate::folder::canonical_path::canonical_folder_path;

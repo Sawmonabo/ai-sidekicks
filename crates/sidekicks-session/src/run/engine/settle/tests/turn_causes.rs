@@ -10,7 +10,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::EventLogService;
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use super::{limit_record, record_interrupt, running_at};
 use crate::questions::schema::schema_parts;

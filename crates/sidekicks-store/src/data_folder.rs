@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 
+pub mod lock;
+
 // The agent memory folder's name in the data folder.
 const AGENT_MEMORY_FOLDER_NAME: &str = "agent-memory";
 

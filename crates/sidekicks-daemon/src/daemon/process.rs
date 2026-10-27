@@ -54,7 +54,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
 use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::DataFolderLock;
+use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };

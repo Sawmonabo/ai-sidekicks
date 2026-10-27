@@ -375,7 +375,7 @@ mod tests {
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_log::open_log;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
     use tokio_util::sync::CancellationToken;
 
     use super::{DiagnosticExpiryDeps, diagnostic_expiry_job};

@@ -30,7 +30,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::content::append::stored_index;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use sidekicks_store::events::session::read::{SessionEventReads, readable_event_sql};
-use sidekicks_store::transcript_whole_patch::{
+use sidekicks_store::transcript::whole_patch::{
     OMITTED_PATCHES_PAYLOAD_KEY, WholePatchFile, patch_file_of_header, text_of_part,
 };
 

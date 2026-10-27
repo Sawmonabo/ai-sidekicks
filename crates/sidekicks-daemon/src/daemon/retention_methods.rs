@@ -379,7 +379,7 @@ mod tests {
     use sidekicks_store::database::writer::test_file::{
         TestDatabase, insert_test_event, test_session_id,
     };
-    use sidekicks_store::events::log_service::test_log::TestLog;
+    use sidekicks_store::events::log_service::test_fixture::TestLog;
     use tempfile::TempDir;
     use tokio::sync::watch;
     use tokio_util::sync::CancellationToken;

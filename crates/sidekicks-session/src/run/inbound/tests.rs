@@ -29,7 +29,7 @@ use sidekicks_provider::run::delivery::{
 };
 use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};

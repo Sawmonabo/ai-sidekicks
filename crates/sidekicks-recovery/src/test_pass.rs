@@ -39,7 +39,7 @@ use sidekicks_store::database::writer::test_file::{
     TestDatabase, session_event_row, test_run_id, test_session_id,
 };
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use sidekicks_store::events::log_service::test_log::TestLog;
+use sidekicks_store::events::log_service::test_fixture::TestLog;
 use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };

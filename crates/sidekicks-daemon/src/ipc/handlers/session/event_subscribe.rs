@@ -326,7 +326,7 @@ mod tests {
         TestDatabase, test_envelope, test_session_id,
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
-    use sidekicks_store::events::log_service::test_log::open_log;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
 
     use super::*;
     use crate::daemon::schema::schema_parts;

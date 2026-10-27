@@ -28,7 +28,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::retry_waits::retry_wait;
+use sidekicks_std::retry::waits::retry_wait;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };

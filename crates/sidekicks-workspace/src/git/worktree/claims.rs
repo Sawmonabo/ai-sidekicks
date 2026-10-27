@@ -201,7 +201,7 @@ mod tests {
     use rusqlite::params;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_log::open_log;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
 
     use super::KeptCopyClaims;
     use crate::git::worktree::schema::schema_parts;

@@ -29,7 +29,7 @@ use sidekicks_store::backup_mirror::{
     probe_time_precision,
 };
 use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
@@ -459,7 +459,7 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::release_manifest::ReleaseVersion;
     use sidekicks_store::data_folder::data_folder;
-    use sidekicks_store::data_folder_lock::DataFolderLock;
+    use sidekicks_store::data_folder::lock::DataFolderLock;
     use sidekicks_store::database::connection::writer_open::{
         DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
     };

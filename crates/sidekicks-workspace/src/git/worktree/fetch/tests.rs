@@ -9,7 +9,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClockTimer;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::TcpListener;

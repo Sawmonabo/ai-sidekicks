@@ -49,7 +49,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::read::{
     SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
-use sidekicks_store::transcript_rejoin::RowReads;
+use sidekicks_store::transcript::rejoin::RowReads;
 
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::child_run::stamp_child_run_summaries;

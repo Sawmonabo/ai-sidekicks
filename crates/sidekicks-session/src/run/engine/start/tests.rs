@@ -9,7 +9,7 @@ use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::{

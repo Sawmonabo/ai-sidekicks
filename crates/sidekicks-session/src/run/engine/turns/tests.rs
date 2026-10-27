@@ -10,7 +10,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-use sidekicks_store::events::log_service::test_log::open_log;
+use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
 use super::{no_turn_end_statement, no_turn_start_from_statement};

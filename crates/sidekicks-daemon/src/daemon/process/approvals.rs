@@ -260,7 +260,7 @@ mod tests {
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
-    use sidekicks_store::events::log_service::test_log::open_log;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
     use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
     use super::revoke_at_session_provider;

@@ -15,7 +15,7 @@ use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::DataFolderLock;
+use sidekicks_store::data_folder::lock::DataFolderLock;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 

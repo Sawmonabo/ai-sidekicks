@@ -34,7 +34,7 @@ use sidekicks_store::events::content::codec::{
     StoredBodyColumns, stored_body_columns_sql, stored_body_encoding_sql, stored_body_length_sql,
 };
 use sidekicks_store::events::session::read::{payload_damage_of, readable_event_sql};
-use sidekicks_store::transcript_rejoin::is_row_ending_event_type;
+use sidekicks_store::transcript::rejoin::is_row_ending_event_type;
 
 use crate::run::transitions::is_run_terminal_event_type;
 use crate::transcript::block_cut::{BlockCutError, BlockParse, StreamingBlockCut, prose_body_of};

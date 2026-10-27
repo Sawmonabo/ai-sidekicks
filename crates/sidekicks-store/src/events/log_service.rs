@@ -740,6 +740,6 @@ pub(crate) fn compose_rows(
 }
 
 #[cfg(any(test, feature = "test-support"))]
-pub mod test_log;
+pub mod test_fixture;
 #[cfg(test)]
 pub(crate) mod tests;

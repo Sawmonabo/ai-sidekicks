@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::text_cut::cut_to_code_points;
-use sidekicks_store::transcript_whole_patch::{omitted_patches_of, stored_patch_files_body};
+use sidekicks_store::transcript::whole_patch::{omitted_patches_of, stored_patch_files_body};
 
 use crate::driver::codex::delivery::patches::read_codex_patch_files;
 use crate::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};

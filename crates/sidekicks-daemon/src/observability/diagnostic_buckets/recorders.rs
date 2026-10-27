@@ -194,7 +194,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::events::log_service::test_log::open_log;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
 
     use super::{
         RawProviderMessage, TOOL_TRACES_FOLDER_NAME, ToolTrace, provider_messages_folder,

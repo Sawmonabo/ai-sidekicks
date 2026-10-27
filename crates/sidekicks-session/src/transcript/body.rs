@@ -18,7 +18,7 @@ use sidekicks_contracts::transcript::content::{
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::read::SessionEventReads;
-use sidekicks_store::transcript_rejoin::{RowReads, joined_body_of};
+use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of};
 
 use crate::transcript::block_cut::{BlockParse, body_block_starts, prose_body_of};
 use crate::transcript::body::starts_cache::{BlockCutKey, BlockCuts, EndedBlockCut};

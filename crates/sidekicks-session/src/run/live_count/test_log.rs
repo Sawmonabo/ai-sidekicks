@@ -3,7 +3,7 @@
 
 use sidekicks_store::database::writer::DatabaseWriterOptions;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_store::events::log_service::test_log::{TestLog, open_log_with};
+use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log_with};
 use tokio::sync::watch;
 
 use super::count_live_runs_after_commits;

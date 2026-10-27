@@ -8,7 +8,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
 use sidekicks_contracts::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
-use sidekicks_store::transcript_whole_patch::text_of_part;
+use sidekicks_store::transcript::whole_patch::text_of_part;
 
 use super::{PatchListError, list_patches};
 use crate::transcript::block_cut::MARKDOWN_PARSE;

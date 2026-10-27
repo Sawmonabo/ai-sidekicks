@@ -8,7 +8,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::transcript::content::{
     TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
 };
-use sidekicks_store::transcript_whole_patch::WholePatchFile;
+use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
 use crate::driver::unified_diff::{count_unified_diff, mark_every_line};
 use crate::record_readers::read_non_empty_string;
@@ -160,7 +160,7 @@ mod tests {
     use sidekicks_contracts::transcript::content::{
         TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
     };
-    use sidekicks_store::transcript_whole_patch::WholePatchFile;
+    use sidekicks_store::transcript::whole_patch::WholePatchFile;
 
     use super::read_codex_patch_files;
 

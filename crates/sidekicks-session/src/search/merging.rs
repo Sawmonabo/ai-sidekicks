@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use futures::FutureExt;
 use sidekicks_search::index::{SearchIndex, SearchIndexError};
-use sidekicks_std::retry_waits::retry_wait;
+use sidekicks_std::retry::waits::retry_wait;
 use tokio::sync::Notify;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;

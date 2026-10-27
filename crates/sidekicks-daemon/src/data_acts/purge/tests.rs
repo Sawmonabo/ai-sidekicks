@@ -43,7 +43,7 @@ use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
 use sidekicks_store::database::writer::test_file::{
     TestDatabase, session_event_row, test_envelope,
 };
-use sidekicks_store::events::log_service::test_log::TestLog;
+use sidekicks_store::events::log_service::test_fixture::TestLog;
 use sidekicks_store::events::log_service::{EVENT_LOG_STATEMENT_CAPACITY, EventLogAppendOptions};
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;

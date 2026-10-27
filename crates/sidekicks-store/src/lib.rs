@@ -6,9 +6,7 @@
 pub mod backup_mirror;
 pub mod credential_store;
 pub mod data_folder;
-pub mod data_folder_lock;
 pub mod database;
 pub mod events;
 pub mod machine;
-pub mod transcript_rejoin;
-pub mod transcript_whole_patch;
+pub mod transcript;

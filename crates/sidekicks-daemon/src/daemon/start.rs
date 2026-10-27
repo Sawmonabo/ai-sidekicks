@@ -22,7 +22,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
 use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder_lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 use sidekicks_store::events::session::insert::monotonic_ns_now;
 use tokio_util::sync::CancellationToken;
 

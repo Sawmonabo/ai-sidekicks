@@ -17,7 +17,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::methods::SessionFileSearchEntryKind;
 use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::read_retry::{is_retryable_read_failure, read_with_one_retry};
+use sidekicks_std::retry::read::{is_retryable_read_failure, read_with_one_retry};
 use sidekicks_workspace::git::process::{GitCall, GitError, GitRunner};
 use tokio::task::JoinError;
 
