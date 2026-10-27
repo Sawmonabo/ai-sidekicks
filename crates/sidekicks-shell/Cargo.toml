@@ -1,0 +1,45 @@
+[package]
+name = "sidekicks-shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The terminal service: a session's shells, their control lease, output flow and the orphans a crash leaves."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+alacritty_terminal.workspace = true
+bytes.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+memchr.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-std.workspace = true
+sidekicks-terminal.workspace = true
+sidekicks-workspace.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+unicode-segmentation.workspace = true
+vte = { workspace = true, features = ["ansi"] }
+
+[dev-dependencies]
+rstest.workspace = true
+# The screen copy drawn without a shell, for the screen listener's answer tests.
+sidekicks-terminal = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+
+[features]
+# Helpers other crates' tests use: a shell table with no shells behind it.
+test-support = []
+
+[lints]
+workspace = true

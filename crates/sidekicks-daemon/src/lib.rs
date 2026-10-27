@@ -16,7 +16,6 @@ pub mod orchestration;
 pub mod plans;
 pub mod policy;
 pub mod program;
-pub mod pty;
 pub mod questions;
 pub mod queue;
 pub mod recovery;
