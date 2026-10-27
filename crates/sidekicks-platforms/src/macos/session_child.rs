@@ -57,8 +57,7 @@ impl SessionChild {
     /// kill does: with `EPERM` when members refuse it, or `TimedOut` naming those it leaves.
     pub async fn end_group(&mut self) -> io::Result<()> {
         // Unreaped until the drop, the child keeps its id, so its group's id names no other group.
-        let id = self.id;
-        group::end_group(id).await
+        group::end_group(self.id).await
     }
 }
 

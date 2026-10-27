@@ -3,26 +3,52 @@
 //! handler in the child, and that child's reap, since no runtime reaps a child it did not spawn.
 
 use std::error::Error;
-use std::ffi::{CString, OsStr, OsString, c_int, c_short};
+use std::ffi::{OsStr, OsString, c_char, c_int, c_short};
 use std::io;
 use std::os::fd::{AsRawFd as _, BorrowedFd};
-use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::Path;
 use std::process::ExitStatus;
+use std::sync::OnceLock;
 
 use nix::errno::Errno;
 use nix::sys::signal::{SigSet, Signal, kill};
 use nix::unistd::Pid;
 
 use crate::c_string_array::null_terminated_pointers;
+use crate::macos::loaded_images::look_up_symbol;
 use crate::macos::pinned_process::PinnedProcess;
+use crate::posix::c_string::c_string;
 use crate::posix::null_device::NULL_DEVICE_PATH;
 use crate::posix::process::id::system_process_id;
 
 /// `sys/spawn.h`'s flag that makes the child lead a session of its own, which the `libc` crate
 /// does not list.
 const POSIX_SPAWN_SETSID: c_int = 0x0400;
+
+// The call that adds a folder change to a spawn's file actions.
+type AddChdirCall =
+    unsafe extern "C" fn(*mut libc::posix_spawn_file_actions_t, *const c_char) -> c_int;
+
+/// The system's call that adds a folder change to a spawn's file actions, found by name at run
+/// time the first time: `posix_spawn_file_actions_addchdir`, which macOS 26 is the first to
+/// export, else the `_np` name every macOS since 10.15 exports, so the program loads on every
+/// macOS the product runs on. `Unsupported` on a macOS with neither.
+fn add_chdir_call() -> io::Result<AddChdirCall> {
+    static CALL: OnceLock<Option<AddChdirCall>> = OnceLock::new();
+    CALL.get_or_init(|| {
+        let symbol = look_up_symbol(c"posix_spawn_file_actions_addchdir")
+            .or_else(|| look_up_symbol(c"posix_spawn_file_actions_addchdir_np"))?;
+        // SAFETY: either symbol is libSystem's function of exactly this signature.
+        Some(unsafe { std::mem::transmute::<*mut libc::c_void, AddChdirCall>(symbol) })
+    })
+    .ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::Unsupported,
+            "this macOS has no call adding a folder change to a spawn",
+        )
+    })
+}
 
 /// A spawn's attributes, destroyed when this drops. macOS's attributes object is a pointer to
 /// memory the system owns, so moving this moves only the pointer.
@@ -192,11 +218,10 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
             }
         }
     }
+    let add_chdir = add_chdir_call()?;
     // SAFETY: the file actions were set up above, and the folder is a C string that outlives the
     // spawn.
-    check_spawn_status(unsafe {
-        libc::posix_spawn_file_actions_addchdir(file_actions.as_mut_ptr(), folder.as_ptr())
-    })?;
+    check_spawn_status(unsafe { add_chdir(file_actions.as_mut_ptr(), folder.as_ptr()) })?;
 
     let mut attributes = SpawnAttributes::new()?;
     let mut default_signals = SigSet::empty();
@@ -250,7 +275,8 @@ pub(crate) fn reap_spawned_child(id: u32) -> io::Result<ExitStatus> {
 /// a blocking thread, where the reap answers at once, and answers how it ended; where the wait for
 /// its end cannot be set up, the blocking reap waits for the exit itself, so no child is left a
 /// zombie, at the cost of one blocking thread held until the child exits, which the daemon's stop
-/// then waits on up to its drain bound. Must be called within the runtime. Fails with the system's error from the reap.
+/// then waits on up to its drain bound. Must be called within the runtime. Fails with the system's
+/// error from the reap.
 pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<ExitStatus> {
     let id = process.id();
     if let Err(error) = process.wait_for_end().await {
@@ -268,9 +294,9 @@ pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<Exit
 /// runs on that no one answers for; a child already ended is reaped all the same. The reap, which
 /// waits for the killed child's exit, runs on this thread with no runtime current, else on the
 /// runtime's blocking pool while the runtime runs, logging its failure; a drop as the runtime ends
-/// can leave the child unreaped until this process exits. Fails with the system's error
-/// from the kill, which leaves the child unreaped rather than wait on one still running, or from
-/// a reap on this thread.
+/// can leave the child unreaped until this process exits. Fails with the system's error from the
+/// kill, which leaves the child unreaped rather than wait on one still running, or from a reap on
+/// this thread.
 pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {
     // Unreaped, the child keeps its id, so the kill by id reaches no other process.
     let pid = Pid::from_raw(system_process_id(id)?.get());
@@ -293,9 +319,4 @@ pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {
         }
         Err(_no_runtime) => reap_spawned_child(id).map(drop),
     }
-}
-
-/// `text` as a C string; `InvalidInput` when it holds a NUL.
-fn c_string(text: &OsStr) -> io::Result<CString> {
-    CString::new(text.as_bytes()).map_err(io::Error::from)
 }

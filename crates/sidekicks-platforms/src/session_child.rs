@@ -45,7 +45,7 @@ mod tests {
                 argument_zero: "sh".into(),
                 arguments: vec![
                     "-c".to_owned(),
-                    "echo \"$$ $PROBE ${HOME:+inherited} $(pwd -P)\"; sleep 30 & exec /bin/sleep 30"
+                    "sleep 30 & echo \"$$ $PROBE ${HOME:+inherited} $(pwd -P)\"; exec /bin/sleep 30"
                         .to_owned(),
                 ],
                 added_environment: vec![("PROBE".to_owned(), "added".to_owned())],

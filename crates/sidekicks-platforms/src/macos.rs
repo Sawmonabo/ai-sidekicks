@@ -15,6 +15,7 @@ pub(crate) mod credential_store;
 pub(crate) mod descriptor_path;
 pub(crate) mod input_wait;
 pub(crate) mod lasting_child;
+pub(crate) mod loaded_images;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
 pub(crate) mod posix_spawn;

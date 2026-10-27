@@ -11,15 +11,16 @@
 
 use std::ffi::{CString, OsStr, OsString, c_char, c_int};
 use std::io;
-use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
 use crate::c_string_array::null_terminated_pointers;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
+use crate::macos::loaded_images::look_up_symbol;
 use crate::macos::pinned_process::pin_running_process;
 use crate::macos::posix_spawn::{SpawnAttributes, check_spawn_status};
 use crate::own_root::OwnRootError;
+use crate::posix::c_string::c_string;
 use crate::posix::process::id::system_process_id;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
@@ -82,9 +83,9 @@ fn responsibility_calls() -> io::Result<ResponsibilityCalls> {
     CALLS
         .get_or_init(|| {
             let responsible_unique_id =
-                look_up(c"responsibility_get_uniqueid_responsible_for_pid")?;
-            let responsible_id = look_up(c"responsibility_get_pid_responsible_for_pid")?;
-            let disclaim = look_up(c"responsibility_spawnattrs_setdisclaim")?;
+                look_up_symbol(c"responsibility_get_uniqueid_responsible_for_pid")?;
+            let responsible_id = look_up_symbol(c"responsibility_get_pid_responsible_for_pid")?;
+            let disclaim = look_up_symbol(c"responsibility_spawnattrs_setdisclaim")?;
             // SAFETY: each symbol is libquarantine's function of exactly the signature it is cast
             // to.
             unsafe {
@@ -106,13 +107,6 @@ fn responsibility_calls() -> io::Result<ResponsibilityCalls> {
                 "this macOS has no call naming a process's responsible process",
             )
         })
-}
-
-/// The address of `name` in the loaded images, `None` when no image exports it.
-fn look_up(name: &std::ffi::CStr) -> Option<*mut libc::c_void> {
-    // SAFETY: `RTLD_DEFAULT` searches every loaded image, and the name is a C string.
-    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
-    (!symbol.is_null()).then_some(symbol)
 }
 
 /// The unique id of the process responsible for process `id`; `None` for an id of 0 or past
@@ -170,8 +164,7 @@ fn clear_errno() {
 }
 
 /// A program prepared to replace this process as its own responsible process: every array built
-/// and every call found beforehand, so [`OwnRootStart::exec`] makes the one system call and is safe
-/// in a child forked from a process running other threads.
+/// and every call found beforehand, so [`OwnRootStart::exec`] makes the one system call.
 pub(crate) struct OwnRootStart {
     /// `POSIX_SPAWN_SETEXEC` with the disclaim attribute.
     attributes: SpawnAttributes,
@@ -230,9 +223,9 @@ impl OwnRootStart {
     }
 }
 
-/// Spawn attributes with `flags` and the disclaim attribute, so the program started with them is its
-/// own responsible process. Fails with the error code the system answers, and with `Unsupported` on
-/// a macOS without the disclaim call.
+/// Spawn attributes with `flags` and the disclaim attribute, so the program started with them is
+/// its own responsible process. Fails with the error code the system answers, and with
+/// `Unsupported` on a macOS without the disclaim call.
 fn disclaiming_attributes(flags: c_int) -> io::Result<SpawnAttributes> {
     let calls = responsibility_calls()?;
     let mut attributes = SpawnAttributes::new()?;
@@ -371,9 +364,9 @@ fn own_root_step(responsibility: StartResponsibility, has_re_run: bool) -> OwnRo
 /// naming process `id`. Fails when the system cannot name the program, and with `InvalidInput` for
 /// a NUL in it.
 fn this_program_as_own_root(id: u32) -> io::Result<OwnRootStart> {
-    let program = c_string(std::env::current_exe()?.into_os_string())?;
+    let program = c_string(std::env::current_exe()?.as_os_str())?;
     let arguments = std::env::args_os()
-        .map(c_string)
+        .map(|argument| c_string(&argument))
         .collect::<io::Result<Vec<_>>>()?;
     let mut marker = OsString::from(OWN_ROOT_MARKER);
     marker.push(format!("={id}"));
@@ -385,14 +378,9 @@ fn this_program_as_own_root(id: u32) -> io::Result<OwnRootStart> {
             entry
         })
         .chain(std::iter::once(marker))
-        .map(c_string)
+        .map(|entry| c_string(&entry))
         .collect::<io::Result<Vec<_>>>()?;
     OwnRootStart::new(program, arguments, environment)
-}
-
-/// `text` as a C string; `InvalidInput` when it holds a NUL.
-fn c_string(text: OsString) -> io::Result<CString> {
-    CString::new(text.into_vec()).map_err(io::Error::from)
 }
 
 /// How many threads this process runs. Fails with the system's error.
@@ -434,26 +422,25 @@ pub(crate) fn rerun_test_as_own_root(name: &str) -> (bool, String) {
     use crate::macos::posix_spawn::reap_spawned_child;
 
     let program = std::env::current_exe().expect("the test program names itself");
-    let as_c_string = |text: OsString| c_string(text).expect("no NUL");
     let arguments: Vec<CString> = std::iter::once(program.clone().into_os_string())
         .chain(
             crate::test_program::this_test_arguments(name)
                 .into_iter()
                 .map(OsString::from),
         )
-        .map(as_c_string)
+        .map(|argument| c_string(&argument).expect("no NUL"))
         .collect();
     let environment: Vec<CString> = std::env::vars_os()
         .map(|(mut name, value)| {
             name.push("=");
             name.push(value);
-            as_c_string(name)
+            c_string(&name).expect("no NUL")
         })
         .collect();
     // Both ends close on exec, so the child holds only the copy made its standard output.
     let (mut read_end, write_end) = std::io::pipe().expect("the pipe opens");
     let child = spawn_own_root_child(
-        &as_c_string(program.into_os_string()),
+        &c_string(program.as_os_str()).expect("no NUL"),
         &arguments,
         &environment,
         Some(write_end.as_fd()),

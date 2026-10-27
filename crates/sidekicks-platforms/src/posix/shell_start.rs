@@ -6,7 +6,6 @@
 use std::convert::Infallible;
 use std::ffi::{CString, OsStr};
 use std::io;
-use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 
 use nix::errno::Errno;
@@ -19,6 +18,7 @@ use nix::unistd::{Pid, chdir, getppid};
 
 #[cfg(target_os = "macos")]
 use crate::macos::responsibility::OwnRootStart;
+use crate::posix::c_string::c_string;
 use crate::posix::executable_file::is_executable_file;
 use crate::posix::process::id::system_process_id;
 use crate::posix::shell_start_confirmation::{WriterCheck, receive_launch};
@@ -160,7 +160,7 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
         CString::new(program)?
     } else {
         let resolved = find_program(OsStr::new(&start.program), search_path(start))?;
-        CString::new(resolved.into_os_string().into_vec())?
+        c_string(resolved.as_os_str())?
     };
     #[cfg(target_os = "linux")]
     return execve(&path, &argv, &envp).map_err(io::Error::from);
