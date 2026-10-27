@@ -316,3 +316,27 @@ async fn the_call_returns_at_git_exit_while_a_hook_child_holds_its_output() {
     assert!(elapsed < Duration::from_secs(10));
     assert!(ended.success(), "the sleeper was still running");
 }
+
+// Fails when a git a signal ended reports only that it had no code, which hides what ended it.
+#[tokio::test]
+async fn a_git_a_signal_ended_names_the_signal() {
+    let git = test_git_runner();
+    let (root, repository, _tree, commit) = repository_with_a_commit(&git).await;
+
+    // The hook ends its own parent, the git this test started.
+    let update =
+        update_ref_through_hook(&git, root.path(), &repository, &commit, "kill -KILL $PPID").await;
+
+    let Err(failure @ GitError::Exited { .. }) = update else {
+        panic!("a killed git is an exit failure: {update:?}");
+    };
+    assert!(
+        matches!(
+            &failure,
+            GitError::Exited { code: None, signal_number: Some(9), signal_name: Some(name), .. }
+                if name == "SIGKILL"
+        ),
+        "the failure names the signal: {failure:?}"
+    );
+    assert_eq!(failure.to_string(), "git ended by signal 9 (SIGKILL)");
+}

@@ -328,6 +328,7 @@ impl NotedLineReader {
                 code: Some(DIFFERENCE_EXIT_CODE),
                 stdout,
                 stderr,
+                ..
             }) if stdout.is_empty() && !stderr.is_empty() => {
                 let metadata_after_refusal = tokio::fs::symlink_metadata(contained_path).await;
                 lines_of_refused_diff(stdout, stderr, metadata_after_refusal)
@@ -424,6 +425,8 @@ fn lines_of_refused_diff(
         Err(error) if is_gone(&error) => Ok(None),
         Ok(_) | Err(_) => Err(GitError::Exited {
             code: Some(DIFFERENCE_EXIT_CODE),
+            signal_number: None,
+            signal_name: None,
             stdout,
             stderr,
         }
@@ -517,6 +520,8 @@ mod tests {
                     &answer,
                     Err(NotedLineError::Git(GitError::Exited {
                         code: Some(1),
+                        signal_number: None,
+                        signal_name: None,
                         stdout,
                         stderr: answered,
                     })) if stdout.is_empty() && *answered == stderr

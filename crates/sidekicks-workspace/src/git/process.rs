@@ -16,7 +16,7 @@ use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
 use sidekicks_contracts::place::{DistroName, Place};
 use sidekicks_platforms::{
     ChildTree, ChildTreeOutputError, NULL_DEVICE_PATH, PathRules, Spawner, find_executables,
-    path_from_program_output, start_child_tree,
+    path_from_program_output, read_child_exit, start_child_tree,
 };
 use tokio::process::Command;
 use tokio::sync::OnceCell;
@@ -110,14 +110,15 @@ pub enum GitError {
     /// git's input, output or exit could not be read.
     #[error("git's input, output or exit could not be read")]
     Read(#[source] io::Error),
-    /// git exited with a failure.
-    #[error(
-        "git exited with {}",
-        code.map_or_else(|| "no code".to_owned(), |code| code.to_string())
-    )]
+    /// git exited with a failure, or a signal ended it.
+    #[error("{}", describe_exit(*code, *signal_number, signal_name.as_deref()))]
     Exited {
         /// Its exit code; `None` when a signal ended it.
         code: Option<i32>,
+        /// The number of the signal that ended it, where the system reports one.
+        signal_number: Option<i32>,
+        /// That signal's name (`SIGKILL`), where the system reports one.
+        signal_name: Option<String>,
         /// What it printed on its standard output.
         stdout: Vec<u8>,
         /// What it printed on its standard error, read as UTF-8 with any other byte replaced.
@@ -130,6 +131,20 @@ pub enum GitError {
     /// reads git as it runs and ends it.
     #[error("a started git takes no input and no time bound")]
     NotStartable,
+}
+
+// How a failed git ended, as its error reads: its code, else the signal that ended it.
+fn describe_exit(
+    code: Option<i32>,
+    signal_number: Option<i32>,
+    signal_name: Option<&str>,
+) -> String {
+    match (code, signal_number, signal_name) {
+        (Some(code), _, _) => format!("git exited with {code}"),
+        (None, Some(number), Some(name)) => format!("git ended by signal {number} ({name})"),
+        (None, Some(number), None) => format!("git ended by signal {number}"),
+        (None, None, _) => "git exited with no code".to_owned(),
+    }
 }
 
 impl GitError {
@@ -534,8 +549,11 @@ impl GitRunner {
                         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                     });
                 }
+                let exit = read_child_exit(&output.status, None);
                 return Err(GitError::Exited {
                     code: output.status.code(),
+                    signal_number: exit.signal_number,
+                    signal_name: exit.signal_name,
                     stdout: output.stdout,
                     stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
                 });
