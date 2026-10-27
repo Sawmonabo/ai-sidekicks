@@ -93,28 +93,43 @@ mod tests {
     use std::sync::Arc;
 
     use serde_json::json;
+    use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::place::{Place, WindowsPlace};
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_platforms::PathRules;
-    use sidekicks_provider::driver::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
-    use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser as _;
+    use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser;
     use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::SessionInboxAddresses;
 
+    /// Answers each inbox as the place's wire form, then the session id, so a composed list shows
+    /// which place each address was asked for.
+    struct PlaceNamingAddresser;
+
+    impl SessionInboxAddresser for PlaceNamingAddresser {
+        fn session_inbox_address(
+            &self,
+            session_id: &SessionId,
+            place: Option<&Place>,
+        ) -> FilesystemPath {
+            let place_key = serde_json::to_string(&place).expect("a place serializes");
+            FilesystemPath::new(format!("{place_key}/{}", session_id.text().as_str()))
+                .expect("the address holds no NUL")
+        }
+
+        fn daemon_inbox_address(&self, place: Option<&Place>) -> FilesystemPath {
+            let place_key = serde_json::to_string(&place).expect("a place serializes");
+            FilesystemPath::new(format!("{place_key}/daemon")).expect("the address holds no NUL")
+        }
+    }
+
     #[test]
-    fn each_place_gets_its_own_form_and_the_session_s_own_place_comes_first() {
+    fn each_place_gets_its_own_address_and_the_session_s_own_place_comes_first() {
         let session_id = test_session_id();
         let ubuntu: Place =
             serde_json::from_value(json!({ "distro": "Ubuntu" })).expect("a WSL place");
         let windows = Place::Windows(WindowsPlace::Value);
-        let login_shell = [("XDG_RUNTIME_DIR".to_owned(), "/run/user/1000".to_owned())];
-        let addresser = Arc::new(ClaudeSessionInboxAddresser::new([(
-            Some(ubuntu.clone()),
-            PlaceInboxEnvironment {
-                login_shell: &login_shell,
-                user_id: 1000,
-            },
-        )]));
+        let addresser: Arc<dyn SessionInboxAddresser> = Arc::new(PlaceNamingAddresser);
         let socket = addresser
             .session_inbox_address(&session_id, Some(&ubuntu))
             .as_str()
@@ -123,12 +138,9 @@ mod tests {
             .session_inbox_address(&session_id, Some(&windows))
             .as_str()
             .to_owned();
-        assert!(socket.starts_with("/run/user/1000/cc-socks/"), "{socket}");
-        assert!(pipe.starts_with(r"\\.\pipe\cc-msg-"), "{pipe}");
-        assert_eq!(pipe.len(), r"\\.\pipe\cc-msg-".len() + 32, "{pipe}");
         let compose = |rules, installed: Vec<Option<Place>>, has_wsl, own: Option<&Place>| {
             let addresses =
-                SessionInboxAddresses::new(rules, installed, has_wsl, Arc::clone(&addresser) as _)
+                SessionInboxAddresses::new(rules, installed, has_wsl, Arc::clone(&addresser))
                     .expect("the places fit the computer");
             serde_json::to_value(addresses.addresses_of(&session_id, own))
                 .expect("the addresses serialize")

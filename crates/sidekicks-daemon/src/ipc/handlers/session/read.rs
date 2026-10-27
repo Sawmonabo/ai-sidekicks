@@ -113,7 +113,7 @@ mod tests {
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
     use sidekicks_platforms::PathRules;
-    use sidekicks_provider::driver::ClaudeSessionInboxAddresser;
+    use sidekicks_provider::driver::test_registry::session_inbox_addresser;
     use sidekicks_session::addresses::SessionInboxAddresses;
     use sidekicks_session::draft_store::{
         SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore,
@@ -185,7 +185,7 @@ mod tests {
                     PathRules::Windows,
                     vec![Some(Place::Windows(WindowsPlace::Value))],
                     true,
-                    Arc::new(ClaudeSessionInboxAddresser::new([])),
+                    session_inbox_addresser(),
                 )
                 .expect("the places fit the computer"),
             ),

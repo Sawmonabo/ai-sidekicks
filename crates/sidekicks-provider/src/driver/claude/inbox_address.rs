@@ -39,12 +39,12 @@ const DAEMON_INBOX_PURPOSE: &str = "daemon-inbox:";
 const NAME_FIRST_LETTERS: [char; 6] = ['a', 'b', 'c', 'd', 'e', 'f'];
 
 /// What Claude Code's socket folder in one POSIX place is derived from.
-pub struct PlaceInboxEnvironment<'a> {
+pub(crate) struct PlaceInboxEnvironment<'a> {
     /// The place's login-shell environment captured at the daemon's start, never the daemon's own
     /// composed one, which points Claude Code's temporary folder elsewhere.
-    pub login_shell: &'a [(String, String)],
+    pub(crate) login_shell: &'a [(String, String)],
     /// The person's user id in that place.
-    pub user_id: u32,
+    pub(crate) user_id: u32,
 }
 
 /// Each session's inbox address, and the daemon's own, in every place: a socket named
@@ -53,7 +53,7 @@ pub struct PlaceInboxEnvironment<'a> {
 /// sender pattern, starts with a letter so it never equals or reads as a process id, carries no
 /// `<pid>-` prefix Claude Code's own cleanup removes, and is fixed-length, so every address fits
 /// the socket address field.
-pub struct ClaudeSessionInboxAddresser {
+pub(crate) struct ClaudeSessionInboxAddresser {
     /// Each listed POSIX place's socket folder, the computer's own system as `None`.
     folders: Vec<(Option<Place>, String)>,
 }
@@ -61,7 +61,7 @@ pub struct ClaudeSessionInboxAddresser {
 impl ClaudeSessionInboxAddresser {
     /// The addresser for `places`, each POSIX place with its environment; a native Windows place
     /// needs none, since its inbox is a pipe.
-    pub fn new<'a>(
+    pub(crate) fn new<'a>(
         places: impl IntoIterator<Item = (Option<Place>, PlaceInboxEnvironment<'a>)>,
     ) -> Self {
         Self {
@@ -154,7 +154,7 @@ fn socket_folder(environment: &PlaceInboxEnvironment<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use sidekicks_contracts::place::Place;
+    use sidekicks_contracts::place::{Place, WindowsPlace};
     use sidekicks_store::database::writer::test_file::test_session_id;
 
     use super::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
@@ -194,6 +194,39 @@ mod tests {
             serde_json::from_value(json!({ "distro": "Ubuntu" })).expect("a WSL place");
         let unlisted = ClaudeSessionInboxAddresser::new([]);
         assert_eq!(folder_of(&unlisted, Some(&ubuntu)), "/tmp/cc-socks");
+        let login_shell = runtime("/run/user/1000");
+        let listed = ClaudeSessionInboxAddresser::new([(
+            Some(ubuntu.clone()),
+            PlaceInboxEnvironment {
+                login_shell: &login_shell,
+                user_id: 1000,
+            },
+        )]);
+        assert_eq!(folder_of(&listed, Some(&ubuntu)), "/run/user/1000/cc-socks");
+        assert_eq!(folder_of(&listed, None), "/tmp/cc-socks");
+    }
+
+    #[test]
+    fn a_windows_inbox_is_a_cc_msg_pipe_of_thirty_two_lowercase_hex() {
+        let addresser = ClaudeSessionInboxAddresser::new([]);
+        let windows = Place::Windows(WindowsPlace::Value);
+        for address in [
+            addresser.session_inbox_address(&test_session_id(), Some(&windows)),
+            addresser.daemon_inbox_address(Some(&windows)),
+        ] {
+            let digits = address
+                .as_str()
+                .strip_prefix(r"\\.\pipe\cc-msg-")
+                .expect("a Windows inbox is a cc-msg pipe");
+            assert_eq!(digits.len(), 32, "{}", address.as_str());
+            assert!(
+                digits
+                    .chars()
+                    .all(|character| matches!(character, '0'..='9' | 'a'..='f')),
+                "{}",
+                address.as_str()
+            );
+        }
     }
 
     #[test]

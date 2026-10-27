@@ -38,6 +38,7 @@ use crate::background_work::BackgroundWorkForms;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+use crate::driver::claude::inbox_address::ClaudeSessionInboxAddresser;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
@@ -46,6 +47,7 @@ use crate::driver::ports::{
 };
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
@@ -187,6 +189,12 @@ pub fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) -> Run
         )
         .expect("the test binds the run to its provider");
     RuntimeBindingId::new(binding_id).expect("a minted UUID is a binding id")
+}
+
+/// The session inbox addresser the first provider that messages other sessions answers with,
+/// listing no place, so each POSIX inbox sits in that provider's default folder.
+pub fn session_inbox_addresser() -> Arc<dyn SessionInboxAddresser> {
+    Arc::new(ClaudeSessionInboxAddresser::new([]))
 }
 
 /// A minted run id.
