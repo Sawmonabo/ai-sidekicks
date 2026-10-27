@@ -26,7 +26,7 @@ use sidekicks_platforms::{
     ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
     wrap_child_command,
 };
-use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
+use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
 use stdin::ClaudeInputWriter;
 pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
 use stdout::ClaudeOutputReader;
@@ -51,6 +51,7 @@ use crate::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
 use crate::driver::diagnostics::OnceReportedDiagnostics;
+use crate::process_exit::compose_process_exit;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
 

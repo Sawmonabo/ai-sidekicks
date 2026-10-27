@@ -22,12 +22,13 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     ChildEnd, Spawner, ask_child_to_stop, read_child_exit, wrap_session_child_command,
 };
+use sidekicks_provider::process_exit::compose_process_exit;
 use sidekicks_provider::spawn_environment::{
     ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
     remove_environment_names,
 };
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
+use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
 use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 use tokio::io::AsyncRead;
 use tokio::process::Command;

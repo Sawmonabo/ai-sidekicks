@@ -1,16 +1,11 @@
-//! How a child process ended, as the wire carries it: its exit code or the name of the signal that
-//! ended it, and the tail of what it printed, the last stretch of its output decoded across chunks
-//! and cut on a grapheme boundary, read from its pipe chunk by chunk.
+//! The tail of what a child process printed by its exit: the last stretch of its output decoded
+//! across chunks and cut on a grapheme boundary, read from its pipe chunk by chunk.
 
 use std::error::Error;
 use std::io;
 use std::mem;
 
-use sidekicks_contracts::command::ExitCode;
-use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode, ProcessExitWithSignal};
-use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
-use sidekicks_platforms::ChildExit;
+use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
 use unicode_segmentation::GraphemeCursor;
 
@@ -25,8 +20,7 @@ const NO_OUTPUT: &str = "(no output)";
 
 /// The last `CAP` code points of a child's output, fed chunk by chunk: bytes are held until they
 /// make a whole UTF-8 sequence and each invalid one reads as U+FFFD once, and at most about twice
-/// the cap is kept in memory however much the child prints. `CAP` is at most the wire's
-/// failure-detail cap, which the build checks.
+/// the cap is kept in memory however much the child prints.
 pub struct OutputTail<const CAP: usize> {
     text: String,
     // Code points in `text`.
@@ -43,12 +37,6 @@ impl<const CAP: usize> Default for OutputTail<CAP> {
 impl<const CAP: usize> OutputTail<CAP> {
     /// An empty tail.
     pub fn new() -> Self {
-        const {
-            assert!(
-                CAP <= PROVIDER_FAILURE_DETAIL_MAX_LEN,
-                "a tail's cap fits the failure-detail cap"
-            );
-        }
         Self {
             text: String::new(),
             text_len: 0,
@@ -63,7 +51,7 @@ impl<const CAP: usize> OutputTail<CAP> {
         self.decoder = decoder;
     }
 
-    /// The tail as the wire carries it: the last `CAP` code points, moved forward to the next
+    /// The tail as text: the last `CAP` code points, moved forward to the next
     /// grapheme boundary so no character is split from its marks, each NUL read as U+FFFD, and
     /// `(no output)` for output that was empty or only whitespace.
     pub fn into_text(mut self) -> String {
@@ -113,29 +101,6 @@ impl<const CAP: usize> OutputTail<CAP> {
     }
 }
 
-/// The exit a process crosses the wire with: the name of the signal that ended it, or that the
-/// daemon asked, where there is one, else its exit code, with its output tail.
-pub fn compose_process_exit<const CAP: usize>(
-    exit: ChildExit,
-    output_tail: OutputTail<CAP>,
-) -> ProcessExit {
-    let output_tail = FreeFormText::<PROVIDER_FAILURE_DETAIL_MAX_LEN>::new(output_tail.into_text())
-        .expect("a tail is never blank, holds no NUL and is within the failure-detail cap");
-    match exit.signal_name {
-        Some(signal) => ProcessExit::Signal(ProcessExitWithSignal {
-            signal: FreeFormText::new(signal).expect("a signal's name is a short, non-blank word"),
-            exit_code: None,
-            output_tail,
-        }),
-        None => ProcessExit::Code(ProcessExitWithCode {
-            exit_code: ExitCode::new(exit.exit_code)
-                .expect("an unsigned 32-bit code is a safe integer"),
-            signal: None,
-            output_tail,
-        }),
-    }
-}
-
 /// Reads `reader`, a child's output, to its end, handing each chunk of at most 8 KiB to
 /// `take_chunk` as it arrives. A read that is interrupted is tried again; one that fails otherwise
 /// is logged as `what`, the output's name, and ends the reading where it stands.
@@ -164,10 +129,8 @@ pub async fn read_output_chunks(
 #[cfg(test)]
 mod tests {
     use rstest::rstest;
-    use sidekicks_contracts::run::control::ProcessExit;
-    use sidekicks_platforms::ChildExit;
 
-    use super::{OutputTail, compose_process_exit};
+    use super::OutputTail;
 
     fn tail_of<const CAP: usize>(chunks: &[&[u8]]) -> String {
         let mut tail = OutputTail::<CAP>::new();
@@ -190,23 +153,5 @@ mod tests {
     #[case::no_output(tail_of::<10>(&[]), "(no output)")]
     fn keeps_the_tail(#[case] tail: String, #[case] expected: &str) {
         assert_eq!(tail, expected);
-    }
-
-    #[test]
-    fn a_tail_holding_nul_still_builds_an_exit() {
-        let mut tail = OutputTail::<32>::new();
-        tail.push(b"failed\0here");
-
-        let exit = ChildExit {
-            exit_code: 3_221_225_477,
-            signal_number: None,
-            signal_name: None,
-        };
-
-        let ProcessExit::Code(exit) = compose_process_exit(exit, tail) else {
-            panic!("an exit with no signal carries its code");
-        };
-
-        assert_eq!(exit.output_tail.as_str(), "failed\u{FFFD}here");
     }
 }
