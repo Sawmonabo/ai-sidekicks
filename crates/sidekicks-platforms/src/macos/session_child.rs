@@ -14,7 +14,7 @@ use crate::macos::posix_spawn::{
     SessionLeaderSpawn, SpawnStream, end_spawned_child, reap_ended_child, reap_spawned_child,
     spawn_session_leader,
 };
-use crate::posix::process::group::signal_group;
+use crate::posix::process::group::signal_group_once;
 use crate::session_child::SessionCommand;
 
 /// A started session child: its output, an end for its whole group, and its wait. Dropped before
@@ -56,15 +56,16 @@ pub fn start_session_child(command: &SessionCommand, _daemon_pid: u32) -> io::Re
 }
 
 impl SessionChild {
-    /// Kills every process of the child's session's group, the child and what it started with it,
-    /// the child ended or not; a group already gone, or a child already reaped, is no failure.
-    /// Fails with the system's error when the kill is refused, or leaves members past its bound.
+    /// Kills every process of the child's session's group with one signal, the child and what it
+    /// started with it, the child ended or not; a group already gone, or a child already reaped,
+    /// is no failure. Fails with the system's error when the kill is refused, `EPERM` among them
+    /// for a group whose members have all exited but are not yet reaped.
     pub fn end_group(&mut self) -> io::Result<()> {
         if self.status.is_some() {
             return Ok(());
         }
         // Unreaped, the child keeps its id, so its group's id names no other group.
-        signal_group(self.id, Signal::SIGKILL).map(drop)
+        signal_group_once(self.id, Signal::SIGKILL).map(drop)
     }
 
     /// Waits for the child's exit and reaps it, with no thread held while it runs, and answers how
