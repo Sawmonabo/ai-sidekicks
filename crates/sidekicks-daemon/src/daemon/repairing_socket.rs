@@ -29,7 +29,7 @@ use sidekicks_store::database::damage::DatabaseDamageWatch;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::bootstrap::secure_defaults::SecureDefaults;
+use crate::bootstrap::SecureDefaults;
 use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_methods};
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::run_folder::{

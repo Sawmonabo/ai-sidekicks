@@ -32,6 +32,9 @@ ignored-paths = [
   "src/tools.rs",
 ]
 
+[lib]
+doctest = false
+
 [dependencies]
 chromiumoxide_cdp.workspace = true
 psl.workspace = true

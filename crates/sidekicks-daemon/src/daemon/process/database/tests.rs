@@ -29,7 +29,7 @@ use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{DatabaseFile, DatabaseFileStart, close_database_file, open_database_file};
-use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
+use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig};
 use crate::daemon::process::supervision::ProcessStateTracker;
 
 /// The longest a close the tests run may drain.

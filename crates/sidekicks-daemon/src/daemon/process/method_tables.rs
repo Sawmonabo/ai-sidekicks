@@ -45,7 +45,7 @@ use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::highlight::colorer::CodeHighlighter;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
-use crate::ipc::handlers::driver::methods::{DriverMethodSources, register_driver_methods};
+use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;

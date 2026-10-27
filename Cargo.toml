@@ -6,7 +6,7 @@ resolver = "3"
 # from the root without `--workspace` leaves them out.
 members = [
   "crates/*",
-  "crates/sidekicks-daemon/fuzz",
+  "crates/sidekicks-artifact/fuzz",
   "packages/search-index",
   "packages/sidecar-rust-pty",
 ]
@@ -233,7 +233,7 @@ ferriki-textmate = "1.0.0"
 ferroni = "2.1.3"
 # A payload's media type from its leading bytes. ZIP, CFB and ID3v2 need bytes past that prefix and
 # ASF overflows on a crafted size, so those readers stay off and their formats are named by their
-# signatures alone. The daemon and its fuzz target take this one reader list.
+# signatures alone. The artifact crate and its fuzz target take this one reader list.
 file-format.version = "0.29.0"
 file-format.features = [
   "reader-ebml",
@@ -392,7 +392,8 @@ name = "sidekicks-crates"
 ignored = [
   # Session's spawn and the daemon's handlers will name the saved agents and their tool server.
   "sidekicks-agent",
-  # The daemon's browser tool and preview handlers will name the browser runtime.
+  # The daemon's preview handlers and its registration of the browser tools will name the browser
+  # runtime.
   "sidekicks-browser",
 ]
 

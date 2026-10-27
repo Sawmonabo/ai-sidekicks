@@ -1,3 +1,4 @@
-# SQLite's shell, kept byte for byte from its release; `build.rs` checks its hash on every checkout.
+# Third-party files kept byte for byte from their releases (SQLite's shell, Codex's protocol
+# bundle); each crate's `build.rs` checks their hashes.
 crates/sidekicks-daemon/vendor/** -text linguist-vendored
 crates/sidekicks-provider/vendor/** -text linguist-vendored

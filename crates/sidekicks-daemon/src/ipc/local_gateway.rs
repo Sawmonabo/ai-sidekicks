@@ -21,7 +21,7 @@ use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use self::writer::Outbox;
-use crate::bootstrap::secure_defaults::SecureDefaults;
+use crate::bootstrap::SecureDefaults;
 
 mod connection;
 #[cfg(test)]

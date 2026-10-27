@@ -130,13 +130,11 @@ mod tests {
     }
 
     /// Every input of the fuzz target's committed corpus, its minimized crashers included, goes
-    /// through the daemon's own detection and is answered without a panic.
+    /// through `detect_media_type` and is answered without a panic.
     #[test]
     fn every_fuzz_corpus_input_is_answered() {
-        let mut folders = vec![
-            Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../sidekicks-daemon/fuzz/corpus/media_type"),
-        ];
+        let mut folders =
+            vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("fuzz/corpus/media_type")];
         let mut answered = 0_usize;
         while let Some(folder) = folders.pop() {
             for entry in fs::read_dir(&folder).expect("the corpus folder reads") {

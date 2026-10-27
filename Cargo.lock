@@ -8340,6 +8340,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidekicks-artifact-fuzz"
+version = "0.0.0"
+dependencies = [
+ "file-format",
+ "libfuzzer-sys",
+]
+
+[[package]]
 name = "sidekicks-browser"
 version = "0.0.0"
 dependencies = [
@@ -8564,14 +8572,6 @@ dependencies = [
  "walkdir",
  "web-push-native",
  "x-wing",
-]
-
-[[package]]
-name = "sidekicks-daemon-fuzz"
-version = "0.0.0"
-dependencies = [
- "file-format",
- "libfuzzer-sys",
 ]
 
 [[package]]

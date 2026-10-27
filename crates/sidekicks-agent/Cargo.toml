@@ -16,5 +16,8 @@ ignored-paths = [
   "src/tools.rs",
 ]
 
+[lib]
+doctest = false
+
 [lints]
 workspace = true

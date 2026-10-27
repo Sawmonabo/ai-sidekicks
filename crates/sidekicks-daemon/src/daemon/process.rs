@@ -64,9 +64,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
-use crate::bootstrap::secure_defaults::{
-    SecureDefaults, SecureDefaultsConfig, SecureDefaultsError,
-};
+use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig, SecureDefaultsError};
 use crate::daemon::artifact_methods::{
     ArtifactMethodsDeps, ArtifactMethodsError, register_artifact_methods,
 };

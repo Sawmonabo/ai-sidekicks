@@ -112,7 +112,7 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::bootstrap::secure_defaults::SecureDefaults;
+use crate::bootstrap::SecureDefaults;
 use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
 use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;
 use crate::daemon::process::supervision::ProcessStateTracker;
@@ -124,7 +124,7 @@ use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
 use crate::daemon::schema::schema_parts;
 use crate::data_acts::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
 use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
-use crate::ipc::handlers::driver::methods::DRIVER_METHODS_STATEMENT_CAPACITY;
+use crate::ipc::handlers::driver::DRIVER_METHODS_STATEMENT_CAPACITY;
 
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
 /// statement stays prepared on whichever connection a read borrows. A service whose set holds

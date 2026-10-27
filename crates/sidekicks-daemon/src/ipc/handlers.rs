@@ -1,6 +1,5 @@
-//! The method handlers that sit on the socket: a handler's driver found from its run or session,
-//! and the approval, artifact, command, highlight, question, repository, run, session, terminal
-//! and transcript methods served here.
+//! The method handlers that sit on the socket: the approval, artifact, command, driver,
+//! highlight, question, repository, run, session, terminal and transcript methods served here.
 
 pub(crate) mod approval;
 pub(crate) mod artifact;

@@ -66,7 +66,7 @@ Package-local typed surfaces are **canonical in code**, in the crate that owns t
 
 - The method table — every method's params, result, refusal codes and procedure type, declared once — and the frame codec — `crates/sidekicks-contracts/src/jsonrpc/` (`registry.rs`, `message.rs`, `framing.rs`); the TypeScript method map is generated from the table
 - The subscription frames (`SubscriptionNotifyParams<T>` and its acknowledgment, end and cancel) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (the daemon sends them from `crates/sidekicks-ipc/src/stream/subscriptions.rs`; the client-side consumer is `Subscription<T>` in `crates/sidekicks-client/src/transport/subscription.rs`)
-- `SecureDefaults` config and its `local_ipc_path()` — `crates/sidekicks-daemon/src/bootstrap/secure_defaults.rs`
+- `SecureDefaults` config and its `local_ipc_path()` — `crates/sidekicks-daemon/src/bootstrap.rs`
 - LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/end`, `$/subscription/cancel`) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs`
 - `SessionEvent`, an internally tagged enum — `crates/sidekicks-contracts/src/event/session.rs`
 - The daemon's method and event map — the `DaemonMethod` union, the method-to-params and method-to-result maps (`DaemonParams`, `DaemonResult`) and the `DaemonEvent` union with its event-to-payload map (`DaemonEventPayload`), generated from the method table into `packages/contracts/src/daemon/method-map.ts`. The preload bridge's `daemon.call` and `daemon.subscribe` are typed by it, and the renderer's daemon client takes its types from it rather than restating them.
