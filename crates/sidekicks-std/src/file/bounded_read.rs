@@ -5,7 +5,7 @@
 //! and the caller answered at once.
 //!
 //! - The ceiling is wall-clock time, kept by the process's one deadlines thread
-//!   ([`deadline_after`]): a paused test clock, which jumps whenever the runtime idles, would fire
+//!   (`deadline_after`): a paused test clock, which jumps whenever the runtime idles, would fire
 //!   a tokio timer while the read's thread is still answering. Nothing of the read waits on
 //!   tokio's blocking pool.
 //! - The reads in flight, abandoned ones included, are capped, so hung reads cannot start threads
