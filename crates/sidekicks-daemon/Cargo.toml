@@ -166,6 +166,7 @@ sidekicks-mcp.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-policy.workspace = true
 sidekicks-provider.workspace = true
+sidekicks-queue.workspace = true
 sidekicks-search = { workspace = true, features = ["index"] }
 sidekicks-session.workspace = true
 sidekicks-shell.workspace = true

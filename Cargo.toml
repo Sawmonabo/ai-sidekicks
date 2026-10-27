@@ -31,6 +31,7 @@ sidekicks-mcp = { path = "crates/sidekicks-mcp" }
 sidekicks-platforms = { path = "crates/sidekicks-platforms" }
 sidekicks-policy = { path = "crates/sidekicks-policy" }
 sidekicks-provider = { path = "crates/sidekicks-provider" }
+sidekicks-queue = { path = "crates/sidekicks-queue" }
 sidekicks-search = { path = "crates/sidekicks-search" }
 sidekicks-session = { path = "crates/sidekicks-session" }
 sidekicks-shell = { path = "crates/sidekicks-shell" }
