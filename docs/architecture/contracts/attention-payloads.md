@@ -164,7 +164,7 @@ interface AttentionWebAddressSecretRotateResponse {
 
 ## Attention Method-Name Registry
 
-Plan-016's attention surface is exposed as the `attention.*` methods below, all on the **daemon JSON-RPC transport**: the attention projection is a daemon-local projection rebuilt from canonical session and run state per [ADR-016](../../decisions/016-shared-event-sourcing-scope.md) — the `transcript.*` posture in transcript-payloads.md — and the delivery channels' secrets and outcomes are this machine's. They register against the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (the §2 `crates/sidekicks-daemon/src/ipc/` row's Plan-016 `attention.*` entry). Method names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar).
+Plan-016's attention surface is exposed as the `attention.*` methods below, all on the **daemon JSON-RPC transport**: the attention projection is a daemon-local projection rebuilt from canonical session and run state per [ADR-016](../../decisions/016-shared-event-sourcing-scope.md) — the `transcript.*` posture in transcript-payloads.md — and the delivery channels' secrets and outcomes are this machine's. They register against the Plan-005-partial daemon `MethodRegistry` per the §5 substrate-vs-namespace carve-out (the §2 `crates/sidekicks-ipc/src/` row's Plan-016 `attention.*` entry). Method names follow the [wire-name grammar](./local-ipc-payloads.md#wire-name-grammar).
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |

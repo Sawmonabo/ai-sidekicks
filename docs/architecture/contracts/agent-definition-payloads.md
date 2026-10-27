@@ -593,7 +593,7 @@ interface AgentBridgeWaitArguments {
   handle: AgentBridgeHandle;
   // A REQUEST, not a grant: the daemon caps it at 10 seconds and waits the capped figure, never the
   // caller's. The cap and the close rule's 15 seconds live beside the bridge's argument schema in the daemon's
-  // agent bridge (`crates/sidekicks-daemon/src/agent/`), and the handler declares none of its own.
+  // agent bridge (`crates/sidekicks-daemon/src/agent_tools/bridge/`), and the handler declares none of its own.
   timeout_seconds?: number;
 }
 interface AgentBridgeWaitResult {

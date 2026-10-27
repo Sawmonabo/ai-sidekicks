@@ -34,8 +34,8 @@ Target paths below assume the canonical implementation topology defined in [Cont
 
 - `crates/sidekicks-contracts/src/attention.rs` (the entry shape, the live projection read, `attention.banner.settle`, `attention.seen.update`, the delivery verbs and their refusals, and the plaintext push notice a device opens)
 - `crates/sidekicks-contracts/src/push.rs` (`device.push.send`'s request: the sealed notice, the device's push address, the collapse id, the priority and the expiry)
-- `crates/sidekicks-daemon/src/attention/` (the projector, the gate at entry write, the windowless start, the per-device push decision and seal)
-- `crates/sidekicks-daemon/src/attention/delivery/` (new in T3.3: the web-address sender, the digest scheduler and sender, the outcome table, the delivery verbs' handlers)
+- `crates/sidekicks-session/src/attention/` (the projector, the gate at entry write, the windowless start, the per-device push decision and seal)
+- `crates/sidekicks-session/src/attention/delivery/` (new in T3.3: the web-address sender, the digest scheduler and sender, the outcome table, the delivery verbs' handlers)
 - `crates/sidekicks-daemon/src/ipc/handlers/` (the `attention.*` handlers)
 - `crates/sidekicks-client/src/attention.rs` (new in T3.2: every attention verb the main process and the renderer call)
 - The desktop main process's notifications service: the poster, the withdrawal, the app-icon count and banner mode
@@ -161,7 +161,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.1 — `attention/projector.rs`: entries from canonical events
 
-- **Files:** `crates/sidekicks-daemon/src/attention/projector.rs` (new) plus co-located tests.
+- **Files:** `crates/sidekicks-session/src/attention/projector.rs` (new) plus co-located tests.
 - **Step:** Derive entries by rebuilding from canonical session and run events: on Claude Code the held permission or question request and the turn's `result`; on Codex the thread status flags `waitingOnApproval` and `waitingOnUserInput` and `turn/completed`; a waiting plan card; a run halted after a restart on the restart question (its `waitingForInput` state carrying `recoveryNeeded`), as `pendingInput`; a session's or workflow run's finish and failure; a Notify step's entry, whose moment id comes from the run, the node and the execution index; and one `providerBuild` entry per row of Plan-023 T4.9's record of each provider's builds, informational, its moment id the provider and the build, written `withheld` because no notification carries it, so no banner, push, web-address message or digest line follows. Map each to its trigger and default severity. The projector reads canonical state only and accepts no client-supplied attention input, and never reads a provider's own notification feature.
 - **Test:** one case per trigger asserting the derived entry's trigger, severity and `sourceEventId`, a run halted on the restart question among the `pendingInput` cases; a rebuild-equivalence case asserting that projecting the same event log twice, and projecting it from cold, yield identical entries; a case asserting an entry resolves only when the underlying state resolves; a provider's build row yields one `providerBuild` entry with no session, written `withheld` and never counted, and rebuilding from cold yields the same entry.
 - **Spec coverage:** Spec-017 §State And Data Implications; Spec-017 §Required Behavior
@@ -169,7 +169,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.2 — Session-scoped aggregate projection and the D-016-2 carrier rule
 
-- **Files:** `crates/sidekicks-daemon/src/attention/projector.rs` plus co-located tests.
+- **Files:** `crates/sidekicks-session/src/attention/projector.rs` plus co-located tests.
 - **Step:** Derive the session-scoped aggregate as an `AttentionItem` with `runId` absent, applying the derivation rule in §API And Transport Changes: severity is actionable while any unresolved contributor is actionable; `trigger` and `sourceEventId` come from the representative contributor selected by highest severity, then earliest `createdAt`, then lexicographically smallest `id`. Serve it from `attention.subscribe`; expose no partial input from which a client could assemble its own.
 - **Test:** the two-concurrent-runs case asserting the aggregate stays actionable until both underlying entries clear; a determinism case asserting two projections over the same contributor set in different insertion orders select the same representative, including a tie on severity and a further tie on `createdAt`.
 - **Spec coverage:** Spec-017 §Default Behavior; Spec-017 §Example Flows
@@ -177,7 +177,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.3 — The gate at entry write
 
-- **Files:** `crates/sidekicks-daemon/src/attention/gate.rs` (new) plus co-located tests.
+- **Files:** `crates/sidekicks-session/src/attention/gate.rs` (new) plus co-located tests.
 - **Step:** When the daemon writes an entry, read the machine's settings file right then (no copy, no watcher) and write `bannerState: withheld` for a kind switched off, the master switch off, or a muted session's `Finished` or `Failed`; otherwise `pending`. A missing key reads `true`. The gate never touches the entry's place in the list or the count, and no preference gates a withdrawal. Moments that resolve within half a second of the first are merged by the subject they belong to, so one subject is posted once and two subjects each get their own notification; a later moment of the same subject replaces its notification rather than stacking a second; the list keeps every entry.
 - **Test:** a muted session's `Waiting on you` entry is written `pending` and counted while its `Finished` entry is written `withheld`; a kind switched off writes `withheld` and the entry is still listed and, when waiting, counted; a mutation that lets the mute withhold `Waiting on you` fails the test; two moments of one session within half a second post one notification while two sessions post two, and both sessions' entries stay listed.
 - **Spec coverage:** Spec-017 §Required Behavior (one decision at entry write); Spec-017 §Fallback Behavior
@@ -185,7 +185,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.4 — The live read, the settle and seen verbs, and the mute's withdrawal
 
-- **Files:** `crates/sidekicks-daemon/src/ipc/handlers/attention/projection_read.rs`, `attention/banner_settle.rs` and `attention/seen_update.rs` (new), registered against the daemon `MethodRegistry`; the `session.muted` listener in `crates/sidekicks-daemon/src/attention/`; plus co-located tests.
+- **Files:** `crates/sidekicks-daemon/src/ipc/handlers/attention/projection_read.rs`, `attention/banner_settle.rs` and `attention/seen_update.rs` (new), registered against the daemon `MethodRegistry`; the `session.muted` listener in `crates/sidekicks-session/src/attention/`; plus co-located tests.
 - **Step:** Serve `attention.subscribe` live (the whole projection, then every change). Serve `attention.banner.settle`, callable by the main process only and a no-op once the entry is past `pending`, and `attention.seen.update`, which sets the one seen-or-unseen fact. On `session.muted`, withdraw the session's `Finished` and `Failed` notifications still standing, by moment id.
 - **Test:** a second `attention.banner.settle` for an entry already `posted` changes nothing, so a notification is never posted twice; after a daemon restart a muted session still reads `muted: true`, rebuilt from its events.
 - **Spec coverage:** Spec-017 §Interfaces And Contracts
@@ -193,7 +193,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T2.5 — The windowless start
 
-- **Files:** `crates/sidekicks-daemon/src/attention/banner_launcher.rs` (new) plus co-located tests.
+- **Files:** `crates/sidekicks-session/src/attention/banner_launcher.rs` (new) plus co-located tests.
 - **Step:** When the daemon writes a `pending` entry and no main process is connected, start the app's own program with no window and `--banner` (on macOS through LaunchServices, `open -g -b <bundleId> --args --banner`; on Windows the daemon starts it itself through `sidekicks-platforms`, or the `banners` instance in the person's session while the signed-out task holds the service). A `withheld` entry starts nothing. Banner mode itself is the main process's (T3.1).
 - **Test:** a `withheld` entry starts no process; a `pending` entry with a main process connected starts no process. The banner itself is accepted on signed, packaged builds on macOS, Windows and Linux.
 - **Budget:** measured once in this task's PR on a signed macOS build, against the windowless start's figures: ready in 0.15 to 0.21 s, gone by 0.3 s, one process of about 113 MB, and no Dock icon.
@@ -226,7 +226,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T3.3 — Delivery outcomes and the test sends
 
-- **Files:** `crates/sidekicks-daemon/src/attention/delivery/` (new: the outcome table and the `attention.delivery.list` and `attention.delivery.test` handlers) plus co-located tests.
+- **Files:** `crates/sidekicks-session/src/attention/delivery/` (new: the outcome table and the `attention.delivery.list` and `attention.delivery.test` handlers) plus co-located tests.
 - **Step:** Keep one outcome row per channel, overwritten on each attempt and removed with the channel's secret; answer `attention.delivery.list` from it and run `attention.delivery.test` through the same sender each channel uses; a test of saved web-address text with no scheme and host sends nothing and answers `result: notAnAddress`, which the page reads as `Not a web address, so nothing was sent.` A locked or unavailable keychain refuses with `attention.delivery.storeUnavailable`; a channel missing its address or password refuses with `attention.delivery.notConfigured`.
 - **Test:** none beyond T3.4 and T3.5, which exercise the senders these verbs call.
 - **Spec coverage:** Spec-017 §Interfaces And Contracts (the delivery verbs)
@@ -234,7 +234,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T3.4 — The web address
 
-- **Files:** the web-address sender and its verbs' handlers in `crates/sidekicks-daemon/src/attention/delivery/` plus co-located tests.
+- **Files:** the web-address sender and its verbs' handlers in `crates/sidekicks-session/src/attention/delivery/` plus co-located tests.
 - **Step:** `attention.webAddress.update` saves the address the person typed; the first save mints the signing secret and returns it once; `attention.webAddress.secret.rotate` returns the new one once; `attention.webAddress.delete` removes both. The address and the secret are sealed through the workflow-secret keychain store. Send one Standard Webhooks-signed JSON `POST` per moment (HMAC-SHA256 from `hmac` 0.13.0 over `sha2` 0.11.1, `v1,` and the base64 signature over `<id>.<timestamp>.<body>`) of the kinds under `Send`, never for a muted session's `Finished` or `Failed` or for a withdrawal, only while no app window is in front on any device (a Notify step always), through the workflow HTTP step's request path; a 2xx within 15 seconds is success and a redirect a failure; retry at 5 seconds, 5 minutes and 30 minutes; keep at most 100 waiting and drop and count the oldest past that; record `web_address_state` and the attempt count on the entry.
 - **Test:** the saved address, path and query included, never appears in a reply, event, log or error, only its scheme and host; a message the sender signs verifies with the `standardwebhooks` 1.0.1 crate's `Webhook::verify`, used only in tests, and a tampered body fails; a body built for a session whose transcript holds a sentence never contains it.
 - **Spec coverage:** Spec-017 §Cross-Device Delivery (web address)
@@ -243,7 +243,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 ##### T3.5 — The email digest
 
 - **When:** built last of all, after every other unit ([cross-plan-dependencies.md §Platform order](../architecture/cross-plan-dependencies.md#platform-order)).
-- **Files:** the digest scheduler and sender and the password verbs' handlers in `crates/sidekicks-daemon/src/attention/delivery/`; `lettre` in `crates/sidekicks-daemon/Cargo.toml`; the Notifications page in `features/settings/` (EXTEND — the digest section); plus co-located tests.
+- **Files:** the digest scheduler and sender and the password verbs' handlers in `crates/sidekicks-session/src/attention/delivery/`; `lettre` in `crates/sidekicks-daemon/Cargo.toml`; the Notifications page in `features/settings/` (EXTEND — the digest section); plus co-located tests.
 - **Step:** One timer, no polling: at most one email per `After` period, sent only when a moment qualifies (at least one period old, in no earlier email, a `Waiting on you` still unresolved or a `Finished`, `Failed` or Notify-step moment whose session or run is unseen, never a muted session's `Finished` or `Failed`); stamp `digested_at` on each entry it carries. Send through `lettre` over TLS only (TLS from the start where the server's entry is marked secure, else STARTTLS, required, on its port or 587), refusing a server that will not encrypt before the password is written. `attention.mailPassword.update` and `attention.mailPassword.delete` seal and remove the password through the workflow-secret keychain store. A failure is written to the outcome row and never retried within the same period. Draw the Notifications page's digest section (T3.7) with its status line, its test and its search rows.
 - **Test:** the password never appears in a reply, event, log line or error, including an SMTP refusal whose text echoes the user name; against a local SMTP server that offers no STARTTLS, `attention.delivery.test` answers `notEncrypted` and the password is never written to the socket; a moment already in one digest is never in a second, across a daemon restart.
 - **Spec coverage:** Spec-017 §Cross-Device Delivery (email digest); Spec-017 §Implementation Notes (the dependency)
@@ -251,7 +251,7 @@ Plan-016 implementation lands as a sequence of small PRs. Phase 1 fixes the atte
 
 ##### T3.6 — Push to a device with no live connection
 
-- **Files:** `crates/sidekicks-daemon/src/attention/push/` (new) plus co-located tests; the plaintext notice in `crates/sidekicks-contracts/src/attention.rs` and `device.push.send`'s request in `crates/sidekicks-contracts/src/push.rs` (new), which Plan-025 Phase 5's senders read.
+- **Files:** `crates/sidekicks-session/src/attention/push/` (new) plus co-located tests; the plaintext notice in `crates/sidekicks-contracts/src/attention.rs` and `device.push.send`'s request in `crates/sidekicks-contracts/src/push.rs` (new), which Plan-025 Phase 5's senders read.
 - **Step:** For each linked device, apply in order the device's own `Notify me outside the app` and kind switch (the copy it last handed over), the session's mute, the quiet rule (nothing while an app window is in front on any device, except a Notify step), then the path: nothing when the device has a live connection with a window in front, the device's own post when it has a live connection and no window in front, and a push when it has no live connection. Seal the notice on the machine to the device's push key (HPKE with X-Wing; RFC 8291 for Web Push) and call `device.push.send`, authenticated through the constructor-injected `DaemonCredentialProvider` (Plan-004 CP-004-6; Plan-015 CP-015-7 and T5.3 inject the real one), with the moment's id as the collapse id, `Waiting on you` and a Notify step at high priority, `Finished` and `Failed` at normal priority, and a 24-hour expiry; where the device's own `Show a count on the app icon` is on, the sealed notice carries the count waiting on this machine, which the device sums across machines for its icon (the iPhone extension's badge, the web client's Badging API). Keep one `push_deliveries` row per device a push went to, so a withdrawal reaches exactly the devices that got the entry; a row goes when its entry is withdrawn or 24 hours after it was sent. Write nothing to any session log.
 - **Test:** a muted session's `Finished` is never pushed while its `Waiting on you` is; no push goes out while an app window is in front on any device, except a Notify step's; what reaches `device.push.send` is sealed and holds no name in the clear; with the device's count switch on, the sealed notice carries the number waiting on this machine and, with it off, no count.
 - **Spec coverage:** Spec-017 §Cross-Device Delivery (push; when the web address and push send)

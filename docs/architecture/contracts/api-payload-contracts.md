@@ -65,7 +65,7 @@ This file is the **design surface** for cross-cutting payload contracts — bran
 Package-local typed surfaces are **canonical in code**, in the crate that owns them, not in this file. Examples (non-exhaustive):
 
 - The method table — every method's params, result, refusal codes and procedure type, declared once — and the frame codec — `crates/sidekicks-contracts/src/jsonrpc/` (`registry.rs`, `message.rs`, `framing.rs`); the TypeScript method map is generated from the table
-- The subscription frames (`SubscriptionNotifyParams<T>` and its acknowledgment, end and cancel) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (the daemon sends them from `crates/sidekicks-daemon/src/ipc/stream/subscriptions.rs`; the client-side consumer is `Subscription<T>` in `crates/sidekicks-client/src/transport/subscription.rs`)
+- The subscription frames (`SubscriptionNotifyParams<T>` and its acknowledgment, end and cancel) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (the daemon sends them from `crates/sidekicks-ipc/src/stream/subscriptions.rs`; the client-side consumer is `Subscription<T>` in `crates/sidekicks-client/src/transport/subscription.rs`)
 - `SecureDefaults` config and its `local_ipc_path()` — `crates/sidekicks-daemon/src/bootstrap/secure_defaults.rs`
 - LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/end`, `$/subscription/cancel`) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs`
 - `SessionEvent`, an internally tagged enum — `crates/sidekicks-contracts/src/event/session.rs`
@@ -294,7 +294,7 @@ type DriverCapabilityFlag =
 // The daemon's own gate on what it asks a driver to do; no client reads these flags, and a screen
 // draws a control from the provider read (`provider.list`), the model rows and the session's
 // provider state. The executable union
-// (crates/sidekicks-daemon/src/provider/driver/capabilities.rs) must declare every member above, so
+// (crates/sidekicks-provider/src/driver/capabilities.rs) must declare every member above, so
 // no member is declarable in doc only. assertValidCapabilityFlags rejects any snapshot whose key
 // count differs, so the union, the validator, the driver_capabilities.capability_flag CHECK in the
 // one local schema and the conformance tests change together as ONE change or not at all.

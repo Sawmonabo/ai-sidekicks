@@ -113,7 +113,7 @@ The numeric `code` is the JSON-RPC spec-mandated discriminator. The `data.type` 
 
 ### Negotiation Refusals
 
-`NegotiationError` refusals (the gate-refusal codes in `crates/sidekicks-daemon/src/ipc/protocol_negotiation.rs`) and `ConnectionInitializeResponse.reason` strings (the handshake-incompatible reasons in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form:
+`NegotiationError` refusals (the gate-refusal codes in `crates/sidekicks-ipc/src/protocol_negotiation.rs`) and `ConnectionInitializeResponse.reason` strings (the handshake-incompatible reasons in `crates/sidekicks-contracts/src/jsonrpc/negotiation.rs`) all map through the same envelope. The reason strings are canonicalized to dotted-namespace form:
 
 | `data.type` | JSON-RPC `code` | Category | Surface | Trigger |
 | --- | --- | --- | --- | --- |

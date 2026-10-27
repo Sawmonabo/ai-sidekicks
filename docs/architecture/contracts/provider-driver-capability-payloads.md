@@ -127,7 +127,7 @@ interface SessionCallbackTool {
 // `CallbackToolResult` — no invocation is left unanswered, no approval bypass invented. The
 //                        daemon-side
 // dispatcher is Plan-003's callback-tool host
-// (`crates/sidekicks-daemon/src/provider/callback_tools/host.rs`), routing every invocation through
+// (`crates/sidekicks-provider/src/callback_tools/host.rs`), routing every invocation through
 // Plan-009's approval pipeline by the daemon's own approval service — the daemon's in-process call
 // that creates an approval request, which it raises from a provider callback and no client calls
 // (CP-003-5 covers driver-host permission callbacks) — Plan-003 authors no Plan-009 symbols — and
