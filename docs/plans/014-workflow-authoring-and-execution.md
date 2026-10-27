@@ -536,7 +536,7 @@ The park tasks T2.5 and T2.6 live in the Phase 2B supplement below, so T2.1–T2
 
 **Goal:** Parallel branches join through `flow.merge`'s modes, a run that ends failed or canceled cancels its running siblings at a deterministic tick, and every step is admitted by the memory gate and by nothing else, a quick Code step on a thread of its own.
 
-**Scope:** `crates/sidekicks-workflow/src/step_executor.rs` (EXTEND — the `flow.merge` executor and the sibling cancellation), `crates/sidekicks-queue/src/memory_gate.rs` (NEW), a new quick-step thread module in `crates/sidekicks-workflow/src/sandbox/` (NEW), and the node catalog's third batch in `crates/sidekicks-workflow/src/kinds/` (NEW). Absorbs `## Implementation Steps` 4; Rollout Order item 4.
+**Scope:** `crates/sidekicks-workflow/src/step_executor.rs` (EXTEND — the `flow.merge` executor, the sibling cancellation, and each step's admission through an admission port `sidekicks-workflow` declares, which the program wires to the queue's memory gate), the gate itself in `crates/sidekicks-queue/src/memory_gate.rs` (NEW), a new quick-step thread module in `crates/sidekicks-workflow/src/sandbox/` (NEW), and the node catalog's third batch in `crates/sidekicks-workflow/src/kinds/` (NEW). Absorbs `## Implementation Steps` 4; Rollout Order item 4.
 
 **Precondition:** Phase 3 merged.
 

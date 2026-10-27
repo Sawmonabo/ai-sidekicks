@@ -344,7 +344,7 @@ CREATE TABLE command_receipts (
   -- WHATWG Infra Standard, https://infra.spec.whatwg.org/#javascript-string-convert) — one or more
   -- U+FFFD per surrogate in practice, since the substitution width is the platform encoder's choice
   -- (both observed widths are pinned by the executable hazard proof, a test of the daemon's
-  -- task-handle recorder in crates/sidekicks-provider/src/mcp/) — so the row
+  -- task-handle recorder in crates/sidekicks-mcp/src/client/tasks/recorder.rs) — so the row
   -- would store a handle the receiver never issued.
   mcp_task_id       TEXT                          -- NULL default; MCP Tasks durable recovery handle
                     CHECK (mcp_task_id IS NULL OR (length(mcp_task_id) > 0 AND length(mcp_task_id) <= 256 AND instr(mcp_task_id, char(0)) = 0)),
