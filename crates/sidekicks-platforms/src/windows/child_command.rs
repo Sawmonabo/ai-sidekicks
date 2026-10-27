@@ -47,12 +47,6 @@ pub fn wrap_group_child_command(command: Command, daemon_pid: u32) -> CommandWra
     wrap_child_command(command, daemon_pid)
 }
 
-/// Wraps `command` as a child that ends with the daemon, with what it starts, for an interactive
-/// shell: as [`wrap_child_command`] wraps it, since no terminal stops a process here.
-pub fn wrap_session_child_command(command: Command, daemon_pid: u32) -> CommandWrap {
-    wrap_child_command(command, daemon_pid)
-}
-
 /// Asks `child` to stop by ending its job, its whole tree, since no signal a process answers
 /// exists here. Fails with the system's error from the end.
 pub fn ask_child_to_stop(child: &mut dyn ChildWrapper) -> io::Result<()> {

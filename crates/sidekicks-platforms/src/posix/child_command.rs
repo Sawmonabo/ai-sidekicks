@@ -1,7 +1,7 @@
-//! A child the daemon starts on macOS and Linux: one through `Command`, on Linux armed to end with
-//! the daemon and on macOS started through `posix_spawn`, a group of its own's leader, or a lasting
-//! one leading a session of its own; how a child is asked to stop, and how the signal that ended
-//! one is read and named.
+//! A child the daemon starts on macOS and Linux through `Command`, on Linux armed to end with the
+//! daemon and on macOS started through `posix_spawn`, alone or leading a process group of its own,
+//! and a lasting child, which leads a session of its own; how a child is asked to stop, and how the
+//! signal that ended one is read and named.
 
 #[cfg(target_os = "linux")]
 use std::error::Error;
@@ -16,15 +16,15 @@ use nix::sys::prctl::set_thp_disable;
 use nix::sys::signal::Signal;
 #[cfg(any(target_os = "linux", test))]
 use nix::unistd::setsid;
-use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop, ProcessGroup, ProcessSession};
+use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop, ProcessGroup};
 use tokio::process::Command;
 
 use crate::child_command::ChildEnd;
 use crate::lasting_child::{LastingChild, LastingCommand};
 #[cfg(target_os = "macos")]
-use crate::macos::lasting_child::{
-    end_unrecorded_lasting_child, reap_lasting_child, spawn_lasting_child_process,
-};
+use crate::macos::lasting_child::spawn_lasting_child_process;
+#[cfg(target_os = "macos")]
+use crate::macos::posix_spawn::{end_spawned_child, reap_ended_child};
 use crate::pin_child_process;
 #[cfg(target_os = "linux")]
 use crate::posix::shell_start::arm_parent_death;
@@ -84,19 +84,6 @@ pub fn wrap_group_child_command(mut command: Command, daemon_pid: u32) -> Comman
     wrap
 }
 
-/// Wraps `command` as a child of the daemon `daemon_pid` leading a session of its own, for an
-/// interactive shell, which opens the terminal and stops itself while its group is not the
-/// terminal's foreground one: as [`wrap_group_child_command`] wraps it, the session made in the
-/// child between its fork and its exec, so on macOS std forks it. The caller spawns it on the
-/// daemon's spawner thread; the spawn fails as [`prepare_child_command`] says, or with the
-/// system's error when the session is refused.
-pub fn wrap_session_child_command(mut command: Command, daemon_pid: u32) -> CommandWrap {
-    prepare_child_command(&mut command, daemon_pid);
-    let mut wrap = CommandWrap::from(command);
-    wrap.wrap(ProcessSession).wrap(KillOnDrop);
-    wrap
-}
-
 /// Starts `command` as a child that outlives the daemon, then pins it and reads its record: it
 /// leads a session of its own, so neither a terminal's hangup nor a signal to the daemon's group
 /// reaches it, and its whole group can be killed; it arms no parent-death signal, and on Linux
@@ -122,18 +109,12 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
             Ok(LastingChild {
                 process,
                 record,
-                exit: Box::pin(async move {
-                    watched.wait_for_end().await?;
-                    // A zombie by now, so the reap answers at once.
-                    tokio::task::spawn_blocking(move || reap_lasting_child(id))
-                        .await
-                        .map_err(io::Error::other)?
-                }),
+                exit: Box::pin(async move { reap_ended_child(&watched).await }),
             })
         }
         Err(error) => {
             // Nothing unrecorded outlives the start, and nothing is left a zombie.
-            if let Err(end_error) = end_unrecorded_lasting_child(id) {
+            if let Err(end_error) = end_spawned_child(id) {
                 tracing::warn!(
                     error = &end_error as &(dyn std::error::Error + 'static),
                     "the unrecorded lasting child could not be killed and reaped"

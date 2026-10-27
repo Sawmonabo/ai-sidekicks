@@ -7,7 +7,8 @@ use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
 
 use nix::unistd::{User, getuid};
-use tokio::process::Command;
+
+use crate::session_child::SessionCommand;
 
 /// The login shell the user database names for the account this process runs as, read at each
 /// call; `None` when the entry names none. Fails with the system's error from the read, and with
@@ -19,10 +20,10 @@ pub fn login_shell() -> io::Result<Option<PathBuf>> {
 /// Starts `command`'s program `shell` as a login shell the way `login` does: its name, the first
 /// word it reads of its own command line, is the shell's file name after a `-`. A shell that takes
 /// no login switch beside others, as csh and tcsh, reads a login only this way.
-pub fn name_as_login_shell(command: &mut Command, shell: &Path) {
+pub fn name_as_login_shell(command: &mut SessionCommand, shell: &Path) {
     let mut name = OsString::from("-");
     name.push(shell.file_name().unwrap_or(shell.as_os_str()));
-    command.arg0(name);
+    command.argument_zero = name;
 }
 
 /// The account this process runs as: its name and the login shell its entry names, `None` when it

@@ -45,12 +45,6 @@ pub const POSIX_SHELL: &str = "sh";
 #[cfg(any(test, feature = "test-support"))]
 pub const DOES_POSIX_SHELL_LACK_BUILTIN: bool = false;
 
-/// Arms the process to end with the daemon: nothing to do on Windows, where the daemon's
-/// kill-on-close job ends every shell with it; never fails.
-pub fn arm_parent_death(_daemon_pid: u32) -> io::Result<()> {
-    Ok(())
-}
-
 /// Prepares the `shell` mode's own process for the shell's start and answers the launch the daemon
 /// sent over the start's pipe, served by the daemon `daemon_pid`; the mode keeps the folder it was
 /// spawned in, and [`start_program`] starts the shell in the launch's folder. Fails with
