@@ -1,3 +1,6 @@
+//! The standing rules over the approval fixture and a test database: rules in a skipped range,
+//! revokes whose provider failed, and the list of an unknown session.
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 

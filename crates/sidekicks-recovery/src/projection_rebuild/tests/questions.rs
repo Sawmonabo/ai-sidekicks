@@ -5,8 +5,7 @@ use std::sync::Arc;
 use rusqlite::Connection;
 use rusqlite::types::Value;
 use sidekicks_session::questions::projection::QuestionsProjection;
-use sidekicks_session::questions::service::test_fixture::Fixture;
-use sidekicks_session::questions::service::test_fixture::write_queued_answers;
+use sidekicks_session::questions::service::test_fixture::{Fixture, write_queued_answers};
 
 use super::{rebuild_whole, table_rows};
 

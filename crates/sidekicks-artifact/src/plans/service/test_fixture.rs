@@ -48,7 +48,7 @@ impl Fixture {
 
     /// The state `plan_id`'s row holds.
     #[cfg(test)]
-    pub(crate) fn state(&self, plan_id: PlanId) -> String {
+    pub(super) fn state(&self, plan_id: PlanId) -> String {
         self.store
             .read_rows(
                 "SELECT state FROM plans WHERE id = ?1",
@@ -59,7 +59,7 @@ impl Fixture {
 
     /// The payloads of the log's events of `event_type`, oldest first.
     #[cfg(test)]
-    pub(crate) fn payloads(&self, event_type: &str) -> Vec<Value> {
+    pub(super) fn payloads(&self, event_type: &str) -> Vec<Value> {
         self.store
             .read_rows(
                 "SELECT payload FROM session_events WHERE type = ?1 ORDER BY sequence",

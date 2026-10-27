@@ -3,7 +3,7 @@ name = "sidekicks-approval"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Approvals: the permission gate, the asks the daemon answers, the approval service, its store and projection."
+description = "Approvals: the permission gate, the asks the daemon answers, the callback-tool approval seam, the workflow start check, the approval service, its store and projection."
 license.workspace = true
 publish.workspace = true
 

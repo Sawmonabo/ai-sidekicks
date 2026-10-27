@@ -36,15 +36,15 @@ pub struct TestPermissionCheck {
     pub rules: Arc<ApprovalRules>,
     /// The bound every line is read under.
     #[cfg(test)]
-    pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    pub(super) shell_lines: Arc<ShellLineReadingBound>,
     /// The check.
     pub check: Arc<PermissionCheck>,
     /// Each live run's posture, none until a test sets one.
     #[cfg(test)]
-    pub(crate) postures: Arc<ExecutionPostureService>,
+    pub(super) postures: Arc<ExecutionPostureService>,
     /// Every rule the rules handed a provider to take out of force, oldest first.
     #[cfg(test)]
-    pub(crate) provider_rule_calls: Arc<Mutex<Vec<RevokeRuleParams>>>,
+    pub(super) provider_rule_calls: Arc<Mutex<Vec<RevokeRuleParams>>>,
 }
 
 /// The rules and the check over the database at `path`, recording through `events` and `writer`,

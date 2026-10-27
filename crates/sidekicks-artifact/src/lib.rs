@@ -1,6 +1,7 @@
 //! Artifacts and plans: publishing, ingesting and storing what a run produces, with each payload's
 //! media type read from its leading bytes and a picture's size from its header, and the record of
-//! each plan an agent finished.
+//! each plan an agent finished. It sits over std, store, ipc, workspace, provider and session,
+//! and below recovery and the program.
 
 pub mod admission;
 pub mod attachment_resolver;
