@@ -82,7 +82,7 @@ impl CodexInterventionDispatcher {
         &self,
         params: ApplyInterventionParams,
     ) -> Result<ApplyInterventionResponse, DriverError> {
-        let mut cancelled = Vec::new();
+        let mut canceled = Vec::new();
         let status = match params {
             ApplyInterventionParams::Steer {
                 target_run_id,
@@ -116,7 +116,7 @@ impl CodexInterventionDispatcher {
                 expected_run_version: _,
                 client_idempotency_key: _,
             } => {
-                cancelled = self
+                canceled = self
                     .runtime
                     .interrupt_run(InterruptRunRequest {
                         run_id: target_run_id,
@@ -130,7 +130,7 @@ impl CodexInterventionDispatcher {
             status,
             fallback_action: None,
             delivered_run_id: None,
-            cancelled,
+            canceled,
         })
     }
 }

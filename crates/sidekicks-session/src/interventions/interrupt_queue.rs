@@ -51,7 +51,7 @@ pub struct InterruptEnd {
     pub cause: InterruptCause,
     /// The waiting messages the provider gave back with the interrupt, which none of it runs; a
     /// handed message not among them stays with the provider.
-    pub cancelled: Vec<QueueItemId>,
+    pub canceled: Vec<QueueItemId>,
     /// The interrupt's row move and its event, which the run's end commits.
     pub verdict: RunStateChangeCompanions,
 }

@@ -290,7 +290,7 @@ impl SessionAutoTitle {
 
     // Names the session from its first exchange: the pass's name, or the first message's first
     // words when the pass returns nothing. A completion at `completed_at` names it only when it is
-    // the first; a cancelled pass writes nothing.
+    // the first; a canceled pass writes nothing.
     async fn name_session(
         &self,
         session_id: SessionId,
@@ -331,7 +331,7 @@ impl SessionAutoTitle {
     }
 
     // One pass on the driver of the session's first completed run, which bounds the pass itself;
-    // `None` when it returned nothing, failed or was cancelled, or no driver answers.
+    // `None` when it returned nothing, failed or was canceled, or no driver answers.
     async fn run_pass(
         &self,
         session_id: SessionId,
@@ -380,7 +380,7 @@ impl SessionAutoTitle {
         }
     }
 
-    // Marks a pass of `session_id` as under way, with a token cancelled by a rename to a name or
+    // Marks a pass of `session_id` as under way, with a token canceled by a rename to a name or
     // the stop;
     // `None` when one already is, which then runs once more after its run.
     fn register_pass(&self, session_id: SessionId) -> Option<(u64, CancellationToken)> {
@@ -404,7 +404,7 @@ impl SessionAutoTitle {
     }
 
     // Forgets the pass `generation` of `session_id` once it ended, never a later one; `true`,
-    // keeping it, when a pass was refused while it ran and it was not cancelled, so it runs again.
+    // keeping it, when a pass was refused while it ran and it was not canceled, so it runs again.
     fn release_pass(
         &self,
         session_id: SessionId,
@@ -429,8 +429,8 @@ impl SessionAutoTitle {
 
     // A rename to a name landed: the session's pass under way ends and writes nothing.
     fn cancel_pass(&self, session_id: SessionId) {
-        let cancelled = self.lock_pending().by_session.remove(&session_id);
-        if let Some(pass) = cancelled {
+        let canceled = self.lock_pending().by_session.remove(&session_id);
+        if let Some(pass) = canceled {
             pass.cancel.cancel();
         }
     }

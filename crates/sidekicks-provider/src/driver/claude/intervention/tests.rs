@@ -219,7 +219,7 @@ async fn an_interrupt_answers_the_queue_items_claude_code_dropped() {
     )
     .await;
 
-    assert_eq!(response.cancelled, [dropped]);
+    assert_eq!(response.canceled, [dropped]);
 }
 
 // Killed by an interrupt that moves no helper to the background first, by the bare request that
@@ -455,7 +455,7 @@ async fn a_send_now_waits_for_the_open_ask_and_keeps_the_rows_behind_it() {
     )
     .await;
 
-    assert_eq!(response.cancelled, [now, next]);
+    assert_eq!(response.canceled, [now, next]);
     assert_eq!(taken_back.channel.user_frames(), Vec::<Value>::new());
 }
 

@@ -226,7 +226,7 @@ impl InterventionService {
         };
         let verdict = match dispatch {
             LimitDispatch::NothingToCut => Verdict::Applied {
-                cancelled: Vec::new(),
+                canceled: Vec::new(),
             },
             LimitDispatch::LeftToContinuedRun => {
                 return Err(self
@@ -295,7 +295,7 @@ impl InterventionService {
     ) -> Result<Verdict, DispatchError> {
         match self.engine.route_interrupt(run_id).await? {
             InterruptRoute::Claimed | InterruptRoute::Ended => Ok(Verdict::Applied {
-                cancelled: Vec::new(),
+                canceled: Vec::new(),
             }),
             InterruptRoute::Driver => {
                 self.interrupt_through_driver(

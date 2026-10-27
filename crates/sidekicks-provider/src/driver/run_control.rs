@@ -131,7 +131,7 @@ pub enum InterventionResultStatus {
 
 /// What a driver answers an intervention with. `fallback_action` names the fallback of a
 /// `Degraded` result; `delivered_run_id` names the run a delivered message went to when that is
-/// not its target; `cancelled` names the waiting messages an interrupt took back from the provider.
+/// not its target; `canceled` names the waiting messages an interrupt took back from the provider.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ApplyInterventionResponse {
     /// Whether it landed as asked.
@@ -142,7 +142,7 @@ pub struct ApplyInterventionResponse {
     pub delivered_run_id: Option<RunId>,
     /// The messages the provider held that an interrupt took back, none of which runs: the ids of
     /// its receipt that read as queue items, the driver dropping any other it does not recognize.
-    pub cancelled: Vec<QueueItemId>,
+    pub canceled: Vec<QueueItemId>,
 }
 
 /// A driver's steer, or a continue that waited on a pause, not sent because the turn it was handed

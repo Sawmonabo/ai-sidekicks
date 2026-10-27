@@ -228,7 +228,7 @@ impl RunQueue {
             run_id,
             accepted_run_version,
             cause,
-            cancelled,
+            canceled,
             verdict,
         } = end;
         let session_id = self.session_of_run(run_id).await?;
@@ -248,7 +248,7 @@ impl RunQueue {
             .run_between_hands(session_id, async {
                 let writes = self
                     .delivery
-                    .interrupt_end_writes(run_id, pending, deliver_first, &cancelled)
+                    .interrupt_end_writes(run_id, pending, deliver_first, &canceled)
                     .await?;
                 let mut companions = verdict;
                 companions.statements.extend(writes.statements);

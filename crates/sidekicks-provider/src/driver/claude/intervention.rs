@@ -267,7 +267,7 @@ impl ClaudeInterventions {
         let mut response = match outcome {
             Ok(ClaudeInterruptOutcome::Answered(receipt)) => {
                 let mut response = applied();
-                response.cancelled = self.take_cancelled(session_id, receipt);
+                response.canceled = self.take_canceled(session_id, receipt);
                 if takes_messages_back && !can_cancel_queued {
                     response.status = InterventionResultStatus::Degraded;
                     response.fallback_action = Some(
@@ -290,7 +290,7 @@ impl ClaudeInterventions {
         let held = lock(&self.writer.held).take_all(session_id);
         if takes_messages_back {
             response
-                .cancelled
+                .canceled
                 .extend(held.into_iter().map(|row| row.message_id));
         } else if !is_stopped {
             self.writer.write_released(&live, held, false).await;
@@ -336,7 +336,7 @@ impl ClaudeInterventions {
     }
 
     // The receipt's dropped messages that read as queue items, each settled with no report.
-    fn take_cancelled(
+    fn take_canceled(
         &self,
         session_id: SessionId,
         receipt: ClaudeInterruptReceipt,
@@ -390,7 +390,7 @@ fn applied() -> ApplyInterventionResponse {
         status: InterventionResultStatus::Applied,
         fallback_action: None,
         delivered_run_id: None,
-        cancelled: Vec::new(),
+        canceled: Vec::new(),
     }
 }
 

@@ -32,23 +32,20 @@ async fn interrupted_fixture() -> (Fixture, [QueueItemRecord; 3]) {
 }
 
 /// The interrupt's end writes for `pending` and `deliver_first`, the provider giving back
-/// `cancelled`, on the session's chain.
+/// `canceled`, on the session's chain.
 async fn end_writes(
     fixture: &Fixture,
     pending: InterruptPendingChoice,
     deliver_first: Option<QueueItemId>,
-    cancelled: &[QueueItemId],
+    canceled: &[QueueItemId],
 ) -> InterruptEndWrites {
     timeout(
         WAIT,
         fixture.delivery.run_between_hands(
             fixture.session_id,
-            fixture.delivery.interrupt_end_writes(
-                fixture.run_id,
-                pending,
-                deliver_first,
-                cancelled,
-            ),
+            fixture
+                .delivery
+                .interrupt_end_writes(fixture.run_id, pending, deliver_first, canceled),
         ),
     )
     .await
@@ -87,17 +84,17 @@ async fn commit(fixture: &Fixture, mut writes: InterruptEndWrites) {
 
 // `returnToDraft`: the writes, committed as the run's end commits them, cancel the message given
 // back and the one never handed; the one the provider still holds stays waiting and handed.
-// Killed by skipping the give-back or by keeping handed messages among those cancelled.
+// Killed by skipping the give-back or by keeping handed messages among those canceled.
 #[tokio::test]
 async fn an_interrupt_to_the_draft_cancels_what_the_provider_does_not_hold() {
     let (fixture, [given_back, still_handed, unhanded]) = interrupted_fixture().await;
 
-    let cancelled = given_back_with_an_unknown_id(&given_back);
+    let canceled = given_back_with_an_unknown_id(&given_back);
     let writes = end_writes(
         &fixture,
         InterruptPendingChoice::ReturnToDraft,
         None,
-        &cancelled,
+        &canceled,
     )
     .await;
     assert_eq!(item_ids(&writes.changed), vec![given_back.id, unhanded.id]);
@@ -126,12 +123,12 @@ async fn an_interrupt_to_the_draft_cancels_what_the_provider_does_not_hold() {
 async fn an_interrupt_to_the_next_turn_places_the_message_sent_now_first() {
     let (fixture, [given_back, still_handed, unhanded]) = interrupted_fixture().await;
 
-    let cancelled = given_back_with_an_unknown_id(&given_back);
+    let canceled = given_back_with_an_unknown_id(&given_back);
     let writes = end_writes(
         &fixture,
         InterruptPendingChoice::NextTurn,
         Some(unhanded.id),
-        &cancelled,
+        &canceled,
     )
     .await;
     assert_eq!(item_ids(&writes.changed), vec![unhanded.id, given_back.id]);
@@ -159,12 +156,12 @@ async fn an_interrupt_to_the_next_turn_places_the_message_sent_now_first() {
 async fn an_interrupt_that_keeps_waiting_leaves_the_messages_for_the_continue() {
     let (fixture, [given_back, still_handed, unhanded]) = interrupted_fixture().await;
 
-    let cancelled = given_back_with_an_unknown_id(&given_back);
+    let canceled = given_back_with_an_unknown_id(&given_back);
     let writes = end_writes(
         &fixture,
         InterruptPendingChoice::KeepWaiting,
         None,
-        &cancelled,
+        &canceled,
     )
     .await;
     let is_given_back_handed = fixture.delivery.is_handed(&given_back.id);

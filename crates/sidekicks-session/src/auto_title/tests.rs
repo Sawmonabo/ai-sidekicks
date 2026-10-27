@@ -246,7 +246,7 @@ async fn auto_title_writes_the_first_words_after_an_empty_pass_and_never_over_a_
     );
 }
 
-// Killed by a rename that leaves the pass under way, by a cancelled pass still writing, and by
+// Killed by a rename that leaves the pass under way, by a canceled pass still writing, and by
 // the rename's answer waiting on the push of the name to the provider.
 #[tokio::test]
 async fn auto_title_cancels_a_pending_pass_when_the_session_is_renamed() {

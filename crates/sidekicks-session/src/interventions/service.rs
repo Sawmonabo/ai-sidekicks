@@ -153,14 +153,14 @@ pub(super) enum Verdict {
     /// Carried out as asked.
     Applied {
         /// The messages taken back.
-        cancelled: Vec<QueueItemId>,
+        canceled: Vec<QueueItemId>,
     },
     /// Carried out through the fallback the driver names, where it named one.
     Degraded {
         /// The fallback taken.
         fallback_action: Option<FreeFormText<PROVIDER_FALLBACK_ACTION_MAX_LEN>>,
         /// The messages taken back.
-        cancelled: Vec<QueueItemId>,
+        canceled: Vec<QueueItemId>,
     },
 }
 
@@ -560,7 +560,7 @@ impl InterventionService {
                 match retried {
                     FasterModelRetryOutcome::Applied {} => {
                         Ok(DispatchOutcome::Carried(Verdict::Applied {
-                            cancelled: Vec::new(),
+                            canceled: Vec::new(),
                         }))
                     }
                     FasterModelRetryOutcome::Rejected { rejection_reason } => {
@@ -577,7 +577,7 @@ impl InterventionService {
                 // A stop never reaches a driver that does not have the run.
                 match self.engine.route_interrupt(run_id).await? {
                     InterruptRoute::Claimed => Ok(DispatchOutcome::Carried(Verdict::Applied {
-                        cancelled: Vec::new(),
+                        canceled: Vec::new(),
                     })),
                     InterruptRoute::Ended => Ok(DispatchOutcome::Unapplied(Resolution::Expired)),
                     InterruptRoute::Driver => {
@@ -624,12 +624,12 @@ impl InterventionService {
             })
             .await
             .map_err(DispatchError::Driver)?;
-        let cancelled = answered.cancelled;
+        let canceled = answered.canceled;
         Ok(match answered.status {
-            InterventionResultStatus::Applied => Verdict::Applied { cancelled },
+            InterventionResultStatus::Applied => Verdict::Applied { canceled },
             InterventionResultStatus::Degraded => Verdict::Degraded {
                 fallback_action: answered.fallback_action,
-                cancelled,
+                canceled,
             },
         })
     }
@@ -645,21 +645,21 @@ impl InterventionService {
         verdict: Verdict,
         end: Option<RunEndOfVerdict>,
     ) -> Result<RowMove<ReachedState>, InterventionError> {
-        let (transition, state, cancelled) = match verdict {
+        let (transition, state, canceled) = match verdict {
             Verdict::Degraded {
                 fallback_action,
-                cancelled,
+                canceled,
             } => (
                 InterventionTransition::Degrade { fallback_action },
                 ReachedState::Degraded,
-                cancelled,
+                canceled,
             ),
-            Verdict::Applied { cancelled } => (
+            Verdict::Applied { canceled } => (
                 InterventionTransition::Apply {
                     from: UnresolvedInterventionState::Accepted,
                 },
                 ReachedState::Applied,
-                cancelled,
+                canceled,
             ),
         };
         let row_move = move_intervention_statement(&target.intervention_id, &transition);
@@ -674,7 +674,7 @@ impl InterventionService {
                     run_id: target.target_run_id,
                     accepted_run_version,
                     cause,
-                    cancelled,
+                    canceled,
                     verdict: RunStateChangeCompanions {
                         statements: vec![row_move.clone()],
                         preceding_events: vec![event.clone()],

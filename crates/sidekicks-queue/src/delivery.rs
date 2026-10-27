@@ -351,18 +351,18 @@ impl QueueDelivery {
         Ok(())
     }
 
-    // Forgets the hand of each of `cancelled` the provider was handed, as the provider gave them
+    // Forgets the hand of each of `canceled` the provider was handed, as the provider gave them
     // back with an interrupt; each stays waiting. An id never handed is ignored.
-    fn give_back(&self, cancelled: &[QueueItemId]) {
+    fn give_back(&self, canceled: &[QueueItemId]) {
         let mut state = self.lock_state();
-        for item_id in cancelled {
+        for item_id in canceled {
             state.forget_hand(item_id);
         }
     }
 
     /// The interrupt's end writes for the lead messages waiting for `run_id`, called on the
-    /// session's chain: `cancelled` is given back first, then the messages not handed and not an
-    /// opening (a starting run's opening goes with the rest) are cancelled for `ReturnToDraft`,
+    /// session's chain: `canceled` is given back first, then the messages not handed and not an
+    /// opening (a starting run's opening goes with the rest) are canceled for `ReturnToDraft`,
     /// placed with `deliver_first` first for `NextTurn`, and left for `KeepWaiting`. Writes nothing
     /// itself. Fails when a read fails or an event cannot be drafted.
     pub(crate) async fn interrupt_end_writes(
@@ -370,9 +370,9 @@ impl QueueDelivery {
         run_id: RunId,
         pending: InterruptPendingChoice,
         deliver_first: Option<QueueItemId>,
-        cancelled: &[QueueItemId],
+        canceled: &[QueueItemId],
     ) -> Result<InterruptEndWrites, DeliveryError> {
-        self.give_back(cancelled);
+        self.give_back(canceled);
         let (run, waiting) = self
             .shared
             .deps
