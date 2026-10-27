@@ -1,0 +1,42 @@
+[package]
+name = "sidekicks-approval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Approvals: the permission gate, the asks the daemon answers, the approval service, its store and projection."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+console.workspace = true
+futures.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-policy.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-session.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+sidekicks-workspace.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+
+[features]
+# Helpers other crates' tests use: the approval service's and the permission check's fixtures.
+test-support = []
+
+[lints]
+workspace = true

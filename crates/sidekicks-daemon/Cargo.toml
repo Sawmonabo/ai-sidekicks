@@ -159,6 +159,7 @@ serde-saphyr.workspace = true
 serde_with.workspace = true
 sha2.workspace = true
 shlex.workspace = true
+sidekicks-approval.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-mcp.workspace = true
