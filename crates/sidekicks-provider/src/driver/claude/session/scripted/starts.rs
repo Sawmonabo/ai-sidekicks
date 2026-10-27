@@ -35,7 +35,7 @@ use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::spawned_build;
 
 /// The build every scripted process reports.
-pub(crate) const SCRIPTED_BUILD_VERSION: &str = "2.1.0";
+pub(super) const SCRIPTED_BUILD_VERSION: &str = "2.1.0";
 
 /// One session start the driver asked for.
 pub(crate) struct ScriptedStartRecord {

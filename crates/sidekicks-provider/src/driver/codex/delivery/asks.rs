@@ -486,8 +486,8 @@ impl CodexAskHandOff {
     // Holds a question for the questions card, taken in its run's turn until Codex lets go of it,
     // which its take reads as its asker leaving: its own take withdraws it once its record is
     // written, and its card is withdrawn where it is let go, for a take that already ended; a take
-    // that failed while Codex still holds it is answered refused. Codex keeps one user-input question pending per turn, so a
-    // second there lets the first go.
+    // that failed while Codex still holds it is answered refused. Codex keeps one user-input
+    // question pending per turn, so a second there lets the first go.
     fn hand_question(
         &self,
         record: &CodexSessionRecord,

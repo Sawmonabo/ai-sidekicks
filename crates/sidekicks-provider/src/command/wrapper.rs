@@ -24,8 +24,8 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::standard_error::write_error_line;
-use terminal::run_in_terminal;
 
+use self::terminal::run_in_terminal;
 use crate::command::channel::party::{
     ChannelParty, PartyRecords, PartyRequests, PartyStart, RequestError, own_arguments,
 };

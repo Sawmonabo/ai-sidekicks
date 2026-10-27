@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use crate::driver::codex::session::fork::establish_codex_fork;
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
 

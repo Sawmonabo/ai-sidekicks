@@ -1,7 +1,7 @@
 //! A review's end as Codex's `item/autoApprovalReview/completed` sends it, and the same review as
 //! the `GuardianAssessmentEvent` Codex's `thread/approveGuardianDeniedAction` takes back: the
-//! app-server's `camelCase` members read, Codex's own `snake_case` members written, field by field as
-//! Codex's own app builds the event, the reviewed item left out as that app leaves it out.
+//! app-server's `camelCase` members read, Codex's own `snake_case` members written, field by field
+//! as Codex's own app builds the event, the reviewed item left out as that app leaves it out.
 
 use serde::{Deserialize, Serialize, Serializer};
 use serde_json::Value;

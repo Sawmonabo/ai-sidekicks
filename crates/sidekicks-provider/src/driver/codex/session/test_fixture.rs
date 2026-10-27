@@ -318,7 +318,7 @@ impl TestCodexSession {
 }
 
 /// The spawn-context port with [`OneFolder`] over `folder` registered on it.
-pub(crate) fn one_folder_spawn_contexts(
+pub(super) fn one_folder_spawn_contexts(
     folder: PathBuf,
 ) -> Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>> {
     let spawn_contexts = DriverPorts::new().spawn_contexts;
@@ -372,7 +372,7 @@ impl SessionSpawnContextResolver for OneFolder {
 
 impl TestCodexTask {
     /// What the session's task holds, beside what its calls act through.
-    pub(crate) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
+    pub(super) fn split(&mut self) -> (CodexSessionTask<'_>, &CodexSessionCallDependencies) {
         (
             CodexSessionTask {
                 record: &mut self.record,
@@ -665,7 +665,7 @@ impl CodexSessionDisposal for NoDisposal {
 }
 
 /// Binds no file: the tests' messages carry none.
-pub(crate) struct NoAttachments;
+struct NoAttachments;
 
 impl AttachmentResolver for NoAttachments {
     fn resolve_attachments(

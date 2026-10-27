@@ -15,7 +15,7 @@ use crate::driver::codex::run::steer::steer_codex_run;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, turn_completed, turn_reply, turn_started,
 };
 use crate::driver::contract::DriverError;

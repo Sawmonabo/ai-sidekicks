@@ -382,8 +382,8 @@ impl CodexFrameDelivery {
             .await;
     }
 
-    // A turn that ended answers no ask it held: their cards are withdrawn, its corrections
-    // dropped.
+    /// A turn that ended answers no ask it held: their cards are withdrawn, its corrections
+    /// dropped.
     pub(in crate::driver::codex::delivery) fn withdraw_ended_turn_asks(
         &self,
         record: &CodexSessionRecord,

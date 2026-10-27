@@ -225,7 +225,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::driver::codex::session::test_session::{
+    use crate::driver::codex::session::test_fixture::{
         TestCodexSession, answer_fork, turn_completed, turn_started,
     };
 

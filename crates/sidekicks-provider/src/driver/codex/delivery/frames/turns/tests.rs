@@ -1,6 +1,6 @@
 use serde_json::{Value, json};
 
-use crate::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession, turn_started};
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_started};
 use crate::run::delivery::LateAppendableRow;
 
 // An `error` frame of turn `turn-1` on [`TEST_THREAD`] on Codex's arm `kind`.

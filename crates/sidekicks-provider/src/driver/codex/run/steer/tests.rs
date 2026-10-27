@@ -8,7 +8,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use super::{steer_codex_run, take_blocked_codex_steers};
 use crate::driver::codex::delivery::frames::CodexTurnEnding;
 use crate::driver::codex::session::state::CodexUnechoedSteers;
-use crate::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
 use crate::driver::contract::DriverError;
 use crate::driver::test_registry::{new_message_id, new_run_id};
 

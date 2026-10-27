@@ -27,14 +27,14 @@ use sidekicks_platforms::{
     wrap_child_command,
 };
 use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
-use stdin::ClaudeInputWriter;
-pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
-use stdout::ClaudeOutputReader;
 use tokio::io::AsyncRead;
 use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
+use self::stdin::ClaudeInputWriter;
+pub(crate) use self::stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+use self::stdout::ClaudeOutputReader;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::control_requests::ClaudeControlRequests;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};

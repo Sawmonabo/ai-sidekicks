@@ -42,7 +42,8 @@ impl CrashWindow {
         Self::new(PROVIDER_CRASH_WINDOW, PROVIDER_RESTART_WAITS)
     }
 
-    /// A window over `window` that answers `restart_waits`, indexed by the crashes it already holds.
+    /// A window over `window` that answers `restart_waits`, indexed by the crashes it already
+    /// holds.
     pub(crate) fn new(window: Duration, restart_waits: &'static [Duration]) -> Self {
         Self {
             window,

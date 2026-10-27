@@ -105,7 +105,7 @@ impl ScriptedChannel {
 
     /// Hands the exit of a later close or terminate to `listener`, the listener of the start that
     /// brought the process up; the process exits once.
-    pub(crate) fn hand_exit_to(&self, listener: Arc<dyn ClaudeProcessListener>) {
+    pub(super) fn hand_exit_to(&self, listener: Arc<dyn ClaudeProcessListener>) {
         *lock(&self.listener) = Some(listener);
     }
 

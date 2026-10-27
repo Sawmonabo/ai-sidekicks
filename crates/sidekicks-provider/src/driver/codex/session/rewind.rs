@@ -307,7 +307,7 @@ mod tests {
     use crate::driver::codex::session::fork::config_change::CodexConfigForks;
     use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
     use crate::driver::codex::session::state::CodexTurnMessage;
-    use crate::driver::codex::session::test_session::{TestCodexSession, turn_reply};
+    use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
     use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
     use crate::driver::test_registry::new_run_id;
 

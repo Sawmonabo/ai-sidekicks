@@ -26,7 +26,7 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 /// newer release moves the file and its hash whole.
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
-/// The protocol types the daemon sends, generated with every type they reach.
+/// The protocol types the provider crate sends, generated with every type they reach.
 const CODEX_SENT_TYPES: [&str; 30] = [
     "ThreadStartParams",
     "ThreadResumeParams",
@@ -98,8 +98,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_codex_protocol(&PathBuf::from(env::var("OUT_DIR")?).join(CODEX_PROTOCOL_OUTPUT))
 }
 
-/// Writes to `output` the protocol types the daemon sends and the notification and server request
-/// methods the protocol names, once the bundle's hash is the release's.
+/// Writes to `output` the protocol types the provider crate sends and the notification and server
+/// request methods the protocol names, once the bundle's hash is the release's.
 fn write_codex_protocol(output: &Path) -> Result<(), Box<dyn Error>> {
     let compressed = fs::read(CODEX_PROTOCOL_BUNDLE)?;
     let bundle_hash = base16ct::lower::encode_string(&Sha3_256::digest(&compressed));

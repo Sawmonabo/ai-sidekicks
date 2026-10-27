@@ -17,7 +17,7 @@ use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::driver::codex::run::control::record::{CodexContinuePlace, CodexRunControlCall};
 use crate::driver::codex::session::calls::call_codex_session;
 use crate::driver::codex::session::inbound::CodexSessionCall;
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
 use crate::driver::contract::DriverError;

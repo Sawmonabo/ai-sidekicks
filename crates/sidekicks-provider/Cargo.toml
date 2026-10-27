@@ -67,7 +67,6 @@ tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
 url.workspace = true
 zeroize.workspace = true
-zstd.workspace = true
 
 [dev-dependencies]
 interprocess.workspace = true
@@ -85,6 +84,7 @@ sidekicks-store = { workspace = true, features = ["test-support"] }
 # The paused clock the drivers' and the command waits' tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
+zstd.workspace = true
 
 [build-dependencies]
 # Codex's app-server protocol types, generated from the release's schema bundle after its hash is
@@ -96,8 +96,10 @@ typify.workspace = true
 zstd.workspace = true
 
 [features]
-# Helpers other crates' tests use: the drivers' test registry and provider, the driver's mock, the
-# diagnostics recorder, the runtime binding's test store and the question port's test card.
+# Helpers other crates' tests use: the drivers' test registry with its session inbox addresser, the
+# test provider id, the driver's mock, the unanswered request, the diagnostics recorder, the
+# runtime binding's test store, the question port's test card, the provider process stand-in and
+# its test identity, and the late appendable row's `Clone` and `PartialEq`.
 test-support = ["dep:mockall", "dep:tracing-subscriber", "sidekicks-store/test-support"]
 
 [lints]

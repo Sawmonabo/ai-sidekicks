@@ -13,11 +13,6 @@ use std::error::Error;
 use std::io;
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use answers::{
-    ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,
-    ClaudeHeldQuestion, ClaudeQuestionRoute, compose_claude_ask_answer,
-    compose_claude_question_answer, compose_claude_question_refusal, compose_pre_tool_use_allow,
-};
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -32,6 +27,11 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use self::answers::{
+    ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,
+    ClaudeHeldQuestion, ClaudeQuestionRoute, compose_claude_ask_answer,
+    compose_claude_question_answer, compose_claude_question_refusal, compose_pre_tool_use_allow,
+};
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::ask_action::read_claude_ask_action;
@@ -622,9 +622,9 @@ impl ClaudeInboundRequests {
     }
 
     // Records the request pending and admits it on its run's execution; `Some` with its kind, its
-    // recording's number and its letting go once admitted and still pending, so it is handed on. An ask from before an
-    // undo's cut is absorbed and never shown, and one withdrawn before it was admitted never
-    // reaches its service.
+    // recording's number and its letting go once admitted and still pending, so it is handed on.
+    // An ask from before an undo's cut is absorbed and never shown, and one withdrawn before it was
+    // admitted never reaches its service.
     async fn admit(
         &self,
         session: &ClaudeRequestSession<'_>,

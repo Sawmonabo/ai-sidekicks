@@ -14,7 +14,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::codex_session_inbound;
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};

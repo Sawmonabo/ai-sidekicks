@@ -405,12 +405,12 @@ impl ReportedVersionReading {
 /// and their drivers registered, which the daemon's start builds the registry from once.
 pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
-        descriptor: &crate::driver::claude::DESCRIPTOR,
-        build: crate::driver::claude::build,
+        descriptor: &claude::DESCRIPTOR,
+        build: claude::build,
     },
     ProviderRegistration {
-        descriptor: &crate::driver::codex::DESCRIPTOR,
-        build: crate::driver::codex::build,
+        descriptor: &codex::DESCRIPTOR,
+        build: codex::build,
     },
 ];
 

@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use super::{CODEX_NAMING_DEADLINE, TitleRequest, draw_title};
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::test_session::turn_reply;
+use crate::driver::codex::session::test_fixture::turn_reply;
 use crate::driver::codex::transport::connection::CodexConnectionHandlers;
 use crate::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,

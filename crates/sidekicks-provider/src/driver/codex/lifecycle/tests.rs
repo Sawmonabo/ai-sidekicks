@@ -35,7 +35,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;

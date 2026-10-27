@@ -2,8 +2,9 @@
 //! binding never touches a remote provider.
 //!
 //! - `contract_version`, `resume_handle` and the CLI version pair are provider-declared: the SQL
-//!   `CHECK` constraints bound length and NULs, and each write checks them first. The version pair and the
-//!   build's path come from one reading of the spawned build, so every row names the build it ran.
+//!   `CHECK` constraints bound length and NULs, and each write checks them first. The version pair
+//!   and the build's path come from one reading of the spawned build, so every row names the build
+//!   it ran.
 //! - `spawn_config` holds the spawn-bound legs and the build's path: recovery reads the legs back
 //!   to resume without the original request, and the path records what ran, which no start reads.
 //! - A stored provider id is kept as written and only checked to be a valid id, so a row stays

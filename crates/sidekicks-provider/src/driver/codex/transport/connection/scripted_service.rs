@@ -45,7 +45,7 @@ impl ScriptedService {
     }
 
     /// Closes the socket from the service's side with `reason`.
-    pub(crate) fn close(&self, reason: &str) {
+    pub(super) fn close(&self, reason: &str) {
         self.inbound
             .send(CodexSocketEvent::Closed {
                 reason: reason.to_owned(),

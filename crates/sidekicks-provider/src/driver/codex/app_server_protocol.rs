@@ -1,7 +1,7 @@
-//! Codex's app-server protocol as the daemon's build generates it from one Codex release's schema
-//! bundle: the types the daemon sends, with every type they reach, and the notification and
-//! server request methods the protocol names. What the daemon receives is read by hand-written
-//! readers instead, which ignore what a newer release adds.
+//! Codex's app-server protocol as this crate's build generates it from one Codex release's schema
+//! bundle: the types the provider crate sends, with every type they reach, and the notification
+//! and server request methods the protocol names. What the provider crate receives is read by
+//! hand-written readers instead, which ignore what a newer release adds.
 #![expect(
     unreachable_pub,
     reason = "the generator writes `pub` items, which this private module keeps inside the driver"

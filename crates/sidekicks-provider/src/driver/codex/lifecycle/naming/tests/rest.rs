@@ -16,7 +16,7 @@ use crate::driver::codex::service::registry::{CodexHomeResolver, CodexServiceReg
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::driver::codex::session::test_session::TestDaemonTurnBindings;
+use crate::driver::codex::session::test_fixture::TestDaemonTurnBindings;
 use crate::driver::contract::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{new_session_id, test_driver_services};

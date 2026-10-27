@@ -36,7 +36,7 @@ pub(crate) const COPY_THREAD: &str = "copy-thread";
 pub(crate) const COPY_TURN: &str = "copy-turn";
 
 /// The copy's answer.
-pub(crate) const ANSWER: &str = "It reads the worktree.";
+pub(super) const ANSWER: &str = "It reads the worktree.";
 
 /// The resume material of `session_id` at rest in `folder` on the person's own sign-in.
 pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSessionParams {
@@ -87,10 +87,10 @@ pub(crate) fn read_only_profile(folder: &Path) -> String {
 }
 
 /// The service's side of a copy's connection.
-pub(crate) type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
+type CopySocket = WebSocketStream<interprocess::local_socket::tokio::Stream>;
 
 /// Serves the copy's connection as Codex through the connection's start; answers the connection.
-pub(crate) async fn accept_copy(listener: &Listener) -> CopySocket {
+pub(super) async fn accept_copy(listener: &Listener) -> CopySocket {
     let stream = listener
         .accept()
         .await
@@ -110,10 +110,7 @@ pub(crate) async fn accept_copy(listener: &Listener) -> CopySocket {
 
 /// Serves the copy's connection as Codex up to its turn's start: the connection's start and a fork
 // of the stored conversation under `profile`; answers the connection and the fork's params.
-pub(crate) async fn open_copy(
-    listener: &Listener,
-    profile: &str,
-) -> (CopySocket, Map<String, Value>) {
+async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<String, Value>) {
     let mut socket = accept_copy(listener).await;
     let fork = next_socket_request(&mut socket).await;
     assert_eq!(fork["method"], "thread/fork");
@@ -144,7 +141,7 @@ pub(crate) async fn open_copy(
 /// Serves the copy's connection as Codex: its start, a fork of the stored conversation under
 // `profile`, one turn and its answer; answers the fork's params once the daemon let the
 // connection go.
-pub(crate) async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
+pub(super) async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
     let (mut socket, fork) = open_copy(&listener, &profile).await;
     send_on_socket(
         &mut socket,

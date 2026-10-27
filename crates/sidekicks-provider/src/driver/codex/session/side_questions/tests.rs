@@ -23,7 +23,7 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::test_service::{
     bind_test_listener, next_socket_request, send_on_socket,
 };
-use crate::driver::codex::session::test_session::{TestCodexSession, turn_reply};
+use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::session_control::AskSideQuestionParams;
 use crate::port::registration::PortRegistration;

@@ -37,9 +37,9 @@ fn rule_file(project_folder: &Path) -> PathBuf {
     project_folder.join(".codex/rules/sidekicks.rules")
 }
 
-// The places a project's sessions read rules from: a system settings folder, a Codex home, a project
-// folder and the person's home folder, all under one scratch folder, and how long a read may
-// evaluate.
+// The places a project's sessions read rules from: a system settings folder, a Codex home, a
+// project folder and the person's home folder, all under one scratch folder, and how long a read
+// may evaluate.
 struct Places {
     scratch: tempfile::TempDir,
     evaluation_time_limit: Duration,

@@ -120,7 +120,7 @@ impl MessageTakenListener for RecordingPorts {
 
 /// Registers what a scripted driver composes over: `recording` as the approval ports and the
 /// queue's intake, every daemon turn on one binding, and a machine with no repositories.
-pub(crate) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
+pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<RecordingPorts>) {
     ports
         .daemon_turn_bindings
         .register(Arc::new(ScriptedBindings))
@@ -257,7 +257,7 @@ impl AttachmentResolver for ScriptedAttachments {
 }
 
 /// Opens every daemon turn on one binding.
-pub(crate) struct ScriptedBindings;
+struct ScriptedBindings;
 
 impl DaemonTurnBindingResolver for ScriptedBindings {
     fn open_daemon_turn_binding(
@@ -278,7 +278,7 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
 }
 
 /// A machine with no repositories.
-pub(crate) struct NoRepositories;
+struct NoRepositories;
 
 impl RepositoryReader for NoRepositories {
     fn read_repository<'a>(
@@ -294,7 +294,7 @@ impl RepositoryReader for NoRepositories {
 }
 
 /// A callback-tool host with no approval seam, so every spawn's registry is withheld.
-pub(crate) fn test_callback_tool_host() -> Arc<CallbackToolHost> {
+pub(super) fn test_callback_tool_host() -> Arc<CallbackToolHost> {
     Arc::new(CallbackToolHost::new(
         Arc::new(NoCallbackTools),
         Arc::new(NoCallbackTools),
@@ -303,7 +303,7 @@ pub(crate) fn test_callback_tool_host() -> Arc<CallbackToolHost> {
 }
 
 /// The callback-tool binding of a spawn of `session_id` that offers none.
-pub(crate) fn test_callback_tool_binding(session_id: SessionId) -> Arc<CallbackToolSpawnBinding> {
+pub(super) fn test_callback_tool_binding(session_id: SessionId) -> Arc<CallbackToolSpawnBinding> {
     Arc::new(bind_callback_tools_for_spawn(
         &test_callback_tool_host(),
         CallbackToolSpawnRequest {

@@ -12,7 +12,7 @@ use super::{TITLE_THREAD, TITLE_TURN};
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
 use crate::driver::codex::service::supervisor::test_service::bind_test_listener;
-use crate::driver::codex::session::test_session::{TestCodexSession, turn_reply};
+use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
 use crate::driver::session_control::NameSessionParams;
 use crate::driver::test_registry::test_driver_services;
 

@@ -367,7 +367,7 @@ mod tests {
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
     use super::{CodexSessionControls, move_codex_permission_level};
-    use crate::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
+    use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
     use crate::driver::run_control::OverrideDenialParams;
     use crate::driver::session_control::UpdatePermissionLevelParams;
     use crate::driver::test_registry::new_run_id;

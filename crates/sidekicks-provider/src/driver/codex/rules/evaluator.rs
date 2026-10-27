@@ -28,8 +28,8 @@ use super::normalize_network_rule_host;
 const WINDOWS_PROGRAM_SUFFIXES: [&str; 4] = [".exe", ".cmd", ".bat", ".com"];
 
 // The most commands one `prefix_rule` call is listed as, one per combination of its words'
-// alternatives; past it the call's pattern is listed once, as Codex renders it, so a pattern of many
-// alternatives never grows into more commands than memory holds.
+// alternatives; past it the call's pattern is listed once, as Codex renders it, so a pattern of
+// many alternatives never grows into more commands than memory holds.
 const MOST_SPELLED_COMMANDS: usize = 64;
 
 // The most a file's own values may take of the evaluator's heap, a backstop against a file that

@@ -16,7 +16,7 @@ use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, fork_reply, no_turns, one_folder_spawn_contexts,
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;

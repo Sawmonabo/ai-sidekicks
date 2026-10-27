@@ -26,7 +26,7 @@ use crate::driver::codex::session::side_questions::test_copies::{
 };
 use crate::driver::codex::session::slots::closing_session_refusal;
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_session::{
+use crate::driver::codex::session::test_fixture::{
     OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;

@@ -14,7 +14,7 @@ use super::CodexRunControl;
 use crate::driver::codex::intervention::CodexSteerRunRequest;
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession, turn_completed};
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession, turn_completed};
 use crate::driver::contract::DriverError;
 use crate::driver::test_registry::{new_message_id, new_run_id};
 

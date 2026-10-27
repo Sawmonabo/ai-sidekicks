@@ -106,9 +106,9 @@ pub(crate) struct ClaudeSpawnBinding {
 }
 
 /// What a process was asked to start with where it runs something else: the callback tools before
-/// the host trims them to the ones it offers, and the Settings rows before the session's own advisor
-/// and style override them. A relaunch asks for these again, and a resume that finds the process
-/// up compares its own request against them.
+/// the host trims them to the ones it offers, and the Settings rows before the session's own
+/// advisor and style override them. A relaunch asks for these again, and a resume that finds the
+/// process up compares its own request against them.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ClaudeRequestedSpawn {
     /// The callback tools requested.

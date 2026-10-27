@@ -26,4 +26,4 @@ pub(super) mod slots;
 pub(super) mod starting_level;
 pub(super) mod state;
 #[cfg(test)]
-pub(super) mod test_session;
+pub(super) mod test_fixture;

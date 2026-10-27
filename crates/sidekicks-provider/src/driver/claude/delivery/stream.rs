@@ -16,7 +16,6 @@ use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use daemon_ends::ClaudeStreamDialogPorts;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -32,6 +31,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use self::daemon_ends::ClaudeStreamDialogPorts;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::messages::{

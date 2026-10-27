@@ -69,7 +69,7 @@ use crate::process_identity::ProviderProcessIdentity;
 use crate::runtime_binding::test_store::spawned_build;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
-pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {
+fn scripted_staged_changes() -> StagedChangesWorktrees {
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     StagedChangesWorktrees::new(
         &std::env::temp_dir().join("sidekicks-scripted-worktrees"),
@@ -86,7 +86,7 @@ pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
 }
 
 /// A live session at Ask on the scripted process `channel`.
-pub(crate) fn scripted_live_session(
+pub(super) fn scripted_live_session(
     session_id: SessionId,
     channel: Arc<dyn ClaudeProcessChannel>,
 ) -> LiveClaudeSession {

@@ -412,7 +412,7 @@ mod tests {
     use crate::driver::codex::run::routes::CodexRunBinding;
     use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
     use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
-    use crate::driver::codex::session::test_session::{
+    use crate::driver::codex::session::test_fixture::{
         TEST_THREAD, TestCodexSession, answer_fork, turn_completed, turn_reply,
     };
     use crate::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};

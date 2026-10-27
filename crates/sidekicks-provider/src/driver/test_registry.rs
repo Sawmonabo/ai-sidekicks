@@ -204,28 +204,28 @@ pub fn new_run_id() -> RunId {
 
 /// A minted session id.
 #[cfg(test)]
-pub(crate) fn new_session_id() -> SessionId {
+pub(super) fn new_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
 }
 
 /// A minted id of a queued message.
 #[cfg(test)]
-pub(crate) fn new_message_id() -> QueueItemId {
+pub(super) fn new_message_id() -> QueueItemId {
     QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
 }
 
 /// What the run queue's intake was told, telling a waiter at each.
 #[cfg(test)]
 #[derive(Default)]
-pub(crate) struct RecordedQueue {
+pub(super) struct RecordedQueue {
     /// The messages told taken, in order.
-    pub(crate) taken: Mutex<Vec<String>>,
+    pub(super) taken: Mutex<Vec<String>>,
     /// The messages told refused, each with why, in order.
-    pub(crate) refused: Mutex<Vec<(String, QueueItemNotDeliveredReason)>>,
+    pub(super) refused: Mutex<Vec<(String, QueueItemNotDeliveredReason)>>,
     /// The messages told given back, in order.
-    pub(crate) given_back: Mutex<Vec<String>>,
+    pub(super) given_back: Mutex<Vec<String>>,
     /// Tells a waiter at each.
-    pub(crate) changed: Notify,
+    pub(super) changed: Notify,
 }
 
 #[cfg(test)]
