@@ -69,6 +69,13 @@ mod frame_routing;
 mod goals;
 mod handshake_register;
 mod hooks;
+#[cfg_attr(
+    not(any(test, feature = "test-support")),
+    expect(
+        unreachable_pub,
+        reason = "the shared session tests reach it through the driver's export"
+    )
+)]
 pub(crate) mod inbox_address;
 mod intervention;
 mod lifecycle;

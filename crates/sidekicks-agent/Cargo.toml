@@ -7,5 +7,14 @@ description = "Saved agent definitions, skills, plugins and the shared tool serv
 license.workspace = true
 publish.workspace = true
 
+[package.metadata.cargo-shear]
+ignored-paths = [
+  # Each module's doc names what it will hold, for the saved agents and their tool server.
+  "src/definition.rs",
+  "src/plugin.rs",
+  "src/skill.rs",
+  "src/tools.rs",
+]
+
 [lints]
 workspace = true

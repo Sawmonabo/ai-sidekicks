@@ -388,6 +388,14 @@ unused_lifetimes = "warn"
 [workspace.metadata]
 name = "sidekicks-crates"
 
+[workspace.metadata.cargo-shear]
+ignored = [
+  # Session's spawn and the daemon's handlers will name the saved agents and their tool server.
+  "sidekicks-agent",
+  # The daemon's browser tool and preview handlers will name the browser runtime.
+  "sidekicks-browser",
+]
+
 [patch.crates-io]
 # Sätteri's markdown parser is its 0.10.5 release with our indented-code-block fix, one commit on
 # the user's fork, which the markdown parser's WebAssembly build reads too.
