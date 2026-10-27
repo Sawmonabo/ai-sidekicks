@@ -19,8 +19,8 @@ use sidekicks_platforms::thread_cpu_time;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::scheduler::ScheduledJobOutcome;
 use crate::mutex_lock::lock;
+use crate::scheduler::ScheduledJobOutcome;
 
 /// What a job's work is counted in.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

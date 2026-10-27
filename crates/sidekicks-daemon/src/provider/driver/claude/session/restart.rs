@@ -18,32 +18,32 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::task::AbortOnDropHandle;
 
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::claude_delivery_origin;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::errors::record_unheard_claude_failure;
+use crate::claude::session::establishment::ClaudeSessionEstablishment;
+use crate::claude::session::process::ClaudeProcessEnd;
+use crate::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::ultracode::relaunch_claude_options;
 use crate::crash_window::{CrashOutcome, CrashWindow};
-use crate::error_description::describe_error;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::claude_delivery_origin;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::provider::driver::claude::session::establishment::ClaudeSessionEstablishment;
-use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
-use crate::provider::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::ultracode::relaunch_claude_options;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::delivery_dispatch::dispatch_delivery;
-use crate::provider::driver::diagnostics::{
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::delivery_dispatch::dispatch_delivery;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::session_control::{
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::ports::DriverPorts;
+use crate::driver::session_control::{
     DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
 };
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::run::delivery::InboundDelivery;
-use crate::settle_all::settle_all;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::run_host::RunHost;
+use crate::run::delivery::InboundDelivery;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::settle_all;
 
 // Every session's crash window and what waits to start it again.
 #[derive(Default)]

@@ -13,7 +13,7 @@ use sidekicks_platforms::{
     SignatureCheck, read_parent_process, read_peer_process, read_responsible_process,
 };
 
-use crate::ipc::caller_process::contract::{CallerProcessReader, PeerRead};
+use crate::caller_process::contract::{CallerProcessReader, PeerRead};
 
 /// Reads callers, their parents and responsible processes from the system's process table, and
 /// their signatures against the desktop client's requirement. Every read can touch the process

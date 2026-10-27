@@ -16,19 +16,17 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::messages::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind,
 };
-use crate::provider::driver::diagnostics::{
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::reorder_buffer::ReorderPairingRole;
-use crate::provider::driver::streamed_text::{
-    StreamedText, StreamedTextCompletion, StreamedTextPiece,
-};
-use crate::provider::lenient_json::{lenient_object, read_lenient};
-use crate::provider::run::delivery::LateAppendableRow;
+use crate::driver::reorder_buffer::ReorderPairingRole;
+use crate::driver::streamed_text::{StreamedText, StreamedTextCompletion, StreamedTextPiece};
+use crate::lenient_json::{lenient_object, read_lenient};
+use crate::run::delivery::LateAppendableRow;
 
 /// The run a streamed block's rows belong to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

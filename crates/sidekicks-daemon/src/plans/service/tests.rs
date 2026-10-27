@@ -11,17 +11,17 @@ use sidekicks_contracts::session::id::SessionId;
 use tempfile::TempDir;
 
 use super::PlansService;
-use crate::artifacts::list::list_artifacts;
-use crate::artifacts::test_store::ArtifactTestStore;
-use crate::database::schema::session_directory::insert_session_row;
+use crate::list::list_artifacts;
 use crate::plans::store::StoredPlanHolds;
-use crate::provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::session::directory::run_activity::session_activity_sql;
-use crate::session::plan_holds::PlanHolds as _;
-use crate::session::run::engine::tests::test_engine_with;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::test_store::ArtifactTestStore;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_session::directory::run_activity::session_activity_sql;
+use sidekicks_session::plan_holds::PlanHolds as _;
+use sidekicks_session::run::engine::tests::test_engine_with;
+use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_store::database::schema::session_directory::insert_session_row;
 
 const PLAN_TEXT: &str = "# Ship the importer\n\n1. Read `src/import.rs`\n2. Write the tests\n";
 

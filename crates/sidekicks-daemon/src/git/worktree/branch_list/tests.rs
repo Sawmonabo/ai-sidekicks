@@ -7,13 +7,13 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 
 use super::{BranchListError, BranchListReader};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::open_log;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::schema::schema_parts;
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use crate::repo::errors::RepoRefusal;
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::tests::open_log;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

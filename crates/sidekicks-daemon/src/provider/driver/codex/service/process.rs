@@ -26,8 +26,8 @@ use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
-use crate::process_exit::{OUTPUT_CHUNK_BYTES, OutputTail, compose_process_exit};
-use crate::provider::service_log::{open_provider_service_log, read_provider_service_log_tail};
+use crate::service_log::{open_provider_service_log, read_provider_service_log_tail};
+use sidekicks_std::process_exit::{OUTPUT_CHUNK_BYTES, OutputTail, compose_process_exit};
 
 /// The variable that opens a lasting service's shutdown socket; Codex reads it only on Windows.
 const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME: &str = "CODEX_DAEMON_SHUTDOWN_SOCKET";

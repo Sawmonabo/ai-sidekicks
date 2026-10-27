@@ -15,9 +15,9 @@ use sidekicks_contracts::workflow::definition::builder::{
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 
 use super::{WorkflowDefinitionStore, WorkflowDefinitionStoreError, json_text};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::WriteError;
-use crate::workflow::not_found::WorkflowNotFound;
+use crate::not_found::WorkflowNotFound;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::writer::WriteError;
 
 const UPDATE_LAYOUT_SQL: &str = "UPDATE workflow_definitions SET layout_json = @value,
   updated_at = @updated_at WHERE id = @definition_id AND deleted_at IS NULL";

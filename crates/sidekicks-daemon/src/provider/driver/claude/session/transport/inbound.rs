@@ -9,11 +9,11 @@ use serde_json::Map;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::diagnostics::{
+use crate::claude::DESCRIPTOR;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
-use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
 // The request subtypes Claude Code sends that the daemon knowingly leaves pending: an MCP
 // elicitation.

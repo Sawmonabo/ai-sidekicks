@@ -22,8 +22,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{optional_text_column, text_column};
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::fetch::read_counts_as_of;
 use crate::git::worktree::reads::{
@@ -31,10 +30,13 @@ use crate::git::worktree::reads::{
     read_remote_default_branch, tree_name_of,
 };
 use crate::git::worktree::rows::LIVE_WORKTREE_STATE_PREDICATE;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::workspace::folder::canonical_path::canonical_folder_path;
-use crate::workspace::repo::errors::RepoRefusal;
+use crate::repo::errors::RepoRefusal;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 static SELECT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(

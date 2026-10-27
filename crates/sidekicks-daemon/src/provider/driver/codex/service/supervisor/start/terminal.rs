@@ -18,41 +18,39 @@ use serde_json::value::RawValue;
 use sidekicks_platforms::replace_socket_link;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::service::command_line::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::service::command_line::{
     LastingServiceVerdict, TerminalServiceHooks, compare_daemon_hook_commands,
     read_terminal_service_hooks,
 };
-use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
-use crate::provider::driver::codex::service::process::{
-    LastingCodexService, start_lasting_codex_service,
-};
-use crate::provider::driver::codex::service::record::{
+use crate::codex::service::home::CodexServiceKind;
+use crate::codex::service::managed_daemon::stop_codex_managed_daemon;
+use crate::codex::service::process::{LastingCodexService, start_lasting_codex_service};
+use crate::codex::service::record::{
     LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
 };
-use crate::provider::driver::codex::service::registry::own_socket_path;
-use crate::provider::driver::codex::service::socket_link::{
+use crate::codex::service::registry::own_socket_path;
+use crate::codex::service::socket_link::{
     clear_blocking_socket_link, is_listening, restore_socket_link,
 };
-use crate::provider::driver::codex::service::start_lock::CodexStartLock;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::start::kept_records::{
+use crate::codex::service::start_lock::CodexStartLock;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::start::kept_records::{
     KeptRecordsOutcome, lock_record, on_record, reconcile_kept_records, retire_kept_record,
     settle_own_records,
 };
-use crate::provider::driver::codex::service::supervisor::start::{
+use crate::codex::service::supervisor::start::{
     CodexServiceProcess, StartFailure, StartedService, compose_launch, connect,
     read_codex_loaded_threads, read_physical_socket, read_service_version, start_failed,
     take_start_lock,
 };
-use crate::provider::driver::codex::service::trust::{list_codex_hooks, trust_codex_daemon_hooks};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::codex::transport::socket::CodexSocketWait;
-use crate::provider::service_log::provider_service_log_file;
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::codex::service::trust::{list_codex_hooks, trust_codex_daemon_hooks};
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::codex::transport::socket::CodexSocketWait;
+use crate::service_log::provider_service_log_file;
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Starts the terminal service on the person's own Codex folder under the start ticket `launch`;
 /// `cancel` stands the start down, and `start_lock` is Codex's start lock, held from the stop of

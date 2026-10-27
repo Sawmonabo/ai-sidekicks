@@ -14,7 +14,7 @@ use sidekicks_contracts::place::Place;
 
 use crate::file_watch::{WalkFilter, WatchedRoot};
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
-use crate::missing_entry::is_missing_entry;
+use sidekicks_std::missing_entry::is_missing_entry;
 
 const GIT_FOLDER_NAME: &str = ".git";
 

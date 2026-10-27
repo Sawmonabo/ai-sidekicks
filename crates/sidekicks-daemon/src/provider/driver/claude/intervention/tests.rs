@@ -11,18 +11,16 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY;
-use crate::provider::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
-use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
-};
-use crate::provider::driver::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
-use crate::provider::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
-use crate::provider::driver::run_control::{
+use crate::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
+use crate::claude::session::scripted::{SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle};
+use crate::claude::session::transport::declarations::ClaudeHandshakeDeclaration;
+use crate::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
+use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus, SteerPayload,
 };
-use crate::provider::driver::test_registry::new_message_id;
-use crate::provider::port::permission_ask::ProviderPermissionAnswer;
+use crate::driver::test_registry::new_message_id;
+use crate::port::permission_ask::ProviderPermissionAnswer;
 
 fn steer(
     run_id: RunId,

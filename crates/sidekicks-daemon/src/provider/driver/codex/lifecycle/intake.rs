@@ -21,54 +21,46 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::provider::driver::codex::delivery::frames::{CodexFrameDelivery, find_turn_run_id};
-use crate::provider::driver::codex::event_normalizer::{
+use crate::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::codex::delivery::frames::{CodexFrameDelivery, find_turn_run_id};
+use crate::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD,
     CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
-use crate::provider::driver::codex::lifecycle::CodexDriverParts;
-use crate::provider::driver::codex::notification_routing::{
+use crate::codex::lifecycle::CodexDriverParts;
+use crate::codex::notification_routing::{
     CodexContextWindowReading, CodexRoutedFrames, CodexSessionRouting,
 };
-use crate::provider::driver::codex::output_speed::observe_codex_output_speed_frame;
-use crate::provider::driver::codex::run::control::CodexRunControl;
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::run::self_started_turns::open_codex_self_started_turn;
-use crate::provider::driver::codex::run::steer::{
+use crate::codex::output_speed::observe_codex_output_speed_frame;
+use crate::codex::run::control::CodexRunControl;
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::run::self_started_turns::open_codex_self_started_turn;
+use crate::codex::run::steer::{
     remember_codex_prompt_hook_run, take_blocked_codex_steers, take_echoed_codex_steer,
 };
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
-use crate::provider::driver::codex::server_requests::{
-    CodexInboundServerRequest, CodexServerRequestDecision,
-};
-use crate::provider::driver::codex::session::calls::{
-    CodexSessionTask, ask_codex_session, run_codex_session_call,
-};
-use crate::provider::driver::codex::session::controls::{
+use crate::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
+use crate::codex::server_requests::{CodexInboundServerRequest, CodexServerRequestDecision};
+use crate::codex::session::calls::{CodexSessionTask, ask_codex_session, run_codex_session_call};
+use crate::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     CodexSessionInboundSender, drain_codex_session_inbound,
 };
-use crate::provider::driver::codex::session::lifecycle_call::{
-    CodexCompactionReading, CodexLifecycleCall,
-};
-use crate::provider::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::permission_profiles;
-use crate::provider::driver::codex::transport::connection::{
-    CodexForgottenRequest, read_codex_object,
-};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::ports::DriverPorts;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
-use crate::provider::run::turn_end::ProviderTurnEnd;
-use crate::provider::usage_delta_accountant::WindowTelemetry;
+use crate::codex::session::lifecycle_call::{CodexCompactionReading, CodexLifecycleCall};
+use crate::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::thread::permission_profiles;
+use crate::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
+use crate::driver::contract::DriverError;
+use crate::driver::ports::DriverPorts;
+use crate::port::run_host::RunHost;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use crate::run::turn_end::ProviderTurnEnd;
+use crate::usage_delta_accountant::WindowTelemetry;
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";

@@ -11,11 +11,11 @@ use sidekicks_platforms::{
 };
 
 use super::{driver_on_codex_folder, listen_on_codex_folder};
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::ipc::caller_process::descent::CallerCheck;
-use crate::ipc::caller_process::descent::tests::ScriptedReader;
-use crate::ipc::protocol_negotiation::CallerAdmission;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::caller_process::descent::CallerCheck;
+use sidekicks_ipc::caller_process::descent::tests::ScriptedReader;
+use sidekicks_ipc::protocol_negotiation::CallerAdmission;
 
 // A service already listening on the person's Codex folder, joined through the driver's registry,
 // its serving process this test's own; the daemon's caller check, over the services' one set of

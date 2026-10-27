@@ -4,7 +4,7 @@
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
 
-use crate::provider::driver::question_answers::read_question_answer_texts;
+use crate::driver::question_answers::read_question_answer_texts;
 
 /// A user-input request's `answers`, keyed by each question's own id and paired with `answers` in
 /// the order the questions were asked; a skipped question has no key, which Codex reads as

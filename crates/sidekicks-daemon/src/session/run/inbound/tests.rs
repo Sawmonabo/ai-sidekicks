@@ -21,30 +21,28 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
-use crate::provider::driver::diagnostics::RecordedEvents;
-use crate::provider::driver::registry::test_provider;
-use crate::provider::driver::test_registry::new_run_id;
-use crate::provider::port::run_state_publisher::RunStatePublisher;
-use crate::provider::run::delivery::{
-    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
-    LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
-};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::tests::{
+use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
     stored_run_state, test_engine, turn_completed_at, turn_started_at,
 };
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::epochs::{
-    ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs,
-};
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::RunStateChangeCompanions;
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::epochs::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::RunStateChangeCompanions;
 use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::diagnostics::RecordedEvents;
+use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::driver::test_registry::new_run_id;
+use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
+use sidekicks_provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
+    LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
+};
+use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 // A run-state stream no one reads.
 struct UnreadRunStates;

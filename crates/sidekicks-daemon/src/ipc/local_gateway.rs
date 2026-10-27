@@ -18,10 +18,10 @@ use tokio_util::sync::CancellationToken;
 
 use self::writer::Outbox;
 use crate::bootstrap::secure_defaults::SecureDefaults;
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::ipc::protocol_negotiation::ProtocolNegotiator;
-use crate::ipc::registry::{Dispatch, MethodRegistry, TransportId};
-use crate::ipc::stream::subscriptions::Subscriptions;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
+use sidekicks_ipc::registry::{Dispatch, MethodRegistry, TransportId};
+use sidekicks_ipc::stream::subscriptions::Subscriptions;
 
 mod connection;
 #[cfg(test)]

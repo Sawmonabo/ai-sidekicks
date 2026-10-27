@@ -35,43 +35,41 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::{SetOnce, SetOnceError};
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
-use crate::database::statement::WriteStatement;
-use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
-use crate::events::session::append_lock::SessionAppendHold;
-use crate::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
-};
-use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::interventions::interrupt_queue::{InterruptQueue, InterruptQueueError};
 use crate::interventions::store::run_at_version_statement;
-use crate::ipc::domain_error::DomainError;
-use crate::mutex_lock::lock;
-#[cfg(test)]
-use crate::pause_point::PausePoint;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::run::delivery::RunMarker;
-use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use crate::session::plan_holds::PlanHolds;
-use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
-use crate::session::run::daemon_turn::DaemonTurnQueueError;
-use crate::session::run::engine::live::{
-    ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun,
-};
-use crate::session::run::engine::turns::{TurnEnd, WriteWithResend};
-use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
-use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
-use crate::session::run::setup_gates::{
-    RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalReleaseError,
-};
-use crate::session::run::state_change::{
+use crate::plan_holds::PlanHolds;
+use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
+use crate::run::daemon_turn::DaemonTurnQueueError;
+use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
+use crate::run::engine::turns::{TurnEnd, WriteWithResend};
+use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::run::refusals::{RunRefusal, ended_run_refusal};
+use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateChangeWriter,
     refused_statement_index,
 };
-use crate::settle_all::{SettleFailures, settle_all};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::run::delivery::RunMarker;
+use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
+    SessionEventLinkage,
+};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::run_setup_gates::{
+    RunSetupGate, RunSetupGateError, RunSetupGates, RunTerminalReleaseError,
+};
 
 /// The statements the engine's reads prepare on a pooled connection: the run's row, the live
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts

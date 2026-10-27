@@ -14,9 +14,9 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::bound_failure_detail;
+use crate::codex::session::errors::CodexError;
+use crate::driver::contract::bound_failure_detail;
+use sidekicks_std::error_description::describe_error;
 
 /// The sentence a pre-tool call is denied with when its input cannot be read; the model reads it.
 /// It never quotes the input, which holds the tool's arguments.
@@ -324,7 +324,7 @@ mod tests {
         CodexHookAnswer, CodexHookAnswerer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
         CodexHookInput, HOOK_INPUT_UNREADABLE_REASON,
     };
-    use crate::provider::driver::codex::session::errors::CodexError;
+    use crate::codex::session::errors::CodexError;
 
     fn object(value: Value) -> Map<String, Value> {
         let Value::Object(object) = value else {

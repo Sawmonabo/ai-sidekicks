@@ -9,7 +9,7 @@ use std::num::NonZeroUsize;
 use lru::LruCache;
 use sidekicks_contracts::run::id::RunId;
 
-use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::thread_frame_router::ThreadFrameRoute;
 
 /// How many settled run versions one session remembers; a duplicate comes in the same turn or the
 /// same teardown, never hundreds of runs later, so the oldest is forgotten first.
@@ -94,7 +94,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
 
     use super::{TerminalEmissionDecision, TerminalEmissionGate, TerminalRunFrame};
-    use crate::provider::thread_frame_router::ThreadFrameRoute;
+    use crate::thread_frame_router::ThreadFrameRoute;
 
     #[test]
     fn a_second_terminal_for_one_run_version_is_suppressed() {

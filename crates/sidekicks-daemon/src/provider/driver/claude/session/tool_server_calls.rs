@@ -14,13 +14,11 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::task::AbortHandle;
 
-use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::inbound::{
-    ClaudeMcpMessage, ClaudeMcpMessageAnswer,
-};
-use crate::provider::port::in_process_tool_servers::{
+use crate::claude::hooks::callbacks::answer_claude_request;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::inbound::{ClaudeMcpMessage, ClaudeMcpMessageAnswer};
+use crate::port::in_process_tool_servers::{
     InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
     compose_in_band_reply,
 };
@@ -168,10 +166,10 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{ClaudeToolServerCallContext, ClaudeToolServerCalls};
-    use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
-    use crate::provider::driver::claude::session::transport::inbound::ClaudeMcpMessage;
-    use crate::provider::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
-    use crate::provider::port::in_process_tool_servers::{
+    use crate::claude::session::transport::channel::MockClaudeProcessChannel;
+    use crate::claude::session::transport::inbound::ClaudeMcpMessage;
+    use crate::claude::session::transport::user_message::ClaudeWriteAttempt;
+    use crate::port::in_process_tool_servers::{
         InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
     };
 

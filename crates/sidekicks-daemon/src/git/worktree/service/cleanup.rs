@@ -27,8 +27,7 @@ use super::{
     RecordRetirementOptions, WORKTREE_ROW_COLUMNS, WorktreeService, WorktreeServiceError, place_of,
     remove_folder, worktree_row_of,
 };
-use crate::database::connection::read_pool::ReadLength;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::branch_name_pattern::last_fatal_line;
 use crate::git::process::{GitCall, GitError, in_folder};
 use crate::git::worktree::occupancy::OccupancyReadError;
@@ -37,8 +36,9 @@ use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
 };
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
-use crate::settle_all::{SettleFailures, settle_all};
-use crate::workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 // The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
 // daemon holds a pass no longer than that.

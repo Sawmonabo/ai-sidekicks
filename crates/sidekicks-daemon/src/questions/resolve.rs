@@ -23,13 +23,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::ReadLength;
-use crate::events::session::appender::SessionEventDraft;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::read_run_driver;
-use crate::ipc::registry::HandlerError;
-use crate::provider::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
-use crate::provider::run::state_entry::RunStateEntry;
+use crate::driver_resolution::read_run_driver;
 use crate::questions::answer_text::compose_answer_text;
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
@@ -39,7 +33,13 @@ use crate::questions::store::{
     QuestionHolder, read_asked, read_question, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaitAnswer;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::events::session::appender::SessionEventDraft;
 
 impl QuestionsService {
     /// Answers every question of `request`'s record from `device_id` and answers its state.

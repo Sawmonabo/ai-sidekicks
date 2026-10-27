@@ -17,8 +17,8 @@ use sidekicks_platforms::{LeftoverSweep, create_private_folder, replace_file_ato
 
 use crate::daemon::crash::monitor::{PanicRecord, send_panic_record};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-use crate::redaction::scrub_credentials;
-use crate::standard_error::write_error_line;
+use sidekicks_ipc::redaction::scrub_credentials;
+use sidekicks_std::standard_error::write_error_line;
 
 /// The start of a panic's record's name in the crash reports folder.
 pub(crate) const PANIC_RECORD_FILE_PREFIX: &str = "panic-";

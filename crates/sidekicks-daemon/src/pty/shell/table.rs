@@ -39,22 +39,22 @@ use sidekicks_terminal::{CommandLine, Terminals};
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{HandlerError, TransportId};
-use crate::ipc::stream::latest_value::LatestValueOutlet;
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::pty::control_lease::{
+use crate::control_lease::{
     LeaseBroadcast, LeaseReading, ShellConnection, ShellControlLease, ShellLeaseCaller,
 };
-use crate::pty::input_lookup::ShellInputLookup;
-use crate::pty::orphan::guard::OrphanGuard;
-use crate::pty::shell::integration::injection::ShellStartupFolders;
-use crate::pty::shell::list::ShellListFollowers;
-use crate::pty::shell::output::screen::{ShellScreenAppearance, cut_title};
-use crate::pty::shell::record::{ShellRecord, ShellRecordDeps};
-use crate::pty::shell::refusals::terminal_not_found;
-use crate::pty::shell::resize::{ShellResizeError, ShellSize};
-use crate::session::working_folder::SessionWorkingFolder;
+use crate::input_lookup::ShellInputLookup;
+use crate::integration::injection::ShellStartupFolders;
+use crate::list::ShellListFollowers;
+use crate::orphan::guard::OrphanGuard;
+use crate::output::screen::{ShellScreenAppearance, cut_title};
+use crate::record::{ShellRecord, ShellRecordDeps};
+use crate::refusals::terminal_not_found;
+use crate::resize::{ShellResizeError, ShellSize};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{HandlerError, TransportId};
+use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
+use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 /// Reads a session's shape and working folder; refuses a session this daemon does not hold
 /// `session.notFound`.
@@ -264,7 +264,7 @@ impl ShellTable {
             caller.connection.transport_id,
         ));
         if !is_own {
-            return Err(crate::pty::shell::refusals::output_subscription_not_found(
+            return Err(crate::refusals::output_subscription_not_found(
                 terminal_id,
                 &caller.output_subscription_id,
             ));

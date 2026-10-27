@@ -10,22 +10,22 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::task::TaskTracker;
 
-use crate::provider::driver::codex::app_server_protocol::ThreadRevertParams;
-use crate::provider::driver::codex::run::control::interrupt_codex_run;
-use crate::provider::driver::codex::run::start::CodexRunStart;
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::app_server_protocol::ThreadRevertParams;
+use crate::codex::run::control::interrupt_codex_run;
+use crate::codex::run::start::CodexRunStart;
+use crate::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
+use crate::codex::session::calls::{call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::history::read_codex_turn_id_by_client_message_id;
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 
 const THREAD_REVERT_METHOD: &str = "thread/revert";
 
@@ -299,17 +299,17 @@ mod tests {
     use tokio_util::task::TaskTracker;
 
     use super::CodexConversationRewind;
-    use crate::mutex_lock::lock;
-    use crate::provider::driver::codex::run::routes::CodexRunBinding;
-    use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
-    use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
-    use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-    use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-    use crate::provider::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
-    use crate::provider::driver::codex::session::state::CodexTurnMessage;
-    use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
-    use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
-    use crate::provider::driver::test_registry::new_run_id;
+    use crate::codex::run::routes::CodexRunBinding;
+    use crate::codex::run::start::CODEX_TURN_START_TIMEOUT;
+    use crate::codex::run::start::record::CodexTurnRequest;
+    use crate::codex::run::turn_end_waiters::CodexTurnEndDeadline;
+    use crate::codex::session::fork::config_change::CodexConfigForks;
+    use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
+    use crate::codex::session::state::CodexTurnMessage;
+    use crate::codex::session::test_session::{TestCodexSession, turn_reply};
+    use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+    use crate::driver::test_registry::new_run_id;
+    use sidekicks_std::mutex_lock::lock;
 
     /// How long the test waits before it counts the rewind and the start as deadlocked.
     const DEADLOCK_BOUND: Duration = Duration::from_secs(10);

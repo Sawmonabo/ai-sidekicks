@@ -8,22 +8,16 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 
 use super::resume_params;
-use crate::provider::driver::claude::session::scripted::channel::{
-    ScriptedAnswer, ScriptedChannel, ScriptedWrite,
-};
-use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
-use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
-};
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel, ScriptedWrite};
+use crate::claude::session::scripted::driver::{ScriptedDriver, create_params};
+use crate::claude::session::scripted::{SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle};
+use crate::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::error_causes::ProviderAxis;
-use crate::provider::driver::session_control::{
-    CloseSessionParams, CreateSessionParams, DriverResumeResult,
-};
-use crate::provider::driver::test_registry::new_session_id;
+use crate::driver::contract::DriverError;
+use crate::driver::error_causes::ProviderAxis;
+use crate::driver::session_control::{CloseSessionParams, CreateSessionParams, DriverResumeResult};
+use crate::driver::test_registry::new_session_id;
 
 // Killed by a failed bring-up leaving its claim behind, which refuses the next create, and by a
 // close that finds a bring-up in flight returning before it settles, which leaves its process

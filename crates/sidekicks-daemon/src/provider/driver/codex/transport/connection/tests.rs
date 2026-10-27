@@ -14,14 +14,14 @@ use super::{
     CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
     CodexConnectionHandlers, CodexForgottenRequest,
 };
-use crate::provider::driver::codex::server_requests::{
+use crate::codex::server_requests::{
     CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON, CodexAskKind, CodexInboundServerRequest,
     CodexRoutedMethod, CodexServerRequestAnswer, CodexServerRequestDecision,
     CodexServerRequestResponder, compose_unrouted_request_error,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::error_causes::RequestUnanswered;
+use crate::codex::session::errors::CodexError;
+use crate::driver::contract::DriverError;
+use crate::driver::error_causes::RequestUnanswered;
 
 #[derive(Default)]
 struct RecordedEvents {

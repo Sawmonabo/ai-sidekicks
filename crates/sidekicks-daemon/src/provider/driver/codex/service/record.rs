@@ -17,7 +17,7 @@ use sidekicks_platforms::{
     LeftoverSweep, ProcessRecord, create_private_folder, real_path, replace_file_atomically,
 };
 
-use crate::provider::service_log::provider_home_key;
+use crate::service_log::provider_home_key;
 
 /// The folder in the data folder that holds the lasting services' records.
 const RECORD_FOLDER_NAME: &str = "codex-services";

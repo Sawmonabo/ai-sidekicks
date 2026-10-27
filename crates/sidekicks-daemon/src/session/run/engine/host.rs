@@ -9,12 +9,12 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::provider::port::run_host::{RunHost, RunHostError};
-use crate::provider::run::start_request::DaemonTurnStartRequest;
-use crate::provider::run::turn_end::{ProviderTurnEnd, StartedTurn};
-use crate::provider::runtime_binding::store::RuntimeBinding;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::stored_leg::read_session_leg;
+use crate::run::engine::RunEngine;
+use crate::run::stored_leg::read_session_leg;
+use sidekicks_provider::port::run_host::{RunHost, RunHostError};
+use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn};
+use sidekicks_provider::runtime_binding::store::RuntimeBinding;
 
 impl RunHost for RunEngine {
     fn start_turn(

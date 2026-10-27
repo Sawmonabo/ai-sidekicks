@@ -5,7 +5,7 @@ use sidekicks_contracts::session::methods::SearchMatchRange;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_search::index::MatchRange;
 
-use crate::text_cut::cut_to_code_points;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// How many code points of the line before the first match a cut line keeps, so the match reads
 /// in context.

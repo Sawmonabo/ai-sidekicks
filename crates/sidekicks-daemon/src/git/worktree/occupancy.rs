@@ -14,11 +14,13 @@ use sidekicks_contracts::repo::mount::{RepoMountId, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{optional_text_column, text_column};
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::worktree::rows::live_worktree_state_predicate;
-use crate::workspace::folder::canonical_path::canonical_folder_path;
-use crate::workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
+use crate::row_guards::CHECKOUT_ROOT_METADATA_PATH;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 
 /// The statements the occupancy read prepares on a pooled connection.
 pub(crate) const MOUNT_OCCUPANCY_STATEMENT_CAPACITY: usize = 2;

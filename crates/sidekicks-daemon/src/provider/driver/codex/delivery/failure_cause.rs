@@ -10,8 +10,8 @@ use sidekicks_contracts::provider::driver::usage_limit::ProviderUsageLimitCause;
 use sidekicks_contracts::run::failure_cause::{ProviderFailureOrigin, RunFailureCause};
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::usage_limit_signal::classify_codex_usage_limit_signal;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::usage_limit_signal::classify_codex_usage_limit_signal;
 
 /// The error arm Codex ends a turn with when the turn is too long for the model's window.
 pub(crate) const CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR: &str = "contextWindowExceeded";

@@ -9,8 +9,8 @@ use sidekicks_contracts::repo::mount::WorkspaceId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemSummary;
 
-use crate::database::statement::WriteStatement;
-use crate::provider::run::start_request::DriverStep;
+use sidekicks_provider::run::start_request::DriverStep;
+use sidekicks_store::database::statement::WriteStatement;
 
 /// What a run's start and its continue both take: the run, the workspace its send bound, the
 /// posture requested, and the driver's start and interrupt of the run's turn.

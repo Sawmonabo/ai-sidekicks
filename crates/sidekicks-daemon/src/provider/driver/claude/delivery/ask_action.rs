@@ -7,9 +7,9 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 use url::Url;
 
-use crate::provider::driver::claude::delivery::patches::is_claude_file_changing_tool;
-use crate::provider::port::permission_ask::ProviderAskAction;
-use crate::provider::record_readers::read_non_empty_string;
+use crate::claude::delivery::patches::is_claude_file_changing_tool;
+use crate::port::permission_ask::ProviderAskAction;
+use crate::record_readers::read_non_empty_string;
 
 const CLAUDE_RULE_SCOPES: [RememberedScopeKind; 2] =
     [RememberedScopeKind::Session, RememberedScopeKind::Project];
@@ -106,7 +106,7 @@ mod tests {
     use sidekicks_contracts::approval::RememberedScopeKind;
 
     use super::{ClaudeAskReading, read_claude_ask_action};
-    use crate::provider::port::permission_ask::ProviderAskAction;
+    use crate::port::permission_ask::ProviderAskAction;
 
     #[rstest]
     #[case::a_flagged_command(

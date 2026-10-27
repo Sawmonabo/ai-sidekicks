@@ -15,21 +15,21 @@ use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::BoundedText;
 
-use crate::keyed_lock::KeyedLock;
-use crate::mutex_lock::lock;
-use crate::provider::driver::SessionSpawnContextResolver;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::GetAccountRateLimitsParams;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::usage_limit_signal::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::app_server_protocol::GetAccountRateLimitsParams;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::errors::CodexError;
+use crate::codex::usage_limit_signal::{
     CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD, CodexRateLimitObservation,
     codex_epoch_seconds_to_wire_instant, observe_codex_rate_limit_read,
 };
-use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::run::delivery::{InboundDelivery, MachineScopedRow};
+use crate::driver::SessionSpawnContextResolver;
+use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::registration::PortRegistration;
+use crate::run::delivery::{InboundDelivery, MachineScopedRow};
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::mutex_lock::lock;
 
 /// Reads and files an account's rate-limit readings. A clone files through the same record of what
 /// was filed, so a reading one clone filed is not filed again by another.
@@ -236,7 +236,7 @@ mod tests {
         UsageRateLimitUpdatedPayload, compose_codex_rate_limit_rows,
         keep_filed_codex_rate_limit_rows, select_changed_codex_rate_limit_rows,
     };
-    use crate::provider::driver::codex::usage_limit_signal::{
+    use crate::codex::usage_limit_signal::{
         CodexRateLimitObservation, observe_codex_rate_limit_read, observe_codex_rate_limit_update,
     };
 

@@ -10,9 +10,9 @@ use std::path::Path;
 
 use sidekicks_platforms::PathRules;
 
-use crate::provider::port::permission_ask::ProviderAskAction;
-use crate::workspace::folder::canonical_path::canonical_folder_path;
-use crate::workspace::trust_envelope::is_contained_within;
+use sidekicks_provider::port::permission_ask::ProviderAskAction;
+use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_workspace::trust_envelope::is_contained_within;
 
 /// The daemon's own answer to an ask; a refusal carries the reason the agent reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -91,7 +91,7 @@ mod tests {
     use sidekicks_platforms::make_folder_link;
 
     use super::{ProviderAskAnswer, answer_provider_ask};
-    use crate::provider::port::permission_ask::ProviderAskAction;
+    use sidekicks_provider::port::permission_ask::ProviderAskAction;
 
     fn change(paths: &[&Path]) -> ProviderAskAction {
         ProviderAskAction::FileChange {

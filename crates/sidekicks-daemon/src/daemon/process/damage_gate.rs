@@ -8,9 +8,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 
 use crate::daemon::process::jobs::IdleMemoryCollect;
-use crate::ipc::registry::{Dispatch, DispatchError, HandlerContext, Reply, Request};
-use crate::ipc::stream::subscriptions::DispatchFailureWatch;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
+use sidekicks_ipc::registry::{Dispatch, DispatchError, HandlerContext, Reply, Request};
+use sidekicks_ipc::stream::subscriptions::DispatchFailureWatch;
+use sidekicks_store::database::damage::DatabaseDamageWatch;
 
 /// The database damage watch, told of a call's or a feed's failure.
 #[derive(Clone)]
@@ -91,12 +91,12 @@ mod tests {
 
     use super::{DamageReportGate, DispatchDamageWatch};
     use crate::daemon::process::jobs::IdleMemoryCollect;
-    use crate::database::writer::messages::WriteJobFailure;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{
         Dispatch, DispatchError, EncodedValue, HandlerContext, Reply, Request,
     };
-    use crate::recovery::database_file::damage::DatabaseDamageWatch;
+    use sidekicks_store::database::damage::DatabaseDamageWatch;
+    use sidekicks_store::database::writer::messages::WriteJobFailure;
 
     // What the dispatch behind the gate answers.
     #[derive(Clone, Copy, Debug)]

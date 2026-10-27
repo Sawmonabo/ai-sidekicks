@@ -19,15 +19,15 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::approvals::request_create::ApprovalResourceDescriptor;
-use crate::database::session_scope::SessionScopedSql;
-use crate::database::statement::{
+use crate::request_create::ApprovalResourceDescriptor;
+use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
+use sidekicks_session::run::read::{SessionRun, session_run_of_row};
+use sidekicks_session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_store::database::session_scope::SessionScopedSql;
+use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::session::directory::lookups::ENDED_SESSION_STATES_SQL;
-use crate::session::run::read::{SessionRun, session_run_of_row};
-use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 /// The distinct statements [`ApprovalRequestReader`] prepares, for the reading connection's
 /// statement cache.

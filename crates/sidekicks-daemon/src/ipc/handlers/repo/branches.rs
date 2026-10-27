@@ -7,8 +7,8 @@ use futures::FutureExt as _;
 use sidekicks_contracts::repo::git_reads::ProjectBranchListRequest;
 use sidekicks_contracts::repo::methods::ProjectBranchList;
 
-use crate::git::worktree::branch_list::BranchListReader;
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 
 /// Registers `project.branch.list` on `branches`; a mount that is not attached is refused with
 /// `repoMount.notFound`. Fails the start when the method is already registered.

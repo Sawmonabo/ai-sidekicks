@@ -9,29 +9,27 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::children::ChildRunLookup;
-use crate::provider::driver::codex::delivery::frames::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::children::ChildRunLookup;
+use crate::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDispatch, CodexItemRun, CodexTakenMessage,
 };
-use crate::provider::driver::codex::delivery::memory::{CodexRunningCommand, CodexStreamedProse};
-use crate::provider::driver::codex::delivery::patches::read_codex_patch_files;
-use crate::provider::driver::codex::delivery::rows::{
+use crate::codex::delivery::memory::{CodexRunningCommand, CodexStreamedProse};
+use crate::codex::delivery::patches::read_codex_patch_files;
+use crate::codex::delivery::rows::{
     CODEX_COMMAND_ITEM_TYPE, CodexItemRow, CodexProseRowType, CodexRowRun,
     compose_codex_prose_piece, is_codex_tool_item, item_type, read_codex_frame_item,
     read_codex_item_completed_row, read_codex_item_prose, read_codex_tool_start_row,
 };
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexDeliveryPort, CodexTransportDiagnostic,
-};
-use crate::provider::driver::diagnostics::{
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::run_control::RunToolBoundary;
-use crate::provider::driver::streamed_text::StreamedTextCompletion;
-use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::provider::run::delivery::InboundDelivery;
+use crate::driver::run_control::RunToolBoundary;
+use crate::driver::streamed_text::StreamedTextCompletion;
+use crate::record_readers::{read_count, read_non_empty_string};
+use crate::run::delivery::InboundDelivery;
 
 /// The item echoing a tool output a client starts a turn with in place of a message.
 const CODEX_TOOL_OUTPUT_ITEM_TYPE: &str = "functionCallOutput";
@@ -298,7 +296,7 @@ impl CodexFrameDelivery {
     }
 
     /// Admits one streamed piece of the item `item_id` as its row.
-    pub(in crate::provider::driver::codex::delivery) async fn admit_prose_piece(
+    pub(in crate::codex::delivery) async fn admit_prose_piece(
         &self,
         record: &mut CodexSessionRecord,
         item_id: &str,

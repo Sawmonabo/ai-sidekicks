@@ -15,19 +15,21 @@ use sidekicks_contracts::method_descriptor::NullPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::{False, True};
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::read_session_driver;
-use crate::ipc::registry::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::ipc::stream::feed::Feed;
-use crate::provider::command::running_set::{CommandInput, RunningCommandSets};
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::session::directory::lookups::session_exists;
-use crate::session::not_found::session_not_found;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_provider::command::running_set::{CommandInput, RunningCommandSets};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_session::driver_resolution::read_session_driver;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 /// What the command methods read and act through.
 pub(crate) struct CommandMethodSources {

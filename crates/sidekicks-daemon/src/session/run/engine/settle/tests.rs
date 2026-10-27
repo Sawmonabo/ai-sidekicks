@@ -13,18 +13,18 @@ use sidekicks_contracts::session::controls::events::{
 };
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::DATABASE_NOW_SQL;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
-use crate::mutex_lock::lock;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::tests::{
+use crate::run::engine::tests::{
     STEP_BOUND, append, provider_end, run_version, stored_events, stored_run_state, test_engine,
     token_limit, turn, turn_started_at,
 };
-use crate::session::run::read::{LiveRun, RunRead};
-use crate::session::run::state_change::RunStateChangeCompanions;
+use crate::run::read::{LiveRun, RunRead};
+use crate::run::state_change::RunStateChangeCompanions;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 // The test's interrupt rows: the daemon's own at the token limit and at the step limit, and a
 // person's.

@@ -20,29 +20,29 @@ use tokio::time::timeout;
 
 use super::test_opening::{record_first_provider_capabilities, test_opening_composer};
 use super::{ProviderSessionError, ProviderSessions, ProviderSessionsDeps};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::{
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::session_control::DriverResumeResult;
+use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::runtime_binding::store::{
+    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
+};
+use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
+use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
+use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
+use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
     SessionAppendRefusal,
 };
-use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::events::session::followers::SessionEventFollowers;
-use crate::provider::driver::contract::MockProviderDriver;
-use crate::provider::driver::session_control::DriverResumeResult;
-use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
-use crate::provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
-};
-use crate::provider::runtime_binding::test_store::{binding_input, spawned_build};
-use crate::questions::schema::schema_parts;
-use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
-use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
-use crate::session::run::binding_cursors::RunBindingCursors;
-use crate::session::run::engine::tests::insert_running_run;
-use crate::session::run::epochs::ExecutionEpochs;
+use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+use sidekicks_store::events::session::followers::SessionEventFollowers;
 
 /// The statements the test's read pool prepares.
 const READ_STATEMENT_CAPACITY: usize = 16;

@@ -20,27 +20,27 @@ use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{PermissionCheck, PermissionCheckDeps, PermissionCheckError, ProviderAskVerdict};
-use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
-use crate::approvals::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
-use crate::approvals::service::ApprovalService;
-use crate::approvals::service::tests::{ApprovalFixture, from_json};
-use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
-use crate::daemon::machine::local::LocalMachine;
-use crate::daemon::machine::registry::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::DatabaseWriter;
-use crate::events::session::appender::SessionEventAppender;
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::authorizer::Authorizer;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::session_control::RevokeRuleParams;
-use crate::provider::port::permission_ask::{
+use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
+use crate::service::ApprovalService;
+use crate::service::tests::{ApprovalFixture, from_json};
+use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::authorizer::Authorizer;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::driver::session_control::RevokeRuleParams;
+use sidekicks_provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAsk,
 };
+use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::machine::local::LocalMachine;
+use sidekicks_store::machine::registry::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
 
 /// The bound the tests read shell lines under.
 pub(crate) const LINE_LIMIT: usize = 4096;

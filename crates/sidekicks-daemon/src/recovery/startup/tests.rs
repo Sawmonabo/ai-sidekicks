@@ -12,15 +12,15 @@ use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
-use crate::approvals::service::tests::SETTLE_WAIT;
-use crate::database::writer::test_file::test_run_id;
-use crate::events::session::append_lock::SESSION_APPEND_LOCK;
-use crate::provider::port::plan::ProviderPlan;
-use crate::recovery::restart_settle::RESTART_FAILURE_DETAIL;
-use crate::recovery::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
-use crate::recovery::status::RecoveryStatusTracker;
-use crate::recovery::test_pass::PassFixture;
-use crate::session::run::engine::tests::{insert_running_run, stored_run_state};
+use crate::restart_settle::RESTART_FAILURE_DETAIL;
+use crate::session_write_refusal::{refuse_call_naming_session, refuse_session_event};
+use crate::status::RecoveryStatusTracker;
+use crate::test_pass::PassFixture;
+use sidekicks_approval::service::tests::SETTLE_WAIT;
+use sidekicks_provider::port::plan::ProviderPlan;
+use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state};
+use sidekicks_store::database::writer::test_file::test_run_id;
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 
 // The folders the store's files were copied aside into.
 fn aside_copies(data_folder: &Path) -> Vec<PathBuf> {

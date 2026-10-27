@@ -22,12 +22,12 @@ use tokio::sync::watch;
 
 use crate::data_acts::erase::{DataErase, DataEraseRefusal};
 use crate::data_acts::export::{DataExportStartRefusal, DataExports, is_finished};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::ipc::stream::feed::Feed;
-use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
 
 /// What the data verbs act on.
 pub(crate) struct DataMethodsDeps {
@@ -181,23 +181,25 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{DataMethodsDeps, register_data_methods};
-    use crate::artifacts::payload_store::PayloadStore;
-    use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
-    use crate::credential_store::items::{SecretItems, SecretItemsStart};
-    use crate::credential_store::os::TestStoreAccess;
-    use crate::credential_store::place::{PlaceRecord, SecretsPlace, record_path, write_record};
     use crate::data_acts::erase::{DataErase, DataEraseDeps};
     use crate::data_acts::export::{DataExportDeps, DataExports};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::domain_error::DomainError;
-    use crate::ipc::registry::{
+    use sidekicks_artifact::payload_store::PayloadStore;
+    use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_ipc::registry::{
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, MethodRegistryBuilder, Reply,
     };
-    use crate::ipc::stream::feed::CreditGate;
-    use crate::provider::driver::contract::MockProviderDriver;
-    use crate::provider::driver::test_registry::registry_of_first_provider;
+    use sidekicks_ipc::stream::feed::CreditGate;
+    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+    use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+    use sidekicks_store::credential_store::os::TestStoreAccess;
+    use sidekicks_store::credential_store::place::{
+        PlaceRecord, SecretsPlace, record_path, write_record,
+    };
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     const WAIT: Duration = Duration::from_secs(10);
     const UNKNOWN_JOB: &str = "0192f0c1-7a3b-7c00-8000-0000000000ff";

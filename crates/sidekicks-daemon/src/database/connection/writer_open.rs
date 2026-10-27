@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, ErrorCode, Transaction, TransactionBehavior};
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::{apply_connection_pragmas, prepare_or_close};
 use crate::database::schema::{DatabaseSchema, SESSION_EVENTS_TABLE};
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 // How long an open waits for another connection's lock, as the busy wait and as the switch to
 // WAL's own retries.

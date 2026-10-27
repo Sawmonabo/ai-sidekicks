@@ -15,7 +15,7 @@ use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::SessionEventType;
 use strum::EnumString;
 
-use crate::provider::thread_frame_router::{
+use crate::thread_frame_router::{
     ChildThreadAnnouncement, ThreadFrameFamilyClass, ThreadScopedFrameCapability,
 };
 

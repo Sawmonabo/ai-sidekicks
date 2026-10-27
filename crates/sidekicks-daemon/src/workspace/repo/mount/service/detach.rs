@@ -15,15 +15,15 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{RepoMountService, RepoMountServiceError};
-use crate::database::connection::read_pool::ReadLength;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::text_column;
-use crate::database::writer::WriteError;
-use crate::events::session::appender::SessionEventLinkage;
-use crate::settle_all::settle_all;
-use crate::workspace::event_emitter::EmitWorkspaceEventInput;
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::schema::MountOrigin;
+use crate::event_emitter::EmitWorkspaceEventInput;
+use crate::repo::errors::RepoRefusal;
+use crate::schema::MountOrigin;
+use sidekicks_std::settle_all::settle_all;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::writer::WriteError;
+use sidekicks_store::events::session::appender::SessionEventLinkage;
 
 // The detach write's statements, by position: the running check refuses when it finds a run, and
 // the flip refuses when another detach or a re-attach moved the mount first.

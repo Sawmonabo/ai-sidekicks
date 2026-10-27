@@ -17,29 +17,29 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::schema::session_directory::read_session_state_through;
-use crate::ipc::domain_error::DomainError;
-use crate::keyed_lock::KeyHold;
-use crate::queue::admission::QueueAdmission;
-use crate::queue::delivery::{QueueDelivery, QueueWithdrawal};
-use crate::queue::error::QueueError;
-use crate::queue::recorder::{
+use crate::admission::QueueAdmission;
+use crate::delivery::{QueueDelivery, QueueWithdrawal};
+use crate::error::QueueError;
+use crate::recorder::{
     QueueRecordError, QueueRecorder, RecordSendError, RecordedSend, SendRefusal, SendRoute,
     lead_run_queued,
 };
-use crate::queue::refusals::{
+use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
-use crate::queue::run_lifecycle::QueueRunLifecycle;
-use crate::queue::store::{
+use crate::run_lifecycle::QueueRunLifecycle;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_session::changes::refuse_unchangeable_session;
+use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
-use crate::session::changes::refuse_unchangeable_session;
-use crate::session::not_found::session_not_found;
-use crate::session::run::agent::read_lead_agent_through;
-use crate::session::run::read::{RunRead, read_run_through};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::run::agent::read_lead_agent_through;
+use sidekicks_session::run::read::{RunRead, read_run_through};
+use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::schema::session_directory::read_session_state_through;
 
 /// Reads and writes of a send before a lead run that keeps moving under it is refused.
 const SEND_ATTEMPTS: usize = 3;
@@ -82,7 +82,7 @@ pub(crate) struct QueueSends {
     deps: QueueSendsDeps,
     /// Holds a send after it read the session's lead runs, before each write.
     #[cfg(test)]
-    pub(crate) route_write_pause: crate::pause_point::PausePoint,
+    pub(crate) route_write_pause: sidekicks_std::pause_point::PausePoint,
 }
 
 impl QueueSends {
@@ -91,7 +91,7 @@ impl QueueSends {
         Self {
             deps,
             #[cfg(test)]
-            route_write_pause: crate::pause_point::PausePoint::default(),
+            route_write_pause: sidekicks_std::pause_point::PausePoint::default(),
         }
     }
 

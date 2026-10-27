@@ -33,45 +33,41 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::destructive_git::covers_destructive_git;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::codex::attachments::compose_codex_text_input;
-use crate::provider::driver::codex::delivery::ask_action::read_codex_ask_action;
-use crate::provider::driver::codex::delivery::asks::questions::read_codex_question_prompts;
-use crate::provider::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::provider::driver::codex::rules::CodexRulesError;
-use crate::provider::driver::codex::run::steer::steer_codex_run;
-use crate::provider::driver::codex::server_requests::{
+use crate::background_work::BackgroundWorkForms;
+use crate::codex::attachments::compose_codex_text_input;
+use crate::codex::delivery::ask_action::read_codex_ask_action;
+use crate::codex::delivery::asks::questions::read_codex_question_prompts;
+use crate::codex::delivery::frames::CodexFrameDelivery;
+use crate::codex::rules::CodexRulesError;
+use crate::codex::run::steer::steer_codex_run;
+use crate::codex::server_requests::{
     CodexAskKind, CodexAskOwner, CodexInboundServerRequest, CodexRoutedMethod,
     CodexServerRequestAnswer, CodexServerRequestDecision,
 };
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexDeliveryPort, CodexTransportDiagnostic,
-};
-use crate::provider::driver::contract::{
-    DriverError, ProviderRequestAnswer, RespondToRequestParams,
-};
-use crate::provider::driver::question_answers::QUESTION_UNSHOWN_REASON;
-use crate::provider::inbound_json::decode_inbound_json;
-use crate::provider::port::permission_ask::{
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::inbound::CodexSessionInboundSender;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
+use crate::driver::contract::{DriverError, ProviderRequestAnswer, RespondToRequestParams};
+use crate::driver::question_answers::QUESTION_UNSHOWN_REASON;
+use crate::inbound_json::decode_inbound_json;
+use crate::port::permission_ask::{
     PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
-use crate::provider::port::question::{
+use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
     QuestionTurnError, take_question_in_turn,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::project_rule_folders::write_into_project_folders;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::DeliveryOperation;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::port::registration::PortRegistration;
+use crate::project_rule_folders::write_into_project_folders;
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::DeliveryOperation;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_policy::destructive_git::covers_destructive_git;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::mutex_lock::lock;
 
 /// The two owners an admitted ask goes to, each registered at runtime.
 pub(crate) struct CodexAskOwners {

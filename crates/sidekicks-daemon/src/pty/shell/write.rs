@@ -18,11 +18,11 @@ use sidekicks_contracts::terminal::{TERMINAL_WRITES_WAITING_LIMIT, TerminalId};
 use sidekicks_terminal::TerminalWriteError;
 use tokio::runtime::Handle;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{HandlerError, TransportId};
-use crate::pty::control_lease::{ShellControlLease, ShellLeaseCaller, ShellWriter, WriteAdmission};
-use crate::pty::shell::paste::{PasteInput, ShellPastePart, ShellPastes};
-use crate::pty::shell::refusals::terminal_not_found;
+use crate::control_lease::{ShellControlLease, ShellLeaseCaller, ShellWriter, WriteAdmission};
+use crate::paste::{PasteInput, ShellPastePart, ShellPastes};
+use crate::refusals::terminal_not_found;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{HandlerError, TransportId};
 
 /// Hands bytes to a shell's terminal at once, behind every write before them, answering a future
 /// that resolves once the terminal's write queue takes them; the shell table passes

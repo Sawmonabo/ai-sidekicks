@@ -22,16 +22,16 @@ use tokio::sync::{Notify, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::error_description::describe_error;
-use crate::mutex_lock::lock;
-use crate::provider::driver::capabilities::writer::{
+use crate::driver::capabilities::writer::{
     DriverCapabilitiesWriter, DriverCapabilitiesWriterError,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::diagnostics::{
+use crate::driver::contract::DriverError;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::registry::ProviderRegistry;
+use crate::driver::registry::ProviderRegistry;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 /// How long one driver's read and declare may take before the refresh cancels it, so a read that
 /// never settles cannot hold the refresh and every trigger after it.
@@ -282,13 +282,13 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use super::CapabilityRefresher;
-    use crate::database::schema::provider_drivers::schema_parts;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::provider::driver::capabilities::writer::test_capabilities_writer;
-    use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
-    use crate::provider::driver::registry::ProviderRegistry;
-    use crate::provider::driver::test_registry::test_driver_services;
-    use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use crate::driver::capabilities::writer::test_capabilities_writer;
+    use crate::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
+    use crate::driver::registry::ProviderRegistry;
+    use crate::driver::schema::schema_parts;
+    use crate::driver::test_registry::test_driver_services;
+    use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     // A permit for each capability read the driver starts.
     static READS_STARTED: Semaphore = Semaphore::const_new(0);

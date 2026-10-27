@@ -11,15 +11,15 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use tokio::sync::Notify;
 
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
-use crate::session::run::engine::live::LiveRuns;
-use crate::session::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::live::LiveRuns;
+use crate::run::engine::{RunEngine, RunEngineError};
 
 impl RunEngine {
     /// Waits until `run_id` reads `running` or has ended, or until its waiters are woken for a
     /// question waiting for it that settled; the caller reads again what it waits on. Fails with
-    /// [`crate::session::run::refusals::RunRefusal::NotFound`] for a run with no row, and as the
+    /// [`crate::run::refusals::RunRefusal::NotFound`] for a run with no row, and as the
     /// read fails.
     pub(crate) async fn wait_for_running_wake(&self, run_id: RunId) -> Result<(), RunEngineError> {
         self.wait_for_running_wake_unless(run_id, async {

@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use sidekicks_contracts::run::control::ProcessExit;
 
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::errors::CodexError;
 
 /// Why a service's conversations need resuming.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

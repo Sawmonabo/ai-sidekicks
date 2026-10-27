@@ -21,14 +21,14 @@ use sidekicks_contracts::jsonrpc::streaming::{
 use tokio_util::sync::{CancellationToken, DropGuard};
 use tracing::Instrument as _;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::jsonrpc_error_mapping::{CallFailure, json_rpc_error_of};
-use crate::ipc::registry::{
+use crate::domain_error::DomainError;
+use crate::jsonrpc_error_mapping::{CallFailure, json_rpc_error_of};
+use crate::registry::{
     DispatchError, EncodedFeed, EncodedValue, HandlerContext, MethodRegistryBuilder,
     RegistrationError, TransportId,
 };
-use crate::ipc::stream::feed::SendGate;
-use crate::mutex_lock::lock;
+use crate::stream::feed::SendGate;
+use sidekicks_std::mutex_lock::lock;
 
 /// What a feed's failure is reported to, beside the subscription it ends.
 pub(crate) trait DispatchFailureWatch: Send + Sync {
@@ -326,12 +326,12 @@ mod tests {
     };
 
     use super::*;
-    use crate::ipc::call_fixtures::{
+    use crate::call_fixtures::{
         Named, NamedSubscribe, SUBSCRIBE_METHOD as METHOD, channel_feed, context, request,
         subscription_id,
     };
-    use crate::ipc::registry::{Dispatch as _, HandlerError, MethodRegistry, Reply};
-    use crate::ipc::stream::feed::{CreditGate, Feed};
+    use crate::registry::{Dispatch as _, HandlerError, MethodRegistry, Reply};
+    use crate::stream::feed::{CreditGate, Feed};
 
     /// A watch that keeps the text of each failure it is told of.
     #[derive(Default)]

@@ -27,32 +27,30 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::statement::WriteStatement;
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
-};
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::mutex_lock::lock;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::run_state_publisher::RunStatePublisher;
-use crate::provider::run::delivery::{
+use crate::console_state::advisor_model_change_statement;
+use crate::run::engine::turns::run_live_or_turn_open_statement;
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
+use crate::run::inbound::absorb::absorb;
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::{RunStateChange, refused_statement_index};
+use crate::transcript::reasoning::split_reasoning_text;
+use sidekicks_provider::port::inbound_dispatch::InboundDispatch;
+use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
+use sidekicks_provider::run::delivery::{
     DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, LateEventAbsorbReason,
     RunMarker, SessionScopedRow, UnstampedRow, stamp,
 };
-use crate::provider::run::state_entry::RunStateReport;
-use crate::provider::run::turn_end::ProviderTurnEnd;
-use crate::session::console_state::advisor_model_change_statement;
-use crate::session::run::engine::turns::run_live_or_turn_open_statement;
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::epochs::{
-    DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs,
+use sidekicks_provider::run::state_entry::RunStateReport;
+use sidekicks_provider::run::turn_end::ProviderTurnEnd;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
+    SessionEventLinkage,
 };
-use crate::session::run::inbound::absorb::absorb;
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::{RunStateChange, refused_statement_index};
-use crate::transcript::reasoning::split_reasoning_text;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// Why a delivery was neither written, routed nor absorbed; nothing of it is kept.
 #[derive(Debug, thiserror::Error)]

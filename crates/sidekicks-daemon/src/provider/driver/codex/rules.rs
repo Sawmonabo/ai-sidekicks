@@ -22,20 +22,20 @@ use sidekicks_contracts::approval::RememberedRuleSense;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_platforms::PathRules;
 
-use crate::bounded_wait::wait_within;
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::file::real_location::resolve_real_location;
-use crate::git::exclude::{ExcludeError, add_repository_exclude};
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::MissingEntry;
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::destructive_git::covers_destructive_git;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::asks::CodexProjectRules;
-use crate::provider::driver::codex::rules::evaluator::RuleFileEvaluator;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::repository_reader::RepositoryReader;
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::asks::CodexProjectRules;
+use crate::codex::rules::evaluator::RuleFileEvaluator;
+use crate::port::registration::PortRegistration;
+use crate::port::repository_reader::RepositoryReader;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::destructive_git::covers_destructive_git;
+use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::real_location::resolve_real_location;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 
 // The folder a project keeps its Codex settings in, and in it and in every other folder Codex
 // reads settings from, the folder of rule files and the extension Codex reads.

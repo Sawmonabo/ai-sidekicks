@@ -14,8 +14,8 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::provider::settings::ProviderPlanWord;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 
-use crate::database::stored_column::{closed_word, optional_text_column};
-use crate::workflow::runs::record::column;
+use crate::runs::record::column;
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column};
 
 const PROVIDER_ALIAS: &str = "account_provider";
 const DISPLAY_LABEL_ALIAS: &str = "account_display_label";

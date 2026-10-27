@@ -19,10 +19,7 @@ use sidekicks_platforms::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::already_running_error::DaemonAlreadyRunningError;
-use crate::daemon::data_folder::data_folder;
-use crate::daemon::data_folder_lock::{DataFolderLock, DataFolderLockError};
 use crate::daemon::own_root::become_own_root;
 use crate::daemon::panic_hook::install_panic_hook;
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
@@ -31,10 +28,13 @@ use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess, DaemonStart
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::service_log::{ServiceLogFiles, open_service_log};
 use crate::daemon::service_status::record_start_failure;
-use crate::error_description::describe_error;
-use crate::events::session::insert::monotonic_ns_now;
-use crate::ipc::caller_process::system_reader::ProcessTableReader;
-use crate::standard_error::write_error_line;
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::standard_error::write_error_line;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder_lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::events::session::insert::monotonic_ns_now;
 
 // The runtime's worker threads.
 const RUNTIME_WORKER_THREADS: usize = 2;

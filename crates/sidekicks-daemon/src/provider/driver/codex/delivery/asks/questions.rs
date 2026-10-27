@@ -5,9 +5,9 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::question::{QuestionOption, QuestionPrompt};
 use sidekicks_contracts::wire::text::NonEmptyText;
 
+use crate::codex::server_requests::CodexRoutedMethod;
 use crate::mcp::elicitation_form::read_elicitation_questions;
-use crate::provider::driver::codex::server_requests::CodexRoutedMethod;
-use crate::provider::record_readers::read_non_empty_string;
+use crate::record_readers::read_non_empty_string;
 
 /// The questions the ask of `method` asks, from its untrusted `params`, in their order; an entry
 /// with no question text is skipped, and a secret question has no option rows.

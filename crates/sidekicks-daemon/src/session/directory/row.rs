@@ -26,12 +26,16 @@ use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 use sidekicks_contracts::worktree::events::SessionBranchChangedPayload;
 
-use crate::database::statement::{StatementBindings, WriteStatement, place_value, text_binding};
-use crate::events::canonicalizer::{OccurredAtNormalizationRefusal, normalize_occurred_at};
-use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::session::directory::run_activity::run_outcome_of;
-use crate::session::records::SessionDirectoryRow;
-use crate::text_cut::cut_to_code_points;
+use crate::directory::run_activity::run_outcome_of;
+use crate::records::SessionDirectoryRow;
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, place_value, text_binding,
+};
+use sidekicks_store::events::canonicalizer::{
+    OccurredAtNormalizationRefusal, normalize_occurred_at,
+};
+use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 
 /// The members of an event the directory reads, which a stored event and an event about to be
 /// appended both carry. Its payload is trusted as the append path's variant check left it.

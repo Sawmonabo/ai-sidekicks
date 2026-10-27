@@ -9,12 +9,12 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 
 use super::{TITLE_THREAD, TITLE_TURN};
-use crate::provider::driver::codex::lifecycle::CodexDriver;
-use crate::provider::driver::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
-use crate::provider::driver::codex::service::supervisor::test_service::bind_test_listener;
-use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
-use crate::provider::driver::session_control::NameSessionParams;
-use crate::provider::driver::test_registry::test_driver_services;
+use crate::codex::lifecycle::CodexDriver;
+use crate::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
+use crate::codex::service::supervisor::test_service::bind_test_listener;
+use crate::codex::session::test_session::{TestCodexSession, turn_reply};
+use crate::driver::session_control::NameSessionParams;
+use crate::driver::test_registry::test_driver_services;
 
 // Serves the title pass's connection as Codex up to its turn's start, which it never ends; answers
 // the interrupt the daemon sent.

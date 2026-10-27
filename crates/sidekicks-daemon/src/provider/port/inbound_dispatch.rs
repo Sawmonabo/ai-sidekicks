@@ -5,7 +5,7 @@ use std::error::Error;
 
 use futures::future::BoxFuture;
 
-use crate::provider::run::delivery::{InboundDelivery, InboundOutcome};
+use crate::run::delivery::{InboundDelivery, InboundOutcome};
 
 /// Takes each delivery a driver hands over; the daemon's start registers the dispatch as it.
 pub(crate) trait InboundDispatch: Send + Sync {

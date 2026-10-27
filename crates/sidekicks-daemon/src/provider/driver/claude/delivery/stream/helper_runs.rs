@@ -12,16 +12,14 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use super::{
     ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
 };
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::system::read_claude_helper_end;
-use crate::provider::driver::claude::run::routes::{
-    ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute,
-};
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::system::read_claude_helper_end;
+use crate::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute};
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::{
     DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
 };
-use crate::provider::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
+use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
 
 impl ClaudeDeliveryStream {
     // A helper's start gets a child run beneath the lead run, the one holding the turn as the

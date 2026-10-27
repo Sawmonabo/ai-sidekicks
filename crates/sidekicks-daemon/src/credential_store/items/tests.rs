@@ -20,7 +20,7 @@ use crate::credential_store::file::SecretItemsFile;
 use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
 use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
-use crate::random_hex::random_hex;
+use sidekicks_std::random_hex::random_hex;
 
 const RECORD: &str = "secrets-place.json";
 const ITEMS: &str = "secrets.json";

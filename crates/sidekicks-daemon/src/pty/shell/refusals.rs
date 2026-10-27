@@ -6,7 +6,7 @@ use sidekicks_contracts::jsonrpc::streaming::SubscriptionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::TerminalId;
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// The refusal of a request naming a shell its session does not have; another session's shell is
 /// not told apart from none.

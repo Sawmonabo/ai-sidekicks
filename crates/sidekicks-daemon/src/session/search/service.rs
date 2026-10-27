@@ -35,21 +35,19 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_search::index::{HeldSearch, IndexRowKind, SearchIndex, SearchIndexError};
 
-use crate::database::stored_column::{optional_text_column, rowid_column, text_column};
-use crate::ipc::domain_error::DomainError;
-use crate::session::search::cursor::{
+use crate::search::cursor::{
     SearchCursorPosition, SearchPagePosition, decode_search_cursor, encode_search_cursor,
     search_cursor_unresolvable,
 };
-use crate::session::search::hits::{HitLine, HitLineReader};
-use crate::session::search::index::columns::index_key_of;
-use crate::session::search::index::rows::IndexRowReader;
-use crate::session::search::page::{PageCandidate, PageHit, SearchPage, assemble_search_page};
-use crate::session::search::query::{ParsedSearchQuery, parse_session_search_query};
-use crate::session::search::rowid_floors::{HeldRowCheck, RowidFloorLog};
-use crate::session::search::snapshots::{
-    DEFAULT_SEARCH_SNAPSHOT_LIMITS, SearchSnapshot, SearchSnapshots,
-};
+use crate::search::hits::{HitLine, HitLineReader};
+use crate::search::index::columns::index_key_of;
+use crate::search::index::rows::IndexRowReader;
+use crate::search::page::{PageCandidate, PageHit, SearchPage, assemble_search_page};
+use crate::search::query::{ParsedSearchQuery, parse_session_search_query};
+use crate::search::rowid_floors::{HeldRowCheck, RowidFloorLog};
+use crate::search::snapshots::{DEFAULT_SEARCH_SNAPSHOT_LIMITS, SearchSnapshot, SearchSnapshots};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_store::database::stored_column::{optional_text_column, rowid_column, text_column};
 
 // The sessions the directory holds among these keys; a session since purged has no row.
 const SESSIONS_BY_KEY_SQL: &str = "
@@ -589,16 +587,16 @@ mod tests {
     use tempfile::TempDir;
 
     use super::{SessionSearchError, SessionSearchService};
-    use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
     use crate::questions::schema::schema_parts;
-    use crate::session::search::cursor::decode_search_cursor;
-    use crate::session::search::index::outbox::OutboxReader;
-    use crate::session::search::index::rebuild::{
+    use crate::search::cursor::decode_search_cursor;
+    use crate::search::index::outbox::OutboxReader;
+    use crate::search::index::rebuild::{
         SearchIndexOpening, build_search_index, open_search_index,
     };
-    use crate::session::search::index::rows::IndexRowReader;
-    use crate::session::search::index::schema::add_titled_session;
-    use crate::session::search::snapshots::SearchSnapshot;
+    use crate::search::index::rows::IndexRowReader;
+    use crate::search::index::schema::add_titled_session;
+    use crate::search::snapshots::SearchSnapshot;
+    use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
 
     // How long a page the test expects is waited for before the test fails.
     const PAGE_BOUND: Duration = Duration::from_secs(30);

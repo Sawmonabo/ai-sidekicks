@@ -45,39 +45,43 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 
-use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
-use crate::artifacts::payload_store::PayloadStore;
-use crate::daemon::scheduler::budget::ProcessorMeter;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::schema::session_directory::read_session_state;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::log_service::{EventAppendError, EventLogAppendOptions, EventLogService};
-use crate::events::session::append_lock::SESSION_APPEND_LOCK;
-use crate::events::session::appender::{
-    SessionEventDraft, SessionEventDraftError, UnsequencedEventEnvelope,
-};
-use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
-use crate::events::session::purge::rows::{
+use crate::data_acts::purge::rows::{
     MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
     mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
     session_deletion_statements,
 };
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
-use crate::git::turn_snapshot::service::{
+use sidekicks_approval::rules::{ApprovalRuleError, ApprovalRules};
+use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_recovery::damaged_history::DamagedSessionPurge;
+use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_session::conversation_purge::{ConversationPurge, ConversationPurgeError};
+use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::related::ranking::SessionRelatedRanking;
+use sidekicks_session::service::SessionService;
+use sidekicks_shell::table::ShellTable;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::schema::session_directory::read_session_state;
+use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::log_service::{
+    EventAppendError, EventLogAppendOptions, EventLogService,
+};
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
+use sidekicks_store::events::session::appender::{
+    SessionEventDraft, SessionEventDraftError, UnsequencedEventEnvelope,
+};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
+use sidekicks_workspace::git::turn_snapshot::service::{
     TurnSnapshotPruneFailure, TurnSnapshotPruneOutcome, TurnSnapshotService,
 };
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::KeyedLock;
-use crate::pty::shell::table::ShellTable;
-use crate::recovery::damaged_history::DamagedSessionPurge;
-use crate::recovery::status::RecoveryStatusTracker;
-use crate::session::conversation_purge::{ConversationPurge, ConversationPurgeError};
-use crate::session::directory::list_feed::SessionListFeed;
-use crate::session::related::ranking::SessionRelatedRanking;
-use crate::session::service::SessionService;
-use crate::workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
 
 /// Why one session's purge stopped. A session refused before its rows' write keeps its mark and
 /// every row, though files already deleted stay gone, and purging it again finishes it.
@@ -215,10 +219,10 @@ pub(crate) struct SessionPurge {
     deps: SessionPurgeDeps,
     /// Holds a session's purge before it takes the session's append lock.
     #[cfg(test)]
-    pub(crate) rows_lock_pause: crate::pause_point::PausePoint,
+    pub(crate) rows_lock_pause: sidekicks_std::pause_point::PausePoint,
     /// Holds a session's purge after it read the session's range, before each write of its rows.
     #[cfg(test)]
-    pub(crate) rows_write_pause: crate::pause_point::PausePoint,
+    pub(crate) rows_write_pause: sidekicks_std::pause_point::PausePoint,
 }
 
 impl SessionPurge {
@@ -231,9 +235,9 @@ impl SessionPurge {
         Self {
             deps,
             #[cfg(test)]
-            rows_lock_pause: crate::pause_point::PausePoint::default(),
+            rows_lock_pause: sidekicks_std::pause_point::PausePoint::default(),
             #[cfg(test)]
-            rows_write_pause: crate::pause_point::PausePoint::default(),
+            rows_write_pause: sidekicks_std::pause_point::PausePoint::default(),
         }
     }
 

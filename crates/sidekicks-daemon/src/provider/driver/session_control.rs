@@ -37,11 +37,11 @@ use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::ipc::domain_error::DomainError;
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::provider::driver::contract::SpawnedVersionBindingCarriers;
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
-use crate::text_cut::cut_to_code_points;
+use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::driver::mcp_server_status::McpServerStatusProducer;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
 /// one is cut, and dropping it loses only words, never the probe's status.

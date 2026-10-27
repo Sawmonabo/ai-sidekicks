@@ -12,10 +12,10 @@ use sidekicks_contracts::wire::id::{UuidText, mint_uuid_v7};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::database::statement::{
+use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// One receipt's id, minted when its command is accepted.
 #[cfg_attr(
@@ -253,9 +253,9 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{CommandAcceptance, CommandReceiptError, CommandReceiptStore, CommandToReceive};
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::mcp::schema::schema_parts;
+    use crate::schema::schema_parts;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     // A canceled accept writes nothing; the accept after it records the command, which only an
     // accepted receipt lets a worker claim.

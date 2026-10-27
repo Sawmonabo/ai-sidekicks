@@ -9,12 +9,14 @@ use sidekicks_contracts::session::tags::{SessionTagListResponse, SessionTagReque
 use sidekicks_contracts::tag::{Tag, TagList};
 use sidekicks_contracts::wire::list::UniqueList;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::text_column;
-use crate::database::writer::DatabaseWriter;
-use crate::ipc::registry::HandlerError;
-use crate::session::directory::lookups::{SessionWriteError, write_while_session_exists};
+use crate::directory::lookups::{SessionWriteError, write_while_session_exists};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 /// The statements the service's reads run: the tags in use.
 pub(crate) const SESSION_TAG_SERVICE_STATEMENT_CAPACITY: usize = 1;

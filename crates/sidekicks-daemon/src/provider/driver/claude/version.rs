@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use crate::provider::driver::ReportedVersionReading;
+use crate::driver::ReportedVersionReading;
 
 /// The version the reply reports, kept only in its canonical form; a reply with no version text
 /// reads as unreadable with no text.

@@ -8,7 +8,7 @@ use sidekicks_contracts::machine::settings::{
     ProjectEnvironmentNameRefusedDetails, environment_name_refusal,
 };
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// What the page says under a refused row, for each reason.
 fn environment_name_refusal_words(reason: EnvironmentNameRefusalReason) -> &'static str {

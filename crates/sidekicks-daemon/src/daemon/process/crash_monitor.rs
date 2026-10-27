@@ -16,7 +16,7 @@ use crate::daemon::crash::monitor::{
 use crate::daemon::panic_hook::send_panics_to_monitor;
 use crate::daemon::process::DaemonStartError;
 use crate::daemon::process::stop::{CrashMonitorEndFailure, DaemonStopFailure};
-use crate::helper_mode::child::start_helper_mode_child;
+use sidekicks_std::helper_mode::child::start_helper_mode_child;
 
 // The longest the crash monitor's end waits for the killed monitor to exit, apart from the drain,
 // since a kill is sent before the wait begins.

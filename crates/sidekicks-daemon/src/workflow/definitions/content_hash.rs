@@ -6,7 +6,7 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowContentHash, WorkflowDocumentHashedBody,
 };
 
-use crate::events::canonicalizer::{CanonicalizationRefusal, canonicalize_json};
+use sidekicks_store::events::canonicalizer::{CanonicalizationRefusal, canonicalize_json};
 
 /// What every content hash starts with: the hash function's name.
 const CONTENT_HASH_PREFIX: &str = "b3:";

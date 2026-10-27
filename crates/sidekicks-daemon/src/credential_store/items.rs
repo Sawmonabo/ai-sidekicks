@@ -72,7 +72,7 @@ use crate::credential_store::place::{self, PlaceRecord, SecretsPlace};
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain, holds_value};
-use crate::random_hex::random_hex;
+use sidekicks_std::random_hex::random_hex;
 
 // The random bytes of the check's value and of its probe account's name.
 const PROBE_VALUE_BYTES: usize = 32;

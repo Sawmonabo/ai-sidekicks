@@ -15,18 +15,18 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::gate_resolution::WorkflowGateKind;
 
 use super::{cursor, rebuild_database, rebuild_whole, table_rows};
-use crate::approvals::projection::rebuild::ApprovalsProjection;
-use crate::approvals::request_create::ApprovalResourceDescriptor;
-use crate::approvals::store::{
+use sidekicks_approval::projection::rebuild::ApprovalsProjection;
+use sidekicks_approval::request_create::ApprovalResourceDescriptor;
+use sidekicks_approval::store::{
     ApprovalSettlement, InsertedApprovalRequest, InsertedApprovalResolution,
     insert_request_statement, insert_resolution_statement, remembered_scope_statement,
     settle_pending_statement,
 };
-use crate::database::schema::recovery::ProjectionCursorState;
-use crate::database::statement::WriteStatement;
-use crate::database::writer::test_file::{test_envelope, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
+use sidekicks_store::database::schema::recovery::ProjectionCursorState;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::writer::test_file::{test_envelope, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
 // The statements the live service writes with each event, from the event as it is stored.
 fn live_statements(event: &SessionEvent, occurred_at: &WireInstant) -> Vec<WriteStatement> {

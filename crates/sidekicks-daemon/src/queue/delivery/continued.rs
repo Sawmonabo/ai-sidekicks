@@ -9,13 +9,13 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::KeyHold;
-use crate::provider::driver::message_handing::MessageHanding;
-use crate::provider::driver::run_control::WaitingMessage;
-use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
-use crate::queue::delivery::state::{HandRoute, is_kept_by_process};
-use crate::queue::delivery::{DeliveryError, QueueDelivery};
-use crate::queue::store::RecordedQueueItemState;
+use crate::delivery::state::{HandRoute, is_kept_by_process};
+use crate::delivery::{DeliveryError, QueueDelivery};
+use sidekicks_provider::driver::message_handing::MessageHanding;
+use sidekicks_provider::driver::run_control::WaitingMessage;
+use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_session::queue_store::RecordedQueueItemState;
+use sidekicks_std::keyed_lock::KeyHold;
 
 impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go

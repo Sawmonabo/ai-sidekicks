@@ -28,21 +28,23 @@ use tokio::sync::watch;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::events::session::pending::PendingSessions;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::retry_waits::retry_wait;
-use crate::session::directory::lookups::session_exists;
-use crate::session::not_found::session_not_found;
-use crate::session::related::score::{
+use crate::directory::lookups::session_exists;
+use crate::related::score::{
     SessionLinkEnd, score_related_sessions, session_link_kind_weight, session_link_weight,
 };
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::retry_waits::retry_wait;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::pending::PendingSessions;
 
 /// The statements the ranking's reads prepare: a session's links, its stored list and whether the
 /// session exists.
@@ -709,7 +711,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{RESCORE_ROUND_LIMIT, ScoringQueue};
-    use crate::database::writer::test_file::test_session_id;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     #[test]
     fn a_round_takes_at_most_its_limit_and_the_rest_wait_for_the_next() {

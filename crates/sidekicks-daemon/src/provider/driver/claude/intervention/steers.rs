@@ -12,23 +12,21 @@ use tokio::sync::oneshot;
 
 use super::held_steers::ClaudeSteer;
 use super::{ClaudeInterventions, ClaudeSteerWriter, applied, no_live_run, turn_in_flight};
-use crate::mutex_lock::lock;
-use crate::provider::driver::attachments::{compose_message_text, resolve_message_attachments};
-use crate::provider::driver::claude::attachments::compose_claude_attachment_blocks;
-use crate::provider::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
-use crate::provider::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoute};
-use crate::provider::driver::claude::run::start::ClaudeDaemonTurnOpening;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::attachments::compose_claude_attachment_blocks;
+use crate::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
+use crate::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoute};
+use crate::claude::run::start::ClaudeDaemonTurnOpening;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::claude::session::transport::user_message::{
     ClaudeMessagePriority, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::{
-    ApplyInterventionResponse, SteerPayload, SteerTurnEndedError,
-};
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
+use crate::driver::contract::DriverError;
+use crate::driver::run_control::{ApplyInterventionResponse, SteerPayload, SteerTurnEndedError};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeInterventions {
     // A steer's place is taken before anything is awaited: the session's fair lock is asked for

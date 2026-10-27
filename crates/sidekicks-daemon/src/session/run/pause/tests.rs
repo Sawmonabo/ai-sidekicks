@@ -20,28 +20,28 @@ use tempfile::TempDir;
 use tokio::sync::oneshot;
 
 use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::driver::error_causes::RequestUnanswered;
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::run_control::{TakenMessages, WaitingMessage};
-use crate::provider::driver::test_registry::{
+use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::schema::schema_parts;
+use crate::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
+use crate::run::engine::{InterruptRoute, RunEngine};
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::RunStateChange;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::error_causes::RequestUnanswered;
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::run_control::{TakenMessages, WaitingMessage};
+use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::questions::schema::schema_parts;
-use crate::session::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
-use crate::session::run::engine::{InterruptRoute, RunEngine};
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::RunStateChange;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
 
 /// How long a call held behind a resume is watched to show it waits.
 const HELD_WATCH: Duration = Duration::from_millis(200);

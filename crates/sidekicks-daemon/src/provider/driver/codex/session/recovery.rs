@@ -24,42 +24,38 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::provider::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
-use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
-use crate::provider::driver::codex::rate_limits::CodexRateLimitFiling;
-use crate::provider::driver::codex::run::control::fail_codex_run;
-use crate::provider::driver::codex::run::turn_end_waiters::CodexRecordExit;
-use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
-use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
-use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceId};
-use crate::provider::driver::codex::session::calls::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
+use crate::codex::notification_routing::CodexRoutedFrames;
+use crate::codex::rate_limits::CodexRateLimitFiling;
+use crate::codex::run::control::fail_codex_run;
+use crate::codex::run::turn_end_waiters::CodexRecordExit;
+use crate::codex::service::registry::CodexServiceRegistry;
+use crate::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::codex::service::supervisor::{CodexService, CodexServiceId};
+use crate::codex::session::calls::{
     CodexSessionCallDependencies, CodexSessionTask, call_codex_session,
 };
-use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::establishment::CodexSessionEstablishment;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexDeliveryPort, CodexTransportDiagnostic,
-};
-use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
-use crate::provider::driver::session_control::{DriverResumeResult, ProviderBuildChange};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::run::delivery::InboundDelivery;
+use crate::codex::session::conversation_release::CodexConversationRelease;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::establishment::CodexSessionEstablishment;
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::transport::connection::read_codex_object;
+use crate::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
+use crate::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::contract::bound_failure_detail;
+use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
+use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::registration::PortRegistration;
+use crate::port::reviewer_denial::ReviewerDenialPort;
+use crate::port::run_host::RunHost;
+use crate::run::delivery::InboundDelivery;
+use sidekicks_std::mutex_lock::lock;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";

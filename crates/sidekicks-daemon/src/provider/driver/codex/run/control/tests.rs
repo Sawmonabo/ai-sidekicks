@@ -10,15 +10,13 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 
 use super::CodexRunControl;
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::intervention::CodexSteerRunRequest;
-use crate::provider::driver::codex::run::routes::CodexRunBinding;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, TestCodexSession, turn_completed,
-};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::{new_message_id, new_run_id};
+use crate::codex::intervention::CodexSteerRunRequest;
+use crate::codex::run::routes::CodexRunBinding;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::test_session::{TEST_THREAD, TestCodexSession, turn_completed};
+use crate::driver::contract::DriverError;
+use crate::driver::test_registry::{new_message_id, new_run_id};
+use sidekicks_std::mutex_lock::lock;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);

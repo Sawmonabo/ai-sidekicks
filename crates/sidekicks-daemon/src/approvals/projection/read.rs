@@ -11,7 +11,7 @@ use sidekicks_contracts::approval::{
 };
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
-use crate::approvals::store::{
+use crate::store::{
     ApprovalRequestFilter, ApprovalRequestReader, StoredApprovalRequest, StoredApprovalResolution,
 };
 

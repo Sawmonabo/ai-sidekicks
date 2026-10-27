@@ -21,10 +21,10 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::ipc::registry::{
+use crate::registry::{
     AfterReply, DispatchError, EncodedFeed, EncodedValue, HandlerContext, Request, TransportId,
 };
-use crate::ipc::stream::feed::SendGate;
+use crate::stream::feed::SendGate;
 
 /// The wire name of [`NamedSubscribe`].
 pub(crate) const SUBSCRIBE_METHOD: &str = "test.subscribe";

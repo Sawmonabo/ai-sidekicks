@@ -33,26 +33,26 @@ use sidekicks_contracts::wire::text::ComposedText;
 use sidekicks_platforms::WallClock;
 use tokio::sync::mpsc;
 
-use crate::artifacts::id::mint_artifact_id;
-use crate::artifacts::manifest_write::{
-    PublishedManifest, manifest_created_at, write_published_manifest,
-};
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::publish::{SPOOL_FILE_MODE, new_spool_path, remove_spool};
-use crate::artifacts::refusals::ArtifactError;
-use crate::artifacts::validation::{
+use crate::id::mint_artifact_id;
+use crate::manifest_write::{PublishedManifest, manifest_created_at, write_published_manifest};
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::publish::{SPOOL_FILE_MODE, new_spool_path, remove_spool};
+use crate::refusals::ArtifactError;
+use crate::validation::{
     SpooledPayload, Utf8Check, file_name_metadata, keep_leading_bytes, validate_and_store,
 };
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::stored_column::text_column;
-use crate::events::session::appender::SessionEventAppender;
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::is_missing_entry;
-use crate::mutex_lock::lock;
-use crate::provider::port::file_tool_write::{
+use sidekicks_provider::port::file_tool_write::{
     FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort, FileToolWriteSettled,
 };
-use crate::workspace::managed::write_watcher::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind};
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_workspace::managed::write_watcher::{
+    ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+};
 
 /// The media type a folder's manifest records.
 const FOLDER_MEDIA_TYPE: &str = "inode/directory";
@@ -490,13 +490,13 @@ mod tests {
     use tempfile::TempDir;
 
     use super::ChatFileVersions;
-    use crate::artifacts::list::list_artifacts;
-    use crate::artifacts::read::read_artifact;
-    use crate::artifacts::test_store::ArtifactTestStore;
-    use crate::provider::port::file_tool_write::{
+    use crate::list::list_artifacts;
+    use crate::read::read_artifact;
+    use crate::test_store::ArtifactTestStore;
+    use sidekicks_provider::port::file_tool_write::{
         FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort as _, FileToolWriteSettled,
     };
-    use crate::workspace::managed::write_watcher::{
+    use sidekicks_workspace::managed::write_watcher::{
         ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
     };
 

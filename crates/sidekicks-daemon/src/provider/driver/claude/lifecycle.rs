@@ -20,61 +20,51 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PathRules;
 
-use crate::git::worktree::staged_changes::StagedChangesWorktrees;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::provider::driver::claude::delivery::requests::answers::{
-    ClaudeAnswerRules, read_claude_repository,
-};
-use crate::provider::driver::claude::delivery::requests::{
-    ClaudeInboundRequests, ClaudeInboundRequestsDependencies,
-};
-use crate::provider::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::provider::driver::claude::delivery::stream::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::claude::delivery::requests::answers::{ClaudeAnswerRules, read_claude_repository};
+use crate::claude::delivery::requests::{ClaudeInboundRequests, ClaudeInboundRequestsDependencies};
+use crate::claude::delivery::reviewer::ClaudeReviewerCapture;
+use crate::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::claude::delivery::stream::{
     ClaudeDeliveryStream, ClaudeSessionStreams, ClaudeStreamDependencies,
 };
-use crate::provider::driver::claude::frame_routing::ClaudeFrameRouting;
-use crate::provider::driver::claude::goals::ClaudeGoalCommands;
-use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::provider::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
-use crate::provider::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
-use crate::provider::driver::claude::run::controls::ClaudeRunControls;
-use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::provider::driver::claude::run::rewind::ClaudeConversationCuts;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
-use crate::provider::driver::claude::run::settlement::ClaudeTurnSettlement;
-use crate::provider::driver::claude::run::start::ClaudeRunStart;
-use crate::provider::driver::claude::session::arrivals::task::ClaudeSessionTaskServices;
-use crate::provider::driver::claude::session::controls::{
-    ClaudeCommandListReader, ClaudeSessionControls,
-};
-use crate::provider::driver::claude::session::establishment::figures::ClaudeHeldFigures;
-use crate::provider::driver::claude::session::establishment::{
-    ClaudeSessionEstablishment, ClaudeSpawnSources,
-};
-use crate::provider::driver::claude::session::restart::ClaudeSessionRestarts;
-use crate::provider::driver::claude::session::slots::ClaudeSessionSlots;
-use crate::provider::driver::claude::spawn::environment::{
+use crate::claude::frame_routing::ClaudeFrameRouting;
+use crate::claude::goals::ClaudeGoalCommands;
+use crate::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::claude::hooks::pause::ClaudeRunPauses;
+use crate::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::claude::rate_limit_windows::ClaudeUsageProbeModels;
+use crate::claude::run::controls::ClaudeRunControls;
+use crate::claude::run::prompts::ClaudeSentPrompts;
+use crate::claude::run::rewind::ClaudeConversationCuts;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::run::self_started_turns::ClaudeSelfStartedTurns;
+use crate::claude::run::settlement::ClaudeTurnSettlement;
+use crate::claude::run::start::ClaudeRunStart;
+use crate::claude::session::arrivals::task::ClaudeSessionTaskServices;
+use crate::claude::session::controls::{ClaudeCommandListReader, ClaudeSessionControls};
+use crate::claude::session::establishment::figures::ClaudeHeldFigures;
+use crate::claude::session::establishment::{ClaudeSessionEstablishment, ClaudeSpawnSources};
+use crate::claude::session::restart::ClaudeSessionRestarts;
+use crate::claude::session::slots::ClaudeSessionSlots;
+use crate::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
 };
-use crate::provider::driver::claude::spawn::launch::ClaudeProcessLauncher;
-use crate::provider::driver::claude::spawn::launch::installed_build::{
-    ClaudeInstalledBuild, ClaudeProcessStarts,
-};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::{DriverServices, ProviderAccountFolders};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::repository_reader::RepositoryReading;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::spawn_environment::SessionEnvironment;
+use crate::claude::spawn::launch::ClaudeProcessLauncher;
+use crate::claude::spawn::launch::installed_build::{ClaudeInstalledBuild, ClaudeProcessStarts};
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::attachments::AttachmentResolver;
+use crate::driver::contract::DriverError;
+use crate::driver::{DriverServices, ProviderAccountFolders};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::repository_reader::RepositoryReading;
+use crate::port::run_host::RunHost;
+use crate::spawn_environment::SessionEnvironment;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {

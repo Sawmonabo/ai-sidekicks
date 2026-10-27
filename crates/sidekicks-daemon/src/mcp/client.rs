@@ -22,12 +22,12 @@ use std::sync::{Arc, Mutex};
 use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::mcp::client::connection::McpServerConnection;
-use crate::mcp::client::prompts::PromptWatchers;
-use crate::mcp::client::tasks::TaskWatches;
-use crate::mutex_lock::lock;
-use crate::provider::port::question::QuestionPort;
-use crate::provider::port::registration::PortRegistration;
+use crate::client::connection::McpServerConnection;
+use crate::client::prompts::PromptWatchers;
+use crate::client::tasks::TaskWatches;
+use sidekicks_provider::port::question::QuestionPort;
+use sidekicks_provider::port::registration::PortRegistration;
+use sidekicks_std::mutex_lock::lock;
 
 /// The idle connections the HTTP client keeps per host: a server's standing event stream and one
 /// request.

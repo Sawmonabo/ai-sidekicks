@@ -6,7 +6,7 @@ use std::error::Error;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 
-use crate::provider::runtime_binding::store::{
+use crate::runtime_binding::store::{
     RuntimeBindingPatch, RuntimeBindingRebind, RuntimeBindingStore, RuntimeBindingStoreError,
 };
 

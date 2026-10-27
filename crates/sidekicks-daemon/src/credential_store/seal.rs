@@ -146,7 +146,7 @@ impl TestSeal {
     /// Holds the next seal until the returned sender sends or drops.
     pub(crate) fn hold_next_seal(&self) -> tokio::sync::oneshot::Sender<()> {
         let (release, held) = tokio::sync::oneshot::channel();
-        *crate::mutex_lock::lock(&self.held_seal) = Some(held);
+        *sidekicks_std::mutex_lock::lock(&self.held_seal) = Some(held);
         release
     }
 
@@ -168,7 +168,7 @@ impl TestSeal {
     }
 
     fn settings(&self) -> std::sync::MutexGuard<'_, TestSealSettings> {
-        crate::mutex_lock::lock(&self.settings)
+        sidekicks_std::mutex_lock::lock(&self.settings)
     }
 }
 
@@ -197,7 +197,7 @@ impl SecretSeal for TestSeal {
         use secrecy::ExposeSecret as _;
 
         self.seals.send_modify(|seals| *seals += 1);
-        let held = crate::mutex_lock::lock(&self.held_seal).take();
+        let held = sidekicks_std::mutex_lock::lock(&self.held_seal).take();
         let (sealed, delay) = {
             let settings = self.settings();
             let delay = settings

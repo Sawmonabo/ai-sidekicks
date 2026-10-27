@@ -15,22 +15,18 @@ use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio_util::codec::{AnyDelimiterCodec, AnyDelimiterCodecError, FramedRead};
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::session::control_requests::{
-    ClaudeControlRequests, ClaudeControlSettlement,
-};
-use crate::provider::driver::claude::session::frame_observation::{
-    ClaudeStartupHookChange, ClaudeStreamFrameRead,
-};
-use crate::provider::driver::claude::session::process::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::session::control_requests::{ClaudeControlRequests, ClaudeControlSettlement};
+use crate::claude::session::frame_observation::{ClaudeStartupHookChange, ClaudeStreamFrameRead};
+use crate::claude::session::process::{
     ClaudeChildEnds, ClaudeProcessListener, ClaudeStreamFrame, ClaudeTurnHolds,
 };
-use crate::provider::driver::claude::session::transport::inbound::ClaudeControlFrameReader;
-use crate::provider::driver::diagnostics::{
+use crate::claude::session::transport::inbound::ClaudeControlFrameReader;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
-use crate::provider::inbound_json::decode_inbound_json;
+use crate::inbound_json::decode_inbound_json;
 
 /// The ceiling on one output line, in bytes; Claude Code publishes no limit. It stops a process
 /// from growing one line until the daemon runs out of memory.
@@ -221,16 +217,16 @@ mod tests {
     use tokio::sync::watch;
 
     use super::{CLAUDE_OUTPUT_LINE_MAX_BYTES, ClaudeOutputReader};
-    use crate::provider::driver::claude::session::control_requests::ClaudeControlRequests;
-    use crate::provider::driver::claude::session::process::{
+    use crate::claude::session::control_requests::ClaudeControlRequests;
+    use crate::claude::session::process::{
         ClaudeChildEnds, ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
     };
-    use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
-    use crate::provider::driver::claude::session::transport::inbound::{
+    use crate::claude::session::transport::control::ClaudeControlSubtype;
+    use crate::claude::session::transport::inbound::{
         ClaudeControlFrameReader, ClaudeInboundRequestEvent,
     };
-    use crate::provider::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
-    use crate::provider::driver::diagnostics::{OnceReportedDiagnostics, RecordedEvents};
+    use crate::claude::session::transport::user_message::ClaudeWriteAttempt;
+    use crate::driver::diagnostics::{OnceReportedDiagnostics, RecordedEvents};
 
     // Keeps the frames it takes and never hands them on, as a session task blocked in a dispatch.
     #[derive(Default)]

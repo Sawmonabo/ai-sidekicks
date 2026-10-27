@@ -20,14 +20,14 @@ use super::{
     HANDS_AT_ONCE, count_steers, count_withdraws, driver_handing, fixture, hand, hold_chain,
     insert_item, release_chain, set_run_state, settle, stored_item,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::driver::test_registry::registry_of_first_provider;
-use crate::queue::delivery::{QueueWithdrawal, WITHDRAW_DEADLINE};
-use crate::queue::refusals::UnreturnedReason;
-use crate::queue::store::{QueueItemOutcome, RecordedQueueItemState};
-use crate::session::run::engine::tests::test_engine;
-use crate::session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
+use crate::delivery::{QueueWithdrawal, WITHDRAW_DEADLINE};
+use crate::refusals::UnreturnedReason;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_session::queue_store::{QueueItemOutcome, RecordedQueueItemState};
+use sidekicks_session::run::engine::tests::test_engine;
+use sidekicks_session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 /// How long the test gives a call that does not wait for the session's hold to act.
 const HOLD_WATCH: Duration = Duration::from_millis(200);

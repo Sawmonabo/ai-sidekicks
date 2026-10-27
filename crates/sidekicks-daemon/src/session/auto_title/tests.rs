@@ -16,25 +16,25 @@ use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
 use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::{
+use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
+use crate::directory::row::{DirectoryEvent, directory_statements_for};
+use crate::questions::schema::schema_parts;
+use crate::run::engine::tests::insert_running_run;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
+use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
-use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::events::session::followers::SessionEventFollowers;
-use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::test_registry::bind_run_to_first_provider;
-use crate::provider::driver::test_registry::test_driver_services;
-use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-use crate::questions::schema::schema_parts;
-use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
-use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
-use crate::session::run::engine::tests::insert_running_run;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+use sidekicks_store::events::session::followers::SessionEventFollowers;
 
 /// Bounds every wait a test expects to end, so one that never does fails the test.
 const WAIT: Duration = Duration::from_secs(10);

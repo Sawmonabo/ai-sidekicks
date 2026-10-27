@@ -19,21 +19,19 @@ use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_
 use tokio::sync::watch;
 
 use super::{RecordFollower, follow_channel_records, tail_output};
-use crate::provider::command::channel::tests::{
+use crate::command::channel::tests::{
     end_party, names_in, open_channel, party_command, ready_parties, sealed,
 };
-use crate::provider::command::channel::{
+use crate::command::channel::{
     ChannelKem, PartyId, PartyRecord, REQUESTS_FOLDER, record_name, write_record,
 };
-use crate::provider::command::running_set::{
+use crate::command::running_set::{
     CommandEndingAppender, CommandInput, RunningCommandFeed, RunningCommandSets, WrapperCommand,
     next_sent_frame, next_sent_set_where,
 };
-use crate::provider::command::waiting_checks::InputWaitReader;
-use crate::provider::driver::contract::MockProviderDriver;
-use crate::provider::port::running_command_publisher::{
-    CommandStart, RunningCommandPublisher as _,
-};
+use crate::command::waiting_checks::InputWaitReader;
+use crate::driver::contract::MockProviderDriver;
+use crate::port::running_command_publisher::{CommandStart, RunningCommandPublisher as _};
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 

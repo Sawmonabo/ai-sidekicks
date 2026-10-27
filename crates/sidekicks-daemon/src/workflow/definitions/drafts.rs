@@ -16,13 +16,15 @@ use sidekicks_contracts::workflow::definition::document::{
     WorkflowDefinitionId, WorkflowDraftDocument,
 };
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::{safe_int_column, text_column};
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::registry::HandlerError;
-use crate::workflow::definitions::library::live_definition_statement;
-use crate::workflow::not_found::WorkflowNotFound;
+use crate::definitions::library::live_definition_statement;
+use crate::not_found::WorkflowNotFound;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::{safe_int_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the store's reads run: the held draft.
 pub(crate) const WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;

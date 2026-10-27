@@ -16,7 +16,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// `approval.notFound`: the daemon holds no ask under `approval_request_id`.
 pub(crate) fn approval_not_found(approval_request_id: ApprovalRequestId) -> DomainError {

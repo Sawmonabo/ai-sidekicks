@@ -32,16 +32,16 @@ use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 
-use crate::database::connection::read_pool::DatabaseReadError;
-use crate::events::log_service::{EventLogReadError, EventLogService, FollowStart};
 use crate::ipc::handlers::run::safety_holds::{RunSafetyHolds, SafetyHoldsFollow};
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
-use crate::ipc::stream::frame_batcher::ChangeFeed;
-use crate::session::run::stored_state_change::{
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
+use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
+use sidekicks_session::run::stored_state_change::{
     StoredRunStateChange, read_stored_run_state_change,
 };
-use crate::session::run::superseded::{StoredRollbackMismatchError, parse_stored_rollback};
+use sidekicks_session::run::superseded::{StoredRollbackMismatchError, parse_stored_rollback};
+use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::events::log_service::{EventLogReadError, EventLogService, FollowStart};
 
 /// The type of a stored rollback, which the stream carries beside the state changes.
 const ROLLBACK_EVENT_TYPE: &str = SessionEventType::AgentRunRolledBack.as_str();
@@ -405,15 +405,19 @@ mod tests {
     use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 
     use super::*;
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::events::log_service::EventLogAppendOptions;
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, Reply};
-    use crate::ipc::stream::feed::CreditGate;
-    use crate::provider::port::run_state_publisher::RunStatePublisher as _;
     use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{
+        Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, Reply,
+    };
+    use sidekicks_ipc::stream::feed::CreditGate;
+    use sidekicks_provider::port::run_state_publisher::RunStatePublisher as _;
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_envelope, test_session_id,
+    };
+    use sidekicks_store::events::log_service::EventLogAppendOptions;
+    use sidekicks_store::events::log_service::tests::open_log;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

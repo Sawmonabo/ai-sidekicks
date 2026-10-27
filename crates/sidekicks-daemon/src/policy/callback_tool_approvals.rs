@@ -20,14 +20,14 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 
-use crate::approvals::service::RaisedRequestSettlement;
-use crate::policy::permission_check::{PermissionCheck, ToolCallVerdict, WorkflowStartVerdict};
-use crate::provider::callback_tools::host::{
+use crate::permission_check::{PermissionCheck, ToolCallVerdict, WorkflowStartVerdict};
+use crate::service::RaisedRequestSettlement;
+use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
     CallbackToolPortError,
 };
-use crate::provider::driver::callback_tool::CallbackToolInvocation;
-use crate::provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::callback_tool::CallbackToolInvocation;
+use sidekicks_provider::driver::registry::ProviderRegistry;
 
 /// What the agent reads when its call names a tool no gate was declared for.
 pub(crate) const UNGATED_TOOL_REFUSAL: &str = "This tool has no approval gate, so it does not run.";

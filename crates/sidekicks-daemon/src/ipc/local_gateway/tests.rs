@@ -35,18 +35,20 @@ use super::connection::serve_connection;
 use super::writer::Outbox;
 use super::{GatewayServices, SupervisionDisconnectReason, SupervisionHooks, next_transport_id};
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
-use crate::ipc::call_fixtures::{
+use sidekicks_ipc::call_fixtures::{
     NamedSubscribe, Nothing, SUBSCRIBE_METHOD, channel_feed, subscription_id,
 };
-use crate::ipc::protocol_negotiation::{CallerAdmission, CallerAdmissionCheck, ProtocolNegotiator};
-use crate::ipc::registry::{
+use sidekicks_ipc::protocol_negotiation::{
+    CallerAdmission, CallerAdmissionCheck, ProtocolNegotiator,
+};
+use sidekicks_ipc::registry::{
     Dispatch, DispatchError, EncodedFeed, EncodedValue, HandlerContext, MethodRegistry,
     MethodRegistryBuilder, Reply, Request, TransportId,
 };
-use crate::ipc::stream::feed::SendGate;
-use crate::ipc::stream::subscriptions::Subscriptions;
-use crate::mutex_lock::lock;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
+use sidekicks_ipc::stream::feed::SendGate;
+use sidekicks_ipc::stream::subscriptions::Subscriptions;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::damage::DatabaseDamageWatch;
 
 mod call_cap;
 mod close;

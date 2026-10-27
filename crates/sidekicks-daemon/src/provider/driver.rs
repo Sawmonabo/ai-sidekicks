@@ -19,21 +19,21 @@ use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::git::worktree::staged_changes::StagedChangesWorktrees;
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::command_search::ProviderCommandSearch;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::ports::DriverPorts;
-use crate::provider::output_validation::is_canonical_semver;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
+use crate::background_work::BackgroundWorkForms;
+use crate::command_search::ProviderCommandSearch;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::attachments::AttachmentResolver;
+use crate::driver::contract::ProviderDriver;
+use crate::driver::ports::DriverPorts;
+use crate::output_validation::is_canonical_semver;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 pub(crate) mod attachments;
 pub(crate) mod callback_tool;

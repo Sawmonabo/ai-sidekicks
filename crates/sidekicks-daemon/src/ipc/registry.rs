@@ -23,10 +23,10 @@ use sidekicks_platforms::PinnedProcess;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::in_flight_mutations::RecordedCallId;
-use crate::ipc::stream::feed::{Feed, SendGate};
-use crate::mutex_lock::lock;
+use crate::domain_error::DomainError;
+use crate::in_flight_mutations::RecordedCallId;
+use crate::stream::feed::{Feed, SendGate};
+use sidekicks_std::mutex_lock::lock;
 
 /// The gateway's id for one connection, unique for the daemon's life.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -594,7 +594,7 @@ mod tests {
     use super::{
         Dispatch as _, DispatchError, HandlerContext, MethodRegistryBuilder, RegistrationError,
     };
-    use crate::ipc::call_fixtures::{Named, context, request};
+    use crate::call_fixtures::{Named, context, request};
 
     /// The wire name the echo method registers under.
     const ECHO_METHOD: &str = "test.echo";

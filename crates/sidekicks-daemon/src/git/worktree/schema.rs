@@ -8,8 +8,8 @@ use sidekicks_contracts::repo::mount::ExecutionMode;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use strum::VariantArray;
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::{sql_list_of, sql_list_of_every};
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 /// The worktree part of the daemon's schema: worktrees, the kept copies of removed ones, branch
 /// contexts and each run's execution context, in foreign-key order.
@@ -17,7 +17,7 @@ pub(crate) static WORKTREE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(worktree
 
 /// The workspace's list and the worktree part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::workspace::schema::schema_parts()
+    crate::schema::schema_parts()
         .with_part(SchemaPart::new("worktree", WORKTREE_SCHEMA_SQL.as_str()))
 }
 

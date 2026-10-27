@@ -15,8 +15,6 @@ use rusqlite::{
 use tokio::runtime::Handle;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::connection::writer_open::OPTIMIZE_SQL;
 use crate::database::statement::{
@@ -32,6 +30,8 @@ use crate::database::writer::repack::repack;
 use crate::database::writer::{CommitRead, ThreadStop, is_interrupt, sqlite_error_code};
 use crate::events::content::codec::BodyEncoder;
 use crate::events::session::insert::insert_session_event;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
 
 /// Prepared statements the connection keeps, least recently used dropped first; bounded, since a
 /// caller may build its SQL.

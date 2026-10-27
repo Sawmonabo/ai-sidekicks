@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
-use crate::provider::driver::claude::session::transport::control::ClaudeSettingsReply;
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::claude::session::transport::control::ClaudeSettingsReply;
+use crate::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply,
 };
 

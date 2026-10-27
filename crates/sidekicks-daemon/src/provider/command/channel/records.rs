@@ -20,13 +20,13 @@ use sidekicks_platforms::{FileAppendWatch, FolderArrivalWatch, InputTerminal};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use crate::askpass_prompt::is_masked_prompt;
-use crate::provider::command::channel::{
+use crate::command::channel::{
     CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
 };
-use crate::provider::command::running_set::{PromptAnswer, RunningCommandSets, WrapperCommand};
-use crate::provider::command::waiting_checks::{InputWaitReader, WaitingChecks};
-use crate::utf8_stream::Utf8StreamDecoder;
+use crate::command::running_set::{PromptAnswer, RunningCommandSets, WrapperCommand};
+use crate::command::waiting_checks::{InputWaitReader, WaitingChecks};
+use sidekicks_std::utf8_stream::Utf8StreamDecoder;
+use sidekicks_workspace::askpass_prompt::is_masked_prompt;
 
 #[cfg(test)]
 mod tests;

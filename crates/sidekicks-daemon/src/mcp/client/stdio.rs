@@ -27,17 +27,17 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 
-use crate::mcp::client::connection::{
+use crate::client::connection::{
     McpConnectionError, McpConnectionScope, McpConnectionStart, McpServerConnection,
 };
-use crate::mcp::client::raw_copy::{RawLineTee, RawReplyCopy};
-use crate::mutex_lock::lock;
-use crate::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
-use crate::provider::spawn_environment::{
+use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
+use sidekicks_provider::spawn_environment::{
     ProviderEnvironmentRequest, SpawnEnvironmentError, build_conversation_command_environment,
     remove_environment_names,
 };
-use crate::utf8_stream::Utf8StreamDecoder;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
+use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 
 /// How long a closed server may take to end after its input closed, and again after `SIGTERM`.
 const CLOSE_STEP_WAIT: Duration = Duration::from_secs(2);
@@ -353,12 +353,12 @@ mod tests {
     use tokio::io::AsyncReadExt as _;
 
     use super::{LOGGED_LINE_MAX_BYTES, McpStdioServer, StdioProcess, error_output_line_text};
-    use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
-    use crate::mcp::client::test_server::{
+    use crate::client::connection::{McpConnectionError, McpServerConnection};
+    use crate::client::test_server::{
         Reply, method_not_found, start_test_server, test_client, test_scope, v1_initialize_result,
     };
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::spawn_environment::{
+    use sidekicks_driver::PROVIDER_REGISTRATIONS;
+    use sidekicks_provider::spawn_environment::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     };
 

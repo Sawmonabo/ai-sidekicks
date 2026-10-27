@@ -18,20 +18,20 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use super::{ClaudeSessionControls, compose_review_command, one_turn_legs};
-use crate::cleanup_failures::CleanupFailures;
-use crate::error_description::describe_error;
-use crate::git::worktree::staged_changes::StagedChangesError;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
-use crate::provider::driver::claude::run::start::ClaudeDaemonTurnOpening;
-use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::claude::run::routes::ClaudeBoundRun;
+use crate::claude::run::start::ClaudeDaemonTurnOpening;
+use crate::claude::session::errors::record_unheard_claude_failure;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesError;
 
 // How a review of the staged set ended: refused by the model, or with its report.
 enum ClaudeStagedReviewEnd {

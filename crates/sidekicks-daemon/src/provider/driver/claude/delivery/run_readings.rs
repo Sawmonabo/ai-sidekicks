@@ -17,24 +17,22 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::messages::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
 };
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndedRun;
-use crate::provider::driver::claude::delivery::streamed_blocks::{
-    ClaudeStreamedBlockKey, ClaudeStreamedBlocks,
-};
-use crate::provider::driver::claude::delivery::turn_end::ClaudeTurnEnd;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::state::CLAUDE_THREAD_FRAME_ROUTER_CONFIG;
-use crate::provider::driver::reorder_buffer::{NormalizedEventReorderBuffer, ReorderBufferedEvent};
-use crate::provider::run::delivery::{
+use crate::claude::delivery::stream::daemon_ends::ClaudeDaemonEndedRun;
+use crate::claude::delivery::streamed_blocks::{ClaudeStreamedBlockKey, ClaudeStreamedBlocks};
+use crate::claude::delivery::turn_end::ClaudeTurnEnd;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::state::CLAUDE_THREAD_FRAME_ROUTER_CONFIG;
+use crate::driver::reorder_buffer::{NormalizedEventReorderBuffer, ReorderBufferedEvent};
+use crate::run::delivery::{
     DeliveryBinding, DeliveryOperation, InboundDelivery, LateAppendableRow,
 };
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::terminal_emission_gate::TerminalEmissionGate;
-use crate::transcript::whole_patch::stored_patch_files_body;
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::terminal_emission_gate::TerminalEmissionGate;
+use sidekicks_store::transcript_whole_patch::stored_patch_files_body;
 
 /// The id of an event a row was written as.
 pub(crate) type ClaudeEventId = FreeFormText<EVENT_FIELD_MAX_LEN>;

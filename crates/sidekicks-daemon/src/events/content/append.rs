@@ -15,7 +15,7 @@ use sidekicks_contracts::event::declared_variants::{
 use sidekicks_contracts::event::registry::SessionEventType;
 
 use crate::events::content::codec::StoredBody;
-use crate::transcript::whole_patch::{
+use crate::transcript_whole_patch::{
     OMITTED_PATCHES_PAYLOAD_KEY, PATCH_FILES_OPENING, WholePatchFile, patch_file_parts,
 };
 

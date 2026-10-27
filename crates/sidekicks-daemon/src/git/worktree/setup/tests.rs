@@ -30,16 +30,16 @@ use super::{
     MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupRunnerDeps,
     WorktreeSetupSources,
 };
-use crate::daemon::scheduler::Scheduler;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::{TestLog, open_log};
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

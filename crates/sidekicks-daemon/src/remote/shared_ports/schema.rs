@@ -1,14 +1,14 @@
 //! The shared-ports table, the last part of the daemon's schema, and the daemon's whole list of
 //! parts: the ports this machine shares with the person's other devices, kept across restarts.
 
-use crate::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
 
 /// The daemon's whole schema: the approvals', the workflows' and the plans' lists, then the
 /// shared-ports table.
 pub fn schema_parts() -> SchemaParts {
-    crate::approvals::schema::schema_parts()
-        .with_parts(crate::workflow::schema::schema_parts())
-        .with_parts(crate::plans::schema::schema_parts())
+    sidekicks_approval::schema::schema_parts()
+        .with_parts(sidekicks_workflow::schema::schema_parts())
+        .with_parts(sidekicks_artifact::plans::schema::schema_parts())
         .with_part(SchemaPart::new("shared_ports", SHARED_PORTS_SCHEMA_SQL))
 }
 
@@ -30,7 +30,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     use super::schema_parts;
-    use crate::database::connection::writer_open::open_database;
+    use sidekicks_store::database::connection::writer_open::open_database;
 
     /// The daemon's whole schema opens with every foreign key naming a table it holds and nothing
     /// dangling. Mutation: misspell a `REFERENCES` target.

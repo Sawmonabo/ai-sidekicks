@@ -44,32 +44,32 @@ use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
 use sidekicks_platforms::WallClock;
 use tokio::task::JoinError;
 
-use crate::artifacts::admission::{AdmittedUpload, UploadAdmission};
-use crate::artifacts::id::mint_artifact_id;
-use crate::artifacts::ingest::limits::{
+use crate::admission::{AdmittedUpload, UploadAdmission};
+use crate::id::mint_artifact_id;
+use crate::ingest::limits::{
     ABANDONED_SPOOL_TTL, MAX_HELD_COMPLETIONS, MAX_INGEST_STREAM_LIFETIME,
 };
-use crate::artifacts::manifest_write::{
+use crate::manifest_write::{
     PublishedManifest, check_artifact_owner, manifest_created_at, write_published_manifest,
 };
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::refusals::{
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::refusals::{
     ArtifactError, artifact_too_large_past_declared, ingest_start_idempotency_conflict,
     ingest_stream_invalid,
 };
-use crate::artifacts::validation::{
+use crate::validation::{
     FILE_NAME_MEMBER, SpooledPayload, Utf8Check, keep_leading_bytes, normalize_file_name,
     validate_and_store,
 };
-use crate::daemon::scheduler::budget::ProcessorMeter;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::events::session::appender::SessionEventAppender;
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::MissingEntry as _;
-use crate::mutex_lock::lock;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::mutex_lock::lock;
 #[cfg(test)]
-use crate::pause_point::PausePoint;
-use crate::settle_all::{SettleFailures, settle_all};
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::session::appender::SessionEventAppender;
 
 // The mode of a spool file: its owner's alone.
 const SPOOL_FILE_MODE: u32 = 0o600;

@@ -17,16 +17,16 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::attachments::ProviderAttachment;
-use crate::provider::driver::codex::delivery::frames::CodexPromptHookRun;
-use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
-use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
-use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::{PickedSkill, ResumeRunParams};
-use crate::provider::thread_frame_router::ThreadFrameRouterConfig;
+use crate::codex::delivery::frames::CodexPromptHookRun;
+use crate::codex::delivery::memory::CodexDeliveryMemory;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::inbound::CodexSessionInboundSender;
+use crate::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::codex::thread::settings::CodexThreadSettings;
+use crate::driver::attachments::ProviderAttachment;
+use crate::driver::contract::DriverError;
+use crate::driver::run_control::{PickedSkill, ResumeRunParams};
+use crate::thread_frame_router::ThreadFrameRouterConfig;
 
 /// How many interrupted runs whose ends are still owed a session keeps; past it the interrupt is
 /// refused rather than an entry dropped, since a dropped entry's end would reach no run.

@@ -25,12 +25,12 @@ use sidekicks_contracts::transcript::search::TranscriptSearchRequest;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::session::search::index::live::LiveIndex;
-use crate::session::service::SessionService;
+use sidekicks_session::search::index::live::LiveIndex;
+use sidekicks_session::service::SessionService;
 
 /// Registers `transcript.read`, `transcript.reasoning.read`, `transcript.childRun.expand`,
 /// `transcript.patch.list` and `transcript.body.read` over `sessions` and `transcript.search` over
@@ -134,13 +134,15 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::read_body;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::events::log_service::EventLogAppendOptions;
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::registry::HandlerError;
     use crate::remote::shared_ports::schema::schema_parts;
-    use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+    use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_envelope, test_session_id,
+    };
+    use sidekicks_store::events::log_service::EventLogAppendOptions;
+    use sidekicks_store::events::log_service::tests::open_log;
 
     #[tokio::test]
     async fn a_row_the_session_lacks_is_refused_where_a_row_with_no_body_reads_absent() {

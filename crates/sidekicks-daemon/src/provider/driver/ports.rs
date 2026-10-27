@@ -12,24 +12,24 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::callback_tools::host::CallbackToolHost;
-use crate::provider::driver::SessionSpawnContextResolver;
-use crate::provider::driver::run_control::DaemonTurnBindingResolver;
-use crate::provider::driver::session_control::DriverResumeResult;
-use crate::provider::port::in_process_tool_servers::InProcessToolServers;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::permission_ask::PermissionAskPort;
-use crate::provider::port::plan::PlanPort;
-use crate::provider::port::question::QuestionPort;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::repository_reader::RepositoryReader;
-use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::port::run_pause::{ContinuedMessages, RunPauses};
-use crate::provider::port::session_advisor_store::SessionAdvisorStore;
-use crate::provider::port::session_rules::SessionRulePort;
-use crate::provider::port::tool_server_route::ToolServerRoute;
-use crate::provider::port::usage_sink::UsageSink;
+use crate::callback_tools::host::CallbackToolHost;
+use crate::driver::SessionSpawnContextResolver;
+use crate::driver::run_control::DaemonTurnBindingResolver;
+use crate::driver::session_control::DriverResumeResult;
+use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::permission_ask::PermissionAskPort;
+use crate::port::plan::PlanPort;
+use crate::port::question::QuestionPort;
+use crate::port::registration::PortRegistration;
+use crate::port::repository_reader::RepositoryReader;
+use crate::port::reviewer_denial::ReviewerDenialPort;
+use crate::port::run_host::RunHost;
+use crate::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_rules::SessionRulePort;
+use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::usage_sink::UsageSink;
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub(crate) trait MessageTakenListener: Send + Sync {

@@ -15,16 +15,16 @@ use super::{
     HANDS_AT_ONCE, continued_ids, count_steers, driver_handing, fixture, hand, insert_item,
     set_run_state, settle, stored_item,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::run_control::TakenMessages;
-use crate::provider::driver::test_registry::registry_of_first_provider;
-use crate::provider::port::run_pause::ContinuedMessages;
-use crate::provider::process_identity::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
-use crate::queue::store::RecordedQueueItemState;
-use crate::session::run::engine::tests::test_engine;
-use crate::session::run::pause::tests::unanswered;
-use crate::session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl};
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::run_control::TakenMessages;
+use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::port::run_pause::ContinuedMessages;
+use sidekicks_provider::process_identity::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
+use sidekicks_session::queue_store::RecordedQueueItemState;
+use sidekicks_session::run::engine::tests::test_engine;
+use sidekicks_session::run::pause::tests::unanswered;
+use sidekicks_session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 /// A provider whose process keeps a message past its run's end, for a turn it starts with it.
 const KEPT_BY_PROCESS: MessageHanding = MessageHanding {

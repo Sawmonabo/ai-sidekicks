@@ -39,36 +39,40 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::approvals::refusals::{reviewer_denial_not_found, reviewer_denial_not_overridable};
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::schema::session_directory::read_session_state;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::text_column;
-use crate::events::log_service::EventAppendError;
-use crate::events::session::appender::{
+use crate::refusals::{reviewer_denial_not_found, reviewer_denial_not_overridable};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::error_causes::RequestUnanswered;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::OverrideDenialParams;
+use sidekicks_provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use sidekicks_session::changes::refuse_unchangeable_session;
+use sidekicks_session::run::agent::{
+    RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader,
+};
+use sidekicks_session::run::read::{RunProvider, RunStateReader, read_run_provider};
+use sidekicks_session::run::transitions::is_run_terminal_event_type;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_wait::KeyedWaits;
+use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::schema::session_directory::read_session_state;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::log_service::EventAppendError;
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage, UnsequencedEventEnvelope,
 };
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::KeyedLock;
-use crate::keyed_wait::KeyedWaits;
-use crate::mutex_lock::lock;
-#[cfg(test)]
-use crate::pause_point::PausePoint;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::error_causes::RequestUnanswered;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::run_control::OverrideDenialParams;
-use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::session::changes::refuse_unchangeable_session;
-use crate::session::not_found::session_not_found;
-use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
-use crate::session::run::read::{RunProvider, RunStateReader, read_run_provider};
-use crate::session::run::transitions::is_run_terminal_event_type;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
 /// The statements [`ReviewerDenials`] prepares on a read connection: the blocked call's row, the
 /// session's state, the block, its override, the run and its provider, and the run's agent.

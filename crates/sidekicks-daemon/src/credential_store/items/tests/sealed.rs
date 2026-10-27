@@ -26,7 +26,7 @@ use crate::credential_store::os::{SystemCredentialStore, TestStoreAccess};
 use crate::credential_store::place::SecretsPlace;
 use crate::credential_store::seal::{TestSeal, TestSealAnswer};
 use crate::credential_store::service::KeychainService;
-use crate::random_hex::random_hex;
+use sidekicks_std::random_hex::random_hex;
 
 pub(super) const NO_SEAL_SERVICE: &str =
     r#"{"place":{"kind":"plainFile","reason":"noSealService"}}"#;

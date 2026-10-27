@@ -9,10 +9,10 @@ use rusqlite::{OptionalExtension as _, named_params};
 use sidekicks_contracts::session::id::UserId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::daemon::machine::local::LocalMachine;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::{DatabaseWriter, WriteError};
+use crate::machine::local::LocalMachine;
 
 /// The statements [`MachineRegistry`] prepares on a read connection: the other owner's row.
 pub(crate) const MACHINE_REGISTRY_STATEMENT_CAPACITY: usize = 1;
@@ -124,11 +124,11 @@ mod tests {
     use sidekicks_contracts::session::id::UserId;
 
     use super::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
-    use crate::daemon::machine::local::LocalMachine;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::schema::schema_parts;
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use crate::machine::local::LocalMachine;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn user_id() -> UserId {

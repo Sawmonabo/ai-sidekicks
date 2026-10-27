@@ -11,7 +11,7 @@ use std::time::Duration;
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
 
-use crate::mcp::client::tasks::McpTaskContact;
+use crate::client::tasks::McpTaskContact;
 
 /// The interval between polls when the server suggests none.
 pub(super) const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(2);

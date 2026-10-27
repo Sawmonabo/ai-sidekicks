@@ -8,8 +8,8 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::queue::SessionMessageTooLargeDetails;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::session::errors::CodexError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// The JSON-RPC code Codex answers a request whose params it refuses.
 const CODEX_INVALID_PARAMS_CODE: i64 = -32602;

@@ -12,14 +12,14 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::detach::DetachRepoMount;
 use super::{RepoMountService, RepoMountServiceError};
-use crate::database::writer::test_file::TestDatabase;
-use crate::file::bounded_read::stall_reads_of;
 use crate::git::process::test_git_runner;
 use crate::git::worktree::schema::schema_parts;
-use crate::ipc::domain_error::DomainError;
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::root_resolver::{RepoRootResolution, RepoRootResolver};
-use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use crate::repo::errors::RepoRefusal;
+use crate::repo::root_resolver::{RepoRootResolution, RepoRootResolver};
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_std::file::bounded_read::stall_reads_of;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";
 const WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";

@@ -10,7 +10,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use uuid::Uuid;
 
-use crate::missing_entry::is_gone;
+use sidekicks_std::missing_entry::is_gone;
 
 /// The key of one run's execution context row: an agent run's id or a workflow run's id. It
 /// writes as the UUID's lowercase hyphenated text, so it is a safe ref path component.

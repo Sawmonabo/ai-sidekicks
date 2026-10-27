@@ -22,18 +22,18 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::provider::command::channel::PartyId;
-use crate::provider::command::waiting_checks::WaitingState;
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::running_command_publisher::{
+use crate::command::channel::PartyId;
+use crate::command::waiting_checks::WaitingState;
+use crate::driver::contract::ProviderDriver;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandParams, RunningCommandPublisher,
     WriteCommandInputParams, command_act_unsupported,
 };
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
 
 mod feed;
 

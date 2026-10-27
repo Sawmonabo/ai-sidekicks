@@ -7,15 +7,15 @@ use std::sync::{Arc, OnceLock, Weak};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::codex::delivery::frames::CodexFrameEffects;
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
-use crate::provider::driver::codex::lifecycle::CodexDriverParts;
-use crate::provider::driver::codex::lifecycle::sessions::let_go_codex_session_record;
-use crate::provider::driver::codex::run::start::record::CodexSessionDisposal;
-use crate::provider::driver::codex::run::turn_end_waiters::CodexRecordExit;
-use crate::provider::driver::codex::server_requests::CodexAskKind;
-use crate::provider::driver::run_control::RunToolBoundary;
-use crate::provider::port::plan::ProviderPlan;
+use crate::codex::delivery::frames::CodexFrameEffects;
+use crate::codex::delivery::rows::CodexRowRun;
+use crate::codex::lifecycle::CodexDriverParts;
+use crate::codex::lifecycle::sessions::let_go_codex_session_record;
+use crate::codex::run::start::record::CodexSessionDisposal;
+use crate::codex::run::turn_end_waiters::CodexRecordExit;
+use crate::codex::server_requests::CodexAskKind;
+use crate::driver::run_control::RunToolBoundary;
+use crate::port::plan::ProviderPlan;
 
 /// The link to the session pieces, set once they are composed.
 #[derive(Default)]

@@ -21,8 +21,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::{path_from_program_output, real_path, remove_tree};
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::optional_text_column;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder, strip_line_end};
 use crate::git::turn_snapshot::capture::{
     EXCLUDE_PER_DIRECTORY_GITIGNORE, SNAPSHOT_INDEX_SEGMENT, SparseListingPartition,
@@ -39,8 +37,12 @@ use crate::git::turn_snapshot::refs::{
 use crate::git::turn_snapshot::retention::{
     RunContextKey, RunContextRow, is_path_provably_absent, parse_snapshot_ref_listing,
 };
-use crate::keyed_lock::KeyedLock;
-use crate::random_hex::random_hex;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::random_hex::random_hex;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::optional_text_column;
 
 /// The statements the prune's context read prepares on a read connection: the one row read.
 pub(crate) const TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY: usize = 1;

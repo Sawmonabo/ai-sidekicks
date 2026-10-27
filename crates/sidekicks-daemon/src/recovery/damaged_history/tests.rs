@@ -11,15 +11,15 @@ use sidekicks_contracts::session::recovery::SessionRecoveryRefusedReason;
 use tokio_util::sync::CancellationToken;
 
 use super::RecoveryActionError;
-use crate::approvals::service::tests::SETTLE_WAIT;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::test_session_id;
-use crate::recovery::session_write_refusal::refuse_call_naming_session;
-use crate::recovery::test_pass::PassFixture;
-use crate::session::run::engine::tests::stored_run_state;
-use crate::session::service::{
+use crate::session_write_refusal::refuse_call_naming_session;
+use crate::test_pass::PassFixture;
+use sidekicks_approval::service::tests::SETTLE_WAIT;
+use sidekicks_session::run::engine::tests::stored_run_state;
+use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SESSION_SERVICE_STATEMENT_CAPACITY, SessionService,
 };
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::test_session_id;
 
 // A pass leaves a session damaged mid-log beside a healthy one; `Continue from here` then skips
 // the damaged events through the head under the hold it took, settles the session's run, its

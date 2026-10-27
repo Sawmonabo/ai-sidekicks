@@ -6,11 +6,11 @@ use std::path::Path;
 
 use serde_json::Value;
 
-use crate::provider::driver::claude::session::settings_file::{
+use crate::claude::session::settings_file::{
     ClaudeSettingsFileError, hold_settings_file, read_settings_file, set_settings_value,
     write_settings_file,
 };
-use crate::provider::driver::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
+use crate::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
 
 // The home's own settings file, in its config folder.
 const CLAUDE_HOME_SETTINGS_FILE: &str = "settings.json";

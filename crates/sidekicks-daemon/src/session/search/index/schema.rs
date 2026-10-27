@@ -4,18 +4,18 @@
 
 use sidekicks_search::index::IndexRowKind;
 
-use crate::database::schema::{SESSION_EVENTS_TABLE, SchemaPart, SchemaParts};
-use crate::database::sql_list::sql_list_of_every;
-use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
-use crate::session::search::index::columns::index_key_sql;
-use crate::session::search::index::outbox::OutboxOperation;
-use crate::session::search::index::rows::INDEXED_EVENT_TYPES_SQL;
-use crate::session::search::rowid_floors::rowid_floor_trigger_sql;
+use crate::search::index::columns::index_key_sql;
+use crate::search::index::outbox::OutboxOperation;
+use crate::search::index::rows::INDEXED_EVENT_TYPES_SQL;
+use crate::search::rowid_floors::rowid_floor_trigger_sql;
+use sidekicks_store::database::schema::{SESSION_EVENTS_TABLE, SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
+use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
 /// mcp's schema list, then the search index's own part, whose triggers follow the
 /// session directory's tables they watch.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::mcp::schema::schema_parts()
+    sidekicks_mcp::schema::schema_parts()
         .with_part(SchemaPart::new("search_index", search_index_schema_sql()))
 }
 
@@ -260,13 +260,13 @@ CREATE TABLE session_search_rowid_floors (
 /// schema, whose insert gives the outbox its rows, and answers the outbox's highest id after it.
 #[cfg(test)]
 pub(crate) fn add_titled_session(connection: &rusqlite::Connection, session_id: &str) -> u64 {
-    crate::database::schema::session_directory::insert_session_row(
+    sidekicks_store::database::schema::session_directory::insert_session_row(
         connection,
         session_id,
         Some("Billing fix"),
         None,
     );
-    crate::session::search::index::outbox::OutboxReader::new(connection)
+    crate::search::index::outbox::OutboxReader::new(connection)
         .highest_id_given()
         .expect("the outbox's highest id reads")
 }

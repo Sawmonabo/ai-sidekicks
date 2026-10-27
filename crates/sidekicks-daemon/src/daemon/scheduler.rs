@@ -34,9 +34,9 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
 
-pub(crate) use crate::daemon::scheduler::condition::JobCondition;
-use crate::daemon::scheduler::condition::ParkedRuns;
 use crate::mutex_lock::lock;
+pub(crate) use crate::scheduler::condition::JobCondition;
+use crate::scheduler::condition::ParkedRuns;
 
 pub(crate) mod budget;
 mod condition;

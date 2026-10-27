@@ -12,9 +12,9 @@ use sidekicks_contracts::session::directory::{
     SessionListChange, SessionSubscribe, SessionSubscribeResponse,
 };
 
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::feed::Feed;
-use crate::session::directory::list_feed::SessionListFeed;
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_session::directory::list_feed::SessionListFeed;
 
 /// Registers `session.subscribe` on `registry`. A list that cannot be read fails the call with
 /// nothing left open; one that later stops being current ends the subscription with a fault.

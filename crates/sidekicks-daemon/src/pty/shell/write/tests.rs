@@ -17,9 +17,9 @@ use sidekicks_terminal::{
 use tokio::runtime::Handle;
 
 use super::{AdmittedShellWrite, ShellInput, ShellInputHooks, ShellWriteInput};
-use crate::ipc::registry::TransportId;
-use crate::pty::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
-use crate::pty::shell::paste::ShellPastePart;
+use crate::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
+use crate::paste::ShellPastePart;
+use sidekicks_ipc::registry::TransportId;
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const FIRST_PANE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001";

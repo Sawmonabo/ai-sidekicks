@@ -21,15 +21,15 @@ use rusqlite::Connection;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::ScheduledJobOutcome;
-use crate::daemon::scheduler::budget::{
-    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
+use crate::database::wal_truncation::WriteAheadLogTruncation;
 use crate::database::writer::thread::checkpoint;
 use crate::database::writer::{DatabaseWriter, MaintenanceError, is_interrupt};
-use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
 
 const REPACK_OPERATION: &str = "repacking the database";
 

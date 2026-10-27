@@ -21,16 +21,18 @@ use super::{
     PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildError, ProjectionRebuildRequest,
     ProjectionRebuildService,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::projection::{
+use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::damage::DatabaseDamageWatch;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::database::writer::test_file::{
+    TestDatabase, session_event_row, test_session_id,
+};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::projection::{
     ProjectionContradiction, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
 };
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 const PINNED_ROWS_TABLE_SQL: &str =
     "CREATE TABLE pinned_rows (session_id TEXT NOT NULL, sequence INTEGER NOT NULL) STRICT";
@@ -38,9 +40,9 @@ const PINNED_ROWS_TABLE_SQL: &str =
 /// A test database holding every table a projection here folds into.
 fn rebuild_database() -> TestDatabase {
     TestDatabase::new(
-        crate::approvals::schema::schema_parts()
-            .with_parts(crate::plans::schema::schema_parts())
-            .with_parts(crate::workflow::schema::schema_parts()),
+        sidekicks_approval::schema::schema_parts()
+            .with_parts(sidekicks_artifact::plans::schema::schema_parts())
+            .with_parts(sidekicks_workflow::schema::schema_parts()),
     )
 }
 

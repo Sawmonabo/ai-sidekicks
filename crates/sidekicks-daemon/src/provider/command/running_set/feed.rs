@@ -13,9 +13,9 @@ use sidekicks_contracts::wire::list::UniqueList;
 use tokio::sync::watch;
 
 use super::SessionCommands;
-use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::feed::{Feed, SendGate};
-use crate::mutex_lock::lock;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::stream::feed::{Feed, SendGate};
+use sidekicks_std::mutex_lock::lock;
 
 /// The most output bytes a command's live tail keeps: 64 KiB, a terminal's recent scrollback for a
 /// reader that joins late; the whole output lands as the tool call's result.
@@ -130,7 +130,7 @@ impl RunningCommandFeed {
 /// The next frame `feed` sends through a gate of one credit, failing the test after 5 s.
 #[cfg(test)]
 pub(crate) async fn next_sent_frame(feed: &mut RunningCommandFeed) -> AgentCommandSubscribeFrame {
-    let gate = crate::ipc::stream::feed::CreditGate::with_credit(1);
+    let gate = sidekicks_ipc::stream::feed::CreditGate::with_credit(1);
     tokio::time::timeout(std::time::Duration::from_secs(5), feed.next(&gate))
         .await
         .expect("a frame comes")

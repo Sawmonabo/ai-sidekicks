@@ -6,19 +6,17 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::codex::delivery::children::ChildRunLookup;
-use crate::provider::driver::codex::delivery::frames::{CodexFrameDelivery, report_unattributed};
-use crate::provider::driver::codex::delivery::reviewer::{
+use crate::codex::delivery::children::ChildRunLookup;
+use crate::codex::delivery::frames::{CodexFrameDelivery, report_unattributed};
+use crate::codex::delivery::reviewer::{
     CodexReviewFlag, complete_codex_review, hold_guardian_warning, require_codex_review,
 };
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexDeliveryPort, CodexTransportDiagnostic,
-};
-use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::codex::delivery::rows::CodexRowRun;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
+use crate::port::reviewer_denial::ProviderReviewerDenial;
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 
 impl CodexFrameDelivery {
     pub(super) async fn deliver_reviewer_frame(
@@ -87,7 +85,7 @@ impl CodexFrameDelivery {
 
     /// Writes a reviewer flag about the event it points at; one whose event was never written gets
     /// no flag, and that is reported.
-    pub(in crate::provider::driver::codex::delivery) async fn send_review_flag(
+    pub(in crate::codex::delivery) async fn send_review_flag(
         &self,
         record: &CodexSessionRecord,
         flag: CodexReviewFlag,

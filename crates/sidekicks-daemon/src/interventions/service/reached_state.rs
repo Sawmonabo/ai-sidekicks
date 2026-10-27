@@ -18,8 +18,8 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::InterventionTarget;
-use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
-use crate::session::run::read::{RunRead, safe_run_version};
+use crate::run::read::{RunRead, safe_run_version};
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 /// A state an intervention reached, with the reason a rejected or failed one carries.
 pub(in crate::interventions) enum ReachedState {

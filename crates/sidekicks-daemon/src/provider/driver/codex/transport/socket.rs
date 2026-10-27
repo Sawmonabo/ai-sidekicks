@@ -23,11 +23,11 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::{Bytes, Message};
 use tokio_util::sync::CancellationToken;
 
-use crate::error_description::describe_error;
-use crate::ipc::caller_process::provider_services::{
+use crate::codex::session::errors::CodexError;
+use sidekicks_ipc::caller_process::provider_services::{
     ProviderServiceHold, ProviderServiceProcesses,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
+use sidekicks_std::error_description::describe_error;
 
 /// The largest frame and message the daemon reads from the Codex service, in bytes: Codex's own
 /// client's figure, so nothing Codex's own tools read is refused here.
@@ -463,8 +463,8 @@ mod tests {
         CODEX_DEFAULT_SENT_MESSAGE_BYTES, CODEX_MAX_UNFRAGMENTED_MESSAGE_BYTES_HEADER,
         CodexSocketEvent, open_codex_web_socket, receive_event, send_within_limit,
     };
-    use crate::provider::driver::codex::session::errors::CodexError;
-    use crate::provider::inbound_json::decode_inbound_json;
+    use crate::codex::session::errors::CodexError;
+    use crate::inbound_json::decode_inbound_json;
 
     /// The deepest nesting `serde_json` reads: its limit is 128 levels, the 128th refused.
     const DECODE_DEPTH: usize = 127;

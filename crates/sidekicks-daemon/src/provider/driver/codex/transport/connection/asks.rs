@@ -12,19 +12,19 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::codex::server_requests::{
+use crate::codex::server_requests::{
     CODEX_OUTBOUND_ANSWER_TOO_LARGE_REASON, CodexAskKind, CodexInboundServerRequest,
     CodexRoutedMethod, CodexServerRequestAnswer, CodexServerRequestDecision, CodexUnadjudicatedAsk,
     compose_unrouted_request_error, is_codex_server_request_method,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::{
     CodexAppServerConnection, CodexForgottenRequest, ConnectionShared, JSON_RPC_VERSION,
     read_codex_object, read_member,
 };
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use sidekicks_std::error_description::describe_error;
 
 /// Stands in for a responder failure that carries no words, as the refusal's reason.
 static RESPONDER_FAILURE_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =

@@ -29,16 +29,16 @@ use sidekicks_search::ranking::score_subsequence;
 use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::git::process::{GitError, GitRunner};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::missing_entry::is_gone;
-use crate::mutex_lock::lock;
-use crate::session::search::files::listing::{
-    ListingError, WorkingFolderListing, list_working_folder,
+use crate::search::files::listing::{ListingError, WorkingFolderListing, list_working_folder};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::missing_entry::is_gone;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use crate::session::working_folder::{WorkingFolderReadError, read_working_folder};
+use sidekicks_workspace::git::process::{GitError, GitRunner};
+use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 
 /// The statements the file search prepares on a read connection: the session's working folder.
 pub(crate) const FILE_SEARCH_STATEMENT_CAPACITY: usize = 1;
@@ -499,13 +499,13 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::git::process::{GitRunner, test_git_runner, write_link};
     use crate::questions::schema::schema_parts;
-    use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use sidekicks_workspace::git::process::{GitRunner, test_git_runner, write_link};
+    use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
     /// Bounds a wait the test expects to end, so one that never does fails the test.
     const WAIT: Duration = Duration::from_secs(10);

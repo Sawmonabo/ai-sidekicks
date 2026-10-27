@@ -15,7 +15,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::interventions::interrupt_queue::InterruptChoice;
-use crate::provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
 
 /// The type of intervention `request` asks for.
 pub(super) fn intervention_type_of(request: &AgentRunInterveneRequest) -> InterventionType {

@@ -6,17 +6,13 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound};
-use crate::provider::driver::claude::delivery::claude_delivery_origin;
-use crate::provider::driver::claude::delivery::run_readings::{
-    ClaudeMessageKey, ClaudeRowDelivery,
-};
-use crate::provider::driver::claude::delivery::streamed_blocks::ClaudeStreamedPiece;
-use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
-use crate::provider::driver::delivery_dispatch::dispatch_delivery;
-use crate::provider::driver::reorder_buffer::ReorderBufferedEvent;
-use crate::provider::run::delivery::{
-    InboundDelivery, InboundOutcome, LateAppendableRow, RunMarker,
-};
+use crate::claude::delivery::claude_delivery_origin;
+use crate::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
+use crate::claude::delivery::streamed_blocks::ClaudeStreamedPiece;
+use crate::claude::run::routes::ClaudeBoundRun;
+use crate::driver::delivery_dispatch::dispatch_delivery;
+use crate::driver::reorder_buffer::ReorderBufferedEvent;
+use crate::run::delivery::{InboundDelivery, InboundOutcome, LateAppendableRow, RunMarker};
 
 impl ClaudeDeliveryStream {
     // Admits rows through the reorder buffer and sends what it releases.

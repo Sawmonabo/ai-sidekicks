@@ -7,13 +7,11 @@ use std::sync::Arc;
 
 use sidekicks_contracts::run::control::ProcessExit;
 
-use crate::provider::driver::codex::lifecycle::CodexDriverParts;
-use crate::provider::driver::codex::lifecycle::effects::CodexDriverLink;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::events::{
-    CodexServiceEvents, CodexServiceRecoveryCause,
-};
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::lifecycle::CodexDriverParts;
+use crate::codex::lifecycle::effects::CodexDriverLink;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::events::{CodexServiceEvents, CodexServiceRecoveryCause};
+use crate::codex::session::errors::CodexError;
 
 /// The service events of every service the driver dials, acted on through the composed pieces.
 pub(crate) struct CodexDriverServiceEvents {

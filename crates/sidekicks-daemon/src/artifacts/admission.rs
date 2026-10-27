@@ -8,15 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use crate::artifacts::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
-use crate::artifacts::refusals::{
-    ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted,
-};
-use crate::database::writer::repack::VolumeFreeBytesReader;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::mutex_lock::lock;
+use crate::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
+use crate::refusals::{ArtifactError, artifact_too_large_for_volume, ingest_capacity_exhausted};
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
 #[cfg(test)]
-use crate::pause_point::PausePoint;
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_store::database::writer::repack::VolumeFreeBytesReader;
 
 // Each open upload's room yet to write, shared with the guard that releases it.
 type OpenUploads = Arc<Mutex<Vec<Arc<AtomicU64>>>>;
@@ -142,8 +140,8 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::UploadAdmission;
-    use crate::artifacts::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
-    use crate::artifacts::test_store::refusal_code_of;
+    use crate::ingest::limits::MAX_ACTIVE_INGEST_STREAMS;
+    use crate::test_store::refusal_code_of;
 
     /// The free room the test's volume reports.
     const FREE_BYTES: u64 = 1_000;

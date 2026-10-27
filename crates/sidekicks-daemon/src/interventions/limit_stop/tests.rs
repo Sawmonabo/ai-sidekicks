@@ -32,27 +32,27 @@ use tokio::runtime::Handle;
 use tokio::sync::oneshot;
 
 use super::AcceptedLimitInterrupt;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::statement::DATABASE_NOW_SQL;
-use crate::events::session::appender::SessionEventDraft;
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::driver::message_handing::MessageHanding;
-use crate::provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
-use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use crate::session::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
-use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::pause::tests::unanswered;
-use crate::session::run::pause::{RunPauseControl, RunPauseError};
-use crate::session::run::provider_choice::{
+use crate::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
+use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+use crate::run::pause::tests::unanswered;
+use crate::run::pause::{RunPauseControl, RunPauseError};
+use crate::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
 };
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::message_handing::MessageHanding;
+use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
+use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+use sidekicks_store::events::session::appender::SessionEventDraft;
 
 // Records an `accepted` interrupt of the harness's run at `limit`, accepted at version 1, as
 // its write would, and answers its id.

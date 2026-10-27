@@ -24,8 +24,8 @@ use sidekicks_contracts::keychain::KeychainRefusalCause;
 
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
-use crate::file::atomic_write::write_file_atomically;
-use crate::missing_entry::MissingEntry;
+use sidekicks_std::file::atomic_write::write_file_atomically;
+use sidekicks_std::missing_entry::MissingEntry;
 
 const RECORD_FILE_NAME: &str = "secrets-place.json";
 

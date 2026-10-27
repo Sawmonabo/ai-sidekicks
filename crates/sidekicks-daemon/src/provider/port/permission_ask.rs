@@ -11,7 +11,7 @@ use sidekicks_contracts::approval::{ApprovalRequestId, RememberedScopeKind};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 /// What the held call would do, read by the driver from its provider's own ask: run a command,
 /// send input to the running command the ask's tool call names, change files, read one file or

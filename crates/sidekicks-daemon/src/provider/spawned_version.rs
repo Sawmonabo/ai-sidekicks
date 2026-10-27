@@ -14,13 +14,11 @@ use sidekicks_platforms::{
     real_path,
 };
 
-use crate::provider::command_search::ProviderCommandSearch;
-use crate::provider::driver::contract::{
-    DriverCliVersionReport, DriverError, SpawnedVersionBindingCarriers,
-};
-use crate::provider::driver::error_causes::ExecutableUnresolvable;
-use crate::provider::output_validation::{check_cli_version_report, is_canonical_semver};
-use crate::provider::spawn_environment::place_folder_first_on_search_path;
+use crate::command_search::ProviderCommandSearch;
+use crate::driver::contract::{DriverCliVersionReport, DriverError, SpawnedVersionBindingCarriers};
+use crate::driver::error_causes::ExecutableUnresolvable;
+use crate::output_validation::{check_cli_version_report, is_canonical_semver};
+use crate::spawn_environment::place_folder_first_on_search_path;
 
 // The first `X.Y.Z` word in prose such as `cli-name 2.1.245 (build 7)`. A partial version such as
 // `v2` is no match, so it stays unparsed.
@@ -283,9 +281,9 @@ mod tests {
     use sidekicks_platforms::Spawner;
 
     use super::resolve_provider_executable;
-    use crate::provider::command_search::ProviderCommandSearch;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::contract::DriverError;
+    use crate::command_search::ProviderCommandSearch;
+    use crate::driver::PROVIDERS;
+    use crate::driver::contract::DriverError;
 
     // A typed command path that names nothing is refused as a path the person typed, never as a
     // provider not installed, and a bare name no search finds is not installed. Killed by reading

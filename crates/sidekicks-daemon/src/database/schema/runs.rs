@@ -8,14 +8,14 @@ use sidekicks_contracts::run::queue::{QueueItemNotDeliveredKind, QueueItemState}
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::{sql_list_of, sql_list_of_every};
-use crate::provider::driver::run_control::InterruptPendingChoice;
-use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 /// The search index's list and the runs' own part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::session::search::index::schema::schema_parts()
+    crate::search::index::schema::schema_parts()
         .with_part(SchemaPart::new("runs", runs_schema_sql()))
 }
 

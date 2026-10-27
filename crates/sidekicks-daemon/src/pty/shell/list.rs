@@ -9,10 +9,10 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::BoxFuture;
 use sidekicks_contracts::terminal::TerminalListUpdate;
 
-use crate::ipc::stream::latest_value::{
+use sidekicks_ipc::stream::latest_value::{
     LatestValueOutlet, LatestValueOutletId, LatestValueOutlets,
 };
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// Reads a session's whole shell list once every holder in it has settled.
 pub(crate) type ShellListRead =

@@ -12,9 +12,9 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
-use crate::provider::driver::session_control::ResumeSessionParams;
-use crate::provider::runtime_binding::store::RuntimeBinding;
+use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::session_control::ResumeSessionParams;
+use crate::runtime_binding::store::RuntimeBinding;
 
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
 /// status sink is a choice at the call.

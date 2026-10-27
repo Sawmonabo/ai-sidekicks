@@ -25,24 +25,26 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::read::{DamagedFromSequenceReader, session_read_bound};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::contract::{
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
+use sidekicks_provider::driver::contract::{
     CompactContextParams, DriverError, ListModelsParams, ListProviderCommandsParams,
 };
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::session::directory::lookups::session_exists;
-use crate::session::not_found::session_not_found;
-use crate::session::run::agent::read_lead_binding;
-use crate::session::run::live_bindings::{
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_session::run::agent::read_lead_binding;
+use sidekicks_session::run::live_bindings::{
     AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
 };
-use crate::session::run::refusals::RunRefusal;
+use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
 #[cfg(test)]
 mod tests;

@@ -17,16 +17,16 @@ use super::test_copies::{
     ANSWER, COPY_THREAD, COPY_TURN, STORED_THREAD, accept_copy, read_only_profile,
     resting_question, serve_copy, serve_unended_copy,
 };
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::permission_level::compose_codex_profile_name;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::permission_level::compose_codex_profile_name;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::test_service::{
     bind_test_listener, next_socket_request, send_on_socket,
 };
-use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
-use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::provider::driver::session_control::AskSideQuestionParams;
-use crate::provider::port::registration::PortRegistration;
+use crate::codex::session::test_session::{TestCodexSession, turn_reply};
+use crate::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::session_control::AskSideQuestionParams;
+use crate::port::registration::PortRegistration;
+use sidekicks_std::mutex_lock::lock;
 
 /// How long the test waits for the copy to be served and let go.
 const SERVE_WAIT: Duration = Duration::from_secs(10);

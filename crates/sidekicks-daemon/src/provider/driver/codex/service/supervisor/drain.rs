@@ -15,15 +15,13 @@ use sidekicks_platforms::ProcessRecord;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::service::process::{
+use crate::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry,
 };
-use crate::provider::driver::codex::service::record::{
-    LastingServiceRecordFile, LockedServiceRecord,
-};
-use crate::provider::driver::codex::service::supervisor::runner::report_stop_failed;
-use crate::provider::driver::codex::service::supervisor::start::kept_records::on_record;
+use crate::codex::service::record::{LastingServiceRecordFile, LockedServiceRecord};
+use crate::codex::service::supervisor::runner::report_stop_failed;
+use crate::codex::service::supervisor::start::kept_records::on_record;
+use sidekicks_std::mutex_lock::lock;
 
 /// How a drain ended, as its one waiting task tells it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -210,10 +208,8 @@ mod tests {
     };
 
     use super::LastingServiceDrains;
-    use crate::provider::driver::codex::service::process::{
-        LastingCodexService, repin_lasting_codex_service,
-    };
-    use crate::provider::driver::codex::service::record::{
+    use crate::codex::service::process::{LastingCodexService, repin_lasting_codex_service};
+    use crate::codex::service::record::{
         LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
     };
 

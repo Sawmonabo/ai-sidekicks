@@ -21,19 +21,19 @@ use sidekicks_contracts::wire::list::UniqueList;
 use tokio::time::timeout;
 
 use super::{DriverCalls, Fixture, WAIT, client_key, fixture, queue_over, recording_driver};
-use crate::database::writer::test_file::test_envelope;
-use crate::events::session::followers::CommittedEvent;
-use crate::interventions::interrupt_queue::{
+use crate::service::RunQueue;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
+use sidekicks_session::interventions::interrupt_queue::{
     InterruptChoice, InterruptQueue, SendNow, SendNowOutcome,
 };
-use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::MockProviderDriver;
-use crate::provider::driver::run_control::InterruptPendingChoice;
-use crate::provider::driver::test_registry::bind_run_to_first_provider;
-use crate::queue::service::RunQueue;
-use crate::queue::store::send_now::{SentNow, read_sent_now};
-use crate::queue::store::{QueueItemReader, RecordedQueueItemState};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::queue_store::send_now::{SentNow, read_sent_now};
+use sidekicks_session::queue_store::{QueueItemReader, RecordedQueueItemState};
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_store::database::writer::test_file::test_envelope;
+use sidekicks_store::events::session::followers::CommittedEvent;
 
 fn new_intervention_id() -> InterventionId {
     InterventionId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an intervention id")

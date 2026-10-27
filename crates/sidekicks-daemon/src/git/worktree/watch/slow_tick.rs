@@ -10,7 +10,7 @@ use sidekicks_contracts::place::Place;
 
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::reads::read_uncommitted_paths;
-use crate::missing_entry::is_gone;
+use sidekicks_std::missing_entry::is_gone;
 
 /// One listed path and what its entry holds: its length and modified time, `None` for a path
 /// status lists that names nothing (a deleted file).

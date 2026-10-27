@@ -22,11 +22,11 @@ use super::ignored_paths::{
 };
 use super::slow_tick::{StatusEntry, read_status_digest};
 use super::{FolderKey, FolderSignals, FolderStartError, StartOutcome, WatchTarget, WatcherShared};
-use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle};
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
 use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
-use crate::missing_entry::is_missing_entry;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle};
 
 /// Runs the folder `folder` of `target` until `signals.close` is canceled: starts its watches,
 /// answers `started` once they run and the branch was first checked, then reads them.

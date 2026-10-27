@@ -7,13 +7,11 @@
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 
-use crate::provider::driver::codex::app_server_protocol::{
-    ConfigValueWriteParams, HooksListParams, MergeStrategy,
-};
-use crate::provider::driver::codex::service::command_line::{CodexHookCommands, CodexListedHook};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::inbound_json::decode_inbound_json;
+use crate::codex::app_server_protocol::{ConfigValueWriteParams, HooksListParams, MergeStrategy};
+use crate::codex::service::command_line::{CodexHookCommands, CodexListedHook};
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::inbound_json::decode_inbound_json;
 
 /// The request that lists the hooks a service runs, with each one's key, hash and trust.
 const HOOKS_LIST_METHOD: &str = "hooks/list";

@@ -7,9 +7,11 @@ use rusqlite::types::Value;
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::Port;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the shared ports read through the read pool, for the pool's statement cache.
 #[cfg_attr(

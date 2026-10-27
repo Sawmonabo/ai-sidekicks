@@ -25,29 +25,29 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use tempfile::TempDir;
 
 use super::{HeldRequestAnswerer, QUESTION_STATEMENT_CAPACITY, QuestionError, QuestionsService};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
-};
-use crate::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage, UnsequencedEventEnvelope,
-};
-use crate::events::session::followers::SessionEventFollowers;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
-use crate::provider::driver::test_registry::{
-    bind_run_to_first_provider, registry_of_first_provider,
-};
-use crate::provider::port::question::{ProviderQuestion, ToolServerQuestionAnswer};
-use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::projection::question_projection_statements;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::engine::RunEngine;
+use crate::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
+use sidekicks_provider::driver::test_registry::{
+    bind_run_to_first_provider, registry_of_first_provider,
+};
+use sidekicks_provider::port::question::{ProviderQuestion, ToolServerQuestionAnswer};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::{
+    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage, UnsequencedEventEnvelope,
+};
+use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The secret the tests answer with, which no stored row may hold.
 const SECRET: &str = "the-secret-value-41";

@@ -31,22 +31,24 @@ use tokio::task::JoinError;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::writer::DatabaseWriter;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::session::search::index::applier::{SearchIndexApplier, SearchIndexApplyError};
-use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
-use crate::session::search::index::rebuild::{
+use crate::search::index::applier::{SearchIndexApplier, SearchIndexApplyError};
+use crate::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
+use crate::search::index::rebuild::{
     SearchIndexBuildRequest, SearchIndexChildError, SearchIndexOpenError, SearchIndexOpening,
     SearchIndexRebuildReason, build_search_index_in_child, open_search_index,
 };
-use crate::session::search::merging::SearchIndexMerging;
-use crate::session::search::rowid_floors::{FloorPositionInFlight, FloorPositionsInFlight};
-use crate::session::search::service::{SessionSearchError, SessionSearchService};
-use crate::session::search::transcript::{TranscriptSearchError, search_transcript};
+use crate::search::merging::SearchIndexMerging;
+use crate::search::rowid_floors::{FloorPositionInFlight, FloorPositionsInFlight};
+use crate::search::service::{SessionSearchError, SessionSearchService};
+use crate::search::transcript::{TranscriptSearchError, search_transcript};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::writer::DatabaseWriter;
 
 // The scheduler's name for the job that lets go of expired held searches.
 const HELD_SEARCH_EXPIRY_JOB: &str = "search_held_expiry";

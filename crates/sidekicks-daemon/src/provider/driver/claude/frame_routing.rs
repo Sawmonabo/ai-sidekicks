@@ -9,32 +9,30 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
-use crate::error_description::describe_error;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::event_normalizer::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::event_normalizer::{
     ClaudeSubagentSignal, classify_claude_frame_family_for_routing,
     normalize_claude_subagent_lifecycle,
 };
-use crate::provider::driver::claude::handshake_register::{
-    ClaudeHandshakeRegister, ClaudeSettledOutputSpeed,
-};
-use crate::provider::driver::claude::session::state::{
+use crate::claude::handshake_register::{ClaudeHandshakeRegister, ClaudeSettledOutputSpeed};
+use crate::claude::session::state::{
     ClaudeRoutableFrame, ClaudeSessionRoutingBand, ClaudeUsageEstablishment,
 };
-use crate::provider::driver::claude::session::transport::declarations;
-use crate::provider::driver::diagnostics::{
+use crate::claude::session::transport::declarations;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::usage_sink::UsageSink;
-use crate::provider::thread_frame_router::{
+use crate::port::registration::PortRegistration;
+use crate::port::usage_sink::UsageSink;
+use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, SubagentLifecycleEmission,
     SubagentLifecycleEventType, ThreadFrameRoute,
 };
-use crate::provider::usage_delta_accountant::{
+use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageAxisCounts,
 };
+use sidekicks_std::error_description::describe_error;
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
 /// in order, and the output speed its handshake settled for the armed run.

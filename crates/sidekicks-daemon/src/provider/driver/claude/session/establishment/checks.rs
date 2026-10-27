@@ -6,21 +6,15 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 
 use super::{ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment};
-use crate::provider::driver::claude::output_speed::apply_claude_output_speed;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::permission_level::{
-    can_run_claude_level, read_claude_sandbox_support,
-};
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::output_speed::apply_claude_output_speed;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::permission_level::{can_run_claude_level, read_claude_sandbox_support};
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeControlSubtype, ClaudePermissionMode,
 };
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::session::ultracode::{
-    ClaudeUltracodeReading, apply_claude_ultracode,
-};
-use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeStartedSession;
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::session::ultracode::{ClaudeUltracodeReading, apply_claude_ultracode};
+use crate::claude::spawn::launch::installed_build::ClaudeStartedSession;
 
 impl ClaudeSessionEstablishment {
     /// Checks `started` before it is adopted and answers the output speed it took and

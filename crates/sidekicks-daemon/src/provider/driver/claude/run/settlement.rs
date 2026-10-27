@@ -6,15 +6,15 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::mutex_lock::lock;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::port::run_host::RunHost;
+use crate::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::claude::hooks::callbacks::answer_claude_request;
+use crate::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::claude::hooks::pause::ClaudeHookAnswer;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::port::run_host::RunHost;
+use sidekicks_std::mutex_lock::lock;
 
 /// What a turn's settlement settles through.
 pub(crate) struct ClaudeTurnSettlement {

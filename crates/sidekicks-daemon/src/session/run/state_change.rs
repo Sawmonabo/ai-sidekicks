@@ -25,20 +25,20 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::events::log_service::EventAppendError;
-use crate::events::session::append_lock::SessionAppendHold;
-use crate::events::session::appender::{
+use crate::run::projection::{RunStateSwap, swap_run_state_statement};
+use crate::run::provider_choice::ChoiceDialog;
+use crate::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::run::refusals::RunRefusal;
+use crate::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_transition_allowed};
+use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::log_service::EventAppendError;
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::session::run::projection::{RunStateSwap, swap_run_state_statement};
-use crate::session::run::provider_choice::ChoiceDialog;
-use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::transitions::{RUN_TERMINAL_EVENT_TYPES_SQL, is_transition_allowed};
 
 /// The position of a terminal write's guard that its run version holds no terminal record yet:
 /// the first statement of the write.
@@ -528,11 +528,13 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
 
     use super::{TERMINAL_GUARD_INDEX, no_terminal_record_statement};
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-    use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
     use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_envelope, test_session_id,
+    };
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
+    use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
     // Killed by spelling the guard's category other than the stored word, which lets a second
     // terminal through, or by dropping its run version condition, which refuses every version.

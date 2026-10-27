@@ -10,7 +10,7 @@ use sidekicks_contracts::session::methods::SessionAddress;
 use sidekicks_contracts::wire::list::UniqueList;
 use sidekicks_platforms::PathRules;
 
-use crate::provider::port::session_inbox_address::SessionInboxAddresser;
+use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser;
 
 /// A place listed for a computer whose own system cannot hold it: on Windows every place, the
 /// computer's own system included, is named, and on macOS and Linux none is.
@@ -98,9 +98,9 @@ mod tests {
     use sidekicks_platforms::PathRules;
 
     use super::SessionInboxAddresses;
-    use crate::database::writer::test_file::test_session_id;
-    use crate::provider::driver::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
-    use crate::provider::port::session_inbox_address::SessionInboxAddresser as _;
+    use sidekicks_provider::driver::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+    use sidekicks_provider::port::session_inbox_address::SessionInboxAddresser as _;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     #[test]
     fn each_place_gets_its_own_form_and_the_session_s_own_place_comes_first() {

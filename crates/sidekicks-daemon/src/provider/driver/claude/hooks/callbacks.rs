@@ -11,29 +11,25 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::error_description::describe_error;
-use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::hooks::helper_limit::{
-    ClaudeHelperLimit, ClaudeHelperStartAnswer,
-};
-use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::provider::driver::claude::hooks::pause::{
-    ClaudeHookAnswer, ClaudePauseAnswer, ClaudeRunPauses,
-};
-use crate::provider::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::inbound::{
+use crate::background_work::{BackgroundWorkForms, refuse_background_work};
+use crate::claude::DESCRIPTOR;
+use crate::claude::hooks::helper_limit::{ClaudeHelperLimit, ClaudeHelperStartAnswer};
+use crate::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::claude::hooks::pause::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeRunPauses};
+use crate::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
-use crate::provider::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::diagnostics::{
+use crate::claude::session::transport::user_message::ClaudeWriteAttempt;
+use crate::driver::contract::bound_failure_detail;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::lenient_json::{lenient_object, read_lenient};
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::lenient_json::{lenient_object, read_lenient};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::error_description::describe_error;
 
 /// Where one request a process sent goes.
 #[derive(Debug)]
@@ -265,10 +261,10 @@ mod tests {
     use std::sync::Arc;
 
     use super::answer_background_work_check;
-    use crate::policy::background_work::BackgroundWorkForms;
-    use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
+    use crate::background_work::BackgroundWorkForms;
+    use crate::claude::hooks::pause::ClaudeHookAnswer;
+    use crate::driver::PROVIDERS;
+    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 
     // Killed by a hook that lets background work through, or that refuses an ordinary command.
     #[tokio::test]

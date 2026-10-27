@@ -11,40 +11,36 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::attachments::{compose_message_text, resolve_message_attachments};
-use crate::provider::driver::claude::attachments::compose_claude_attachment_blocks;
-use crate::provider::driver::claude::delivery::dialogs::{
-    ClaudeDialogSession, ClaudeProviderDialogs,
-};
-use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
-use crate::provider::driver::claude::delivery::reviewer::compose_claude_override_sentence;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::provider::driver::claude::intervention::{
+use crate::claude::attachments::compose_claude_attachment_blocks;
+use crate::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProviderDialogs};
+use crate::claude::delivery::requests::ClaudeInboundRequests;
+use crate::claude::delivery::reviewer::compose_claude_override_sentence;
+use crate::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::claude::hooks::callbacks::answer_claude_request;
+use crate::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::claude::hooks::pause::ClaudeRunPauses;
+use crate::claude::intervention::{
     ClaudeInterventions, background_claude_task, interrupt_claude_turn,
 };
-use crate::provider::driver::claude::run::routes::ClaudeRunRoute;
-use crate::provider::driver::claude::run::start::{
+use crate::claude::run::routes::ClaudeRunRoute;
+use crate::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_attachment_failure, claude_session_unavailable,
 };
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::user_message::{
     ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
-use crate::provider::driver::contract::{DriverError, RespondToRequestParams};
-use crate::provider::driver::run_control::{
+use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
+use crate::driver::contract::{DriverError, RespondToRequestParams};
+use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, OverrideDenialParams, PauseRunParams,
     ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
-use crate::provider::lenient_json::{lenient_object, read_lenient};
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::lenient_json::{lenient_object, read_lenient};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use sidekicks_std::mutex_lock::lock;
 
 #[derive(Default, serde::Deserialize)]
 struct CancelAsyncMessageReply {
@@ -407,10 +403,10 @@ mod tests {
         CredentialPolicyRef, ExecutionPosture,
     };
 
-    use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
-    use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
-    use crate::provider::driver::claude::session::scripted::{ScriptedSession, settle};
-    use crate::provider::driver::run_control::OverrideDenialParams;
+    use crate::claude::hooks::pause::ClaudeHookAnswer;
+    use crate::claude::session::scripted::daemon_services::PortCall;
+    use crate::claude::session::scripted::{ScriptedSession, settle};
+    use crate::driver::run_control::OverrideDenialParams;
 
     // Killed by attributing a helper's block to the lead run, and by writing the `Allow once` for
     // it into the lead's turn instead of handing it to the helper; and by writing the lead's

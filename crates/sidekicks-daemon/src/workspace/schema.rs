@@ -8,8 +8,8 @@ use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, VcsType, WorkspaceState};
 use strum::{IntoStaticStr, VariantArray};
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::sql_list_of_every;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// Where a project's clone stands while the project is `cloning`: git running, failed with git's
 /// words, canceled by the person, or interrupted by the service's restart or stop. Converts to the
@@ -46,7 +46,7 @@ pub(crate) static WORKSPACE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workspa
 
 /// The store's list and the workspace part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::database::schema::schema_parts()
+    sidekicks_store::database::schema::schema_parts()
         .with_part(SchemaPart::new("workspace", WORKSPACE_SCHEMA_SQL.as_str()))
 }
 
@@ -196,7 +196,7 @@ mod tests {
     use rusqlite::{Connection, ErrorCode};
 
     use super::WORKSPACE_SCHEMA_SQL;
-    use crate::workspace::test_rows::project_and_mount_rows;
+    use crate::test_rows::project_and_mount_rows;
 
     #[rstest]
     #[case::one_root_without_a_place(None, None, false)]

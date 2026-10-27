@@ -16,14 +16,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
-use crate::provider::driver::claude::delivery::patches::{
-    is_claude_file_changing_tool, read_claude_patch_file,
-};
-use crate::provider::driver::reorder_buffer::ReorderPairingRole;
-use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
-use crate::provider::run::delivery::{DeliveryOperation, LateAppendableRow};
-use crate::transcript::whole_patch::WholePatchFile;
+use crate::claude::delivery::patches::{is_claude_file_changing_tool, read_claude_patch_file};
+use crate::driver::reorder_buffer::ReorderPairingRole;
+use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::run::delivery::{DeliveryOperation, LateAppendableRow};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::transcript_whole_patch::WholePatchFile;
 
 /// A field of a transcript row, as the event's cap holds it.
 type EventText = FreeFormText<EVENT_FIELD_MAX_LEN>;

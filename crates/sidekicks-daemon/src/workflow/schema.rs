@@ -25,9 +25,9 @@ use sidekicks_contracts::workflow::run::status::{
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_contracts::workflow::secret::WorkflowSecretScope;
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::{sql_list_of, sql_list_of_every};
-use crate::workflow::runs::record::GOING_RUN_STATUSES_SQL;
+use crate::runs::record::GOING_RUN_STATUSES_SQL;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::{sql_list_of, sql_list_of_every};
 
 /// The workflow part of the daemon's schema: the definitions, their versions, the runs, the gate
 /// answers, the form drafts, the steps, the triggers, the webhook tokens, the node state, the
@@ -37,7 +37,7 @@ pub(crate) static WORKFLOW_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workflow
 /// The workspaces' list, whose run execution contexts a run's deletion clears, and the workflow
 /// part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::git::worktree::schema::schema_parts()
+    sidekicks_workspace::git::worktree::schema::schema_parts()
         .with_part(SchemaPart::new("workflow", WORKFLOW_SCHEMA_SQL.as_str()))
 }
 
@@ -470,7 +470,7 @@ mod tests {
         WorkflowRunStatus, WorkflowStepStatus, WorkflowWaitCause,
     };
 
-    use crate::workflow::test_rows::{insert_run, insert_workflow_version, workflow_tables};
+    use crate::test_rows::{insert_run, insert_workflow_version, workflow_tables};
 
     const AT: &str = "2026-10-14T09:30:00.000Z";
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";

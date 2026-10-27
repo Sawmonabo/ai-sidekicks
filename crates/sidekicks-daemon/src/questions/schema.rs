@@ -9,8 +9,8 @@
 use serde::Deserialize;
 use strum::{IntoStaticStr, VariantArray};
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::sql_list_of_every;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// Where a question record stands, as the `questions.state` column holds it: waiting for its run
 /// to read running where it was asked while the run was not, then open until it is answered or
@@ -31,7 +31,7 @@ pub(crate) enum QuestionState {
 
 /// The runs' list and the question tables' own part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::database::schema::runs::schema_parts()
+    crate::run::schema::schema_parts()
         .with_part(SchemaPart::new("questions", question_schema_sql()))
 }
 

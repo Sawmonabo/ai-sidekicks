@@ -17,16 +17,18 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::followers::CommittedEvent;
-use crate::mutex_lock::lock;
-use crate::provider::runtime_binding::store::{
+use crate::run::epochs::{EpochBinding, EpochCursorError, ExecutionEpochs};
+use crate::run::read::{RunRead, RunStateReader};
+use crate::run::stored_state_change::read_stored_run_state_change;
+use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
     RuntimeBindingStoreError, read_binding,
 };
-use crate::session::run::epochs::{EpochBinding, EpochCursorError, ExecutionEpochs};
-use crate::session::run::read::{RunRead, RunStateReader};
-use crate::session::run::stored_state_change::read_stored_run_state_change;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::session::followers::CommittedEvent;
 
 /// The statements the cursors prepare on a pooled connection: a run's row and a binding's row.
 pub(crate) const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 2;
@@ -281,16 +283,20 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::events::session::followers::CommittedEvent;
-    use crate::provider::runtime_binding::store::{
+    use crate::questions::schema::schema_parts;
+    use crate::run::engine::tests::insert_running_run;
+    use crate::run::epochs::ExecutionEpochs;
+    use sidekicks_provider::runtime_binding::store::{
         CreateRuntimeBindingInput, RuntimeBindingSpawnConfig,
     };
-    use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
-    use crate::questions::schema::schema_parts;
-    use crate::session::run::engine::tests::insert_running_run;
-    use crate::session::run::epochs::ExecutionEpochs;
+    use sidekicks_provider::runtime_binding::test_store::{
+        binding_input, open_store, spawned_build,
+    };
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_envelope, test_session_id,
+    };
+    use sidekicks_store::events::session::followers::CommittedEvent;
 
     struct Harness {
         database: TestDatabase,

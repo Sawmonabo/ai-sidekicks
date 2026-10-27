@@ -25,26 +25,26 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 pub(crate) use self::foreground_helpers::ClaudeForegroundHelpers;
 use self::held_steers::ClaudeHeldSteers;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::provider::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
-use crate::provider::driver::claude::run::start::{ClaudeRunStart, claude_session_unavailable};
-use crate::provider::driver::claude::session::errors::{
+use crate::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::claude::delivery::requests::ClaudeInboundRequests;
+use crate::claude::delivery::stream::ClaudeSessionStream;
+use crate::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
+use crate::claude::run::start::{ClaudeRunStart, claude_session_unavailable};
+use crate::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::control::{
     ClaudeBackgroundTasksReply, ClaudeControlRequest, ClaudeInterruptReceipt,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::{
+use crate::driver::contract::DriverError;
+use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus,
 };
+use sidekicks_std::mutex_lock::lock;
 
 // The capability a build declares when its interrupt can drop the messages it holds and list them.
 const CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY: &str = "interrupt_cancel_queued_v1";

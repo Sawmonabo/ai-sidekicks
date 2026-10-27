@@ -22,7 +22,7 @@ use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::login_shell_environment::printing::{CaptureMarkers, ENVIRONMENT_MODE};
-use crate::random_hex::random_hex;
+use sidekicks_std::random_hex::random_hex;
 
 /// How long the login shell may take before the start goes on without it.
 pub(crate) const LOGIN_SHELL_DEADLINE: Duration = Duration::from_secs(5);

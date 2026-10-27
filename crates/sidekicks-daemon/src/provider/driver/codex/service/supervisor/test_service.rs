@@ -23,33 +23,27 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::provider::driver::codex::service::command_line::{
-    TerminalServiceHooks, read_terminal_service_hooks,
-};
-use crate::provider::driver::codex::service::home::{
-    CodexHomeKind, CodexServiceHome, CodexServiceKind,
-};
-use crate::provider::driver::codex::service::supervisor::drain::LastingServiceDrains;
-use crate::provider::driver::codex::service::supervisor::events::{
-    CodexServiceEvents, CodexServiceRecoveryCause,
-};
-use crate::provider::driver::codex::service::supervisor::transition::CodexServiceAvailability;
-use crate::provider::driver::codex::service::supervisor::{
+use crate::codex::service::command_line::{TerminalServiceHooks, read_terminal_service_hooks};
+use crate::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::codex::service::supervisor::drain::LastingServiceDrains;
+use crate::codex::service::supervisor::events::{CodexServiceEvents, CodexServiceRecoveryCause};
+use crate::codex::service::supervisor::transition::CodexServiceAvailability;
+use crate::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
-use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::connection::scripted_service::{
+use crate::codex::session::conversation_release::CodexConversationRelease;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::spawned_version::{
+use crate::driver::contract::DriverError;
+use crate::process_identity::ProviderProcessIdentity;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 
 /// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
 /// runs none, so a terminal service starts, and is answered, with no hooks.

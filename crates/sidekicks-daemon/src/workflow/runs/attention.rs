@@ -13,11 +13,11 @@ use sidekicks_contracts::workflow::run::attention::WorkflowPersonWaitCause;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 
-use crate::database::stored_column::{
+use crate::runs::record::{GOING_RUN_STATUSES_SQL, column};
+use crate::runs::spent_account::{SpentAccountColumns, spent_account_columns};
+use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
-use crate::workflow::runs::record::{GOING_RUN_STATUSES_SQL, column};
-use crate::workflow::runs::spent_account::{SpentAccountColumns, spent_account_columns};
 
 /// The statements a [`WorkflowRunAttentionList`] prepares on a read connection: the person waits
 /// and the account waits.

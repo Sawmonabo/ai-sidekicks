@@ -12,9 +12,9 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 
 use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
-use crate::provider::driver::codex::service::home::CodexHomeKind;
-use crate::provider::driver::contract::{ApplyRowValueParams, DriverError};
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::codex::service::home::CodexHomeKind;
+use crate::driver::contract::{ApplyRowValueParams, DriverError};
+use crate::driver::daemon_stop::DaemonStopIntent;
 
 // The switch's value turned to `is_on` on the computer's one place.
 fn switched(is_on: bool) -> ApplyRowValueParams {

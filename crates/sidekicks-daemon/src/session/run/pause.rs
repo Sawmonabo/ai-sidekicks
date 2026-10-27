@@ -21,25 +21,25 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::interventions::store::run_at_version_statement;
-use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::run_control::{
-    FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
-};
-use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError, RunPauses};
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::session::run::engine::{RunEngine, RunEngineError, RunResumeError};
-use crate::session::run::read::{
+use crate::run::engine::{RunEngine, RunEngineError, RunResumeError};
+use crate::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };
-use crate::session::run::refusals::{RunRefusal, require_expected_version};
-use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError,
+use crate::run::refusals::{RunRefusal, require_expected_version};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::{
+    FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
+};
+use sidekicks_provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError, RunPauses};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 
 #[cfg(test)]

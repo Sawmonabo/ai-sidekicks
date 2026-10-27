@@ -15,13 +15,13 @@ use sidekicks_contracts::run::control::{
 };
 use sidekicks_contracts::run::events::{InterventionActor, InterventionDeviceActor};
 
-use crate::interventions::service::InterventionService;
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::provider::port::run_pause::ContinuedMessages;
-use crate::session::run::pause::RunPauseControl;
-use crate::session::run::provider_choice::{ProviderChoiceAnswerOrigin, ProviderChoiceResolver};
+use sidekicks_provider::port::run_pause::ContinuedMessages;
+use sidekicks_session::interventions::service::InterventionService;
+use sidekicks_session::run::pause::RunPauseControl;
+use sidekicks_session::run::provider_choice::{ProviderChoiceAnswerOrigin, ProviderChoiceResolver};
 
 /// What the run control methods act through.
 pub(crate) struct RunControlServices {

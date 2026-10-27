@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::ipc::registry::TransportId;
+use sidekicks_ipc::registry::TransportId;
 
 /// A change the shell's read needs, which the caller applies with `Terminals::pause` or
 /// `Terminals::resume`.

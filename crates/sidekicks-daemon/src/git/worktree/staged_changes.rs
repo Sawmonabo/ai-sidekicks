@@ -10,12 +10,12 @@ use std::path::{Path, PathBuf};
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{path_from_program_output, remove_tree};
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
-use crate::random_hex::random_hex;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::random_hex::random_hex;
 
 // A dotted sibling of the project folders, which a slug never names and no sweep reads.
 const STAGED_CHANGES_SEGMENT: &str = ".staged-changes";

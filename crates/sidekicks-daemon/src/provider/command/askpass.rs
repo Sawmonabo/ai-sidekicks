@@ -9,9 +9,9 @@ use std::ffi::OsString;
 use std::io::{self, Write as _};
 use std::process::ExitCode;
 
-use crate::provider::command::channel::party::{ChannelParty, PartyStart};
-use crate::provider::command::channel::{DaemonRequest, PartyRecord};
-use crate::standard_error::write_error_line;
+use crate::command::channel::party::{ChannelParty, PartyStart};
+use crate::command::channel::{DaemonRequest, PartyRecord};
+use sidekicks_std::standard_error::write_error_line;
 
 /// The name of the link git and ssh run as their askpass, which reaches this mode.
 pub(crate) const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";

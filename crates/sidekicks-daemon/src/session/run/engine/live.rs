@@ -12,9 +12,9 @@ use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::{Notify, SetOnce, SetOnceError};
 
-use crate::mutex_lock::lock;
-use crate::session::run::engine::turns::StepCount;
-use crate::session::run::restart::outranking_limit;
+use crate::run::engine::turns::StepCount;
+use crate::run::restart::outranking_limit;
+use sidekicks_std::mutex_lock::lock;
 
 /// A run no driver has yet, from `starting` until the driver has it or the run ends. It is
 /// claimable while its setup gates run and after a start that left it live without a driver, and
@@ -357,7 +357,7 @@ mod tests {
     use sidekicks_contracts::run::intervention::RunLimit;
 
     use super::LiveRuns;
-    use crate::session::run::engine::tests::turn;
+    use crate::run::engine::tests::turn;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by the withdrawal matching cuts by their limit, which removes the later token cut

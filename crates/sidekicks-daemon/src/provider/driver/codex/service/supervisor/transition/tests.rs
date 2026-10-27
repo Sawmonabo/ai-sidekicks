@@ -4,10 +4,10 @@ use std::time::{Duration, Instant, SystemTime};
 use rstest::rstest;
 
 use super::{Supervision, SupervisorEvent, SupervisorState};
-use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::codex::service::home::CodexServiceKind;
+use crate::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::codex::session::errors::CodexError;
+use crate::driver::daemon_stop::DaemonStopIntent;
 
 fn wall(seconds: u64) -> SystemTime {
     SystemTime::UNIX_EPOCH + Duration::from_secs(seconds)

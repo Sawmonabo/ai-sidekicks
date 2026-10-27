@@ -18,19 +18,21 @@ use {
     },
 };
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
 use crate::database::schema::{DatabaseSchema, SchemaParts};
 #[cfg(test)]
-use crate::{
-    events::content::codec::BodyEncoder,
-    events::log_service::compose_rows,
-    events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope},
-    events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now},
-    events::session::version::SESSION_EVENT_VERSION,
+use crate::events::{
+    content::codec::BodyEncoder,
+    log_service::compose_rows,
+    session::{
+        appender::{SessionEventDraft, UnsequencedEventEnvelope},
+        insert::{SessionEventRow, insert_session_event, monotonic_ns_now},
+        version::SESSION_EVENT_VERSION,
+    },
 };
 #[cfg(test)]
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// A database file in a folder of its own, removed when this drops, and the schema it is opened
 /// with.

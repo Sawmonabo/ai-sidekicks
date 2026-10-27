@@ -9,8 +9,8 @@ use sidekicks_platforms::{
     CONSOLE_WAITING_INPUT_ARGUMENT, send_console_break, write_console_waiting_input,
 };
 
-use crate::error_description::describe_error;
-use crate::standard_error::write_error_line;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to run a `console` mode.
 pub(crate) const CONSOLE_MODE: &str = "console";

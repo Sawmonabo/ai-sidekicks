@@ -5,7 +5,7 @@ use hpke::Kem as _;
 use sidekicks_platforms::FolderArrivalWait;
 
 use super::{PartyRequests, RequestError};
-use crate::provider::command::channel::{
+use crate::command::channel::{
     ChannelKem, DaemonRequest, Direction, REQUESTS_FOLDER, record_context, record_name, seal,
     write_record,
 };

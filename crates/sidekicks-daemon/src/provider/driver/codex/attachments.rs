@@ -10,14 +10,14 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::queue::MessageContent;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::attachments::{
-    AttachmentResolver, ProviderAttachment, compose_attachment_text, resolve_message_attachments,
-};
-use crate::provider::driver::codex::app_server_protocol::{
+use crate::codex::app_server_protocol::{
     LocalImageUserInputType, SkillUserInputType, TextUserInputType, UserInput,
 };
-use crate::provider::driver::codex::session::state::CodexTurnMessage;
-use crate::provider::driver::run_control::PickedSkill;
+use crate::codex::session::state::CodexTurnMessage;
+use crate::driver::attachments::{
+    AttachmentResolver, ProviderAttachment, compose_attachment_text, resolve_message_attachments,
+};
+use crate::driver::run_control::PickedSkill;
 
 /// The picture formats Codex is handed as an image rather than as a file to open.
 const CODEX_PICTURE_MEDIA_TYPES: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];

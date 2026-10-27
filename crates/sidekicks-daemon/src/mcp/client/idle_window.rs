@@ -12,7 +12,7 @@ use rmcp::model::ProgressToken;
 use tokio::sync::{Notify, watch};
 use tokio::time::Instant;
 
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// What moves or holds one connection's tool calls' idle window: progress on each call in
 /// flight, by its token, and how many of the server's questions are open. It holds one entry per
@@ -111,9 +111,9 @@ mod tests {
     use serde_json::{Value, json};
     use tokio::time::{Duration, Instant, sleep, sleep_until};
 
-    use crate::mcp::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT;
-    use crate::mcp::client::tasks::{McpTaskContact, McpToolCallEnd, McpToolCallError};
-    use crate::mcp::client::test_server::{
+    use crate::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT;
+    use crate::client::tasks::{McpTaskContact, McpToolCallEnd, McpToolCallError};
+    use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
         contact, method_not_found, open_test_server, test_client, text_result, track_call,
     };

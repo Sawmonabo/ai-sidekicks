@@ -19,8 +19,8 @@ use serde::Serialize;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::mutex_lock::lock;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::mutex_lock::lock;
 
 /// A bucket's day files: `<YYYY-MM-DD>.ndjson`, the local day its lines were recorded on.
 pub(crate) struct DailyFileBucket {

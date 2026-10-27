@@ -12,29 +12,23 @@ use serde_json::Value;
 use tokio::sync::{Notify, oneshot};
 
 use super::channel::ScriptedChannel;
-use crate::provider::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
-use crate::provider::driver::claude::session::process::ClaudeProcessListener;
-use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::claude::session::answered_commands::ClaudeAttachedAdvisor;
+use crate::claude::session::process::ClaudeProcessListener;
+use crate::claude::session::transport::control::ClaudePermissionMode;
+use crate::claude::session::transport::declarations::ClaudeInitializeDeclaration;
+use crate::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeModelCatalogReading, ClaudeReplyReserveReads,
     ClaudeSessionFolderReadRequest,
 };
-use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::claude::spawn::launch::bring_up::{
-    ClaudeBringUpRequest, ClaudeSettingsReadback,
-};
-use crate::provider::driver::claude::spawn::launch::installed_build::{
-    ClaudeProcessStarts, ClaudeStartedSession,
-};
-use crate::provider::driver::claude::spawn::launch::one_turn::{
-    ClaudeOneTurnReply, ClaudeOneTurnRequest,
-};
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::runtime_binding::test_store::spawned_build;
+use crate::claude::spawn::arguments::ClaudeConversationStart;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::claude::spawn::launch::bring_up::{ClaudeBringUpRequest, ClaudeSettingsReadback};
+use crate::claude::spawn::launch::installed_build::{ClaudeProcessStarts, ClaudeStartedSession};
+use crate::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::process_identity::ProviderProcessIdentity;
+use crate::runtime_binding::test_store::spawned_build;
 
 /// The build every scripted process reports.
 pub(crate) const SCRIPTED_BUILD_VERSION: &str = "2.1.0";
@@ -162,7 +156,7 @@ impl ScriptedStarts {
     }
 
     fn lock(&self) -> MutexGuard<'_, ScriptedStartTables> {
-        crate::mutex_lock::lock(&self.tables)
+        sidekicks_std::mutex_lock::lock(&self.tables)
     }
 }
 

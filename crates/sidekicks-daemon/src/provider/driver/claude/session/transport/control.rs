@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
-use crate::provider::lenient_json::{LenientList, lenient_object, read_lenient};
+use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
 /// One control request, tagged on the wire by its `subtype`.
 #[derive(Clone, Debug, Serialize)]

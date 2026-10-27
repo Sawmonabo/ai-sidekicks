@@ -10,17 +10,17 @@ use std::sync::Arc;
 use sidekicks_contracts::run::id::RunId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::delivery::asks::{CodexAskHandOff, refuse};
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::server_requests::{
+use crate::codex::delivery::asks::{CodexAskHandOff, refuse};
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::server_requests::{
     CodexAskKind, CodexAskOwner, CodexInboundServerRequest, CodexRoutedAskAttribution,
     CodexRoutedAskTurnId, CodexServerRequestDecision, compose_routed_ask_refusal_reason,
     read_routed_ask_turn_id,
 };
-use crate::provider::driver::codex::service::supervisor::routing::read_codex_ask_thread_id;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::DriverError;
+use crate::codex::service::supervisor::routing::read_codex_ask_thread_id;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::contract::DriverError;
 
 /// Where a decided ask's decision goes; a dropped sender refuses the ask.
 pub(crate) type CodexAskDecisionSender =

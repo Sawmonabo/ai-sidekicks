@@ -14,13 +14,11 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::rows::{
-    CodexProseRowType, CodexRowDelivery, CodexRowRun,
-};
-use crate::provider::driver::reorder_buffer::NormalizedEventReorderBuffer;
-use crate::provider::driver::streamed_text::StreamedText;
-use crate::provider::run::turn_end::StartedTurn;
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::rows::{CodexProseRowType, CodexRowDelivery, CodexRowRun};
+use crate::driver::reorder_buffer::NormalizedEventReorderBuffer;
+use crate::driver::streamed_text::StreamedText;
+use crate::run::turn_end::StartedTurn;
 
 /// How many tool rows may wait for their start at once. Codex sends an item's start before its end
 /// on one ordered connection, so a held completion is a fault, reported when flushed.

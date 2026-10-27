@@ -10,17 +10,17 @@ use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::error_description::describe_error;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::provider::driver::claude::intervention::send_claude_interrupt;
-use crate::provider::driver::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::diagnostics::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::hooks::pause::ClaudeRunPauses;
+use crate::claude::intervention::send_claude_interrupt;
+use crate::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
+use crate::claude::session::state::LiveClaudeSession;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::lenient_json::{lenient_object, read_lenient};
+use crate::lenient_json::{lenient_object, read_lenient};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 // The frame that starts each turn.
 const CLAUDE_TURN_START_FRAME_KIND: &str = "system/init";
@@ -116,11 +116,11 @@ fn report(live: &LiveClaudeSession, what: &str, cause: &str) {
 mod tests {
     use serde_json::{Value, json};
 
-    use crate::provider::driver::claude::session::scripted::{
+    use crate::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::provider::port::run_host::test_host::EngineCall;
-    use crate::provider::run::state_entry::RunStateEntry;
+    use crate::port::run_host::test_host::EngineCall;
+    use crate::run::state_entry::RunStateEntry;
 
     fn turn() -> [Value; 3] {
         [

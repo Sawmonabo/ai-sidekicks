@@ -13,11 +13,11 @@ use std::process::ExitCode;
 use sidekicks_search::index::IndexRowKind;
 use strum::VariantArray;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::setup::open_database_reader;
-use crate::helper_mode::input_watch::run_until_input_ends;
-use crate::session::search::index::rebuild::{SearchIndexBuildError, build_search_index};
-use crate::session::search::index::rows::IndexRowReader;
+use crate::search::index::rebuild::{SearchIndexBuildError, build_search_index};
+use crate::search::index::rows::IndexRowReader;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::helper_mode::input_watch::run_until_input_ends;
+use sidekicks_store::database::connection::setup::open_database_reader;
 
 /// The argument the daemon's own program is started with to run the search index's build.
 pub(crate) const SEARCH_INDEX_BUILD_MODE: &str = "index";

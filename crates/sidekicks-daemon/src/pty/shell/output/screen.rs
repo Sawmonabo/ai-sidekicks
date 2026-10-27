@@ -22,8 +22,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use vte::ansi::NamedColor;
 use vte::{Params, Parser, Perform};
 
-use crate::pty::shell::resize::ShellSize;
-use crate::text_cut::cut_to_code_points;
+use crate::resize::ShellSize;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The primary device attributes the screen copy's terminal gives.
 const SCREEN_PRIMARY_ATTRIBUTES: &str = "\x1b[?6c";

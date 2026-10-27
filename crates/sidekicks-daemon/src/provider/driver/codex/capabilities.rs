@@ -20,16 +20,16 @@ use super::app_server_protocol::ModelListParams;
 use super::capability_probe::CAPABILITY_PROBE_RULES;
 use super::tools::codex_tool_metadata;
 use super::transport::connection::CodexAppServerConnection;
-use crate::provider::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
-use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
-use crate::provider::driver::diagnostics::{
+use crate::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
+use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
+use crate::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::provider::driver::error_causes::ModelCatalogUnreadable;
-use crate::provider::inbound_json::decode_inbound_json;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::spawned_version::SpawnedProviderVersionReading;
+use crate::driver::error_causes::ModelCatalogUnreadable;
+use crate::inbound_json::decode_inbound_json;
+use crate::record_readers::read_non_empty_string;
+use crate::spawned_version::SpawnedProviderVersionReading;
 
 /// The capability contract's version, which the writer compares to see a change; it moves
 /// whenever the shape of what this driver declares changes.
@@ -436,8 +436,8 @@ mod tests {
     use serde_json::value::RawValue;
 
     use super::read_codex_model_catalog;
-    use crate::provider::driver::contract::DriverError;
-    use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
+    use crate::driver::contract::DriverError;
+    use crate::driver::diagnostics::OnceReportedDiagnostics;
 
     // Answers each scripted page in turn, recording the cursor each was asked with; a request
     // past the script panics, so a read that does not stop fails rather than loops.

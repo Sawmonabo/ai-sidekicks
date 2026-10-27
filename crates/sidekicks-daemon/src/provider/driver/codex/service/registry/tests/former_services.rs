@@ -12,9 +12,9 @@ use super::stand_in::{
     is_running, mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
     wait_for_end_and_record_removal, wait_until_gone,
 };
-use crate::provider::driver::codex::service::registry::home_socket_path;
-use crate::provider::driver::codex::service::supervisor::test_service::answer_as_codex_service;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::codex::service::registry::home_socket_path;
+use crate::codex::service::supervisor::test_service::answer_as_codex_service;
+use crate::driver::daemon_stop::DaemonStopIntent;
 
 // The services of one test in a folder whose socket paths fit the system's bound on them.
 fn folder_and_services() -> (tempfile::TempDir, StandInServices) {

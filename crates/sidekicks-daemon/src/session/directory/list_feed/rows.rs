@@ -14,10 +14,10 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::session::directory::lookups::session_project_sql;
-use crate::session::directory::run_activity::session_activity_sql;
-use crate::session::plan_holds::PlanHolds;
+use crate::directory::lookups::session_project_sql;
+use crate::directory::run_activity::session_activity_sql;
+use crate::plan_holds::PlanHolds;
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 /// The statements the list's reads prepare, counted into the read pool's statement capacity.
 pub(crate) const SESSION_LIST_ROWS_STATEMENT_CAPACITY: usize = 2;

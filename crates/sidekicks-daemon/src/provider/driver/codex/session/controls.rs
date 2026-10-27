@@ -15,35 +15,31 @@ use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNotic
 use sidekicks_contracts::session::controls::methods::{SessionMode, SessionReviewTarget};
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::app_server_protocol::{
     ReviewStartParams, ReviewTarget, ThreadApproveGuardianDeniedActionParams, ThreadResumeParams,
 };
-use crate::provider::driver::codex::event_normalizer::CODEX_THREAD_SETTINGS_UPDATED_METHOD;
-use crate::provider::driver::codex::permission_level::compose_codex_level_settings;
-use crate::provider::driver::codex::run::start::CodexRunStart;
-use crate::provider::driver::codex::run::start::daemon_turns::{
-    CodexDaemonTurnError, CodexDaemonTurnOpening,
-};
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::inbound::CodexSessionCall;
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::settings::{
+use crate::codex::event_normalizer::CODEX_THREAD_SETTINGS_UPDATED_METHOD;
+use crate::codex::permission_level::compose_codex_level_settings;
+use crate::codex::run::start::CodexRunStart;
+use crate::codex::run::start::daemon_turns::{CodexDaemonTurnError, CodexDaemonTurnOpening};
+use crate::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
+use crate::codex::session::calls::{call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::inbound::CodexSessionCall;
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::thread::settings::{
     CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode, compose_codex_level_config,
 };
-use crate::provider::driver::codex::thread::view::read_turn_id;
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
-use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::provider::driver::run_control::OverrideDenialParams;
-use crate::provider::driver::session_control::{StartReviewParams, UpdatePermissionLevelParams};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::run::delivery::InboundDelivery;
+use crate::codex::thread::view::read_turn_id;
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::run_control::OverrideDenialParams;
+use crate::driver::session_control::{StartReviewParams, UpdatePermissionLevelParams};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::run::delivery::InboundDelivery;
 
 const THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
 const REVIEW_START_METHOD: &str = "review/start";
@@ -373,11 +369,11 @@ mod tests {
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
     use super::{CodexSessionControls, move_codex_permission_level};
-    use crate::policy::execution_posture_service::compose_execution_posture;
-    use crate::provider::driver::codex::session::test_session::{TEST_THREAD, TestCodexSession};
-    use crate::provider::driver::run_control::OverrideDenialParams;
-    use crate::provider::driver::session_control::UpdatePermissionLevelParams;
-    use crate::provider::driver::test_registry::new_run_id;
+    use crate::codex::session::test_session::{TEST_THREAD, TestCodexSession};
+    use crate::driver::run_control::OverrideDenialParams;
+    use crate::driver::session_control::UpdatePermissionLevelParams;
+    use crate::driver::test_registry::new_run_id;
+    use crate::run::posture::compose_execution_posture;
 
     // Kills: the move recomposing the posture from its level, which opens Sandboxed to the
     // repository's folder alone and drops the second root the caller composed.

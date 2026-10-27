@@ -15,15 +15,15 @@ use sidekicks_contracts::preview::port::{
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::Port;
 
-use crate::database::writer::WriteError;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{
-    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
-};
-use crate::ipc::stream::feed::Feed;
-use crate::ipc::stream::latest_value::LatestValueFeed;
 use crate::remote::shared_ports::loopback::SharedPortConnectError;
 use crate::remote::shared_ports::{SharedPortAddError, SharedPorts};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{
+    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
+};
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_store::database::writer::WriteError;
 
 /// What the shared ports' methods need.
 pub(crate) struct SharedPortMethodsDeps {

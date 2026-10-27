@@ -5,7 +5,7 @@
 use serde_json::{Map, Value};
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream};
-use crate::provider::record_readers::read_non_empty_string;
+use crate::record_readers::read_non_empty_string;
 
 impl ClaudeDeliveryStream {
     // A message Claude Code took off its input reports taken under the run it was written for; one

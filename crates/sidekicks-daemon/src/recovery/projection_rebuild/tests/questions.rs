@@ -6,9 +6,9 @@ use rusqlite::Connection;
 use rusqlite::types::Value;
 
 use super::{rebuild_whole, table_rows};
-use crate::questions::projection::QuestionsProjection;
-use crate::questions::service::tests::Fixture;
-use crate::questions::service::tests::queued_answers::write_queued_answers;
+use sidekicks_session::questions::projection::QuestionsProjection;
+use sidekicks_session::questions::service::tests::Fixture;
+use sidekicks_session::questions::service::tests::queued_answers::write_queued_answers;
 
 fn question_rows(connection: &Connection) -> (Vec<Vec<Value>>, Vec<Vec<Value>>) {
     (

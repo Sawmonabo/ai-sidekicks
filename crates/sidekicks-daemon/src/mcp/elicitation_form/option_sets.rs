@@ -8,7 +8,7 @@ use sidekicks_contracts::provider::driver::length_limits::{
 };
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::record_readers::read_present_member;
+use crate::record_readers::read_present_member;
 
 /// One selectable answer of an elicitation form field: `value` is what a chooser sends back,
 /// `label` what a person reads. The label takes the wider bound because a titled option's `title`

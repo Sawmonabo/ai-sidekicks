@@ -12,8 +12,8 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::compose_scoped_limit_id;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-use crate::mutex_lock::lock;
-use crate::provider::port::usage_sink::ProviderQuotaWindow;
+use crate::port::usage_sink::ProviderQuotaWindow;
+use sidekicks_std::mutex_lock::lock;
 
 /// The five-hour window's length in minutes.
 const SESSION_WINDOW_MINUTES: i64 = 300;

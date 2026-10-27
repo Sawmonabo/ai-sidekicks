@@ -9,7 +9,7 @@ use sidekicks_contracts::daemon::status::{DaemonCrashReportList, DaemonCrashRepo
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 
 use crate::daemon::crash::reports::read_crash_reports;
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 

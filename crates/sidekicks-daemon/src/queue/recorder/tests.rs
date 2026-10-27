@@ -24,17 +24,19 @@ use super::{
     QueueRecorder, QueueRecorderDeps, RecordSendError, RecordedSend, RetargetRun, SendRefusal,
     SendRoute,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
-use crate::questions::schema::schema_parts;
-use crate::queue::changes::{
+use crate::changes::{
     QueueChangeSignals, QueueKey, read_current_queue_cursor, read_queue_changes_after,
 };
-use crate::queue::store::{NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord};
-use crate::session::run::engine::tests::insert_running_run;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::{
+    NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord,
+};
+use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 /// The statements the recorder's read pool prepares: the read back of a send's item.
 const READ_STATEMENT_CAPACITY: usize = 1;

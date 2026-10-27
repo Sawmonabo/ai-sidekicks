@@ -23,28 +23,26 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::statement::DATABASE_NOW_SQL;
-use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::SessionEventDraft;
-use crate::mutex_lock::lock;
-use crate::pause_point::PausePoint;
-use crate::policy::execution_posture_service::{
-    ExecutionPostureService, compose_execution_posture,
-};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::test_registry::test_driver_services;
-use crate::provider::run::start_request::DriverStep;
-use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use crate::session::plan_holds::{NoPlanHolds, PlanHolds};
-use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::turns::StepCount;
-use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
-use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::setup_gates::RunSetupGate;
-use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
+use crate::plan_holds::{NoPlanHolds, PlanHolds};
+use crate::run::engine::limits::LimitStop;
+use crate::run::engine::turns::StepCount;
+use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+use crate::run::start_request::{RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_provider::run::posture::{ExecutionPostureService, compose_execution_posture};
+use sidekicks_provider::run::start_request::DriverStep;
+use sidekicks_provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::SessionEventDraft;
+use sidekicks_workspace::run_setup_gates::RunSetupGate;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
 /// its own, so a call that waits on nothing, or a hand that never comes, fails the test.

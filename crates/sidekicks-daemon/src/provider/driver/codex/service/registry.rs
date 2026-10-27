@@ -18,24 +18,20 @@ use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::service::home::{
-    CodexHomeKind, CodexServiceHome, CodexServiceKind,
-};
-use crate::provider::driver::codex::service::record::recorded_home_keys;
-use crate::provider::driver::codex::service::socket_link::{
-    is_listening, point_socket_link_at_service,
-};
+use crate::codex::DESCRIPTOR;
+use crate::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::codex::service::record::recorded_home_keys;
+use crate::codex::service::socket_link::{is_listening, point_socket_link_at_service};
 #[cfg(test)]
-use crate::provider::driver::codex::service::supervisor::test_service::ScriptedCodexService;
-use crate::provider::driver::codex::service::supervisor::{
+use crate::codex::service::supervisor::test_service::ScriptedCodexService;
+use crate::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::service_log::provider_service_log_file_of_key;
+use crate::codex::session::errors::CodexError;
+use crate::driver::contract::DriverError;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::service_log::provider_service_log_file_of_key;
+use sidekicks_std::mutex_lock::lock;
 
 /// The folder under a Codex home that holds its control sockets.
 const CODEX_CONTROL_SOCKET_FOLDER: &str = "app-server-control";

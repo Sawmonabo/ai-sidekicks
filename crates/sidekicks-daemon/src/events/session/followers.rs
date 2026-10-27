@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::watch;
 
 use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// A committed event as its followers hear it: the envelope its row was written from, shared
 /// with that row, and the sequence its write committed it at.

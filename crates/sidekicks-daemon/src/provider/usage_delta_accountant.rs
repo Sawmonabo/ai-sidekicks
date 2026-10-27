@@ -35,7 +35,7 @@ use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
 use strum::{IntoStaticStr, VariantArray};
 
-use crate::provider::driver::diagnostics::{
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 
@@ -559,7 +559,7 @@ fn emit_usage_diagnostic<const N: usize>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::driver::registry::test_provider;
+    use crate::driver::registry::test_provider;
 
     fn reading(thread_id: &str, input: u64) -> CumulativeUsageReading {
         CumulativeUsageReading {

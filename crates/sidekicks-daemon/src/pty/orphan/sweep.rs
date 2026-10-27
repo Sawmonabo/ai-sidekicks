@@ -15,10 +15,10 @@ use std::time::Duration;
 use sidekicks_platforms::{PinnedProcess, end_leftover_shell_containments, pin_running_process};
 use tokio::task::JoinError;
 
-use crate::pty::orphan::nonce_search::{
+use crate::orphan::nonce_search::{
     carried_nonce_entry, find_processes_carrying_nonces, read_carried_nonce,
 };
-use crate::pty::orphan::registry::OrphanRegistryLeftover;
+use crate::orphan::registry::OrphanRegistryLeftover;
 
 /// What the sweep did, counted in registry entries.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -145,7 +145,7 @@ mod tests {
     use tokio::process::Command;
 
     use super::{OrphanSweepResult, sweep_orphans};
-    use crate::pty::orphan::registry::{OrphanRegistryEntry, OrphanRegistryLeftover};
+    use crate::orphan::registry::{OrphanRegistryEntry, OrphanRegistryLeftover};
 
     /// A child that waits, leading a session of its own so its kill reaches nothing else.
     const WAITING_CHILD_STAND_IN: &str = "pty::orphan::sweep::tests::a_child_that_waits";

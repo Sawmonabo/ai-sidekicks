@@ -22,31 +22,33 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::text_column;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::projection::ProjectionFailure;
-use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
-use crate::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
-};
-use crate::events::session::read::SessionLogReadError;
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::KeyedLock;
-use crate::recovery::projection_rebuild::{
+use crate::projection_rebuild::{
     ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
     mark_stale_statement,
 };
-use crate::recovery::restart_settle::{RestartSettle, RestartSettleError};
-use crate::recovery::status::{LastGoodPoint, RecoveryStatusTracker};
-use crate::session::directory::lookups::session_exists;
-use crate::session::service::{
+use crate::restart_settle::{RestartSettle, RestartSettleError};
+use crate::status::{LastGoodPoint, RecoveryStatusTracker};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, SessionService, SessionServiceError,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::projection::ProjectionFailure;
+use sidekicks_store::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
+    SessionEventLinkage,
+};
+use sidekicks_store::events::session::read::SessionLogReadError;
+use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
 /// The statements damaged history's own reads run: the last event before a damaged one, and
 /// whether a session has a row.

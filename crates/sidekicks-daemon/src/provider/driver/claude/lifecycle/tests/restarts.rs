@@ -18,20 +18,20 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
-use crate::provider::driver::claude::session::establishment::context::{
+use crate::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID,
 };
-use crate::provider::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
-use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
-use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
-use crate::provider::driver::claude::session::scripted::{binding_id, settle};
-use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::session_control::{
+use crate::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
+use crate::claude::session::scripted::daemon_services::PortCall;
+use crate::claude::session::scripted::driver::{ScriptedDriver, create_params};
+use crate::claude::session::scripted::{binding_id, settle};
+use crate::claude::spawn::arguments::ClaudeConversationStart;
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
     ResumeSessionParams,
 };
-use crate::provider::driver::test_registry::{new_run_id, new_session_id};
+use crate::driver::test_registry::{new_run_id, new_session_id};
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.

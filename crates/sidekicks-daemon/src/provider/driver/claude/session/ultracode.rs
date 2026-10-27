@@ -9,9 +9,9 @@ use sidekicks_contracts::provider::declaration::{
     ProviderSessionOptionControl, ProviderSessionOptionPlacement, ProviderValue,
 };
 
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudeSettingsReply,
 };
 

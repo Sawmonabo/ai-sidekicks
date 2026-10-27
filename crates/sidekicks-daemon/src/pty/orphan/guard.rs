@@ -8,9 +8,9 @@ use std::path::Path;
 
 use sidekicks_platforms::{pin_child_process, process_identity};
 
-use crate::pty::orphan::registry::{OrphanRegistry, OrphanRegistryError};
-use crate::pty::orphan::sweep::{OrphanSweepInterrupted, OrphanSweepResult, sweep_orphans};
-use crate::random_hex::random_hex;
+use crate::orphan::registry::{OrphanRegistry, OrphanRegistryError};
+use crate::orphan::sweep::{OrphanSweepInterrupted, OrphanSweepResult, sweep_orphans};
+use sidekicks_std::random_hex::random_hex;
 
 // The random bytes in a nonce, so no other process carries it by chance.
 const NONCE_RANDOM_BYTES: usize = 16;

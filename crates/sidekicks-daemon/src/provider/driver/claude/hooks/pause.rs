@@ -7,7 +7,7 @@ use serde::ser::{SerializeMap, Serializer};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
+use crate::driver::hook_pauses::{HookPauses, PAUSED_REASON, PausedRole};
 
 /// A hook answer, written as the JSON Claude Code reads from the hook's output.
 #[derive(Clone, Debug, PartialEq, Eq)]

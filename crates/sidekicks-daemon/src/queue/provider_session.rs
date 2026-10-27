@@ -26,32 +26,34 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::schema::session_directory::read_session_state_through;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::domain_error::DomainError;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::mutex_lock::lock;
-use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::{
     CreateSessionParams, DriverResumeResult, UpdatePermissionLevelParams,
 };
-use crate::provider::left_conversations::LeftConversation;
-use crate::provider::runtime_binding::resume::{
+use sidekicks_provider::left_conversations::LeftConversation;
+use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::runtime_binding::resume::{
     ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
 };
-use crate::provider::runtime_binding::store::{
+use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
     RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
 };
-use crate::session::console_state::read_session_mode;
-use crate::session::permission_level::{
+use sidekicks_session::console_state::read_session_mode;
+use sidekicks_session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
 };
-use crate::session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
-use crate::session::run::stored_leg::read_session_leg;
+use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use sidekicks_session::run::stored_leg::read_session_leg;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::schema::session_directory::read_session_state_through;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 #[cfg(test)]
 pub(crate) mod test_opening;

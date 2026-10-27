@@ -9,9 +9,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use sidekicks_platforms::{PathRules, resolve_path, resolve_path_against};
 
-use crate::provider::driver::claude::session::settings_file::{
-    is_unreadable_path, read_claude_settings_file,
-};
+use crate::claude::session::settings_file::{is_unreadable_path, read_claude_settings_file};
 
 /// One conversation with a plan: the folder it started in, the local settings file Claude Code
 /// keeps for that project (at the repository's root in the normal case), and the name its plan

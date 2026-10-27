@@ -10,38 +10,34 @@ use serde_json::Value;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::time::Instant;
 
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::process::ClaudeCodeProcess;
-use crate::provider::driver::claude::session::reply_reserve::{
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::process::ClaudeCodeProcess;
+use crate::claude::session::reply_reserve::{
     CLAUDE_AUTO_COMPACT_WINDOW_KEY, CLAUDE_MAX_OUTPUT_TOKENS_KEY,
     CLAUDE_RESERVE_READ_MAXIMUM_OUTPUT_TOKENS, CLAUDE_RESERVE_READ_WINDOW_TOKENS,
 };
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeFlagSettings,
-};
-use crate::provider::driver::claude::session::transport::declarations::ClaudeOfferedModel;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::{ClaudeControlRequest, ClaudeFlagSettings};
+use crate::claude::session::transport::declarations::ClaudeOfferedModel;
+use crate::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeModelContextRead,
     ClaudeReplyReserveReads, ClaudeSessionFolderReadRequest,
 };
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::session::transport::user_message::{
     ClaudeWriteAttempt, compose_claude_user_frame,
 };
-use crate::provider::driver::claude::spawn::launch::control_only::{
-    ClaudeShortProcess, ClaudeShortProcessArrival,
-};
-use crate::provider::driver::claude::spawn::launch::initialize_reply::{
+use crate::claude::spawn::launch::control_only::{ClaudeShortProcess, ClaudeShortProcessArrival};
+use crate::claude::spawn::launch::initialize_reply::{
     read_claude_initialize_declaration, read_claude_listed_commands,
 };
-use crate::provider::driver::claude::spawn::launch::one_turn::compose_unwatched_answer;
-use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::provider::driver::claude::turn_evidence::classify_claude_turn_evidence;
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::claude::spawn::launch::one_turn::compose_unwatched_answer;
+use crate::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::claude::turn_evidence::classify_claude_turn_evidence;
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Reads a session's creation figures from one process that keeps nothing, in `place`'s folder on
 /// its model, skipping the context reads of `read_models`. Fails as the start or a request does,

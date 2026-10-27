@@ -20,7 +20,7 @@ use tokio::sync::{Notify, watch};
 use tokio::task::JoinError;
 use tokio::time::{Instant, sleep_until};
 
-use crate::provider::driver::ProviderDescriptor;
+use sidekicks_provider::driver::ProviderDescriptor;
 
 const MEBIBYTE: u64 = 1024 * 1024;
 

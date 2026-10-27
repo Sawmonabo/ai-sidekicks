@@ -14,20 +14,18 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::run::control::interrupt_codex_run;
-use crate::provider::driver::codex::run::routes::CodexRunBinding;
-use crate::provider::driver::codex::run::start::record::{CodexTurnBegin, CodexTurnStartOutcome};
-use crate::provider::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
-use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-use crate::provider::driver::codex::session::calls::call_codex_session;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::port::run_host::RunHostError;
-use crate::provider::run::start_request::DaemonTurnStartRequest;
+use crate::codex::DESCRIPTOR;
+use crate::codex::run::control::interrupt_codex_run;
+use crate::codex::run::routes::CodexRunBinding;
+use crate::codex::run::start::record::{CodexTurnBegin, CodexTurnStartOutcome};
+use crate::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
+use crate::codex::run::turn_end_waiters::CodexTurnEndDeadline;
+use crate::codex::session::calls::call_codex_session;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::port::run_host::RunHostError;
+use crate::run::start_request::DaemonTurnStartRequest;
 
 /// Sends the request that makes Codex start a turn the daemon starts, on the connection and
 /// conversation it names, within the time left of the start's deadline, and answers the turn its

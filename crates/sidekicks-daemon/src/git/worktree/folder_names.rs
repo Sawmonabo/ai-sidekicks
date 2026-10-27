@@ -4,7 +4,7 @@ use std::ffi::OsString;
 use std::io;
 use std::path::Path;
 
-use crate::missing_entry::MissingEntry;
+use sidekicks_std::missing_entry::MissingEntry;
 
 /// The names of the entries directly in `folder` that are folders themselves, a link to a folder
 /// left out; none when `folder` is missing. Fails with the listing's or an entry's read error.

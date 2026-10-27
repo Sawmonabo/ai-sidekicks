@@ -8,9 +8,9 @@ use std::path::{Path, PathBuf};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 
-use crate::provider::driver::ProviderAccountFolders;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::spawn_environment::{
+use crate::claude::DESCRIPTOR;
+use crate::driver::ProviderAccountFolders;
+use crate::spawn_environment::{
     ProviderEnvironmentRequest, SessionEnvironment, SpawnEnvironmentError,
     build_provider_process_environment,
 };
@@ -131,7 +131,7 @@ mod tests {
     use sidekicks_platforms::PathRules;
 
     use super::{ClaudeProcessEnvironmentRequest, compose_claude_process_environment};
-    use crate::provider::spawn_environment::{
+    use crate::spawn_environment::{
         ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
     };
 

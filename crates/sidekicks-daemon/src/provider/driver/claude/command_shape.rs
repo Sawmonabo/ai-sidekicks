@@ -5,7 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-use crate::provider::driver::ShellPrefixCommand;
+use crate::driver::ShellPrefixCommand;
 
 /// The variable Claude Code reads its shell prefix's absolute path from.
 const SHELL_PREFIX_VARIABLE: &str = "CLAUDE_CODE_SHELL_PREFIX";

@@ -34,28 +34,28 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio_util::sync::CancellationToken;
 
-use crate::approvals::refusals::{approval_request_canceled, approval_rule_not_kept};
-use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
-use crate::approvals::service::{
-    ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer,
-};
-use crate::approvals::store::{StoredApprovalRequest, StoredApprovalResolution};
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::permission_check::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
-use crate::provider::driver::contract::{
+use crate::permission_check::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
+use crate::refusals::{approval_request_canceled, approval_rule_not_kept};
+use crate::rules::{ApprovalRuleError, ApprovalRules};
+use crate::service::{ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer};
+use crate::store::{StoredApprovalRequest, StoredApprovalResolution};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_provider::driver::contract::{
     DriverError, ProviderRequestAnswer, RespondToRequestParams,
 };
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::port::permission_ask::{
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::port::permission_ask::{
     PermissionAskPort, ProviderAnswerCorrection, ProviderAnswerRule, ProviderAskAction,
     ProviderPermissionAnswer, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
 };
-use crate::session::run::read::read_run_provider;
+use sidekicks_session::run::read::read_run_provider;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 /// What the agent reads when its call was refused because the check itself failed.
 pub(crate) const CHECK_FAILED_REFUSAL: &str = "This call could not be checked, so it did not run.";

@@ -9,11 +9,13 @@ use rusqlite::{OptionalExtension as _, named_params};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::DatabaseWriter;
-use crate::ipc::registry::HandlerError;
-use crate::session::directory::lookups::{SessionWriteError, write_while_session_exists};
+use crate::directory::lookups::{SessionWriteError, write_while_session_exists};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::writer::DatabaseWriter;
 
 /// The statements the store's reads run: the held draft.
 pub(crate) const SESSION_DRAFT_STORE_STATEMENT_CAPACITY: usize = 1;

@@ -8,7 +8,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::port::session_inbox_address::SessionInboxAddresser;
+use crate::port::session_inbox_address::SessionInboxAddresser;
 
 /// The variable Claude Code puts its socket folder under when it is set and not empty.
 const RUNTIME_FOLDER_VARIABLE: &str = "XDG_RUNTIME_DIR";
@@ -178,8 +178,8 @@ mod tests {
     use sidekicks_contracts::place::Place;
 
     use super::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
-    use crate::database::writer::test_file::test_session_id;
-    use crate::provider::port::session_inbox_address::SessionInboxAddresser as _;
+    use crate::port::session_inbox_address::SessionInboxAddresser as _;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// The folder `session_inbox_address` puts a session's socket in.
     fn folder_of(addresser: &ClaudeSessionInboxAddresser, place: Option<&Place>) -> String {

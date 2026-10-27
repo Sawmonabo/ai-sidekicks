@@ -2,8 +2,8 @@ use rstest::rstest;
 use serde_json::{Map, Value, json};
 
 use super::complete_codex_review;
-use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
-use crate::provider::driver::codex::delivery::rows::test_row_run;
+use crate::codex::delivery::memory::CodexDeliveryMemory;
+use crate::codex::delivery::rows::test_row_run;
 
 // A review's end as Codex sends it on `thread-1` in `turn-1`.
 fn review_end(

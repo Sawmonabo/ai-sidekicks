@@ -10,21 +10,17 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::provider::driver::codex::delivery::memory::{
-    CodexChildRun, CodexSpawnCall, CodexStartedChildRun,
-};
-use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::turn_evidence::{
-    CodexTurnStatus, compose_codex_child_terminal,
-};
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::DeliveryOperation;
-use crate::provider::run::delivery::LateAppendableRow;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::frames::CodexFrameDelivery;
+use crate::codex::delivery::memory::{CodexChildRun, CodexSpawnCall, CodexStartedChildRun};
+use crate::codex::delivery::reviewer::end_codex_review_turn;
+use crate::codex::delivery::rows::CodexRowRun;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::turn_evidence::{CodexTurnStatus, compose_codex_child_terminal};
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::DeliveryOperation;
+use crate::run::delivery::LateAppendableRow;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 
 /// What a thread is to the session's helpers.
 pub(crate) enum ChildRunLookup {

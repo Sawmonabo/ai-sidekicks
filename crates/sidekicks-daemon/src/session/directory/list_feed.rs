@@ -41,20 +41,18 @@ use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{Notify, broadcast};
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::daemon::scheduler::{Scheduler, WakeSignal};
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::events::session::pending::PendingSessions;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::session::directory::list_feed::rows::{
-    ListRowSql, OPENING_READ_PAGE_ROWS, SessionListRow,
+use crate::directory::list_feed::rows::{ListRowSql, OPENING_READ_PAGE_ROWS, SessionListRow};
+use crate::directory::list_feed::subscriber::{ListEnd, SessionListSubscriber, SubscriberChanges};
+use crate::plan_holds::PlanHolds;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::{Scheduler, WakeSignal};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use crate::session::directory::list_feed::subscriber::{
-    ListEnd, SessionListSubscriber, SubscriberChanges,
-};
-use crate::session::plan_holds::PlanHolds;
-use crate::workspace::managed::service::SessionListRefresh;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::pending::PendingSessions;
+use sidekicks_workspace::managed::service::SessionListRefresh;
 
 // The sessions one read of changed rows takes at most, so a burst of changes reads in short reads.
 const CHANGED_READ_SESSIONS: usize = 64;
@@ -115,7 +113,7 @@ pub(crate) struct SessionListFeed {
     _following: FollowerAttachment,
     /// Holds an opening once its rows are read, before the list is held.
     #[cfg(test)]
-    pub(crate) opening_read_pause: crate::pause_point::PausePoint,
+    pub(crate) opening_read_pause: sidekicks_std::pause_point::PausePoint,
 }
 
 // The held list and the tasks that keep it current, which end when it drops.
@@ -160,7 +158,7 @@ impl SessionListFeed {
             open_list: Mutex::new(None),
             _following: following,
             #[cfg(test)]
-            opening_read_pause: crate::pause_point::PausePoint::default(),
+            opening_read_pause: sidekicks_std::pause_point::PausePoint::default(),
         }
     }
 
@@ -168,7 +166,7 @@ impl SessionListFeed {
     /// and no plan holds.
     #[cfg(test)]
     pub(crate) fn for_test(
-        database: &crate::database::writer::test_file::TestDatabase,
+        database: &sidekicks_store::database::writer::test_file::TestDatabase,
         followers: &Arc<SessionEventFollowers>,
     ) -> Arc<Self> {
         let reads = Arc::new(DatabaseReadPool::new(
@@ -184,7 +182,7 @@ impl SessionListFeed {
             reads,
             followers,
             scheduler,
-            &crate::session::plan_holds::NoPlanHolds,
+            &crate::plan_holds::NoPlanHolds,
         ))
     }
 

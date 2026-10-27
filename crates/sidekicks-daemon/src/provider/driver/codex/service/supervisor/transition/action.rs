@@ -3,9 +3,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
-use crate::provider::driver::codex::service::supervisor::transition::CodexServiceAvailability;
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::codex::service::supervisor::transition::CodexServiceAvailability;
+use crate::codex::session::errors::CodexError;
 
 /// What a stop does with the lasting process of a terminal service, which outlives the daemon.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

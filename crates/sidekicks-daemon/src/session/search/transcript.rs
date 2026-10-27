@@ -28,14 +28,14 @@ use sidekicks_search::index::{
     IndexRowKind, SearchIndex, SearchIndexError, SearchQuery, SessionFind,
 };
 
-use crate::database::stored_column::rowid_column;
-use crate::ipc::domain_error::DomainError;
-use crate::session::not_found::session_not_found;
-use crate::session::search::hits::{HitLine, HitLineReader};
-use crate::session::search::index::columns::index_key_of;
-use crate::session::search::index::rows::IndexRowReader;
-use crate::session::search::query::parse_find_query;
-use crate::session::search::rowid_floors::RowidFloorLog;
+use crate::search::hits::{HitLine, HitLineReader};
+use crate::search::index::columns::index_key_of;
+use crate::search::index::rows::IndexRowReader;
+use crate::search::query::parse_find_query;
+use crate::search::rowid_floors::RowidFloorLog;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_store::database::stored_column::rowid_column;
 
 const SESSION_KEY_SQL: &str = "SELECT rowid FROM sessions WHERE id = ?";
 

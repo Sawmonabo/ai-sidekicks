@@ -37,21 +37,23 @@ use sidekicks_contracts::workflow::definition::refusals::{
     WorkflowDefinitionFinding, WorkflowNodeHandles, check_workflow_graph,
 };
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{
+use crate::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
+use crate::definitions::drafts::clear_workflow_draft_statement;
+use crate::definitions::errors::DefinitionRefusal;
+use crate::definitions::kept_values::clear_kept_values_statement;
+use crate::definitions::library::{WorkflowLibrary, name_holder_statement};
+use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::safe_int_column;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::canonicalizer::CanonicalizationRefusal;
-use crate::ipc::registry::HandlerError;
-use crate::workflow::definitions::content_hash::{WorkflowDocumentHash, hash_workflow_body};
-use crate::workflow::definitions::drafts::clear_workflow_draft_statement;
-use crate::workflow::definitions::errors::DefinitionRefusal;
-use crate::workflow::definitions::kept_values::clear_kept_values_statement;
-use crate::workflow::definitions::library::{WorkflowLibrary, name_holder_statement};
-use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::stored_column::safe_int_column;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 /// The statements the store's reads run on a read connection beyond the library's: the latest
 /// version a refused save is told about.

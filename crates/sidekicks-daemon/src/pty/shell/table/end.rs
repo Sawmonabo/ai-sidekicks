@@ -11,14 +11,14 @@ use sidekicks_contracts::terminal::TerminalCloseRequest;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_terminal::{TerminalError, TerminalHandle, Terminals};
 
-use crate::ipc::registry::HandlerError;
-use crate::pty::orphan::guard::OrphanGuard;
-use crate::pty::shell::integration::injection::ShellMarkNonce;
-use crate::pty::shell::output::stream::ShellOutputEnd;
-use crate::pty::shell::record::ShellRecord;
-use crate::pty::shell::refusals::terminal_not_found;
-use crate::pty::shell::table::open::discard_unread_nonce;
-use crate::pty::shell::table::{ShellTable, TableShared};
+use crate::integration::injection::ShellMarkNonce;
+use crate::orphan::guard::OrphanGuard;
+use crate::output::stream::ShellOutputEnd;
+use crate::record::ShellRecord;
+use crate::refusals::terminal_not_found;
+use crate::table::open::discard_unread_nonce;
+use crate::table::{ShellTable, TableShared};
+use sidekicks_ipc::registry::HandlerError;
 
 /// Holds a deleted session's opens refused until it drops.
 pub(crate) struct SessionShellsClosed {
@@ -190,8 +190,8 @@ mod tests {
     use sidekicks_terminal::TerminalError;
 
     use super::let_shell_go;
-    use crate::pty::orphan::guard::open_orphan_guard;
-    use crate::pty::orphan::registry::OrphanRegistry;
+    use crate::orphan::guard::open_orphan_guard;
+    use crate::orphan::registry::OrphanRegistry;
 
     // Fails when the child's nonce is retired before the terminal is let go, so a child that
     // outlived a failed close is lost to the next start's sweep.

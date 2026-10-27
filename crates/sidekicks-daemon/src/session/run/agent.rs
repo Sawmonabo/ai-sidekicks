@@ -14,9 +14,11 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::IdError;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::events::session::read::readable_event_sql;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::events::session::read::readable_event_sql;
 
 static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();

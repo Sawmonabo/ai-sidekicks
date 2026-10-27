@@ -10,15 +10,13 @@ pub(crate) mod action;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime};
 
+use crate::codex::service::home::CodexServiceKind;
+use crate::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::codex::service::supervisor::reconnect::RECONNECT_STABLE_UPTIME;
+use crate::codex::service::supervisor::transition::action::{LastingServiceEnd, SupervisorAction};
+use crate::codex::session::errors::CodexError;
 use crate::crash_window::{CrashOutcome, CrashWindow};
-use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
-use crate::provider::driver::codex::service::supervisor::reconnect::RECONNECT_STABLE_UPTIME;
-use crate::provider::driver::codex::service::supervisor::transition::action::{
-    LastingServiceEnd, SupervisorAction,
-};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::DaemonStopIntent;
 
 /// Where one service stands.
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -11,21 +11,17 @@ use std::sync::Arc;
 
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::codex::app_server_protocol::{
+use crate::codex::app_server_protocol::{
     ThreadGoalClearParams, ThreadGoalMutationOrigin, ThreadGoalSetParams,
 };
-use crate::provider::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::provider::driver::codex::session::calls::{
-    CodexSessionReading, call_codex_session, wait_for_codex_turns,
-};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::session_control::{
+use crate::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
+use crate::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
+use crate::codex::session::calls::{CodexSessionReading, call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
 

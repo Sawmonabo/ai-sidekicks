@@ -6,7 +6,7 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 
 use crate::git::worktree::schema::WORKTREE_SCHEMA_SQL;
-use crate::workspace::test_rows::{PARENT_ROWS_AT, create_workspace_tables, insert_workspace_rows};
+use crate::test_rows::{PARENT_ROWS_AT, create_workspace_tables, insert_workspace_rows};
 
 /// The live worktree the parent branch context names.
 pub(crate) const PARENT_WORKTREE_ID: &str = "parent-worktree";

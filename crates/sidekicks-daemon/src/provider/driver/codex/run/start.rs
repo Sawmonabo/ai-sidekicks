@@ -20,33 +20,29 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::mutex_lock::lock;
-use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::codex::attachments::resolve_codex_turn_message;
-use crate::provider::driver::codex::input_limit::message_too_large_refusal;
-use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
-use crate::provider::driver::codex::run::control::interrupt_codex_run;
-use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
-use crate::provider::driver::codex::run::start::record::{
+use crate::codex::attachments::resolve_codex_turn_message;
+use crate::codex::input_limit::message_too_large_refusal;
+use crate::codex::output_speed::CodexSettledOutputSpeed;
+use crate::codex::run::control::interrupt_codex_run;
+use crate::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
+use crate::codex::run::start::record::{
     CodexAcceptedTurn, CodexTurnBegin, CodexTurnBeginAnswer, CodexTurnRequest, CodexTurnSend,
     CodexTurnStartOutcome,
 };
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::thread::view::{TURN_START_METHOD, read_turn_id};
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexDeliveryPort, CodexTransportDiagnostic,
-};
-use crate::provider::driver::contract::StartRunParams;
-use crate::provider::driver::run_control::DaemonTurnBindingResolver;
-use crate::provider::port::run_host::RunHost;
+use crate::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
+use crate::codex::session::calls::{call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::thread::view::{TURN_START_METHOD, read_turn_id};
+use crate::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
+use crate::driver::attachments::AttachmentResolver;
+use crate::driver::contract::StartRunParams;
+use crate::driver::run_control::DaemonTurnBindingResolver;
+use crate::port::run_host::RunHost;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
 
 /// How long a turn's start may take before it counts as not started. `turn/start` answers once
 /// Codex accepted the turn, so it matches the ordinary request deadline.

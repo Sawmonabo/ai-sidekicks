@@ -9,8 +9,8 @@ use sidekicks_contracts::approval::ApprovalCategory;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::approvals::service::tests::{ApprovalFixture, SETTLE_WAIT, from_json};
-use crate::approvals::store::{InsertedApprovalRequest, insert_request_statement};
+use crate::service::tests::{ApprovalFixture, SETTLE_WAIT, from_json};
+use crate::store::{InsertedApprovalRequest, insert_request_statement};
 
 impl ApprovalFixture {
     /// Writes one pending ask on the run, with no event, as a row alone changes the run's open

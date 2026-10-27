@@ -12,12 +12,12 @@ use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMo
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 
-use crate::provider::driver::ProviderAccountFolders;
-use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::claude::session::scripted::driver::ScriptedDriver;
+use crate::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
-use crate::provider::driver::session_control::StartingLevelParams;
+use crate::driver::ProviderAccountFolders;
+use crate::driver::session_control::StartingLevelParams;
 
 // A figures read whose build offers the advisors `opus` and `sonnet`.
 fn figures_offering_advisors() -> ClaudeCreationFiguresReading {

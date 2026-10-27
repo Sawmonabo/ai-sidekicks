@@ -13,16 +13,14 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::event_normalizer::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::event_normalizer::{
     CODEX_ITEM_STARTED_METHOD, CODEX_THREAD_SETTINGS_UPDATED_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
-use crate::provider::driver::codex::session::state::{
-    CodexSessionRecord, CodexUnsettledOutputSpeedRun,
-};
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::contract::DriverError;
+use crate::codex::session::state::{CodexSessionRecord, CodexUnsettledOutputSpeedRun};
+use crate::codex::transport::connection::read_codex_object;
+use crate::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
+use crate::driver::contract::DriverError;
 
 /// The tier one run settled at, for the run engine to compare with the level it asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]

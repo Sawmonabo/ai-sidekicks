@@ -25,12 +25,12 @@ use sidekicks_contracts::worktree::lifecycle::{
 };
 use uuid::Uuid;
 
-use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
-use crate::events::session::appender::{
+use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
+use sidekicks_store::events::session::appender::{
     AppendedPayload, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventEmitError, SessionEventLinkage,
 };
-use crate::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// What every worktree event names: the session whose log takes it, the tree, and who acted.
 #[derive(Clone, Debug)]

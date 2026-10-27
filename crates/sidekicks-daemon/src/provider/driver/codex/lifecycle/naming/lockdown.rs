@@ -7,8 +7,8 @@ use serde::{Deserialize, Serialize as _};
 use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::read_codex_object;
 
 /// The switches a title conversation turns off.
 const SWITCHES_OFF: [&str; 26] = [

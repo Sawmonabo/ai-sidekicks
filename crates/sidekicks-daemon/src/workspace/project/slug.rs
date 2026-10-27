@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 use unicode_normalization::UnicodeNormalization as _;
 
-use crate::text_cut::cut_to_code_points;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The file system's 255-byte limit on one folder name (`NAME_MAX` on APFS and ext4). A slug holds
 /// only ASCII, so each character is one byte and every cut counts bytes.

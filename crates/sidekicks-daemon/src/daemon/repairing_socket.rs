@@ -17,27 +17,27 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::bootstrap::secure_defaults::SecureDefaults;
-use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_methods};
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::run_folder::{
     RunFolderError, bind_socket, mint_session_token, prepare_run_folder,
 };
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::ipc::caller_process::descent::CallerCheck;
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::ipc::local_gateway::{
     GatewayServices, LocalGateway, SupervisionDisconnectReason, SupervisionHooks,
 };
-use crate::ipc::protocol_negotiation::ProtocolNegotiator;
-use crate::ipc::registry::{Dispatch, MethodRegistryBuilder, RegistrationError, TransportId};
-use crate::ipc::stream::subscriptions::Subscriptions;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::database_file::repair::{
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::caller_process::descent::CallerCheck;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
+use sidekicks_ipc::registry::{Dispatch, MethodRegistryBuilder, RegistrationError, TransportId};
+use sidekicks_ipc::stream::subscriptions::Subscriptions;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_recovery::database_file::repair::{
     DatabaseFileRepair, DatabaseFileRepairError, DatabaseFileRepairFailure,
     DatabaseFileRepairOptions, LeftoverFile, prepare_database_file_repair, repair_damaged_file,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_store::database::damage::DatabaseDamageWatch;
 
 /// How a start's repair of the database file ended.
 #[derive(Debug)]
@@ -268,8 +268,8 @@ impl SupervisionHooks for RepairingSocketHooks {
 #[cfg(test)]
 mod tests {
     use super::{DatabaseFileRepairEnd, repair_end};
-    use crate::provider::driver::daemon_stop::DaemonStopIntent;
-    use crate::recovery::database_file::repair::DatabaseFileRepair;
+    use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+    use sidekicks_recovery::database_file::repair::DatabaseFileRepair;
 
     // A stop asked over the socket after the repair's last look at the stop still ends the start
     // once the file is repaired, and a repair with no stop asked goes on. Killed by answering

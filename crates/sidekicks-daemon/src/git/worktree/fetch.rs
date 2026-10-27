@@ -37,17 +37,17 @@ use tokio::sync::Notify;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::optional_text_column;
-use crate::database::writer::DatabaseWriter;
+use crate::clone::progress::GitProgressReader;
+use crate::clone::streamed_git::run_streamed_git;
 use crate::git::process::{
     CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner, background_read,
     in_folder,
 };
-use crate::mutex_lock::lock;
-use crate::workspace::clone::progress::GitProgressReader;
-use crate::workspace::clone::streamed_git::run_streamed_git;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::optional_text_column;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 /// How long after one fetch of a repository ends the next begins: often enough that the figures a
 /// person reads are minutes old at most, rarely enough that a remote is asked a few times an hour.

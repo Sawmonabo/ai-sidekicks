@@ -31,43 +31,43 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
 
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
-use crate::admission::memory_gate::{MemoryGate, MemoryGateFigures};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::ipc::domain_error::DomainError;
-use crate::keyed_lock::KeyedLock;
-use crate::mutex_lock::lock;
-use crate::pause_point::PausePoint;
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::run_control::{
+use crate::changes::QueueChangeSignals;
+use crate::error::QueueError;
+use crate::memory_gate::{MemoryGate, MemoryGateFigures};
+use crate::provider_session::test_opening::{
+    record_first_provider_capabilities, test_opening_composer,
+};
+use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
-use crate::provider::driver::session_control::ProviderSessionHandle;
-use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
-use crate::provider::process_identity::{ProcessStandIn, ProviderProcessIds};
-use crate::provider::runtime_binding::store::RuntimeBindingStore;
-use crate::questions::schema::schema_parts;
-use crate::queue::changes::QueueChangeSignals;
-use crate::queue::error::QueueError;
-use crate::queue::provider_session::test_opening::{
-    record_first_provider_capabilities, test_opening_composer,
-};
-use crate::queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
-use crate::queue::store::{
+use sidekicks_provider::driver::session_control::ProviderSessionHandle;
+use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
     insert_queue_item_statement,
 };
-use crate::session::run::binding_cursors::RunBindingCursors;
-use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
-use crate::session::run::epochs::ExecutionEpochs;
-use crate::session::run::pause::RunPauseControl;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
+use sidekicks_session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
+use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_session::run::pause::RunPauseControl;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 /// The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 32;

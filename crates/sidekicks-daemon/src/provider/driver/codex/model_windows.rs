@@ -10,16 +10,14 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::service::home::CodexServiceHome;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::diagnostics::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::service::home::CodexServiceHome;
+use crate::driver::contract::bound_failure_detail;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::error_causes::{
-    ModelCatalogUnreadable, UNSPECIFIED_PROVIDER_FAILURE_DETAIL,
-};
+use crate::driver::error_causes::{ModelCatalogUnreadable, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
+use sidekicks_std::error_description::describe_error;
 
 /// The catalog dump's name, as an unreadable catalog's refusal names it.
 const CODEX_CATALOG_DUMP_NAME: &str = "Codex debug models";

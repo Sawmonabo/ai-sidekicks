@@ -6,13 +6,11 @@
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeFlagSettings,
-};
-use crate::provider::driver::diagnostics::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::{ClaudeControlRequest, ClaudeFlagSettings};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 

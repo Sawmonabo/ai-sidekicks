@@ -1,9 +1,7 @@
 use serde_json::json;
 
-use crate::provider::driver::codex::session::fork::establish_codex_fork;
-use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, TestCodexSession, fork_reply, no_turns,
-};
+use crate::codex::session::fork::establish_codex_fork;
+use crate::codex::session::test_session::{TEST_THREAD, TestCodexSession, fork_reply, no_turns};
 
 // Kills: pointing the binding at the fork after the conversation the session leaves is let go.
 #[tokio::test(start_paused = true)]
@@ -37,7 +35,7 @@ async fn a_fork_rebinds_before_it_lets_go_of_the_conversation_left() {
         assert_eq!(listed["method"], "thread/backgroundTerminals/list");
         assert_eq!(listed["params"]["threadId"], TEST_THREAD);
         let resume_handle =
-            crate::provider::runtime_binding::store::read_binding(&database.reader(), &binding_id)
+            crate::runtime_binding::store::read_binding(&database.reader(), &binding_id)
                 .expect("the binding reads")
                 .expect("the binding has a row")
                 .resume_handle;

@@ -22,9 +22,9 @@ use rmcp::transport::async_rw::DEFAULT_MAX_LINE_LENGTH;
 use serde_json::Value;
 use tokio::io::{AsyncRead, ReadBuf};
 
-use crate::mutex_lock::lock;
-use crate::process_exit::OUTPUT_CHUNK_BYTES;
-use crate::provider::inbound_json::decode_inbound_json;
+use sidekicks_provider::inbound_json::decode_inbound_json;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::process_exit::OUTPUT_CHUNK_BYTES;
 
 /// The method of the one request rmcp sends itself whose reply the client reads raw.
 pub(super) const INITIALIZE_METHOD: &str = "initialize";
@@ -256,8 +256,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for RawLineTee<R> {
 mod tests {
     use serde_json::json;
 
-    use crate::mcp::client::requests::RequestWait;
-    use crate::mcp::client::test_server::{
+    use crate::client::requests::RequestWait;
+    use crate::client::test_server::{
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
 

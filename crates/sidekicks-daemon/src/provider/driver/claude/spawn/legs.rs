@@ -14,39 +14,35 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 
-use crate::events::canonicalizer::CanonicalizationRefusal;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::{
-    CURATED_CREDENTIAL_POLICY_REF, CredentialPolicyResolveError, ExecutionPostureService,
-};
-use crate::provider::callback_tools::host::{
+use crate::background_work::BackgroundWorkForms;
+use crate::callback_tools::host::{
     CallbackToolAdmission, CallbackToolHost, CallbackToolSpawnRequest,
 };
-use crate::provider::callback_tools::spawn_binding::{
+use crate::callback_tools::spawn_binding::{
     CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
 };
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
-use crate::provider::driver::claude::session::posture::{
-    digest_output_schema, find_posture_divergence,
-};
-use crate::provider::driver::claude::session::settings_file::ClaudeSettingsFileError;
-use crate::provider::driver::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSession};
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::spawn::account_home::write_claude_home_retention;
-use crate::provider::driver::claude::spawn::environment::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::establishment::ClaudeSpawnSources;
+use crate::claude::session::posture::{digest_output_schema, find_posture_divergence};
+use crate::claude::session::settings_file::ClaudeSettingsFileError;
+use crate::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSession};
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::spawn::account_home::write_claude_home_retention;
+use crate::claude::spawn::environment::{
     ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
 };
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::contract::StartRunParams;
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
-use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
-use crate::provider::spawn_environment::{
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::StartRunParams;
+use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::run::posture::{
+    CURATED_CREDENTIAL_POLICY_REF, CredentialPolicyResolveError, ExecutionPostureService,
+};
+use crate::spawn_environment::{
     ReservedEnvironmentNames, SessionEnvironment, SpawnEnvironmentError,
 };
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 /// Why the callback tools are withheld while the daemon's in-process tool servers are not
 /// registered: the tools ride that route, so nothing could answer them.

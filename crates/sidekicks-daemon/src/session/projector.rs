@@ -5,10 +5,10 @@
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::session::directory::row::{
+use crate::directory::row::{
     DirectoryEvent, DirectoryRowError, fold_directory_row, open_directory_row,
 };
-use crate::session::records::DaemonSessionRecord;
+use crate::records::DaemonSessionRecord;
 
 /// Why a session's log does not rebuild into a record.
 #[derive(Debug, thiserror::Error)]

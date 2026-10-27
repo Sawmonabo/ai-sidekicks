@@ -9,7 +9,7 @@ use sidekicks_contracts::provider::driver::usage_limit::{
     ProviderSpentRetriesSignal, RetriesExhausted,
 };
 
-use crate::provider::driver::claude::turn_evidence::is_positive_finite_number;
+use crate::claude::turn_evidence::is_positive_finite_number;
 
 // The `error` members Claude Code retries until its ladder is spent.
 const CLAUDE_RETRIED_ERRORS: [&str; 2] = ["rate_limit", "overloaded"];

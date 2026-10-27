@@ -28,7 +28,7 @@ use crate::database::statement::DATABASE_NOW_SQL;
 use crate::events::content::append::stored_index;
 use crate::events::content::codec::{BodyEncoder, StoredBody};
 use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::transcript::rejoin::ROW_ENDING_EVENT_TYPES_SQL;
+use crate::transcript_rejoin::ROW_ENDING_EVENT_TYPES_SQL;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The instant the daemon's clock counts from: the first read of [`monotonic_ns_now`], which the
@@ -279,7 +279,7 @@ mod tests {
     use crate::database::schema::schema_parts;
     use crate::events::session::read::SessionEventReads;
     use crate::events::test_log::{AT, SessionTestLog};
-    use crate::transcript::rejoin::RowReads;
+    use crate::transcript_rejoin::RowReads;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by a piece after its run's turn end or rollback joining the row that event closed, by

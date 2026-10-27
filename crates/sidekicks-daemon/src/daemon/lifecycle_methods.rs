@@ -13,11 +13,11 @@ use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::BoolLiteral;
 
-use crate::ipc::in_flight_mutations::RecordedCallId;
-use crate::ipc::registry::{
+use sidekicks_ipc::in_flight_mutations::RecordedCallId;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 
 /// Resolves once every write pending at the call is durable; stops nothing. It takes the call's
 /// own in-flight record, so a wait on the pending mutations excludes the flush itself.
@@ -99,13 +99,13 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::{LifecycleMethodsDeps, register_lifecycle_methods};
-    use crate::ipc::call_fixtures::{Named, Nothing, context, request};
-    use crate::ipc::in_flight_mutations::InFlightMutations;
-    use crate::ipc::registry::{
+    use sidekicks_ipc::call_fixtures::{Named, Nothing, context, request};
+    use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+    use sidekicks_ipc::registry::{
         Dispatch, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply,
     };
-    use crate::mutex_lock::lock;
-    use crate::provider::driver::daemon_stop::DaemonStopIntent;
+    use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+    use sidekicks_std::mutex_lock::lock;
 
     /// A method of another namespace sharing the flush's last segment.
     struct SessionFlush;

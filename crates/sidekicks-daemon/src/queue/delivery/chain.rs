@@ -17,14 +17,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::sync::{oneshot, watch};
 use tracing::Instrument as _;
 
-use crate::provider::driver::contract::{DriverError, ProviderDriver};
-use crate::provider::driver::ports::{
+use crate::delivery::state::{DeliveryState, HandRoute};
+use crate::delivery::withdraw::{LateWithdraw, WithdrawJob};
+use crate::delivery::{DeliveryError, QueueDelivery, steer_of};
+use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::ports::{
     MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
-use crate::queue::delivery::state::{DeliveryState, HandRoute};
-use crate::queue::delivery::withdraw::{LateWithdraw, WithdrawJob};
-use crate::queue::delivery::{DeliveryError, QueueDelivery, steer_of};
-use crate::queue::store::{QueueItemOutcome, QueueItemRecord, RecordedQueueItemState};
+use sidekicks_session::queue_store::{QueueItemOutcome, QueueItemRecord, RecordedQueueItemState};
 
 /// One session's jobs in push order, and the run a `Hand` or `ToolBoundary` job is inside its
 /// driver call for.

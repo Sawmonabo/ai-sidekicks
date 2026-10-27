@@ -19,68 +19,62 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::PathRules;
 
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::SessionSpawnContextResolver;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::auth_status::classify_codex_resume_recovery_condition;
-use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
-use crate::provider::driver::codex::commands::CodexProviderCommandCache;
-use crate::provider::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::provider::driver::codex::model_windows::read_codex_larger_window;
-use crate::provider::driver::codex::notification_routing::{
-    CodexRoutedFrames, CodexSessionRouting,
-};
-use crate::provider::driver::codex::output_speed::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::auth_status::classify_codex_resume_recovery_condition;
+use crate::codex::capabilities::read_codex_service_model_catalog;
+use crate::codex::commands::CodexProviderCommandCache;
+use crate::codex::delivery::frames::CodexFrameDelivery;
+use crate::codex::model_windows::read_codex_larger_window;
+use crate::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
+use crate::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
 };
-use crate::provider::driver::codex::permission_level::CodexProfileFolders;
-use crate::provider::driver::codex::service::command::read_codex_model_catalog_dump;
-use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::threads::ThreadClaim;
-use crate::provider::driver::codex::session::calls::CodexSessionTask;
-use crate::provider::driver::codex::session::controls::update_codex_session_mode;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::{
+use crate::codex::permission_level::CodexProfileFolders;
+use crate::codex::service::command::read_codex_model_catalog_dump;
+use crate::codex::service::registry::CodexServiceRegistry;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::threads::ThreadClaim;
+use crate::codex::session::calls::CodexSessionTask;
+use crate::codex::session::controls::update_codex_session_mode;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::{
     CodexForkBoundary, CodexForkSource, read_codex_fork_or_let_go, request_codex_fork,
 };
-use crate::provider::driver::codex::session::helper_roles::{
+use crate::codex::session::helper_roles::{
     read_codex_role_file_withheld_fields, write_codex_helper_roles,
 };
-use crate::provider::driver::codex::session::history::{CodexListedTurn, read_codex_turns};
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionInboundReceiver, codex_session_inbound,
-};
-use crate::provider::driver::codex::session::slots::let_go_codex_thread;
-use crate::provider::driver::codex::session::state::{
-    CodexEstablishedConversation, CodexSessionRecord,
-};
-use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
-use crate::provider::driver::codex::thread::settings::{
+use crate::codex::session::history::{CodexListedTurn, read_codex_turns};
+use crate::codex::session::inbound::{CodexSessionInboundReceiver, codex_session_inbound};
+use crate::codex::session::slots::let_go_codex_thread;
+use crate::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::codex::thread::settings::{
     CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_resume_params,
     compose_codex_thread_start_params,
 };
-use crate::provider::driver::codex::thread::view::{
+use crate::codex::thread::view::{
     assert_codex_thread_profile, read_thread, read_thread_reasoning_effort,
 };
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::driver::session_control::{
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::SessionSpawnContextResolver;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
     SessionToolServer, SubagentDefinition, SubagentPolicy,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::tool_server_route::ToolServerRoute;
-use crate::provider::process_identity::ProviderProcessIds as _;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::spawn_environment::{
+use crate::port::registration::PortRegistration;
+use crate::port::tool_server_route::ToolServerRoute;
+use crate::process_identity::ProviderProcessIds as _;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::posture::ExecutionPostureService;
+use crate::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     build_conversation_command_environment,
 };
-use crate::provider::spawned_version::to_binding_version_carriers;
-use crate::provider::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
+use crate::spawned_version::to_binding_version_carriers;
+use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";

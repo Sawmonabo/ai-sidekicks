@@ -18,9 +18,9 @@ use sidekicks_contracts::session::methods::SessionFileSearchEntryKind;
 use sidekicks_platforms::path_from_program_output;
 use tokio::task::JoinError;
 
-use crate::git::process::{GitCall, GitError, GitRunner};
-use crate::mutex_lock::lock;
-use crate::read_retry::{is_retryable_read_failure, read_with_one_retry};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::read_retry::{is_retryable_read_failure, read_with_one_retry};
+use sidekicks_workspace::git::process::{GitCall, GitError, GitRunner};
 
 /// The listing inside a working tree: tracked entries and the untracked ones the repository does
 /// not ignore, NUL-separated, each tracked one with its mode (`-s`) and each untracked one marked
@@ -509,7 +509,7 @@ mod tests {
     use sidekicks_platforms::{is_illegal_byte_sequence, path_from_program_output};
 
     use super::{WorkingFolderListing, list_working_folder, listing_of_git_output};
-    use crate::git::process::{GitCall, in_folder, test_git_runner, write_link};
+    use sidekicks_workspace::git::process::{GitCall, in_folder, test_git_runner, write_link};
 
     // Writes each `(path, text)` under `folder`, making the folders on the way.
     fn write_files(folder: &Path, files: &[(&str, &str)]) {

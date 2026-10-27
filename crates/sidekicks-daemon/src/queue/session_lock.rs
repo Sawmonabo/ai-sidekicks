@@ -8,8 +8,8 @@ use std::sync::{OnceLock, Weak};
 use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::queue::error::QueueError;
+use crate::error::QueueError;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
 /// Settles again the interrupt releases left unsettled on a session.
 pub(crate) trait UnreleasedInterrupts: Send + Sync {

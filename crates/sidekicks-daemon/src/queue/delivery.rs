@@ -36,28 +36,30 @@ use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 use tracing::Instrument as _;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::WriteStatement;
-use crate::events::session::appender::SessionEventDraft;
-use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, read_run_driver};
-use crate::keyed_lock::KeyHold;
-use crate::mutex_lock::lock;
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::run_control::{
+use crate::delivery::chain::{ChainJob, SessionChain};
+use crate::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
+use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::refusals::UnreturnedReason;
+use crate::session_lock::QueueSessionLock;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, InterruptPendingChoice, RunToolBoundary, SteerPayload,
 };
-use crate::provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
-use crate::queue::delivery::chain::{ChainJob, SessionChain};
-use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
-use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
-use crate::queue::refusals::UnreturnedReason;
-use crate::queue::session_lock::QueueSessionLock;
-use crate::queue::store::{
+use sidekicks_provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
+use sidekicks_session::driver_resolution::{LiveRunDriverError, read_run_driver};
+use sidekicks_session::queue_store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, placement_statements,
 };
-use crate::session::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
+use sidekicks_session::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
+use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::session::appender::SessionEventDraft;
 
 /// How long a change waits for a provider to give its handed messages back.
 pub(crate) const WITHDRAW_DEADLINE: Duration = Duration::from_secs(10);

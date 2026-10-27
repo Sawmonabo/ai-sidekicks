@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::ExecutionMode;
 
-use crate::workspace::schema::WORKSPACE_SCHEMA_SQL;
+use crate::schema::WORKSPACE_SCHEMA_SQL;
 
 /// When every parent row was made.
 pub(crate) const PARENT_ROWS_AT: &str = "2026-10-14T09:30:00.000Z";

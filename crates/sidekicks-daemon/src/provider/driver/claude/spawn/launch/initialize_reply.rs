@@ -8,10 +8,10 @@ use std::collections::HashSet;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
-use crate::provider::lenient_json::{LenientList, lenient_object, read_lenient};
+use crate::lenient_json::{LenientList, lenient_object, read_lenient};
 
 #[derive(Default, Deserialize)]
 struct InitializeReply {

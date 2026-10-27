@@ -26,17 +26,21 @@ use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::text_column;
-use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::mutex_lock::lock;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::{NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams};
-use crate::session::changes::SessionChanges;
-use crate::session::run::read::read_run_provider;
-use crate::session::working_folder::{WorkingFolderReadError, read_working_folder};
-use crate::text_cut::cut_to_code_points;
+use crate::changes::SessionChanges;
+use crate::run::read::read_run_provider;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::{
+    NAME_SESSION_REPLY_MAX_BYTES, NameSessionParams,
+};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 
 /// The statements the self-naming prepares on a read connection: the first completed lead run,
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder

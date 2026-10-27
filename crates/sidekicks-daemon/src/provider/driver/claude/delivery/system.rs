@@ -20,10 +20,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::text_cut::cut_to_code_points;
+use crate::claude::DESCRIPTOR;
+use crate::record_readers::{read_count, read_non_empty_string};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The `model_fallback` trigger that names a blocked model; any other names one unavailable.
 const CLAUDE_MODEL_BLOCKED_TRIGGER: &str = "model_blocked";

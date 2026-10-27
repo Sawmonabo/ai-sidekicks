@@ -18,14 +18,14 @@ use super::reached_state::{ReachedState, response};
 use super::request::{interrupt_choice_of, interrupt_keys};
 use super::saved::idempotency_conflict;
 use super::{InterventionService, InterventionTarget};
-use crate::database::connection::read_pool::ReadLength;
+use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::interventions::interrupt_queue::{SendNow, SendNowOutcome};
-use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, read_run_driver};
-use crate::provider::driver::run_control::InterruptPendingChoice;
-use crate::queue::store::send_now::read_sent_now;
-use crate::queue::store::{QueueItemReader, RecordedQueueItemState};
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::read::RunRead;
+use crate::queue_store::send_now::read_sent_now;
+use crate::queue_store::{QueueItemReader, RecordedQueueItemState};
+use crate::run::engine::RunEngineError;
+use crate::run::read::RunRead;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 
 impl InterventionService {
     /// What a `Send now` saved under `key` on `run_id` answers `request`: the first's `applied`

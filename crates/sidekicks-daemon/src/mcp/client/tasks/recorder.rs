@@ -19,12 +19,12 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use strum::IntoStaticStr;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
-use crate::mcp::client::tasks::{McpTaskHandleObservation, McpTaskHandleSink};
-use crate::provider::driver::diagnostics::{
+use crate::client::tasks::{McpTaskHandleObservation, McpTaskHandleSink};
+use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
 
 /// The longest stored task handle, in code points as SQLite's `length()` counts them: the bound
 /// the column's check holds, repeated so a refusal names the server, tool and length instead of

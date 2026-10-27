@@ -25,26 +25,24 @@ use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::ReadLength;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::events::session::append_lock::SessionAppendHold;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::provider::run::turn_end::TurnOutcome;
-use crate::session::run::engine::limits::limit_run_end;
-use crate::session::run::engine::turns::TurnEnd;
-use crate::session::run::engine::{RunEngine, RunEngineError, settled};
-use crate::session::run::read::{LiveRun, RunRead, RunStateReader};
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::restart::{
+use crate::run::engine::limits::limit_run_end;
+use crate::run::engine::turns::TurnEnd;
+use crate::run::engine::{RunEngine, RunEngineError, settled};
+use crate::run::read::{LiveRun, RunRead, RunStateReader};
+use crate::run::refusals::RunRefusal;
+use crate::run::restart::{
     RestartFacts, RestartSettlement, RestartTurnEnd, applied_pending_interrupts_of,
     decide_restart_settlement, limit_turn_cause, no_pending_interrupt_statement,
     no_waiting_item_statement, read_restart_facts, read_run_stops, settlement_by_stops,
 };
-use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError,
-};
-use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeError};
+use crate::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
+use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_provider::run::turn_end::TurnOutcome;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 // The position among an interrupt end's companions of its guard that the run has not ended since
 // the interrupt was accepted: the first of the caller's companions, before the verdict's.

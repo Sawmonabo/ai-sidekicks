@@ -5,17 +5,13 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::codex::app_server_protocol::{
+use crate::codex::app_server_protocol::{
     ThreadBackgroundTerminalsCleanParams, ThreadBackgroundTerminalsListParams,
     ThreadBackgroundTerminalsTerminateParams,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexTeardownStep, CodexTransportDiagnostic,
-};
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 
 const BACKGROUND_TERMINALS_LIST_METHOD: &str = "thread/backgroundTerminals/list";
 

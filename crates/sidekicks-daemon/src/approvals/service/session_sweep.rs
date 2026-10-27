@@ -11,8 +11,8 @@ use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use super::{ApprovalService, RaisedCardKey, RaisedRequestSettlement};
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::keyed_wait::KeyedWaits;
+use sidekicks_std::keyed_wait::KeyedWaits;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 
 /// The task that cancels closed sessions' asks and its follower of closes, from
 /// [`ApprovalService::start`] until [`ApprovalSweep::stop`].

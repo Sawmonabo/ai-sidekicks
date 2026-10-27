@@ -25,12 +25,12 @@ use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::error_description::describe_error;
 use crate::git::worktree::copy::{TreeCopyPolicy, copy_tree};
-use crate::mutex_lock::lock;
-use crate::process_exit::{OutputTail, read_output_chunks};
-use crate::workspace::last_error::normalize_workspace_last_error;
-use crate::workspace::trust_envelope::{components_equal, is_contained_within};
+use crate::last_error::normalize_workspace_last_error;
+use crate::trust_envelope::{components_equal, is_contained_within};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
 
 /// The label of the step that makes the tree: the command it runs.
 const MAKE_TREE_LABEL: &str = "git worktree add";

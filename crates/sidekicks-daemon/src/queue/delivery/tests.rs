@@ -27,32 +27,32 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use super::{InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::provider::driver::contract::MockProviderDriver;
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::run_control::{
+use crate::changes::QueueChangeSignals;
+use crate::recorder::{QueueRecorder, QueueRecorderDeps};
+use crate::session_lock::QueueSessionLock;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
     WithdrawQueuedMessageResult,
 };
-use crate::provider::driver::test_registry::{
+use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, new_run_id, registry_of_first_provider,
 };
-use crate::provider::port::run_pause::ContinuedMessages;
-use crate::provider::process_identity::{
+use sidekicks_provider::port::run_pause::ContinuedMessages;
+use sidekicks_provider::process_identity::{
     ProcessStandIn, ProviderProcessIds, TEST_PROVIDER_PROCESS,
 };
-use crate::questions::schema::schema_parts;
-use crate::queue::changes::QueueChangeSignals;
-use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
-use crate::queue::session_lock::QueueSessionLock;
-use crate::queue::store::{
+use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, insert_queue_item_statement,
 };
-use crate::session::run::engine::tests::insert_running_run;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.
 const READ_STATEMENT_CAPACITY: usize = 8;

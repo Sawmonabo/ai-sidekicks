@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use strum::VariantArray as _;
 
 use crate::highlight::colorer::CodeHighlighter;
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 
 /// Registers `highlight.read` over `highlighter`, refusing a read a newer one for the same block
 /// replaced. Fails the start when the method is already registered.
@@ -72,8 +72,8 @@ mod tests {
 
     use super::register_highlight_read;
     use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
 
     /// A JSON array of ones on lines of a hundred, whose every number is a span: its span list
     /// measures past the reply's bound while its source stays inside the request's.

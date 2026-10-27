@@ -4,8 +4,8 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::usage_delta_accountant::{CumulativeUsageReading, UsageAxisCounts};
+use crate::codex::transport::connection::read_codex_object;
+use crate::usage_delta_accountant::{CumulativeUsageReading, UsageAxisCounts};
 
 /// The frame's members the reading takes.
 #[derive(Deserialize)]

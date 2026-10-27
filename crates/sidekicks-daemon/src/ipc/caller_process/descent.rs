@@ -19,9 +19,9 @@ use futures::FutureExt as _;
 use sidekicks_platforms::{ParentProcess, PinnedProcess, ResponsibleProcess, SignatureCheck};
 use tokio::sync::Semaphore;
 
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::ipc::protocol_negotiation::{CallerAdmission, CallerAdmissionCheck};
+use crate::caller_process::contract::CallerProcessReader;
+use crate::caller_process::provider_services::ProviderServiceProcesses;
+use crate::protocol_negotiation::{CallerAdmission, CallerAdmissionCheck};
 
 /// How many signature checks run at once; each holds a blocking thread for a few milliseconds, so
 /// a burst of connections waits here instead of filling the blocking pool.
@@ -186,9 +186,9 @@ pub(crate) mod tests {
     };
 
     use super::CallerCheck;
-    use crate::ipc::caller_process::contract::{CallerProcessReader, PeerRead};
-    use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-    use crate::ipc::protocol_negotiation::CallerAdmission;
+    use crate::caller_process::contract::{CallerProcessReader, PeerRead};
+    use crate::caller_process::provider_services::ProviderServiceProcesses;
+    use crate::protocol_negotiation::CallerAdmission;
 
     /// A reader answering one responsible process, one parent and one signature verdict for every
     /// process, and recording whether a signature was read.

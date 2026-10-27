@@ -8,8 +8,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::mutex_lock::lock;
-use crate::provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
+use crate::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
+use sidekicks_std::mutex_lock::lock;
 
 /// The daemon's provider processes by session, and the count their spawn sequences come from.
 #[derive(Default)]
@@ -54,7 +54,7 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::ProviderProcessRegistry;
-    use crate::provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
+    use crate::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 
     // Killed by removing a session's entry on any exit without comparing its spawn sequence.
     #[test]

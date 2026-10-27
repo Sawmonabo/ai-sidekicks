@@ -13,30 +13,28 @@ use sidekicks_platforms::PathRules;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::claude::session::conversation_file::conversation_file_of;
-use crate::provider::driver::claude::session::conversation_file::title::append_claude_custom_title;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
-use crate::provider::driver::claude::session::establishment::context::resolve_claude_spawn_context;
-use crate::provider::driver::claude::session::restart::ClaudeEndedConversation;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::conversation_file::conversation_file_of;
+use crate::claude::session::conversation_file::title::append_claude_custom_title;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::establishment::ClaudeSpawnSources;
+use crate::claude::session::establishment::context::resolve_claude_spawn_context;
+use crate::claude::session::restart::ClaudeEndedConversation;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeSessionTitleReply, ClaudeTitleSource,
 };
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
-use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
-use crate::provider::driver::claude::spawn::launch::one_turn::ClaudeOneTurnRequest;
-use crate::provider::driver::claude::spawn::legs::{
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
+use crate::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::claude::spawn::launch::one_turn::ClaudeOneTurnRequest;
+use crate::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::{NameSessionParams, run_naming_pass_until};
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::driver::contract::DriverError;
+use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 /// The model a naming pass runs on when no process of the session is live: the small model
 /// Claude Code's own title pass runs on.

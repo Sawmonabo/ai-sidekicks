@@ -32,41 +32,41 @@ use self::daemon_services::{
 };
 use self::driver::{ScriptedDriver, create_params};
 use self::starts::SCRIPTED_BUILD_VERSION;
-use crate::database::writer::test_file::TestDatabase;
-use crate::git::process::{GitLimits, GitRunner};
-use crate::git::worktree::staged_changes::StagedChangesWorktrees;
-use crate::mutex_lock::lock;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::claude::delivery::requests::ClaudeInboundRequests;
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::provider::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
-use crate::provider::driver::claude::lifecycle::ClaudeSessionParts;
-use crate::provider::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
-use crate::provider::driver::claude::run::start::ClaudeRunStart;
-use crate::provider::driver::claude::session::answered_commands::{
+use crate::background_work::BackgroundWorkForms;
+use crate::claude::delivery::requests::ClaudeInboundRequests;
+use crate::claude::delivery::stream::ClaudeSessionStream;
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::claude::lifecycle::ClaudeSessionParts;
+use crate::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
+use crate::claude::run::start::ClaudeRunStart;
+use crate::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, unreadable_claude_command_choices,
 };
-use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
-use crate::provider::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
-use crate::provider::driver::claude::session::state::{
+use crate::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
+use crate::claude::session::state::{
     ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSpawnBinding, LiveClaudeSession,
 };
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
-use crate::provider::driver::claude::session::transport::inbound::{
+use crate::claude::session::transport::inbound::{
     ClaudeControlFrameReader, ClaudeInboundRequestEvent,
 };
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::test_registry::{new_run_id, new_session_id};
-use crate::provider::port::run_host::test_host::RecordingRunEngine;
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::runtime_binding::test_store::spawned_build;
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::PROVIDERS;
+use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::process_identity::ProviderProcessIdentity;
+use crate::runtime_binding::test_store::spawned_build;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {

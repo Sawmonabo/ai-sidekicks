@@ -17,10 +17,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use futures::future::BoxFuture;
 use sidekicks_contracts::daemon::backup::BACKUP_DEFAULT_FOLDER_NAME;
 
-use crate::credential_store::KeychainRefusal;
-use crate::credential_store::items::SecretItems;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_store::credential_store::KeychainRefusal;
+use sidekicks_store::credential_store::items::SecretItems;
 
 /// One step of the erase that the running daemon carries out.
 pub(crate) type EraseStep = Arc<dyn Fn() -> BoxFuture<'static, ()> + Send + Sync>;

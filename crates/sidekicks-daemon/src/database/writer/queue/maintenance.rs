@@ -15,13 +15,13 @@ use tokio::sync::oneshot::error::RecvError;
 use tokio_util::sync::CancellationToken;
 
 use super::{ThreadStopped, WriteQueue, output_of, send_answer};
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::budget::Measured;
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::backup::BackupCopy;
 use crate::database::writer::messages::{CheckpointReport, ThreadRequest};
 use crate::database::writer::repack::RepackEnd;
 use crate::database::writer::{MaintenanceError, is_interrupt};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::Measured;
 
 /// Where a caller hears how its checkpoint, repack or copy went.
 pub(super) type MaintenanceReply<Report> = oneshot::Sender<Result<Report, MaintenanceError>>;

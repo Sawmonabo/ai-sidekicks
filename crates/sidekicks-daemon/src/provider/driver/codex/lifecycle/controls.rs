@@ -24,34 +24,28 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::record::Record;
 
 use super::CodexDriver;
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::codex::auth_status::{
-    CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status,
-};
-use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
-use crate::provider::driver::codex::capability_probe::probe_codex_service_capabilities;
-use crate::provider::driver::codex::compaction::{
-    CodexCompactionTarget, dispatch_codex_compaction,
-};
-use crate::provider::driver::codex::lifecycle::intake::call_codex_lifecycle;
-use crate::provider::driver::codex::model_windows::{
-    join_codex_model_windows, read_codex_service_model_windows,
-};
-use crate::provider::driver::codex::service::command::read_codex_model_catalog_dump;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::provider::driver::codex::session::starting_level::read_codex_starting_level;
-use crate::provider::driver::contract::{
+use crate::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status};
+use crate::codex::capabilities::read_codex_service_model_catalog;
+use crate::codex::capability_probe::probe_codex_service_capabilities;
+use crate::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
+use crate::codex::lifecycle::intake::call_codex_lifecycle;
+use crate::codex::model_windows::{join_codex_model_windows, read_codex_service_model_windows};
+use crate::codex::service::command::read_codex_model_catalog_dump;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::codex::session::starting_level::read_codex_starting_level;
+use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
 };
-use crate::provider::driver::session_control::{
+use crate::driver::session_control::{
     AskSideQuestionParams, ClearSessionGoalParams, DriverAuthProbeResult, DriverAuthProbeStatus,
     DriverGoalResult, ProviderCommandsListener, RevokeRuleParams, SetSessionGoalParams,
     StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
     UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
 };
+use sidekicks_ipc::domain_error::DomainError;
 
 /// The id of the switch that runs a Codex service on the person's own folder.
 const TERMINAL_REACH_ROW_ID: &str = "terminalReach";

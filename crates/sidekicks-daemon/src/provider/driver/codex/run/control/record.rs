@@ -10,14 +10,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::run::start::record::CodexRunCallDependencies;
-use crate::provider::driver::codex::run::turn_interrupt::CodexTurnInterrupt;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::state::{CodexSessionRecord, CodexWaitingContinue};
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::ResumeRunParams;
+use crate::codex::run::start::record::CodexRunCallDependencies;
+use crate::codex::run::turn_interrupt::CodexTurnInterrupt;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::state::{CodexSessionRecord, CodexWaitingContinue};
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::contract::DriverError;
+use crate::driver::run_control::ResumeRunParams;
 
 /// One call of run control on a session's record.
 pub(crate) enum CodexRunControlCall {

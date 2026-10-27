@@ -14,19 +14,19 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::QueueAdmission;
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::mutex_lock::lock;
-use crate::provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
-use crate::provider::driver::run_control::{
+use crate::delivery::OpeningMessages;
+use crate::error::QueueError;
+use crate::provider_session::ProviderSessionError;
+use sidekicks_provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
+use sidekicks_provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, InterruptRunRequest,
 };
-use crate::queue::delivery::OpeningMessages;
-use crate::queue::error::QueueError;
-use crate::queue::provider_session::ProviderSessionError;
-use crate::queue::store::{QueueItemReader, QueueItemRecord};
-use crate::session::console_state::read_session_max_steps_per_turn;
-use crate::session::run::agent::read_lead_agent_through;
-use crate::session::run::start_request::RunTurnStart;
+use sidekicks_session::console_state::read_session_max_steps_per_turn;
+use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
+use sidekicks_session::run::agent::read_lead_agent_through;
+use sidekicks_session::run::start_request::RunTurnStart;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
 /// The message each run being started or continued opens with, until the start writes its
 /// outcome.

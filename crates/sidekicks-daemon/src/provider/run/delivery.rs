@@ -42,8 +42,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::run::state_entry::RunStateReport;
-use crate::provider::run::turn_end::ProviderTurnEnd;
+use crate::run::state_entry::RunStateReport;
+use crate::run::turn_end::ProviderTurnEnd;
 
 /// The provider-side operation a delivery belongs to (a tool call, a message item, an artifact),
 /// by the key the provider correlates its deliveries with. The first delivery of every operation

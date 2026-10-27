@@ -10,7 +10,7 @@ use sidekicks_contracts::workflow::definition::refusals::{
     WorkflowDefinitionFinding, WorkflowDefinitionRefusedDetails,
 };
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// Why a save was refused; nothing was saved for either. Each answers its own code.
 #[derive(Debug, thiserror::Error)]

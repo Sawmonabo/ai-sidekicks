@@ -20,23 +20,19 @@ use sidekicks_contracts::jsonrpc::message::JsonRpcId;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::error_description::describe_error;
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION_METHODS;
-use crate::provider::driver::codex::server_requests::{
-    CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder,
-};
-use crate::provider::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
-use crate::provider::driver::codex::transport::connection::asks::{
-    HeldServerRequest, read_dropped_request,
-};
-use crate::provider::driver::codex::transport::diagnostics::{
+use crate::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION_METHODS;
+use crate::codex::server_requests::{CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder};
+use crate::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::codex::transport::connection::asks::{HeldServerRequest, read_dropped_request};
+use crate::codex::transport::diagnostics::{
     CodexTransportDiagnostic, CodexUnparsableMessageReason,
 };
-use crate::provider::driver::codex::transport::socket::{
+use crate::codex::transport::socket::{
     CodexServiceSocketReceiver, CodexServiceSocketSender, CodexSocketEvent,
 };
-use crate::provider::inbound_json::decode_inbound_json;
+use crate::inbound_json::decode_inbound_json;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 /// How long a request waits for its answer before it fails with `CodexError::Unanswered`.
 pub(crate) const CODEX_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);

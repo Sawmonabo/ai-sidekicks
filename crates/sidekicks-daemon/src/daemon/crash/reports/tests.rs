@@ -20,8 +20,8 @@ use crate::daemon::crash::monitor::{
 };
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{install_panic_hook, send_panics_to_monitor};
-use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 
 // The child's crash, its monitor's socket and its data folder, passed to the crashing child; the
 // socket alone marks the monitor child, which serves it as the daemon's own monitor process does.

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::cleanup_failures::CleanupFailures;
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// Applies what every connection to the daemon's database holds: a page cache of at most 2,000
 /// KiB, so a large purge or a full read of the session list stays within it on each connection; a

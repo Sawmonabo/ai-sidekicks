@@ -13,10 +13,10 @@ use std::path::{Path, PathBuf};
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, in_folder};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 use crate::git::worktree::reads::{BRANCH_REF_PREFIX, read_current_branch};
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 const CARRY_STASH_MESSAGE: &str = "uncommitted work carried to a new worktree";
 

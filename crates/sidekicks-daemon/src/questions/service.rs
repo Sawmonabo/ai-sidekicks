@@ -24,31 +24,33 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::TextError;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
-    SessionEventLinkage,
-};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
-use crate::keyed_lock::KeyedLock;
-use crate::mutex_lock::lock;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::port::question::{
-    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
-    WaitingQuestionOpening,
-};
-use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
-use crate::provider::run::state_entry::RunStateEntry;
+use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
     insert_question_statement, read_question, read_unsettled_among, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::port::question::{
+    ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
+    WaitingQuestionOpening,
+};
+use sidekicks_provider::port::registration::{PortRegistration, PortRegistrationError};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
+    SessionEventLinkage,
+};
 
 #[cfg(test)]
 pub(crate) mod tests;

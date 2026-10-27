@@ -28,9 +28,9 @@ use tracing::{debug, warn};
 
 use super::program::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE};
 use crate::askpass_prompt::is_masked_prompt;
-use crate::ipc::domain_error::DomainError;
-use crate::mutex_lock::lock;
-use crate::random_hex::random_hex;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::random_hex::random_hex;
 
 // The bytes of an owner's id: random, so one owner's id never tells another's.
 const OWNER_ID_BYTES: usize = 16;
@@ -372,7 +372,7 @@ mod tests {
     use super::{
         ASKPASS_OWNER_VARIABLE, AskpassBroker, AskpassOwner, AskpassRequest, REQUEST_MAX_BYTES,
     };
-    use crate::mutex_lock::lock;
+    use sidekicks_std::mutex_lock::lock;
 
     const WAIT: Duration = Duration::from_secs(10);
 

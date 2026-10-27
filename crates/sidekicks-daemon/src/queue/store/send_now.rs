@@ -15,8 +15,8 @@ use sidekicks_contracts::run::queue::{QueueItemId, QueueItemState};
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::text_column;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::text_column;
 
 /// One `Send now` a run's key recorded: the message it handed and the id its answer carries.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

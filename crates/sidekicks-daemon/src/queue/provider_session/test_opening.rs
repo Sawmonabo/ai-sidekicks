@@ -14,14 +14,14 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::CreateSessionParams;
-use crate::provider::runtime_binding::resume::ResumeFunctionLegs;
-use crate::provider::runtime_binding::test_store::spawned_build;
-use crate::queue::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
+use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::CreateSessionParams;
+use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
+use sidekicks_provider::runtime_binding::test_store::spawned_build;
 
 /// The table's first provider.
 pub(crate) fn first_provider() -> ProviderId {

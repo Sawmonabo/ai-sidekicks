@@ -15,12 +15,12 @@ use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalState, RememberedScopeKind,
 };
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::sql_list_of_every;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The questions' list and the approval tables' own part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::questions::schema::schema_parts()
+    sidekicks_session::questions::schema::schema_parts()
         .with_part(SchemaPart::new("approval", approval_schema_sql()))
 }
 

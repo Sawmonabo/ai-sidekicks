@@ -7,11 +7,11 @@ use sidekicks_platforms::CAN_LINK_A_SOCKET;
 use tokio::task::JoinHandle;
 
 use super::CodexServiceRegistry;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service, start_scripted_terminal_service,
 };
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::test_registry::new_session_id;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::test_registry::new_session_id;
 
 const THREAD: &str = "thread-1";
 

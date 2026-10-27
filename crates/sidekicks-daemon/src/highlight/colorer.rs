@@ -34,8 +34,8 @@ use tokio::sync::oneshot;
 use crate::highlight::thread::{
     BlockKey, TokenizeFailure, TokenizeJob, TokenizerThread, TokenizerThreadOptions,
 };
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{HandlerError, TransportId};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{HandlerError, TransportId};
 
 /// The span cache holds this fraction of the machine's physical memory: 1/2048.
 const SPAN_CACHE_MEMORY_DIVISOR: u64 = 2048;
@@ -596,7 +596,7 @@ mod tests {
         SpanRead,
     };
     use crate::highlight::thread::{TokenizeFailure, TokenizerThreadOptions};
-    use crate::ipc::registry::TransportId;
+    use sidekicks_ipc::registry::TransportId;
 
     /// How long a test waits for any one answer before it fails.
     const WAIT_LIMIT: Duration = Duration::from_secs(30);

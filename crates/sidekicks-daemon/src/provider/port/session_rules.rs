@@ -7,8 +7,8 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::provider::port::permission_ask::ProviderAskAction;
+use crate::port::permission_ask::ProviderAskAction;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 /// The approval pipeline's read of the rules in force on a session, its own and its project's,
 /// registered through a `PortRegistration`; until it is, a session holds none. A revoked rule is

@@ -16,9 +16,9 @@ use sidekicks_contracts::wire::list::UniqueList;
 use tokio::sync::watch;
 
 use super::ShellTable;
-use crate::ipc::registry::{HandlerError, TransportId};
-use crate::pty::shell::output::stream::ShellOutputSource;
-use crate::pty::shell::test_table::{SESSION, session, table_fixture};
+use crate::output::stream::ShellOutputSource;
+use crate::test_table::{SESSION, session, table_fixture};
+use sidekicks_ipc::registry::{HandlerError, TransportId};
 
 const OTHER_SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";
 

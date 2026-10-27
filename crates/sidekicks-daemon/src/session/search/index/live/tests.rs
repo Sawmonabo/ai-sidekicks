@@ -17,19 +17,17 @@ use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
 
 use super::test_services::TestDaemonServices;
 use super::{LiveIndexShared, LiveIndexState, OpenIndex, catch_up, delete_applied, follow_commits};
-use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::TestDatabase;
 use crate::questions::schema::schema_parts;
-use crate::session::search::index::applier::SearchIndexApplier;
-use crate::session::search::index::columns::index_key_of;
-use crate::session::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
-use crate::session::search::index::rebuild::{
-    SearchIndexOpening, make_index_at, open_search_index,
-};
-use crate::session::search::index::schema::add_titled_session;
-use crate::session::search::rowid_floors::RowidFloorLog;
+use crate::search::index::applier::SearchIndexApplier;
+use crate::search::index::columns::index_key_of;
+use crate::search::index::outbox::{AppliedOutbox, OutboxReader, delete_applied_outbox};
+use crate::search::index::rebuild::{SearchIndexOpening, make_index_at, open_search_index};
+use crate::search::index::schema::add_titled_session;
+use crate::search::rowid_floors::RowidFloorLog;
 use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
+use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 // A database of `session_count` titled sessions, beside an index whose newest commit records the
 // first session's outbox rows, opened as a start opens it; and the outbox's highest id. Past one

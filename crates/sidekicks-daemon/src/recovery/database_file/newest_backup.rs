@@ -13,7 +13,7 @@ use sidekicks_contracts::daemon::backup::{
 };
 use tracing::warn;
 
-use crate::missing_entry::MissingEntry as _;
+use sidekicks_std::missing_entry::MissingEntry as _;
 
 /// Why a backup's manifest could not be read.
 #[derive(Debug, thiserror::Error)]

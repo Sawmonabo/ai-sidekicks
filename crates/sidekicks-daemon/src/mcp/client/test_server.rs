@@ -18,17 +18,17 @@ use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 
-use crate::mcp::client::McpClient;
-use crate::mcp::client::connection::{McpConnectionScope, McpServerConnection};
-use crate::mcp::client::raw_copy::{RawLineTee, RawReplyCopy};
-use crate::mcp::client::stdio::StdioProcess;
-use crate::mcp::client::tasks::{
+use crate::client::McpClient;
+use crate::client::connection::{McpConnectionScope, McpServerConnection};
+use crate::client::raw_copy::{RawLineTee, RawReplyCopy};
+use crate::client::stdio::StdioProcess;
+use crate::client::tasks::{
     McpTaskContact, McpTaskDispatchIdentity, McpTaskHandleObservation, McpTaskHandleSink,
     McpToolCall,
 };
-use crate::provider::port::question::QuestionPort;
-use crate::provider::port::question::test_card::QuestionCard;
-use crate::provider::port::registration::PortRegistration;
+use sidekicks_provider::port::question::QuestionPort;
+use sidekicks_provider::port::question::test_card::QuestionCard;
+use sidekicks_provider::port::registration::PortRegistration;
 
 /// What the server does with one request.
 pub(super) enum Reply {
@@ -128,7 +128,7 @@ pub(super) async fn start_test_server(
     mut responder: Responder,
     process: Option<StdioProcess>,
 ) -> (
-    Result<McpServerConnection, crate::mcp::client::connection::McpConnectionError>,
+    Result<McpServerConnection, crate::client::connection::McpConnectionError>,
     TestServer,
 ) {
     let (client_end, server_end) = tokio::io::duplex(1 << 16);
@@ -196,7 +196,7 @@ pub(super) async fn start_test_server(
         transport,
         raw,
         scope,
-        crate::mcp::client::connection::McpConnectionStart::stdio(None, process),
+        crate::client::connection::McpConnectionStart::stdio(None, process),
     )
     .await;
     (

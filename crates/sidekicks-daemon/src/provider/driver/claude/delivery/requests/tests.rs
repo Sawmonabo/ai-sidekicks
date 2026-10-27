@@ -6,14 +6,14 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
 use super::ClaudeRequestSession;
-use crate::provider::driver::claude::run::controls::claude_dialog_session;
-use crate::provider::driver::claude::session::scripted::channel::ScriptedWrite;
-use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
-use crate::provider::driver::claude::session::scripted::{ScriptedSession, settle};
-use crate::provider::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
-use crate::provider::driver::contract::ProviderRequestAnswer;
-use crate::provider::port::question::QuestionPort;
-use crate::provider::port::question::test_card::QuestionCard;
+use crate::claude::run::controls::claude_dialog_session;
+use crate::claude::session::scripted::channel::ScriptedWrite;
+use crate::claude::session::scripted::daemon_services::PortCall;
+use crate::claude::session::scripted::{ScriptedSession, settle};
+use crate::claude::session::tool_server_calls::ClaudeToolServerCalls;
+use crate::driver::contract::ProviderRequestAnswer;
+use crate::port::question::QuestionPort;
+use crate::port::question::test_card::QuestionCard;
 
 fn tool_ask(tool_use_id: &str) -> Value {
     json!({

@@ -33,16 +33,18 @@ use tokio::sync::{Notify, broadcast, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::daemon::scheduler::Scheduler;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::file_watch::FileWatchError;
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::session::working_folder::{WorkingFolderReadError, read_working_folder};
-use crate::workspace::folder::canonical_path::canonical_folder_path;
+use crate::working_folder::{WorkingFolderReadError, read_working_folder};
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 mod branch_write_back;
 mod folder;

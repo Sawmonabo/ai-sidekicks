@@ -22,28 +22,28 @@ use sidekicks_platforms::Spawner;
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::git::process::{GitLimits, GitRunner};
-use crate::git::worktree::staged_changes::StagedChangesWorktrees;
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::mutex_lock::lock;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::command_search::ProviderCommandSearch;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::ports::{
+use crate::background_work::BackgroundWorkForms;
+use crate::command_search::ProviderCommandSearch;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+use crate::driver::contract::ProviderDriver;
+use crate::driver::ports::{
     DriverPorts, MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::provider::runtime_binding::store::RuntimeBindingRebind;
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
+use crate::driver::registry::ProviderRegistry;
+use crate::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// The statements a test's read pool caches.
 const TEST_POOL_STATEMENT_CAPACITY: usize = 16;

@@ -24,17 +24,15 @@ use futures::FutureExt;
 use futures::future::{BoxFuture, Shared};
 use sidekicks_platforms::PathRules;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::session::answered_commands::ClaudeCommandChoices;
-use crate::provider::driver::claude::session::reply_reserve::{
-    ClaudeReplyReserve, read_context_reply,
-};
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::claude::session::answered_commands::ClaudeCommandChoices;
+use crate::claude::session::reply_reserve::{ClaudeReplyReserve, read_context_reply};
+use crate::claude::session::transport::readings::{
     ClaudeModelContextRead, ClaudeSessionFolderReadRequest,
 };
-use crate::provider::driver::claude::spawn::environment::claude_config_folder;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::record_readers::{read_count, read_non_empty_string};
+use crate::claude::spawn::environment::claude_config_folder;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::record_readers::{read_count, read_non_empty_string};
+use sidekicks_std::mutex_lock::lock;
 
 /// The variables that point Claude Code at an API endpoint other than its default: the switch to
 /// each provider it reaches besides Anthropic's own API, then each provider's base address.
@@ -277,14 +275,12 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::ClaudeModelFigures;
-    use crate::provider::driver::claude::session::errors::{
-        ClaudeSessionError, ClaudeUnansweredCause,
-    };
-    use crate::provider::driver::claude::session::reply_reserve::ClaudeReplyReserve;
-    use crate::provider::driver::claude::session::transport::{
+    use crate::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+    use crate::claude::session::reply_reserve::ClaudeReplyReserve;
+    use crate::claude::session::transport::{
         control::ClaudeControlSubtype, readings::ClaudeSessionFolderReadRequest,
     };
-    use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
+    use crate::claude::spawn::launch::ClaudeLaunchError;
 
     fn place() -> ClaudeSessionFolderReadRequest {
         ClaudeSessionFolderReadRequest {

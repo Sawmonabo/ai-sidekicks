@@ -14,47 +14,43 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
-use crate::mutex_lock::lock;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::claude::delivery::claude_delivery_origin;
-use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::provider::driver::claude::delivery::requests::{
-    ClaudeInboundRequests, ClaudeRequestSession,
-};
-use crate::provider::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::provider::driver::claude::delivery::stream::{
+use crate::background_work::BackgroundWorkForms;
+use crate::claude::delivery::claude_delivery_origin;
+use crate::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::claude::delivery::requests::{ClaudeInboundRequests, ClaudeRequestSession};
+use crate::claude::delivery::reviewer::ClaudeReviewerCapture;
+use crate::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::claude::delivery::stream::{
     ClaudeDeliveryStream, ClaudeSessionStream, ClaudeSessionStreams,
 };
-use crate::provider::driver::claude::goals::ClaudeGoalCommands;
-use crate::provider::driver::claude::hooks::callbacks::{
+use crate::claude::goals::ClaudeGoalCommands;
+use crate::claude::hooks::callbacks::{
     ClaudeRequestRoute, answer_background_work_check, answer_claude_request, route_claude_request,
 };
-use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-use crate::provider::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::provider::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
-use crate::provider::driver::claude::run::controls::claude_dialog_session;
-use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::provider::driver::claude::run::rewind::ClaudeConversationCuts;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoute;
-use crate::provider::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
-use crate::provider::driver::claude::run::settlement::ClaudeTurnSettlement;
-use crate::provider::driver::claude::session::controls::ClaudeSessionControls;
-use crate::provider::driver::claude::session::process::ClaudeProcessEnd;
-use crate::provider::driver::claude::session::restart::{
-    ClaudeSessionRestarts, claude_process_exit_of,
-};
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-use crate::provider::driver::delivery_dispatch::dispatch_delivery;
-use crate::provider::port::in_process_tool_servers::InProcessToolServers;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::claude::hooks::helper_steers::ClaudeHelperSteers;
+use crate::claude::hooks::pause::ClaudeRunPauses;
+use crate::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::claude::run::controls::claude_dialog_session;
+use crate::claude::run::prompts::ClaudeSentPrompts;
+use crate::claude::run::rewind::ClaudeConversationCuts;
+use crate::claude::run::routes::ClaudeRunRoute;
+use crate::claude::run::self_started_turns::ClaudeSelfStartedTurns;
+use crate::claude::run::settlement::ClaudeTurnSettlement;
+use crate::claude::session::controls::ClaudeSessionControls;
+use crate::claude::session::process::ClaudeProcessEnd;
+use crate::claude::session::restart::{ClaudeSessionRestarts, claude_process_exit_of};
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::tool_server_calls::ClaudeToolServerCalls;
+use crate::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::delivery_dispatch::dispatch_delivery;
+use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::registration::PortRegistration;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::mutex_lock::lock;
 
 /// What every session's task shares.
 pub(crate) struct ClaudeSessionTaskServices {

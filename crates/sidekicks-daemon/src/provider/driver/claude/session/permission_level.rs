@@ -14,34 +14,32 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, Spawner};
 use strum::VariantArray;
 
-use crate::ipc::domain_error::DomainError;
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::provider::driver::CommandSandboxAvailability;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::provider::driver::claude::session::ignored_settings::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::errors::record_unheard_claude_failure;
+use crate::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
 };
-use crate::provider::driver::claude::session::permissions::{
+use crate::claude::session::permissions::{
     ClaudePermissionsError, compose_live_claude_permissions,
 };
-use crate::provider::driver::claude::session::rules::{
+use crate::claude::session::rules::{
     CLAUDE_SHARED_SETTINGS_FILE, ClaudeProjectFolder, local_settings_path,
     resolve_claude_local_settings_file, settings_path,
 };
-use crate::provider::driver::claude::session::settings_file::read_claude_settings_file;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::settings_file::read_claude_settings_file;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
-use crate::provider::driver::claude::spawn::settings::compose_claude_sandbox_settings;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::session_control::{
-    UpdatePermissionLevelParams, permission_level_not_offered,
-};
-use crate::settle_all::{SettleFailures, settle_all};
+use crate::claude::spawn::settings::compose_claude_sandbox_settings;
+use crate::driver::CommandSandboxAvailability;
+use crate::driver::contract::DriverError;
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::session_control::{UpdatePermissionLevelParams, permission_level_not_offered};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 // The key a session's starting mode is read from.
 const DEFAULT_MODE_KEY_PATH: [&str; 2] = ["permissions", "defaultMode"];

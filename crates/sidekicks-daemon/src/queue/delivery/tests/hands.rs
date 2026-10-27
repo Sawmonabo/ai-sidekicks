@@ -20,15 +20,15 @@ use super::{
     driver_handing, fixture, hand, hold_chain, insert_item, intervention_id, release_chain,
     set_run_state, settle, steered_item, stored_item,
 };
-use crate::ipc::handlers::driver::resolution::read_run_driver;
-use crate::provider::driver::contract::MockProviderDriver;
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::ports::{
+use crate::delivery::{DeliveryError, InterruptHoldRelease};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
+use sidekicks_provider::driver::ports::{
     MessageGivenBackListener as _, MessageRefusedListener as _, MessageTakenListener as _,
 };
-use crate::provider::driver::run_control::RunToolBoundary;
-use crate::queue::delivery::{DeliveryError, InterruptHoldRelease};
-use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
+use sidekicks_provider::driver::run_control::RunToolBoundary;
+use sidekicks_session::driver_resolution::read_run_driver;
+use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 
 /// What the provider reports of a message it was handed, through the queue's listener ports.
 #[derive(Clone, Copy, Debug)]

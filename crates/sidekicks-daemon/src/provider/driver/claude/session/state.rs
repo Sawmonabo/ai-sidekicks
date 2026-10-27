@@ -18,26 +18,24 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnce;
 
-use crate::mutex_lock::lock;
-use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
-use crate::provider::driver::claude::session::answered_commands::{
-    ClaudeAttachedAdvisor, ClaudeCommandChoices,
-};
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
+use crate::claude::session::answered_commands::{ClaudeAttachedAdvisor, ClaudeCommandChoices};
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::declarations::{
     ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation, ClaudeInitializeDeclaration,
 };
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::contract::SpawnedVersionBindingCarriers;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::thread_frame_router::{
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::session::ultracode::ClaudeUltracodeReading;
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::port::registration::PortRegistration;
+use crate::port::reviewer_denial::ReviewerDenialPort;
+use crate::process_identity::ProviderProcessIdentity;
+use crate::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
-use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
+use crate::usage_delta_accountant::UsageDeltaAccountant;
+use sidekicks_std::mutex_lock::lock;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.
@@ -310,8 +308,8 @@ mod tests {
     use tokio::sync::SetOnce;
 
     use super::{ClaudeSessionSlot, LiveClaudeSession};
-    use crate::provider::driver::claude::session::scripted::scripted_live_session;
-    use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
+    use crate::claude::session::scripted::scripted_live_session;
+    use crate::claude::session::transport::channel::MockClaudeProcessChannel;
 
     fn live_session() -> Arc<LiveClaudeSession> {
         let session_id =

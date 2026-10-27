@@ -22,7 +22,7 @@ use sidekicks_contracts::session::recovery::{
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// A session's last good point: the last event it opens at, and the first one that is damaged.
 #[derive(Clone, Debug, PartialEq, Eq)]

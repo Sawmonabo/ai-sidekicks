@@ -39,26 +39,30 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::bounded_wait::wait_within;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{StoredJsonFault, optional_text_column, text_column};
-use crate::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
+use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::GIT_COMMAND_TIMEOUT;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::mutex_lock::lock;
-use crate::processor_bound::map_with_processor_bound;
-use crate::settle_all::{SettleFailures, settle_all};
-use crate::workspace::event_emitter::WorkspaceEventEmitter;
-use crate::workspace::projector::{
+use crate::projector::{
     FilesystemPathProbe, HealthProjectionError, RepoMountHealthRow, RepoMountIdentityObservation,
     compute_repo_mount_health,
 };
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::root_resolver::RepoRootResolver;
-use crate::workspace::row_guards::{
+use crate::repo::errors::RepoRefusal;
+use crate::repo::root_resolver::RepoRootResolver;
+use crate::row_guards::{
     CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH, probe_filesystem_path,
 };
-use crate::workspace::trust_envelope::{components_equal, is_contained_within};
+use crate::trust_envelope::{components_equal, is_contained_within};
+use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::processor_bound::map_with_processor_bound;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{
+    StoredJsonFault, optional_text_column, text_column,
+};
+use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
 /// The statements the re-probe's reads keep prepared on each read connection.
 pub(crate) const REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY: usize = 5;

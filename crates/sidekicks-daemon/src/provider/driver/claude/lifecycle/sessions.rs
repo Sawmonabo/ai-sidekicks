@@ -10,32 +10,28 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
 use super::{ClaudeDriver, internal};
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::provider::driver::claude::session::conversation_file::{
-    conversation_file_of, find_claude_taken_messages,
-};
-use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::provider::driver::claude::session::naming::{
+use crate::claude::delivery::requests::answers::claude_project_folder;
+use crate::claude::session::conversation_file::{conversation_file_of, find_claude_taken_messages};
+use crate::claude::session::errors::record_unheard_claude_failure;
+use crate::claude::session::naming::{
     name_claude_session, stored_claude_conversation, tell_claude_session_name,
 };
-use crate::provider::driver::claude::session::purge::{
-    ClaudePurgePlace, purge_claude_conversations,
-};
-use crate::provider::driver::claude::session::restart::ClaudeEndedConversation;
-use crate::provider::driver::claude::session::slots::ClaudeCloseStart;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
-use crate::provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
-use crate::provider::driver::session_control::{
+use crate::claude::session::purge::{ClaudePurgePlace, purge_claude_conversations};
+use crate::claude::session::restart::ClaudeEndedConversation;
+use crate::claude::session::slots::ClaudeCloseStart;
+use crate::driver::contract::DriverError;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
+use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
-use crate::provider::runtime_binding::store::RuntimeBinding;
-use crate::settle_all::settle_all;
+use crate::runtime_binding::store::RuntimeBinding;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::settle_all;
 
 impl ClaudeDriver {
     /// Opens a session on a new conversation; see the establishment's create.

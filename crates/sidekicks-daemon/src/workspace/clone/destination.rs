@@ -16,8 +16,8 @@ use sidekicks_platforms::{EntryIdentity, PathRules, entry_identity, resolve_path
 use tokio::task::JoinError;
 use url::Url;
 
-use crate::missing_entry::MissingEntry;
-use crate::random_hex::random_hex;
+use sidekicks_std::missing_entry::MissingEntry;
+use sidekicks_std::random_hex::random_hex;
 
 // `git@github.com:team/app.git`: a user and host, a colon, then a path that is not `//`. The user
 // is tried first and the address read again without one when its path starts `//`, as a pattern

@@ -27,22 +27,26 @@ use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, RepoMountSt
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{StatementBindings, WriteStatement, place_value, text_binding};
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
-use crate::events::session::appender::SessionEventEmitError;
-#[cfg(test)]
-use crate::pause_point::PausePoint;
-use crate::settle_all::SettleFailures;
-use crate::workspace::event_emitter::WorkspaceEventEmitter;
-use crate::workspace::projector::{HealthProjectionError, RepoMountHealthRow};
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
-use crate::workspace::repo::root_resolver::RepoRootResolver;
-use crate::workspace::row_guards::COMMON_DIR_METADATA_PATH;
-use crate::workspace::schema::MountOrigin;
+use crate::event_emitter::WorkspaceEventEmitter;
+use crate::projector::{HealthProjectionError, RepoMountHealthRow};
+use crate::repo::errors::RepoRefusal;
+use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
+use crate::repo::root_resolver::RepoRootResolver;
+use crate::row_guards::COMMON_DIR_METADATA_PATH;
+use crate::schema::MountOrigin;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
+use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, place_value, text_binding,
+};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError, sqlite_error_code};
+use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 /// The statements the service's reads keep prepared on each read connection.
 pub(crate) const REPO_MOUNT_SERVICE_STATEMENT_CAPACITY: usize = 4;
@@ -302,14 +306,14 @@ impl RepoMountService {
     /// The mounts of a daemon over the test `database`, roots resolved by `resolver`.
     #[cfg(test)]
     pub(crate) async fn for_test(
-        database: &crate::database::writer::test_file::TestDatabase,
+        database: &sidekicks_store::database::writer::test_file::TestDatabase,
         resolver: RepoRootResolver,
     ) -> Arc<Self> {
-        use crate::database::writer::DatabaseWriterOptions;
-        use crate::events::log_service::{
+        use sidekicks_store::database::writer::DatabaseWriterOptions;
+        use sidekicks_store::events::log_service::{
             EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
         };
-        use crate::events::session::followers::SessionEventFollowers;
+        use sidekicks_store::events::session::followers::SessionEventFollowers;
 
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())

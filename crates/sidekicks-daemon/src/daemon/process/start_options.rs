@@ -9,9 +9,9 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_platforms::DaemonRunFolder;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::service_log::ServiceLogFiles;
-use crate::ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_store::data_folder_lock::DataFolderLock;
 
 /// What the daemon's start runs with.
 pub(crate) struct DaemonStartOptions {

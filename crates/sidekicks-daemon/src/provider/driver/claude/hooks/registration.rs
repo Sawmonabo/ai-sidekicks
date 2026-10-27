@@ -6,13 +6,13 @@ use std::collections::BTreeMap;
 
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
-use crate::provider::driver::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::event_normalizer::CLAUDE_QUESTION_TOOL_NAME;
+use crate::claude::session::transport::control::{
     ClaudeAgentDefinition, ClaudeControlRequest, ClaudeHookMatcher, ClaudeHooks,
 };
-use crate::provider::driver::session_control::{SubagentDefinition, SubagentPolicy};
-use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+use crate::driver::session_control::{SubagentDefinition, SubagentPolicy};
+use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
+use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
 /// How long Claude Code waits on a held callback, in seconds: one day. Without it a callback left
 /// unanswered is canceled after Claude Code's own ten minutes.

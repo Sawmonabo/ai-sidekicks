@@ -16,11 +16,9 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::ComposedText;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::settings_file::{
-    is_unreadable_path, read_claude_settings_file,
-};
-use crate::provider::driver::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::settings_file::{is_unreadable_path, read_claude_settings_file};
+use crate::claude::spawn::settings::CLAUDE_CLEANUP_PERIOD_DAYS;
 
 /// The administrator's base settings file in the managed folder.
 pub(crate) const MANAGED_SETTINGS_FILE: &str = "managed-settings.json";

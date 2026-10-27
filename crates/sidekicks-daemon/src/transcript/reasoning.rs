@@ -23,13 +23,15 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{BoundedText, FreeFormText};
 use sidekicks_contracts::wire::{False, True};
 
-use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
-use crate::events::session::read::{SessionEventReads, readable_event_sql, resolve_event_cursor};
-use crate::ipc::domain_error::DomainError;
-use crate::session::run::read::RunStateReader;
-use crate::session::run::refusals::RunRefusal;
+use crate::run::read::RunStateReader;
+use crate::run::refusals::RunRefusal;
 use crate::transcript::projector::TranscriptProjectionError;
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
+use sidekicks_store::events::session::read::{
+    SessionEventReads, readable_event_sql, resolve_event_cursor,
+};
 
 /// `text` cut into consecutive parts of at most one reasoning entry's length in Unicode scalar
 /// values, cut on scalar boundaries; an empty text is one empty part.
@@ -233,8 +235,8 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::read_reasoning;
-    use crate::events::test_log::AT;
     use crate::transcript::test_log::{TranscriptTestLog, wire_message};
+    use sidekicks_store::events::test_log::AT;
 
     const THINKING: &str = "agent.thinking.updated";
 

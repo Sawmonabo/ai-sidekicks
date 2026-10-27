@@ -12,39 +12,31 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::attachments::{
-    ClaudeAttachmentError, compose_claude_attachment_blocks,
-};
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStreams;
-use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::provider::driver::claude::intervention::interrupt_claude_turn;
-use crate::provider::driver::claude::output_speed::{
-    apply_claude_output_speed, resolve_claude_output_speed,
-};
-use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::provider::driver::claude::run::routes::{
-    ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes,
-};
-use crate::provider::driver::claude::session::controls::claude_full_model_id;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::slots::ClaudeSessionSlots;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::attachments::{ClaudeAttachmentError, compose_claude_attachment_blocks};
+use crate::claude::delivery::stream::ClaudeSessionStreams;
+use crate::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::claude::intervention::interrupt_claude_turn;
+use crate::claude::output_speed::{apply_claude_output_speed, resolve_claude_output_speed};
+use crate::claude::run::prompts::ClaudeSentPrompts;
+use crate::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
+use crate::claude::session::controls::claude_full_model_id;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::slots::ClaudeSessionSlots;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::claude::session::transport::user_message::{
     ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
-use crate::provider::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
-use crate::provider::driver::contract::{DriverError, StartRunParams};
-use crate::provider::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::run::start_request::DaemonTurnStartRequest;
+use crate::claude::spawn::legs::assert_claude_spawn_bound_realization;
+use crate::driver::attachments::AttachmentResolver;
+use crate::driver::contract::{DriverError, StartRunParams};
+use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::run_host::RunHost;
+use crate::run::start_request::DaemonTurnStartRequest;
+use sidekicks_std::mutex_lock::lock;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
 /// files a person's message carries, written to the session's own process under the message id a
@@ -469,12 +461,12 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
 
-    use crate::provider::driver::claude::session::scripted::{
+    use crate::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::provider::driver::contract::{DriverError, RunOpening, StartRunParams};
-    use crate::provider::driver::run_control::{ResumeRunParams, WaitingMessage};
-    use crate::provider::driver::test_registry::new_run_id;
+    use crate::driver::contract::{DriverError, RunOpening, StartRunParams};
+    use crate::driver::run_control::{ResumeRunParams, WaitingMessage};
+    use crate::driver::test_registry::new_run_id;
 
     // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
     fn opening_params(

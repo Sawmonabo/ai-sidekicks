@@ -15,26 +15,26 @@ use futures::future::BoxFuture;
 use sidekicks_platforms::{WallClock, volume_free_bytes};
 use tokio_util::sync::CancellationToken;
 
-use crate::artifacts::admission::UploadAdmission;
-use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
-use crate::artifacts::ingest::service::ArtifactIngestService;
-use crate::artifacts::payload_store::PayloadStore;
-use crate::artifacts::publish::ArtifactPublishService;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
-use crate::daemon::scheduler::{
-    JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
-};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::ipc::handlers::artifact::ingest::register_artifact_ingest;
 use crate::ipc::handlers::artifact::list::register_artifact_list;
 use crate::ipc::handlers::artifact::publish::register_artifact_publish;
 use crate::ipc::handlers::artifact::read::register_artifact_read;
-use crate::ipc::registry::{MethodRegistryBuilder, RegistrationError};
+use sidekicks_artifact::admission::UploadAdmission;
+use sidekicks_artifact::attachment_resolver::ArtifactAttachmentResolver;
+use sidekicks_artifact::ingest::service::ArtifactIngestService;
+use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_artifact::publish::ArtifactPublishService;
+use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
+use sidekicks_std::scheduler::{
+    JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
+};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The artifact store's folder in the data folder.
 pub(crate) const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
@@ -220,9 +220,9 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{ARTIFACTS_FOLDER_NAME, ArtifactMethodsDeps, register_artifact_methods};
-    use crate::artifacts::payload_store::ContentHash;
-    use crate::artifacts::test_store::{ArtifactTestStore, write_payload_reference};
-    use crate::ipc::registry::MethodRegistryBuilder;
+    use sidekicks_artifact::payload_store::ContentHash;
+    use sidekicks_artifact::test_store::{ArtifactTestStore, write_payload_reference};
+    use sidekicks_ipc::registry::MethodRegistryBuilder;
 
     // One reaper pass sweeps the payloads no reference names and keeps a referenced one. Killed by
     // the sweep left out of the reaper's pass.

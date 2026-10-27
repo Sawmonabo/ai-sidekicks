@@ -4,7 +4,7 @@
 use serde::Deserialize;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
-use crate::provider::driver::ReportedVersionReading;
+use crate::driver::ReportedVersionReading;
 
 /// The client name the daemon sends at every Codex handshake, which Codex echoes at the start of
 /// its `userAgent`; it holds no `/` and no whitespace.
@@ -45,7 +45,7 @@ mod tests {
     use rstest::rstest;
 
     use super::read_reported_version;
-    use crate::provider::driver::ReportedVersionReading;
+    use crate::driver::ReportedVersionReading;
 
     #[rstest]
     #[case::own_version_not_the_callers(

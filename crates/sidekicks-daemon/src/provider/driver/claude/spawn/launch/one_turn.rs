@@ -11,37 +11,35 @@ use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::claude::delivery::messages::ClaudeMessageFrame;
-use crate::provider::driver::claude::delivery::system::{
+use crate::claude::delivery::messages::ClaudeMessageFrame;
+use crate::claude::delivery::system::{
     read_claude_assistant_refusal, read_claude_refusal_without_fallback,
 };
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::provider::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
-use crate::provider::driver::claude::session::tool_server_calls::{
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::hooks::callbacks::answer_claude_request;
+use crate::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
+use crate::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::inbound::{
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::inbound::{
     ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::session::transport::user_message::{
     ClaudeWriteAttempt, compose_claude_user_frame,
 };
-use crate::provider::driver::claude::session::transport::{
+use crate::claude::session::transport::{
     control::ClaudePermissionMode, declarations::ClaudeCumulativeUsageObservation,
 };
-use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::claude::spawn::launch::bring_up::{
+use crate::claude::spawn::arguments::ClaudeConversationStart;
+use crate::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSessionSpawn, bring_up_claude_process,
 };
-use crate::provider::driver::claude::spawn::launch::control_only::{
-    ClaudeShortProcessArrival, ForwardedArrivals,
-};
-use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::provider::lenient_json::read_lenient;
-use crate::provider::outbound_text::OutboundText;
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::claude::spawn::launch::control_only::{ClaudeShortProcessArrival, ForwardedArrivals};
+use crate::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::lenient_json::read_lenient;
+use crate::outbound_text::OutboundText;
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// What a one-turn process answers a tool ask with: it has no one to ask.
 const CLAUDE_ONE_TURN_ASK_DENIAL: &str =

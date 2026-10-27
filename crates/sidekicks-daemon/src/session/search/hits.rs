@@ -13,10 +13,10 @@ use std::ops::ControlFlow;
 
 use sidekicks_search::index::{MatchRange, SearchQuery, find_tail_start, mark_matches};
 
-use crate::session::search::index::rows::{
+use crate::search::index::rows::{
     DamagedSourceRow, IndexRowReader, LogRowPosition, PageReadError, SourceRow, SourceRowRead,
 };
-use crate::session::search::marked_line::{MarkedLine, cut_marked_line};
+use crate::search::marked_line::{MarkedLine, cut_marked_line};
 
 /// A hit's row as the database holds it now, and the marked line the hit shows.
 #[derive(Debug)]
@@ -219,12 +219,10 @@ mod tests {
     use sidekicks_search::index::{IndexRowKind, SearchQuery};
 
     use super::HitLineReader;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::provider::driver::diagnostics::RecordedEvents;
-    use crate::session::search::index::rows::{
-        IndexRowReader, SourceRowRead, empty_index_batch_room,
-    };
+    use crate::search::index::rows::{IndexRowReader, SourceRowRead, empty_index_batch_room};
     use crate::transcript::test_log::{RowDamage, TranscriptTestLog};
+    use sidekicks_provider::driver::diagnostics::RecordedEvents;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
 
     // A search whose two lists of hits both hold a reply damaged since it was indexed, in its
     // stored body's second frame or its payload's encoding, by a word no build writes or by one

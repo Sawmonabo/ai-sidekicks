@@ -32,14 +32,14 @@ use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::session_scope::SessionScopedSql;
-use crate::database::statement::{
+use crate::interventions::interrupt_queue::InterruptChoice;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_store::database::session_scope::SessionScopedSql;
+use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
-use crate::interventions::interrupt_queue::InterruptChoice;
-use crate::provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 /// A new intervention as its `requested` row records it; `payload` is its type's own fields, as
 /// JSON text.

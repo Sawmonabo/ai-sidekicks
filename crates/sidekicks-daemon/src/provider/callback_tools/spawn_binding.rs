@@ -6,10 +6,10 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::callback_tools::host::{
+use crate::callback_tools::host::{
     CallbackToolAdmission, CallbackToolHost, CallbackToolRegistryToken, CallbackToolSpawnRequest,
 };
-use crate::provider::driver::callback_tool::{CallbackToolDispatcher, CallbackToolInvocation};
+use crate::driver::callback_tool::{CallbackToolDispatcher, CallbackToolInvocation};
 
 /// One spawn's callback-tool wiring: what to offer the provider and the dispatcher to answer its
 /// calls with. Dropping it releases the spawn's registry; a spawn that never established calls
@@ -85,14 +85,14 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{CallbackToolSpawnBinding, bind_callback_tools_for_spawn};
-    use crate::provider::callback_tools::host::{
+    use crate::callback_tools::host::{
         CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolAdmission,
         CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
         CallbackToolExecutor, CallbackToolHost, CallbackToolPortError, CallbackToolSpawnRequest,
     };
-    use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
-    use crate::provider::driver::diagnostics::RecordedEvents;
-    use crate::provider::driver::registry::test_provider;
+    use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
+    use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::registry::test_provider;
 
     const SESSION: &str = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
     const TOOL: &str = "search";

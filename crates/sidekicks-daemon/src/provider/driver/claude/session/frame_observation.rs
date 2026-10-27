@@ -9,18 +9,16 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::claude::event_normalizer::{
+use crate::claude::event_normalizer::{
     ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal, compose_claude_wire_frame_kind,
     is_claude_result_frame_kind,
 };
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::session::transport::declarations::{
     ClaudeCompactionBoundaryObservation, ClaudeCumulativeUsageObservation,
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation,
 };
-use crate::provider::lenient_json::{
-    Lenient, LenientElement, LenientList, lenient_object, read_lenient,
-};
-use crate::provider::usage_delta_accountant::UsageAxisCounts;
+use crate::lenient_json::{Lenient, LenientElement, LenientList, lenient_object, read_lenient};
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The `task_type` of a task that is a helper; a background command is another kind of task.
 const CLAUDE_HELPER_TASK_TYPE: &str = "local_agent";

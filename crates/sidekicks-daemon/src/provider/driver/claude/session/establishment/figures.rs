@@ -11,22 +11,18 @@ use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::session::answered_commands::{
+use crate::claude::session::answered_commands::{
     ClaudeCommandChoices, read_claude_command_choices, unreadable_claude_command_choices,
 };
-use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::provider::driver::claude::session::model_figures::{
-    ClaudeFigureResult, ClaudeModelFigures,
-};
-use crate::provider::driver::claude::session::reply_reserve::{
-    ClaudeReplyReserve, derive_claude_reply_reserve,
-};
-use crate::provider::driver::claude::session::state::ClaudeHeldCommandChoices;
-use crate::provider::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
+use crate::claude::session::errors::record_unheard_claude_failure;
+use crate::claude::session::model_figures::{ClaudeFigureResult, ClaudeModelFigures};
+use crate::claude::session::reply_reserve::{ClaudeReplyReserve, derive_claude_reply_reserve};
+use crate::claude::session::state::ClaudeHeldCommandChoices;
+use crate::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use sidekicks_std::mutex_lock::lock;
 
 // What one creation-time process reads for a session, shared by its two figures.
 type CreationRead = Shared<BoxFuture<'static, ClaudeFigureResult<CreationFigures>>>;

@@ -14,19 +14,19 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::codex::app_server_protocol::{
+use crate::codex::app_server_protocol::{
     ApprovalsReviewer, AskForApproval, CollaborationMode, ModeKind, ReasoningEffort, Settings,
     ThreadForkParams, ThreadResumeParams, ThreadStartParams, UserInput,
 };
-use crate::provider::driver::codex::permission_level::{
+use crate::codex::permission_level::{
     CodexApprovalPolicy, CodexApprovalsReviewer, CodexProfileFolders,
     compose_codex_connector_defaults, compose_codex_level_settings,
     compose_codex_permission_config,
 };
-use crate::provider::driver::codex::session::helper_roles::CodexHelperRole;
-use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
-use crate::provider::port::tool_server_route::ToolServerRoute;
-use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+use crate::codex::session::helper_roles::CodexHelperRole;
+use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::port::tool_server_route::ToolServerRoute;
+use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
 /// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
 /// route's own bound, so the route answers first.
@@ -466,15 +466,13 @@ mod tests {
         ThreadResumeParams, ThreadStartParams, UserInput, compose_codex_thread_fork_params,
         compose_codex_thread_resume_params, compose_codex_thread_start_params,
     };
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::codex::DESCRIPTOR;
-    use crate::provider::driver::codex::app_server_protocol::{
-        ModeKind, Settings, TextUserInputType,
-    };
-    use crate::provider::driver::codex::permission_level::CodexProfileFolders;
-    use crate::provider::driver::codex::vendored_schema::vendored_schema_file;
-    use crate::provider::driver::session_control::SubagentPolicy;
-    use crate::provider::spawn_environment::{
+    use crate::codex::DESCRIPTOR;
+    use crate::codex::app_server_protocol::{ModeKind, Settings, TextUserInputType};
+    use crate::codex::permission_level::CodexProfileFolders;
+    use crate::codex::vendored_schema::vendored_schema_file;
+    use crate::driver::PROVIDERS;
+    use crate::driver::session_control::SubagentPolicy;
+    use crate::spawn_environment::{
         ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
         build_conversation_command_environment,
     };

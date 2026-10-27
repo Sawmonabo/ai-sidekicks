@@ -12,18 +12,18 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::{Mutex, mpsc};
 
-use crate::provider::driver::claude::hooks::registration::compose_claude_initialize_request;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::process::{
+use crate::claude::hooks::registration::compose_claude_initialize_request;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessEnd, ClaudeProcessLaunch, ClaudeProcessListener,
     ClaudeStreamFrame,
 };
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-use crate::provider::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
-use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::claude::session::transport::readings::ClaudeModelCatalogReading;
+use crate::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The command line of a process that keeps nothing.
 const CLAUDE_CONTROL_ONLY_ARGUMENTS: [&str; 7] = [

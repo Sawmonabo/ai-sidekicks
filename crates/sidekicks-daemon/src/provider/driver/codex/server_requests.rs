@@ -11,13 +11,13 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 
+use crate::codex::app_server_protocol::SERVER_REQUEST_METHODS;
+use crate::codex::delivery::question_answers::compose_codex_user_input_answers;
+use crate::codex::event_normalizer::is_codex_tool_call_approval_elicitation;
+use crate::driver::contract::DriverError;
+use crate::inbound_json::decode_inbound_json;
 use crate::mcp::elicitation_form::compose_elicitation_content;
-use crate::provider::driver::codex::app_server_protocol::SERVER_REQUEST_METHODS;
-use crate::provider::driver::codex::delivery::question_answers::compose_codex_user_input_answers;
-use crate::provider::driver::codex::event_normalizer::is_codex_tool_call_approval_elicitation;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::inbound_json::decode_inbound_json;
-use crate::text_cut::cut_to_code_points;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The refusal reason that stands in for an answer larger than the service takes, past which it
 /// would close the socket: the answer is refused, never cut, since a cut tool output reads as

@@ -13,7 +13,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
-use crate::process_exit::OutputTail;
+use sidekicks_std::process_exit::OutputTail;
 
 /// How much of the log is kept beside it when a start or the cap begins it again.
 const PREVIOUS_LOG_TAIL_BYTES: u64 = 256 * 1024;

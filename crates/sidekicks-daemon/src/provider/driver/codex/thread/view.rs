@@ -4,10 +4,10 @@
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::codex::permission_level::compose_codex_profile_name;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
+use crate::codex::permission_level::compose_codex_profile_name;
+use crate::codex::session::errors::CodexError;
+use crate::codex::thread::settings::CodexThreadSettings;
+use crate::codex::transport::connection::read_codex_object;
 
 /// A thread as a thread reply names it.
 #[derive(Debug)]
@@ -176,7 +176,7 @@ mod tests {
     use serde_json::value::RawValue;
 
     use super::assert_active_permission_profile;
-    use crate::provider::driver::codex::session::errors::CodexError;
+    use crate::codex::session::errors::CodexError;
 
     // A conversation runs only under the profile it asked for; a reply of any other shape fails,
     // an array among them, which serde would read by position.

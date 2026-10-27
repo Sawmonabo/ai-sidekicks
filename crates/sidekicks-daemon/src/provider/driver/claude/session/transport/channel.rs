@@ -6,12 +6,10 @@
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeControlAnswer;
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeUserFrame, ClaudeWriteAttempt,
-};
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::inbound::ClaudeControlAnswer;
+use crate::claude::session::transport::user_message::{ClaudeUserFrame, ClaudeWriteAttempt};
 
 /// One live Claude Code process, past its `initialize` exchange, as a session writes to it.
 #[cfg_attr(test, mockall::automock)]

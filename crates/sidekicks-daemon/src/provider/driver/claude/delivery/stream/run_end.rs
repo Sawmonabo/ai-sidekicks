@@ -12,20 +12,16 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound, report_engine_failure};
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::delivery::run_readings::{
-    ClaudeEndedAs, ClaudeOpenTurn, ClaudeTurnEndDelivery,
-};
-use crate::provider::driver::claude::delivery::turn_end::{
-    ClaudeTurnEndMarks, compose_claude_turn_end,
-};
-use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::run::turn_end::ProviderTurnEnd;
-use crate::provider::terminal_emission_gate::{TerminalEmissionDecision, TerminalRunFrame};
-use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::claude::delivery::run_readings::{ClaudeEndedAs, ClaudeOpenTurn, ClaudeTurnEndDelivery};
+use crate::claude::delivery::turn_end::{ClaudeTurnEndMarks, compose_claude_turn_end};
+use crate::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::claude::run::routes::ClaudeBoundRun;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::ProviderTurnEnd;
+use crate::terminal_emission_gate::{TerminalEmissionDecision, TerminalRunFrame};
+use crate::thread_frame_router::ThreadFrameRoute;
+use sidekicks_std::mutex_lock::lock;
 
 /// Why a run ended failed when the run engine could not take the end Claude Code reported.
 const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =

@@ -12,8 +12,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
+use crate::driver::contract::PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// A command the provider reports running, from its start or from a list that names it.
 #[derive(Clone)]

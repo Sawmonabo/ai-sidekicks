@@ -11,7 +11,7 @@ use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
-use crate::provider::driver::mcp_server_status::{
+use crate::driver::mcp_server_status::{
     McpServerStatusIngestRejection, McpServerStatusIngestResult, bound_mcp_server_status_emission,
 };
 

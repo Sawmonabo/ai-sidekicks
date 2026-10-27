@@ -10,21 +10,17 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{ClaudeDialogSession, ClaudeProviderDialogs, MockClaudeDialogPorts};
-use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
-use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
-use crate::provider::driver::claude::session::transport::channel::MockClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
-use crate::provider::driver::claude::session::transport::inbound::{
-    ClaudeControlAnswer, ClaudeUserDialog,
-};
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeWriteAttempt, ClaudeWriteDelivery,
-};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::{
+use crate::claude::run::routes::ClaudeBoundRun;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+use crate::claude::session::transport::channel::MockClaudeProcessChannel;
+use crate::claude::session::transport::control::ClaudeControlSubtype;
+use crate::claude::session::transport::inbound::{ClaudeControlAnswer, ClaudeUserDialog};
+use crate::claude::session::transport::user_message::{ClaudeWriteAttempt, ClaudeWriteDelivery};
+use crate::driver::contract::DriverError;
+use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
-use crate::provider::run::delivery::{InboundDelivery, InboundOutcome, UnstampedRow};
+use crate::run::delivery::{InboundDelivery, InboundOutcome, UnstampedRow};
 
 // What each delivery was, in the order handed over: a row's kind or a move's target state.
 type Delivered = Arc<Mutex<Vec<String>>>;

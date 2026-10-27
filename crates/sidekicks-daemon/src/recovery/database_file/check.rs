@@ -11,9 +11,9 @@ use rusqlite::{Connection, ErrorCode};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::setup::open_database_reader;
-use crate::recovery::database_file::READ_BUSY_TIMEOUT;
+use crate::database_file::READ_BUSY_TIMEOUT;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_store::database::connection::setup::open_database_reader;
 
 // The check runs one statement, uncached.
 const CHECK_STATEMENT_CAPACITY: usize = 0;
@@ -194,7 +194,7 @@ mod tests {
         CHECK_STATEMENT_CAPACITY, DatabaseFileCheckAnswer, DatabaseFileCheckError,
         read_check_verdict, run_quick_check,
     };
-    use crate::database::connection::setup::open_database_reader;
+    use sidekicks_store::database::connection::setup::open_database_reader;
 
     fn sqlite_failure(code: i32) -> rusqlite::Error {
         rusqlite::Error::SqliteFailure(ffi::Error::new(code), None)

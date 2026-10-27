@@ -26,26 +26,26 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use super::{
     DenialOverrideError, REVIEWER_DENIALS_STATEMENT_CAPACITY, ReviewerDenialError, ReviewerDenials,
 };
-use crate::approvals::schema::schema_parts;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
-use crate::events::session::followers::FollowerAttachment;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::driver::test_registry::{
+use crate::schema::schema_parts;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
-use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::session::run::pause::tests::unanswered;
-use crate::session::run::projection::insert_queued_run_statement;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use sidekicks_session::run::pause::tests::unanswered;
+use sidekicks_session::run::projection::insert_queued_run_statement;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+};
+use sidekicks_store::events::session::followers::FollowerAttachment;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// Bounds a call the test expects to answer, so one that hangs fails the test.
 const ANSWER_WAIT: Duration = Duration::from_secs(5);

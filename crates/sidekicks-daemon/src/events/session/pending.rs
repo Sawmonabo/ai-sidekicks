@@ -11,7 +11,7 @@ use std::sync::{Mutex, MutexGuard};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::Notify;
 
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// The waiting sessions and the wake of the one task that takes them. Holds at most one entry per
 /// session.

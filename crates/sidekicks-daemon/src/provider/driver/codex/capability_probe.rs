@@ -9,20 +9,20 @@ use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 
-use crate::provider::capability::probe::ProbeAdmissibilityConjunct::{
+use crate::capability::probe::ProbeAdmissibilityConjunct::{
     DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
 };
-use crate::provider::capability::probe::{
+use crate::capability::probe::{
     CapabilityDetection, CapabilityProbeExchange, CapabilityProbeRules, ProbeAnswer,
     assert_admissible_detection,
 };
-use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::codex::capabilities::read_codex_capabilities;
-use crate::provider::driver::codex::service::supervisor::{CodexService, DetachedConnectionEvents};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::thread::view::TURN_START_METHOD;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::codex::capabilities::read_codex_capabilities;
+use crate::codex::service::supervisor::{CodexService, DetachedConnectionEvents};
+use crate::codex::session::errors::CodexError;
+use crate::codex::thread::view::TURN_START_METHOD;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::capabilities::DriverCapabilityFlag;
+use crate::driver::contract::{DriverError, GetCapabilitiesResult};
 
 /// What starts the deserializer's refusal of an unknown method, before its quoted name.
 const UNKNOWN_VARIANT_OPENING: &str = "unknown variant `";
@@ -197,8 +197,8 @@ mod tests {
     use serde_json::json;
 
     use super::{CodexCapabilityProbeExchange, classify_reply};
-    use crate::provider::capability::probe::{CapabilityProbeExchange, ProbeAnswer};
-    use crate::provider::driver::codex::service::supervisor::test_service;
+    use crate::capability::probe::{CapabilityProbeExchange, ProbeAnswer};
+    use crate::codex::service::supervisor::test_service;
 
     #[rstest]
     #[case::method_not_found(-32_601, "Method not found", ProbeAnswer::UnknownName)]

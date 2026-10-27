@@ -19,9 +19,9 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::create_private_folder;
 use tokio::sync::watch;
 
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
-use crate::mutex_lock::lock;
+use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::mutex_lock::lock;
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
 // credentials.

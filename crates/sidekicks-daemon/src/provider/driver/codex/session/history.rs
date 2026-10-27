@@ -6,13 +6,9 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 
-use crate::provider::driver::codex::app_server_protocol::{
-    ThreadItemsListParams, ThreadTurnsListParams,
-};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
+use crate::codex::app_server_protocol::{ThreadItemsListParams, ThreadTurnsListParams};
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 
 /// The largest page `thread/turns/list` returns.
 const CODEX_TURNS_PAGE_LIMIT: u32 = 100;

@@ -20,8 +20,8 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::git::process::{GitCall, GitError, GitRunner, SHUTDOWN_STOP_GRACE};
-use crate::process_exit::OUTPUT_CHUNK_BYTES;
-use crate::utf8_stream::Utf8StreamDecoder;
+use sidekicks_std::process_exit::OUTPUT_CHUNK_BYTES;
+use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 
 /// How long git has to end after a person's cancel before it and its helpers are ended: long
 /// enough for git to remove what it was writing, short enough that a cancel is felt.
@@ -199,8 +199,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::run_streamed_git;
-    use crate::file::atomic_write::write_file_atomically;
     use crate::git::process::{GitCall, test_git_runner};
+    use sidekicks_std::file::atomic_write::write_file_atomically;
 
     // Fails when the run waits past git's exit for the end of a standard error a hook's process
     // still holds, or loses what the hook wrote before git exited.

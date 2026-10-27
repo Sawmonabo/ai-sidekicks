@@ -8,11 +8,11 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use super::{rebuild_whole, table_rows};
-use crate::events::session::appender::{SessionEventDraft, SessionEventLinkage};
-use crate::plans::projection::PlansProjection;
-use crate::plans::service::tests::Fixture;
-use crate::plans::store::settle_verdict_statement;
-use crate::provider::port::plan::ProviderPlanHoldEnd;
+use sidekicks_artifact::plans::projection::PlansProjection;
+use sidekicks_artifact::plans::service::tests::Fixture;
+use sidekicks_artifact::plans::store::settle_verdict_statement;
+use sidekicks_provider::port::plan::ProviderPlanHoldEnd;
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 
 const PLAN_ROWS_SQL: &str = "SELECT * FROM plans ORDER BY id";
 

@@ -35,23 +35,23 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::schema::DatabaseSchema;
-use crate::database::sibling_path;
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::missing_entry::MissingEntry as _;
-use crate::recovery::database_file::aside_copy::{
+use crate::database_file::aside_copy::{
     AsideCopyError, DATABASE_COMPANION_FILE_SUFFIXES, DatabaseFilesAside, copy_database_files_aside,
 };
-use crate::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
-use crate::recovery::database_file::damage::{read_database_damage, remove_database_damage};
-use crate::recovery::database_file::fresh::{
+use crate::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
+use crate::database_file::fresh::{
     FreshFileError, FreshFilePreparation, log_passed_over_backup, prepare_fresh_file,
 };
-use crate::recovery::database_file::last_run::{LastRunError, record_clean_stop};
-use crate::recovery::database_file::newest_backup::find_newest_backup_database;
-use crate::recovery::database_file::sqlite_shell::{SqliteRecoveryError, SqliteShell};
-use crate::recovery::database_file::store_folder;
+use crate::database_file::last_run::{LastRunError, record_clean_stop};
+use crate::database_file::newest_backup::find_newest_backup_database;
+use crate::database_file::sqlite_shell::{SqliteRecoveryError, SqliteShell};
+use crate::database_file::store_folder;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_store::database::damage::{read_database_damage, remove_database_damage};
+use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::sibling_path;
 
 // The fresh file a repair recovers into, beside the database file.
 const FRESH_FILE_SUFFIX: &str = ".recovered";
@@ -599,14 +599,14 @@ mod tests {
         DatabaseFileRepairOptions, FRESH_FILE_SUFFIX, READY_MARKER_SUFFIX,
         prepare_database_file_repair,
     };
-    use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-    use crate::database::schema::schema_parts;
-    use crate::database::sibling_path;
-    use crate::recovery::database_file::WRITE_AHEAD_LOG_SUFFIX;
-    use crate::recovery::database_file::copy::DatabaseFileCopier;
-    use crate::recovery::database_file::damage::{read_database_damage, record_database_damage};
-    use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
-    use crate::recovery::database_file::sqlite_shell::SqliteShell;
+    use crate::database_file::WRITE_AHEAD_LOG_SUFFIX;
+    use crate::database_file::copy::DatabaseFileCopier;
+    use crate::database_file::last_run::{LastRunEnd, read_last_run_end};
+    use crate::database_file::sqlite_shell::SqliteShell;
+    use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+    use sidekicks_store::database::damage::{read_database_damage, record_database_damage};
+    use sidekicks_store::database::schema::schema_parts;
+    use sidekicks_store::database::sibling_path;
 
     const DAMAGED_BYTES: &[u8] = b"the damaged file";
     const FRESH_BYTES: &[u8] = b"the recovered file";

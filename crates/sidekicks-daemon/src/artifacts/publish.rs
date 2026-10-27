@@ -33,25 +33,21 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_platforms::WallClock;
 
-use crate::artifacts::admission::UploadAdmission;
-use crate::artifacts::detection::DETECTION_PREFIX_BYTES;
-use crate::artifacts::id::mint_artifact_id;
-use crate::artifacts::manifest_write::{
+use crate::admission::UploadAdmission;
+use crate::detection::DETECTION_PREFIX_BYTES;
+use crate::id::mint_artifact_id;
+use crate::manifest_write::{
     PublishedManifest, check_artifact_owner, manifest_created_at, read_manifest_by_publish_key,
     write_published_manifest,
 };
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::refusals::{
-    ArtifactError, file_publish_refused, publish_idempotency_conflict,
-};
-use crate::artifacts::validation::{
-    SpooledPayload, normalize_metadata_file_name, validate_and_store,
-};
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::events::session::appender::SessionEventAppender;
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::MissingEntry as _;
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::refusals::{ArtifactError, file_publish_refused, publish_idempotency_conflict};
+use crate::validation::{SpooledPayload, normalize_metadata_file_name, validate_and_store};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::events::session::appender::SessionEventAppender;
 
 /// The mode of a spool file: its owner's alone.
 pub(crate) const SPOOL_FILE_MODE: u32 = 0o600;
@@ -377,10 +373,10 @@ mod tests {
     use sidekicks_contracts::wire::text::NonEmptyText;
 
     use super::PublishOrigin;
-    use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
-    use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
-    use crate::provider::driver::attachments::{AttachmentResolver as _, ProviderAttachment};
+    use crate::attachment_resolver::ArtifactAttachmentResolver;
+    use crate::test_store::{ArtifactTestStore, refusal_code_of};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::driver::attachments::{AttachmentResolver as _, ProviderAttachment};
 
     fn request(
         store: &ArtifactTestStore,

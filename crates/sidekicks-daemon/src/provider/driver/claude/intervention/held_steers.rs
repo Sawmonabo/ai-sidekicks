@@ -8,7 +8,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::claude::session::transport::user_message::ClaudeUserContentBlock;
+use crate::claude::session::transport::user_message::ClaudeUserContentBlock;
 
 /// One steer as the driver writes it: the person's words and files' blocks, for its run.
 #[derive(Clone)]

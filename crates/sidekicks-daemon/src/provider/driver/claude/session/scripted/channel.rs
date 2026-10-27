@@ -14,15 +14,15 @@ use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
-use crate::provider::driver::claude::session::process::ClaudeProcessListener;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeControlAnswer;
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+use crate::claude::session::process::ClaudeProcessListener;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::inbound::ClaudeControlAnswer;
+use crate::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
+use sidekicks_std::mutex_lock::lock;
 
 /// One thing the driver wrote to the scripted process, in the order written.
 #[derive(Clone, Debug, PartialEq)]

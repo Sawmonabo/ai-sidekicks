@@ -11,12 +11,12 @@ use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::{RepackEnd, RepackJobDeps, read_pages, repack, repack_job};
-use crate::daemon::scheduler::budget::{BudgetTerm, JobBudget, WorkUnit};
 use crate::database::connection::writer_open::open_database;
 use crate::database::schema::schema_parts;
+use crate::database::wal_truncation::WriteAheadLogTruncation;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
+use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, WorkUnit};
 
 const WAIT: Duration = Duration::from_secs(10);
 
@@ -86,7 +86,9 @@ async fn a_refused_vacuum_ends_the_job_and_changes_nothing() {
                 connection
                     .pragma_update(None, "query_only", true)
                     .expect("the test makes the connection refuse writes");
-                Ok::<_, crate::cleanup_failures::CleanupFailures<_, rusqlite::Error>>(connection)
+                Ok::<_, sidekicks_std::cleanup_failures::CleanupFailures<_, rusqlite::Error>>(
+                    connection,
+                )
             },
             DatabaseWriterOptions::default(),
         )

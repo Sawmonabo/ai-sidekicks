@@ -13,7 +13,7 @@ use tokio::sync::Notify;
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
-use crate::retry_waits::retry_wait;
+use sidekicks_std::retry_waits::retry_wait;
 
 /// Merges the search index's segments whenever its merge policy proposes one, on a task of its
 /// own until [`SearchIndexMerging::stop`].

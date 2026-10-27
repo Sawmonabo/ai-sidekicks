@@ -14,25 +14,21 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::event_normalizer::{
+use crate::codex::event_normalizer::{
     CODEX_ITEM_METHOD_PREFIX, CODEX_THREAD_STARTED_METHOD, derive_codex_child_thread_announcement,
     resolve_codex_frame_emission_route,
 };
-use crate::provider::driver::codex::service::config_warnings::CodexConfigWarnings;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::threads::{
-    CodexHeldThreadFrame, CodexThreadFrameHold,
-};
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionInbound, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::codex::usage_limit_signal::{
+use crate::codex::service::config_warnings::CodexConfigWarnings;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::threads::{CodexHeldThreadFrame, CodexThreadFrameHold};
+use crate::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::codex::usage_limit_signal::{
     CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD, CodexRateLimitObservation,
     observe_codex_rate_limit_update,
 };
-use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
-use crate::provider::thread_frame_router::ChildThreadAnnouncement;
+use crate::driver::diagnostics::OnceReportedDiagnostics;
+use crate::thread_frame_router::ChildThreadAnnouncement;
 
 /// Sent once a conversation is unloaded, so another service may take it.
 pub(crate) const CODEX_THREAD_CLOSED_METHOD: &str = "thread/closed";
@@ -144,7 +140,7 @@ fn read_text(raw: Option<&RawValue>) -> Option<String> {
 }
 
 fn read_frame_conversation(params: &RawValue) -> Option<FrameConversation> {
-    crate::provider::driver::codex::transport::connection::read_codex_object(params.get())
+    crate::codex::transport::connection::read_codex_object(params.get())
 }
 
 /// The conversation a frame names: `thread.id` on `thread/started`, `threadId` otherwise; `None`

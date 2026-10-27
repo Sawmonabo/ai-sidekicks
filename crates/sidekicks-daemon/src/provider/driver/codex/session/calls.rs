@@ -10,36 +10,30 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::notification_routing::{
-    CodexRoutedFrames, CodexSessionRouting,
-};
-use crate::provider::driver::codex::run::control::record::run_codex_run_control_call;
-use crate::provider::driver::codex::run::faster_model_retry::{
+use crate::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
+use crate::codex::run::control::record::run_codex_run_control_call;
+use crate::codex::run::faster_model_retry::{
     fork_codex_session_for_retry, restore_codex_retried_turn, stop_codex_turn_for_retry,
 };
-use crate::provider::driver::codex::run::start::record::{
+use crate::codex::run::start::record::{
     CodexRunCallDependencies, begin_codex_turn_start, settle_codex_turn_start,
 };
-use crate::provider::driver::codex::run::steer::{register_codex_steer, withdraw_codex_steer};
-use crate::provider::driver::codex::run::turn_end_waiters::{
+use crate::codex::run::steer::{register_codex_steer, withdraw_codex_steer};
+use crate::codex::run::turn_end_waiters::{
     CodexTurnEndDeadline, CodexTurnEndWaiters, CodexTurnWait,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::run_codex_config_fork;
-use crate::provider::driver::codex::session::fork::{
-    CodexForkDependencies, move_codex_session_to_fork,
-};
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::run_codex_config_fork;
+use crate::codex::session::fork::{CodexForkDependencies, move_codex_session_to_fork};
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::provider::driver::codex::session::recovery::{
-    drop_codex_turns, resume_codex_session_in_place,
-};
-use crate::provider::driver::codex::session::rewind::{
+use crate::codex::session::recovery::{drop_codex_turns, resume_codex_session_in_place};
+use crate::codex::session::rewind::{
     read_codex_message_turn, record_codex_message_turns, revert_codex_turns,
 };
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::connection::CodexAppServerConnection;
 
 /// What a session's task holds beside its queue: the record, its routing band and the waits on
 /// its turns.

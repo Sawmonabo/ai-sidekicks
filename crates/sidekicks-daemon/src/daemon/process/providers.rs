@@ -18,49 +18,49 @@ use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::approvals::permission_asks::PermissionAsks;
-use crate::approvals::reviewer_denials::ReviewerDenials;
-use crate::approvals::rules::ApprovalRules;
 use crate::daemon::machine::settings::file::MachineSettingsFile;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::DatabaseWriter;
-use crate::error_description::describe_error;
-use crate::git::process::GitRunner;
-use crate::git::worktree::naming::worktrees_folder;
-use crate::git::worktree::staged_changes::StagedChangesWorktrees;
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::plans::service::PlansService;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::program::dispatches_hook_mode;
-use crate::provider::callback_tools::host::CallbackToolHost;
-use crate::provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
-use crate::provider::command_search::ProviderCommandSearch;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::capabilities::writer::{
+use sidekicks_approval::permission_asks::PermissionAsks;
+use sidekicks_approval::reviewer_denials::ReviewerDenials;
+use sidekicks_approval::rules::ApprovalRules;
+use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::callback_tools::host::CallbackToolHost;
+use sidekicks_provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
+use sidekicks_provider::command_search::ProviderCommandSearch;
+use sidekicks_provider::compaction_wait::PendingCompactionRegistry;
+use sidekicks_provider::driver::attachments::AttachmentResolver;
+use sidekicks_provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
-use crate::provider::driver::contract::{ApplyRowValueParams, DriverError};
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::diagnostics::{
+use sidekicks_provider::driver::contract::{ApplyRowValueParams, DriverError};
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
-use crate::provider::port::registration::PortRegistrationError;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::runtime_binding::store::RuntimeBindingStore;
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::questions::service::QuestionsService;
-use crate::queue::admission::QueueAdmission;
-use crate::queue::delivery::QueueDelivery;
-use crate::session::addresses::{ForeignPlaceError, SessionInboxAddresses};
-use crate::session::run::engine::RunEngine;
-use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::pause::RunPauseControl;
+use sidekicks_provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
+use sidekicks_provider::port::registration::PortRegistrationError;
+use sidekicks_provider::process_registry::ProviderProcessRegistry;
+use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_queue::admission::QueueAdmission;
+use sidekicks_queue::delivery::QueueDelivery;
+use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
+use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::inbound::RunInboundDispatch;
+use sidekicks_session::run::pause::RunPauseControl;
+use sidekicks_session::worktree_naming::worktrees_folder;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 /// What the providers' build takes from the steps before it.
 pub(crate) struct ProviderStart {
@@ -569,22 +569,24 @@ mod tests {
         ProviderStart, Providers, build_providers, hydrate_capabilities, register_providers,
     };
     use crate::daemon::machine::settings::file::MachineSettingsFile;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::log_service::tests::open_log;
-    use crate::git::process::{GitLimits, GitRunner};
-    use crate::mutex_lock::lock;
-    use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use crate::provider::driver::capabilities::{
+    use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+    use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use crate::provider::driver::contract::{
+    use sidekicks_provider::driver::contract::{
         ApplyRowValueParams, DriverCliVersionReport, DriverError, GetCapabilitiesResult,
         MockProviderDriver,
     };
-    use crate::provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
-    use crate::provider::driver::{PROVIDERS, ProviderRegistration};
-    use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_provider::driver::test_registry::{
+        NothingServed, registrations_of_first_providers,
+    };
+    use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+    use sidekicks_std::mutex_lock::lock;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::tests::open_log;
+    use sidekicks_workspace::git::process::{GitLimits, GitRunner};
 
     /// The statements the tests' read pool caches.
     const READ_STATEMENT_CAPACITY: usize = 16;

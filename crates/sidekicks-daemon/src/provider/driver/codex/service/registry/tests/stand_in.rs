@@ -16,23 +16,21 @@ use sidekicks_platforms::{
 };
 use tokio::sync::mpsc;
 
-use crate::provider::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
-use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
-use crate::provider::driver::codex::service::registry::OneHome;
-use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
-use crate::provider::driver::codex::service::supervisor::events::{
-    CodexServiceEvents, CodexServiceRecoveryCause,
-};
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::home::{CodexHomeKind, CodexServiceHome};
+use crate::codex::service::record::LastingServiceRecordFile;
+use crate::codex::service::registry::OneHome;
+use crate::codex::service::registry::{CodexServiceRegistry, home_socket_path};
+use crate::codex::service::supervisor::events::{CodexServiceEvents, CodexServiceRecoveryCause};
+use crate::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, answer_as_codex_service, test_codex_service_dependencies,
 };
-use crate::provider::driver::codex::service::supervisor::{
+use crate::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::codex::session::errors::CodexError;
+use crate::driver::contract::DriverError;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The stand-in Codex service: this test program, run by the script the registry's services
 /// start as Codex.

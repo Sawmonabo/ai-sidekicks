@@ -16,21 +16,21 @@ use super::{
     APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRuleError, ApprovalRules, SELECT_RULES_IN_FORCE_SQL,
     provider_rule_of, query_rule_rows, rule_over,
 };
-use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
-use crate::approvals::schema::schema_parts;
-use crate::approvals::service::tests::{ApprovalFixture, from_json};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::port::permission_ask::ProviderAnswerRule;
-use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::schema::schema_parts;
+use crate::service::tests::{ApprovalFixture, from_json};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::port::permission_ask::ProviderAnswerRule;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
+use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 // Appends the event `event` describes to the session's log and answers its sequence.
 async fn append(writer: &DatabaseWriter, session_id: SessionId, event: serde_json::Value) -> i64 {

@@ -9,14 +9,14 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{QueueAdmission, provider_work};
-use crate::admission::memory_gate::MemoryAdmissionState;
-use crate::database::connection::read_pool::ReadLength;
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::{DriverError, ProviderDriver};
-use crate::provider::driver::run_control::PickedSkill;
-use crate::queue::error::QueueError;
-use crate::queue::refusals::skill_not_listed;
-use crate::queue::store::QueueItemReader;
+use crate::error::QueueError;
+use crate::memory_gate::MemoryAdmissionState;
+use crate::refusals::skill_not_listed;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::run_control::PickedSkill;
+use sidekicks_session::queue_store::QueueItemReader;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 
 impl QueueAdmission {
     /// The skills `picks` names as the session's provider loads them: none asked, none read. A

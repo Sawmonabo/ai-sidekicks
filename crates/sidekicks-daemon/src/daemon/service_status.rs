@@ -10,7 +10,7 @@ use sidekicks_platforms::{DaemonRunFolder, RUN_FOLDER_FILE_MODE};
 
 use crate::daemon::process::DaemonStartError;
 use crate::daemon::process::database::DatabaseFileOpenError;
-use crate::file::atomic_write::{AtomicWriteError, write_and_flush};
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_and_flush};
 
 /// Writes `status` to the run folder's status file, replacing it whole, readable by the person
 /// alone; on Linux the file is sticky, so a session manager that cleans the runtime folder keeps

@@ -14,29 +14,23 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
-use crate::provider::driver::codex::run::control::fail_codex_run;
-use crate::provider::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
-use crate::provider::driver::codex::run::start::record::{
-    CodexRunCallDependencies, CodexTurnRequest,
-};
-use crate::provider::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
-use crate::provider::driver::codex::session::calls::{
-    CodexSessionTask, call_codex_session, wait_for_codex_turns,
-};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::{CodexForkDependencies, establish_codex_fork};
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::{CodexSessionRecord, CodexTurnInput};
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::codex::notification_routing::CodexRoutedFrames;
+use crate::codex::run::control::fail_codex_run;
+use crate::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
+use crate::codex::run::start::record::{CodexRunCallDependencies, CodexTurnRequest};
+use crate::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
+use crate::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
+use crate::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::codex::session::calls::{CodexSessionTask, call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::{CodexForkDependencies, establish_codex_fork};
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::session::state::{CodexSessionRecord, CodexTurnInput};
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
+use crate::port::inbound_dispatch::InboundDispatch;
+use sidekicks_std::mutex_lock::lock;
 
 const NOT_LATEST_REJECTION: &str = "The turn is no longer the run's latest.";
 const REPLY_STARTED_REJECTION: &str = "The turn's reply has started.";
@@ -413,14 +407,14 @@ mod tests {
     use super::{
         CodexFasterModelRetries, CodexFasterModelRetryDependencies, INTERRUPTED_REJECTION,
     };
-    use crate::provider::driver::codex::run::routes::CodexRunBinding;
-    use crate::provider::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
-    use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
-    use crate::provider::driver::codex::session::test_session::{
+    use crate::codex::run::routes::CodexRunBinding;
+    use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInbound};
+    use crate::codex::session::state::{CodexTurnInput, CodexTurnMessage};
+    use crate::codex::session::test_session::{
         TEST_THREAD, TestCodexSession, answer_fork, turn_completed, turn_reply,
     };
-    use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
-    use crate::provider::driver::test_registry::new_run_id;
+    use crate::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
+    use crate::driver::test_registry::new_run_id;
 
     /// How the turn sent again on the fork goes.
     #[derive(Clone, Copy, PartialEq, Eq)]

@@ -12,28 +12,28 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
-use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
-use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::run::start::CODEX_TURN_START_TIMEOUT;
+use crate::codex::run::start::record::CodexTurnRequest;
+use crate::codex::run::turn_end_waiters::CodexTurnEndDeadline;
+use crate::codex::service::registry::CodexServiceRegistry;
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::codex_session_inbound;
-use crate::provider::driver::codex::session::side_questions::test_copies::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::inbound::codex_session_inbound;
+use crate::codex::session::side_questions::test_copies::{
     COPY_THREAD, COPY_TURN, read_only_profile, resting_question, serve_unended_copy,
 };
-use crate::provider::driver::codex::session::slots::closing_session_refusal;
-use crate::provider::driver::codex::session::state::CodexTurnMessage;
-use crate::provider::driver::codex::session::test_session::{
+use crate::codex::session::slots::closing_session_refusal;
+use crate::codex::session::state::CodexTurnMessage;
+use crate::codex::session::test_session::{
     OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
 };
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::session_control::CloseSessionParams;
-use crate::provider::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
-use crate::provider::port::run_host::test_host::{EngineCall, RecordingRunEngine};
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::session_control::CloseSessionParams;
+use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
+use crate::run::posture::ExecutionPostureService;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);

@@ -9,15 +9,17 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::session::read::{DamagedFromSequenceReader, session_read_bound};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::session::not_found::session_not_found;
-use crate::session::run::agent::read_lead_binding;
-use crate::session::run::read::read_run_provider;
+use crate::run::agent::read_lead_binding;
+use crate::run::read::read_run_provider;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
 /// Why the driver of a live run was not resolved.
 #[derive(Debug, thiserror::Error)]

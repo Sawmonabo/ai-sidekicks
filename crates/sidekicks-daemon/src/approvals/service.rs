@@ -37,34 +37,36 @@ use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use crate::approvals::events::resolved_event;
-use crate::approvals::refusals::{
+use crate::events::resolved_event;
+use crate::refusals::{
     approval_already_resolved, approval_late_create, approval_not_found,
     approval_persistence_unavailable, approval_request_canceled, approval_resolution_invalid,
 };
-use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
-use crate::approvals::run_blocking::ApprovalRunHolds;
-use crate::approvals::store::{
+use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::run_blocking::ApprovalRunHolds;
+use crate::store::{
     ApprovalCorrectionUse, ApprovalRequestReader, ApprovalSettlement, InsertedApprovalRequest,
     InsertedApprovalResolution, StoredApprovalRequest, StoredApprovalResolution,
     insert_correction_use_statement, insert_request_statement, insert_resolution_statement,
     run_live_statement, session_open_statement, settle_pending_statement,
 };
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::writer::DatabaseWriter;
-use crate::events::log_service::EventAppendError;
-use crate::events::session::append_lock::SessionAppendHold;
-use crate::events::session::appender::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_session::run::state_change::refused_statement_index;
+use sidekicks_std::keyed_wait::{ArmedWait, KeyedWaits};
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::log_service::EventAppendError;
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
-use crate::events::session::pending::PendingSessions;
-use crate::git::worktree::watch::WorkingFolderWatcher;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::keyed_wait::{ArmedWait, KeyedWaits};
-use crate::session::run::state_change::refused_statement_index;
-use crate::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::events::session::pending::PendingSessions;
+use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
 // The positions of a create's guards among its statements.
 const SESSION_OPEN_GUARD_INDEX: usize = 0;

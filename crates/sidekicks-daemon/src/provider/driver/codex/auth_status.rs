@@ -8,14 +8,12 @@ use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 
-use crate::provider::driver::codex::app_server_protocol::GetAccountParams;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::session_control::{
+use crate::codex::app_server_protocol::GetAccountParams;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::session_control::{
     DriverAuthProbeResult, DriverAuthProbeStatus, build_auth_probe_result,
 };
 

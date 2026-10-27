@@ -16,8 +16,8 @@ use super::{
     ApprovalRuleError, ApprovalRules, NOT_REVOKED_SQL, RULE_SOURCE_SQL, RuleRow,
     SELECT_OWN_RULES_SQL, is_project_rule, revoked_payload, session_id_of,
 };
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::session::directory::lookups::ENDED_SESSION_STATES_SQL;
+use sidekicks_session::directory::lookups::ENDED_SESSION_STATES_SQL;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 
 // The ended sessions that still hold a session rule in force, which a start ends.
 static SELECT_ENDED_SESSIONS_WITH_RULES_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -165,9 +165,9 @@ mod tests {
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
     use super::{RuleRow, revoked_payload, session_end_revocations};
-    use crate::approvals::request_create::ApprovalResourceDescriptor;
-    use crate::approvals::store::StoredApprovalRequest;
-    use crate::policy::ask_rule::ProviderAskActionKind;
+    use crate::request_create::ApprovalResourceDescriptor;
+    use crate::store::StoredApprovalRequest;
+    use sidekicks_policy::ask_rule::ProviderAskActionKind;
 
     const SESSION: &str = "0190a5a0-0000-7000-8000-000000000001";
 

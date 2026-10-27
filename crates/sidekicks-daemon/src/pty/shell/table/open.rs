@@ -10,21 +10,19 @@ use sidekicks_platforms::PathRules;
 use sidekicks_terminal::TerminalError;
 use tokio::sync::watch;
 
-use crate::error_description::describe_error;
-use crate::ipc::registry::HandlerError;
-use crate::provider::spawn_environment::SessionEnvironment;
-use crate::pty::shell::integration::injection::{
-    ShellMarkNonce, discard_mark_nonce_file, mint_mark_nonce,
-};
-use crate::pty::shell::output::stream::ShellOutputEnd;
-use crate::pty::shell::record::ShellRecord;
-use crate::pty::shell::refusals::backend_unavailable;
-use crate::pty::shell::start::{ShellStartInput, check_working_folder, plan_shell_start};
-use crate::pty::shell::table::end::{close_terminal, let_shell_go};
-use crate::pty::shell::table::output::drain_output;
-use crate::pty::shell::table::{ShellTable, TableShared, log_failure};
-use crate::session::not_found::session_not_found;
+use crate::integration::injection::{ShellMarkNonce, discard_mark_nonce_file, mint_mark_nonce};
+use crate::output::stream::ShellOutputEnd;
+use crate::record::ShellRecord;
+use crate::refusals::backend_unavailable;
+use crate::start::{ShellStartInput, check_working_folder, plan_shell_start};
+use crate::table::end::{close_terminal, let_shell_go};
+use crate::table::output::drain_output;
+use crate::table::{ShellTable, TableShared, log_failure};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::spawn_environment::SessionEnvironment;
+use sidekicks_std::error_description::describe_error;
 
 #[cfg_attr(
     not(test),

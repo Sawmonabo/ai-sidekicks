@@ -11,10 +11,10 @@ use super::{
     ApprovalRuleError, ApprovalRules, NOT_REVOKED_SQL, RULE_SELECT_LIST_SQL, RULE_SOURCE_SQL,
     RuleRow, SELECT_RULES_IN_FORCE_SQL, provider_rule_of, query_rule_rows, rule_over,
 };
-use crate::approvals::ask_description::{derive_rule_subject, read_command_line};
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::provider::port::permission_ask::ProviderAskAction;
-use crate::provider::port::session_rules::SessionRulePort;
+use crate::ask_description::{derive_rule_subject, read_command_line};
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_provider::port::permission_ask::ProviderAskAction;
+use sidekicks_provider::port::session_rules::SessionRulePort;
 
 // The rules made in a session and revoked since, oldest first.
 static SELECT_REVOKED_IN_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {

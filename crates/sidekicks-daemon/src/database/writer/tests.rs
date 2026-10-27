@@ -12,7 +12,6 @@ use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
-use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::schema::schema_parts;
 use crate::database::statement::{StatementBindings, WriteStatement};
@@ -26,6 +25,7 @@ use crate::database::writer::{
     ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
     WritesHeldError,
 };
+use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
 
 /// A read that counts to a million: slow enough that a write running it has not committed when
 /// the caller's next step runs, and bounded.

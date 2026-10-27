@@ -36,16 +36,18 @@ use strum::{IntoStaticStr, VariantArray};
 use tokio::sync::{Notify, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::mcp::client::connection::{McpConnectionScope, McpServerConnection};
-use crate::mcp::client::requests::{McpRequestError, RequestWait};
-use crate::mcp::elicitation_form::{compose_elicitation_content, read_elicitation_questions};
-use crate::mutex_lock::lock;
-use crate::provider::port::question::{
+use crate::client::connection::{McpConnectionScope, McpServerConnection};
+use crate::client::requests::{McpRequestError, RequestWait};
+use sidekicks_provider::mcp::elicitation_form::{
+    compose_elicitation_content, read_elicitation_questions,
+};
+use sidekicks_provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
     QuestionTurnError, ToolServerQuestionAnswer, take_question_in_turn,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::record_readers::read_non_empty_string;
+use sidekicks_provider::port::registration::PortRegistration;
+use sidekicks_provider::record_readers::read_non_empty_string;
+use sidekicks_std::mutex_lock::lock;
 
 /// The identity of one task-augmented MCP dispatch. `command_id` is the client-supplied
 /// idempotency key on the dispatch's command receipt row; the server and tool name no stored row.
@@ -737,8 +739,8 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::{ElicitationAnswer, PendingTake, compose_question};
-    use crate::mcp::client::test_server::{board_form, test_client, test_scope, track_call};
-    use crate::provider::port::question::QuestionPort as _;
+    use crate::client::test_server::{board_form, test_client, test_scope, track_call};
+    use sidekicks_provider::port::question::QuestionPort as _;
 
     // Mutation: in `PendingTake::drop`, leave out the withdrawal of an outcome sent but not read.
     #[tokio::test(start_paused = true)]

@@ -26,7 +26,7 @@ use sidekicks_contracts::run::queue::UserMessageSentPayload;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::events::session::read::{SessionEventReads, SessionLogReadError};
+use sidekicks_store::events::session::read::{SessionEventReads, SessionLogReadError};
 
 /// Who wrote a turn. The transcript has no third author.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -528,13 +528,17 @@ mod tests {
         CanonicalTranscriptSegment, CanonicalTranscriptTurn, TranscriptExportBound,
         fold_canonical_transcript,
     };
-    use crate::database::schema::provider_drivers::schema_parts;
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::events::content::codec::BodyEncoder;
-    use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
-    use crate::events::session::read::SessionEventReads;
-    use crate::events::test_log::SessionTestLog;
+    use crate::driver::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_envelope, test_session_id,
+    };
+    use sidekicks_store::events::content::codec::BodyEncoder;
+    use sidekicks_store::events::session::insert::{
+        SessionEventRow, insert_session_event, monotonic_ns_now,
+    };
+    use sidekicks_store::events::session::read::SessionEventReads;
+    use sidekicks_store::events::test_log::SessionTestLog;
 
     /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
     /// body.

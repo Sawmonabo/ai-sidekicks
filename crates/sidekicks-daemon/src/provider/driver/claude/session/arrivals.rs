@@ -18,23 +18,19 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::delivery::claude_delivery_origin;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
-use crate::provider::driver::claude::delivery::stream::{
-    ClaudeSessionStream, ClaudeSessionStreams,
-};
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
-use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
-use crate::provider::driver::claude::session::process::{
-    ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
-};
-use crate::provider::driver::claude::session::state::ClaudeSessionRoutingBand;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-use crate::provider::driver::delivery_dispatch::dispatch_delivery;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::run::delivery::{InboundDelivery, InboundOutcome};
+use crate::claude::delivery::claude_delivery_origin;
+use crate::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
+use crate::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::frame_routing::{ClaudeFrameRouting, ClaudeRoutedObservation};
+use crate::claude::run::routes::ClaudeBoundRun;
+use crate::claude::session::process::{ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame};
+use crate::claude::session::state::ClaudeSessionRoutingBand;
+use crate::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::driver::delivery_dispatch::dispatch_delivery;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::run::delivery::{InboundDelivery, InboundOutcome};
+use sidekicks_std::mutex_lock::lock;
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CLAUDE_SESSION_ARRIVALS_DEPTH_MARK: usize = 1_024;
@@ -409,14 +405,14 @@ mod tests {
         ClaudeOwnDelivery, ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler,
         ClaudeTurnAtRead, claude_session_arrivals, drain_claude_session_arrivals,
     };
-    use crate::provider::driver::claude::frame_routing::ClaudeRoutedObservation;
-    use crate::provider::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
-    use crate::provider::driver::claude::session::process::ClaudeStreamFrame;
-    use crate::provider::driver::claude::session::scripted::binding_id;
-    use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-    use crate::provider::driver::test_registry::new_session_id;
-    use crate::provider::run::delivery::InboundDelivery;
-    use crate::provider::thread_frame_router::ThreadFrameRoute;
+    use crate::claude::frame_routing::ClaudeRoutedObservation;
+    use crate::claude::session::frame_observation::ClaudeStreamFrameRead;
+    use crate::claude::session::process::ClaudeStreamFrame;
+    use crate::claude::session::scripted::binding_id;
+    use crate::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+    use crate::driver::test_registry::new_session_id;
+    use crate::run::delivery::InboundDelivery;
+    use crate::thread_frame_router::ThreadFrameRoute;
 
     // Names each arrival as it is handled; a frame takes a second, so an arrival dispatched beside
     // it rather than after it is handled first.

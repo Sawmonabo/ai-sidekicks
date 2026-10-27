@@ -3,8 +3,8 @@
 use sidekicks_contracts::repo::workspace::WORKSPACE_LAST_ERROR_MAX_LEN;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
-use crate::redaction::scrub_credentials;
-use crate::text_cut::cut_to_code_points;
+use sidekicks_ipc::redaction::scrub_credentials;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The marker that ends a cut `lastError`; it counts inside the cap, which is the wire's cap too.
 const WORKSPACE_LAST_ERROR_TRUNCATION_MARKER: &str = "...[truncated]";

@@ -20,12 +20,12 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::events::projection::{
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
-use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
-use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
 /// One run state change as its stored event carries it: the state it leaves, the state it enters,
 /// and the run version after the change advanced it by one.

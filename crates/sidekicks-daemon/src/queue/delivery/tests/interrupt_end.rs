@@ -11,12 +11,12 @@ use super::{
     Fixture, HANDS_AT_ONCE, WAIT, continued_ids, count_steers, driver_handing, fixture, hand,
     insert_item, item_ids, set_run_state, settle, stored_item,
 };
-use crate::events::session::appender::{SessionEventAppender, SessionEventLinkage};
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::provider::driver::run_control::InterruptPendingChoice;
-use crate::queue::delivery::InterruptEndWrites;
-use crate::queue::store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
+use crate::delivery::InterruptEndWrites;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::run_control::InterruptPendingChoice;
+use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord, RecordedQueueItemState};
+use sidekicks_store::events::session::appender::{SessionEventAppender, SessionEventLinkage};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// A run with three messages waiting: the first two handed to the provider, the third not.
 async fn interrupted_fixture() -> (Fixture, [QueueItemRecord; 3]) {

@@ -96,7 +96,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE, ask_broker, read_answer};
-    use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassOwner};
+    use crate::clone::askpass::broker::{AskpassBroker, AskpassOwner};
 
     // The socket and owner the daemon gives git, as the mode reads them.
     fn socket_and_owner_of(owner: &AskpassOwner) -> (PathBuf, String) {

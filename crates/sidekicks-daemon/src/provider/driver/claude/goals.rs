@@ -12,16 +12,16 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::oneshot;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::provider::driver::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::DriverGoalResult;
-use crate::provider::lenient_json::{lenient_object, read_lenient};
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::claude::run::start::{ClaudeDaemonTurnOpening, ClaudeRunStart};
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::driver::contract::DriverError;
+use crate::driver::session_control::DriverGoalResult;
+use crate::lenient_json::{lenient_object, read_lenient};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use sidekicks_std::mutex_lock::lock;
 
 // Bare, as `system/init` lists `slash_commands`.
 const CLAUDE_GOAL_COMMAND_NAME: &str = "goal";

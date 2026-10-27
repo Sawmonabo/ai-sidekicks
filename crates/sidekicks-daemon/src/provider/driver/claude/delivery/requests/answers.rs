@@ -14,24 +14,22 @@ use sidekicks_contracts::approval::RememberedScopeKind;
 use sidekicks_contracts::question::{QuestionAnswer, QuestionPrompt};
 use sidekicks_platforms::PathRules;
 
-use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
-use crate::provider::driver::claude::session::permissions::{
+use crate::claude::hooks::pause::ClaudeHookAnswer;
+use crate::claude::session::permissions::{
     ClaudePermissionsError, ClaudeProjectRuleFolders, keep_claude_project_rule,
     keep_claude_session_rule, read_claude_session_rules,
 };
-use crate::provider::driver::claude::session::rules::{
+use crate::claude::session::rules::{
     ClaudeProjectFolder, ClaudeRepository, ClaudeRulesError, compose_claude_project_allow_update,
 };
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::question_answers::{
-    QUESTION_UNSHOWN_REASON, read_question_answer_texts,
-};
-use crate::provider::port::permission_ask::{
+use crate::claude::session::state::LiveClaudeSession;
+use crate::driver::question_answers::{QUESTION_UNSHOWN_REASON, read_question_answer_texts};
+use crate::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer,
 };
-use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
-use crate::provider::port::repository_reader::{RepositoryReader, RepositoryReading};
-use crate::provider::port::session_rules::SessionRulePort;
+use crate::port::registration::{PortRegistration, PortRegistrationError};
+use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
+use crate::port::session_rules::SessionRulePort;
 
 // The input members a file tool names its file or folder by, in the order they are read.
 const CLAUDE_PATH_MEMBERS: [&str; 3] = ["file_path", "notebook_path", "path"];

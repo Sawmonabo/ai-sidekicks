@@ -35,7 +35,7 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::provider::id::ProviderId;
 use tokio::time::Instant;
 
-use crate::provider::driver::diagnostics::{
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics, emit_driver_diagnostic,
 };
 
@@ -523,8 +523,8 @@ mod tests {
         RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRoute, ThreadFrameRouter,
         ThreadFrameRouterConfig, ThreadScopedFrameCapability,
     };
-    use crate::provider::driver::diagnostics::RecordedEvents;
-    use crate::provider::driver::registry::test_provider;
+    use crate::driver::diagnostics::RecordedEvents;
+    use crate::driver::registry::test_provider;
 
     const PENDING_REGISTRATION_TIMEOUT: Duration = Duration::from_secs(5);
 

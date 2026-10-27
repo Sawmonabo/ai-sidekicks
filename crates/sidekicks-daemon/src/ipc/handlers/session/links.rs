@@ -15,13 +15,13 @@ use sidekicks_contracts::session::links::{
     SessionRelatedSessionSubscribe, SessionRelatedSessionSubscribeRequest,
 };
 
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::ipc::stream::feed::Feed;
-use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
-use crate::session::links::service::SessionLinkService;
-use crate::session::related::ranking::SessionRelatedRanking;
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
+use sidekicks_session::links::service::SessionLinkService;
+use sidekicks_session::related::ranking::SessionRelatedRanking;
 
 /// Registers the two link verbs and `session.relatedSession.subscribe`, each refusing by the codes
 /// its method lists, a refused subscription leaving nothing open. Fails the start when a method is
@@ -112,22 +112,22 @@ mod tests {
     };
 
     use super::register_session_links;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{
+    use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistryBuilder, Reply,
     };
-    use crate::ipc::stream::feed::CreditGate;
-    use crate::remote::shared_ports::schema::schema_parts;
-    use crate::session::links::service::{
+    use sidekicks_ipc::stream::feed::CreditGate;
+    use sidekicks_session::links::service::{
         SESSION_LINK_SERVICE_STATEMENT_CAPACITY, SessionLinkService,
     };
-    use crate::session::related::ranking::{
+    use sidekicks_session::related::ranking::{
         RELATED_RANKING_STATEMENT_CAPACITY, SessionRelatedRanking,
     };
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::log_service::tests::open_log;
 
     /// Long enough for a re-score round to store and raise, many times over.
     const ROUND_WAIT: Duration = Duration::from_secs(10);

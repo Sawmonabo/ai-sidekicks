@@ -27,19 +27,19 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
-};
-use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::{
     InterventionTransition, UnresolvedInterventionState, move_intervention_statement, stored_actor,
     unresolved_state_of,
 };
-use crate::queue::store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
-use crate::session::run::engine::turns::TURN_END_TYPES_SQL;
-use crate::session::run::read::LiveRun;
-use crate::session::run::state_change::RunStateChangeCompanions;
+use crate::queue_store::{QueueItemReader, SELECT_WAITING_FOR_RUN_SQL};
+use crate::run::engine::turns::TURN_END_TYPES_SQL;
+use crate::run::read::LiveRun;
+use crate::run::state_change::RunStateChangeCompanions;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 // The run's interrupts that have no outcome yet, the person's or the daemon's own at a limit, in
 // the order they were asked for. An applied one ends its run in the outcome's own write, so a live

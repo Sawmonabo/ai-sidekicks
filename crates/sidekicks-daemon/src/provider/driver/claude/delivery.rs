@@ -18,8 +18,8 @@ mod turn_end;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::delivery_dispatch::DeliveryOrigin;
+use crate::claude::DESCRIPTOR;
+use crate::driver::delivery_dispatch::DeliveryOrigin;
 
 /// Where a Claude Code delivery came from, as a refusal's diagnostic names it: the process on
 /// `provider_account_id`'s account, `None` on the machine's own home, and the frame `raw_wire_type`

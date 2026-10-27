@@ -15,8 +15,8 @@ use rusqlite::Connection;
 use tokio::sync::{RwLock, Semaphore};
 use tokio::task::JoinError;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::open_database_reader;
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// The read-only connections the pool holds at most. It is 4 until a measured workload of short
 /// reads beside long ones on the blocking pool sets it.

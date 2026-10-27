@@ -25,27 +25,29 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError, is_ecmascript_whitespace};
 use tokio_util::task::TaskTracker;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{
+use crate::run::ids::read_session_run_ids;
+use crate::run::state_change::refused_statement_index;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::CloseSessionParams;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::{
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::CloseSessionParams;
-use crate::session::not_found::session_not_found;
-use crate::session::run::ids::read_session_run_ids;
-use crate::session::run::state_change::refused_statement_index;
-use crate::text_cut::cut_to_code_points;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The statements the session changes prepare on a read connection: the session's facts, its
 /// runs, and the providers their bindings name.

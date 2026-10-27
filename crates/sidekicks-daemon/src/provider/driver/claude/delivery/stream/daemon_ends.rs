@@ -14,19 +14,19 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, ClaudeSessionStreams};
-use crate::provider::driver::claude::delivery::dialogs::ClaudeDialogPorts;
-use crate::provider::driver::claude::delivery::run_readings::{
+use crate::claude::delivery::dialogs::ClaudeDialogPorts;
+use crate::claude::delivery::run_readings::{
     ClaudeEndedAs, ClaudeMessageKey, ClaudeStreamSession, ClaudeTurnEndDelivery,
 };
-use crate::provider::driver::claude::delivery::turn_end::ClaudeTurnEnd;
-use crate::provider::driver::claude::run::routes::{ClaudeRunRoute, ClaudeRunRoutes};
-use crate::provider::driver::claude::session::arrivals::{
+use crate::claude::delivery::turn_end::ClaudeTurnEnd;
+use crate::claude::run::routes::{ClaudeRunRoute, ClaudeRunRoutes};
+use crate::claude::session::arrivals::{
     ClaudeOwnDelivery, ClaudeSessionArrival, deliver_in_session_order,
 };
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::run::delivery::{InboundDelivery, InboundOutcome};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::run::turn_end::TurnOutcome;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::run::delivery::{InboundDelivery, InboundOutcome};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::TurnOutcome;
 
 /// A run whose end the daemon writes itself, and the turn end held back until that end is certain.
 #[derive(Debug)]

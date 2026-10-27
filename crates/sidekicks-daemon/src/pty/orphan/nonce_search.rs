@@ -10,7 +10,7 @@ use std::io;
 
 use sidekicks_platforms::{list_user_process_ids, read_process_start};
 
-use crate::pty::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
+use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
 
 /// Reads the environment of each process this user runs, once, and answers which of `nonces`
 /// each carries, by process id; empty where the system shows no other process's environment.

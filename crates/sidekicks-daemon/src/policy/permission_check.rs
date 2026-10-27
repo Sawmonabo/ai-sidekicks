@@ -30,32 +30,34 @@ use sidekicks_contracts::workflow::definition::document::WorkflowDefinitionId;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
-use crate::approvals::ask_description::{
+use crate::ask_description::{
     AskDescriptionError, ProviderAskDescription, derive_rule_subject, describe_provider_ask,
     may_allow_stand, read_command_line,
 };
-use crate::approvals::request_create::{
+use crate::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
+use crate::request_create::{
     ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
 };
-use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
-use crate::approvals::service::{ApprovalService, ApprovalServiceError, RaisedCard};
-use crate::daemon::machine::registry::{MachineRegistry, MachineRegistryReadError};
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::authorizer::{Authorizer, PolicyDecision};
-use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::provider_ask_answers::{ProviderAskAnswer, answer_provider_ask};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::policy::workflow_start::{WorkflowStart, check_workflow_start};
-use crate::provider::callback_tools::host::{
+use crate::rules::{ApprovalRuleError, ApprovalRules};
+use crate::service::{ApprovalService, ApprovalServiceError, RaisedCard};
+use crate::workflow_start::{WorkflowStart, check_workflow_start};
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::authorizer::{Authorizer, PolicyDecision};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::background_work::{BackgroundWorkForms, refuse_background_work};
+use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome,
 };
-use crate::provider::driver::callback_tool::CallbackToolInvocation;
-use crate::provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
-use crate::session::permission_level::read_session_permission_level;
-use crate::session::run::agent::{RunAgentReadError, RunAgentReader};
-use crate::text_cut::cut_to_code_points;
+use sidekicks_provider::driver::callback_tool::CallbackToolInvocation;
+use sidekicks_provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
+use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_session::permission_level::read_session_permission_level;
+use sidekicks_session::run::agent::{RunAgentReadError, RunAgentReader};
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::machine::registry::{MachineRegistry, MachineRegistryReadError};
 
 // A tool's name stands within a card's scope, so a tool call's card always reads it.
 const _: () = assert!(PROVIDER_TOOL_NAME_MAX_LEN <= FILE_PATH_MAX_LEN);

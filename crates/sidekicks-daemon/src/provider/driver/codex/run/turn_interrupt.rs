@@ -1,9 +1,9 @@
 //! Stopping one Codex turn with `turn/interrupt`, which Codex answers once the turn aborted; the
 //! turn's own `turn/completed` follows, which is when it has ended.
 
-use crate::provider::driver::codex::app_server_protocol::TurnInterruptParams;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::app_server_protocol::TurnInterruptParams;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::CodexAppServerConnection;
 
 const TURN_INTERRUPT_METHOD: &str = "turn/interrupt";
 

@@ -6,13 +6,13 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::terminal::{TerminalWrite, TerminalWriteRequest};
 
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::pty::control_lease::{ShellConnection, ShellLeaseCaller};
-use crate::pty::input_lookup::ShellInputLookup;
-use crate::pty::shell::paste::ShellPastePart;
-use crate::pty::shell::write::{AdmittedShellWrite, ShellWriteInput};
+use sidekicks_shell::control_lease::{ShellConnection, ShellLeaseCaller};
+use sidekicks_shell::input_lookup::ShellInputLookup;
+use sidekicks_shell::paste::ShellPastePart;
+use sidekicks_shell::write::{AdmittedShellWrite, ShellWriteInput};
 
 /// A write's step before any wait: admitted on its shell, or refused once its refusal is read.
 enum WriteStep {
@@ -103,14 +103,14 @@ mod tests {
     use tokio::time::timeout;
 
     use super::register_terminal_write;
-    use crate::ipc::call_fixtures::context;
-    use crate::ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
-    use crate::ipc::registry::{Dispatch, MethodRegistryBuilder, Request, TransportId};
-    use crate::mutex_lock::lock;
-    use crate::pty::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
-    use crate::pty::input_lookup::ShellInputLookup;
-    use crate::pty::shell::refusals::terminal_not_found;
-    use crate::pty::shell::write::{QueueTerminalWrite, ShellInput, ShellInputHooks};
+    use sidekicks_ipc::call_fixtures::context;
+    use sidekicks_ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
+    use sidekicks_ipc::registry::{Dispatch, MethodRegistryBuilder, Request, TransportId};
+    use sidekicks_shell::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
+    use sidekicks_shell::input_lookup::ShellInputLookup;
+    use sidekicks_shell::refusals::terminal_not_found;
+    use sidekicks_shell::write::{QueueTerminalWrite, ShellInput, ShellInputHooks};
+    use sidekicks_std::mutex_lock::lock;
 
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 

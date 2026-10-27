@@ -23,10 +23,10 @@ use sidekicks_platforms::{
 };
 use tokio::task::JoinError;
 
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically_if_changed};
-use crate::provider::spawn_environment::remove_environment_names;
-use crate::pty::shell::integration::zsh_startup::prepare_zsh_startup_folder;
-use crate::random_hex::random_hex;
+use crate::integration::zsh_startup::prepare_zsh_startup_folder;
+use sidekicks_provider::spawn_environment::remove_environment_names;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically_if_changed};
+use sidekicks_std::random_hex::random_hex;
 
 /// bash's script, in the startup folder.
 const BASH_SCRIPT_FILE_NAME: &str = "startup.bash";

@@ -16,10 +16,10 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use walkdir::WalkDir;
 
 use crate::daemon::backup::run::{BackupTrigger, Backups, read_backups};
-use crate::daemon::scheduler::Scheduler;
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use sidekicks_std::scheduler::Scheduler;
 
 /// What the backup methods read and run through.
 pub(crate) struct BackupMethodsDeps {

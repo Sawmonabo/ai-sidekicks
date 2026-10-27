@@ -14,16 +14,16 @@ use sidekicks_contracts::workflow::run::list::{WorkflowRunListCursor, WorkflowRu
 use sidekicks_contracts::workflow::run::records::WorkflowChainRoot;
 use sidekicks_contracts::workflow::run::status::{WorkflowStepStatus, WorkflowWaitCause};
 
-use crate::database::stored_column::{
-    closed_word, optional_text_column, safe_int_column, text_column,
-};
-use crate::workflow::not_found::WorkflowNotFound;
-use crate::workflow::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
-use crate::workflow::runs::record::{
+use crate::not_found::WorkflowNotFound;
+use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
+use crate::runs::record::{
     RUN_COLUMNS, STEP_COLUMNS, StoredInstantBound, StoredWorkflowRun, StoredWorkflowStep, column,
     stored_instant_bound, stored_run_from_row, stored_step_from_row,
 };
-use crate::workflow::runs::spent_account::spent_account_columns;
+use crate::runs::spent_account::spent_account_columns;
+use sidekicks_store::database::stored_column::{
+    closed_word, optional_text_column, safe_int_column, text_column,
+};
 
 /// The statements a [`WorkflowRunStore`] prepares on a read connection: the run read and the runs
 /// list.
@@ -407,7 +407,7 @@ mod tests {
     use sidekicks_contracts::workflow::run::status::WorkflowRunStatus;
 
     use super::{WorkflowRunStore, decode_run_list_cursor, encode_run_list_cursor};
-    use crate::workflow::test_rows::{insert_run, insert_workflow_version, workflow_tables};
+    use crate::test_rows::{insert_run, insert_workflow_version, workflow_tables};
 
     const DEFINITION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e50";
     const VERSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e51";

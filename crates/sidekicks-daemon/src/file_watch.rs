@@ -42,10 +42,10 @@ use tokio::sync::mpsc::error::{TryRecvError, TrySendError};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::file::bounded_read::{read_within_ceiling, run_on_own_thread};
-use crate::file::real_location::resolve_real_path;
-use crate::missing_entry::is_missing_entry;
-use crate::mutex_lock::lock;
+use sidekicks_std::file::bounded_read::{read_within_ceiling, run_on_own_thread};
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::lock;
 
 mod ceiling;
 mod root_watchers;

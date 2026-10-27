@@ -7,10 +7,10 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::attachment::write;
 
-use crate::database::schema::SchemaParts;
-use crate::events::test_log::SessionTestLog;
 use crate::transcript::block_cut::{ChildStartsParse, MARKDOWN_PARSE};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::schema::SchemaParts;
+use sidekicks_store::events::test_log::SessionTestLog;
 
 /// A text [`stalling_parse`] stalls on.
 pub(crate) const STALLING_TEXT: &str = "THE-BLOCK-CUT-STALLS-HERE";

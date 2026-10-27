@@ -17,12 +17,12 @@ use crate::daemon::backup::run::Backups;
 use crate::daemon::crash::reports::{CrashReportDeps, crash_report_job};
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::release_version::this_build_release_version;
-use crate::daemon::scheduler::{JobCondition, ScheduleError, Scheduler};
-use crate::database::writer::DatabaseWriter;
-use crate::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
 use crate::observability::diagnostic_buckets::expiry::{
     DIAGNOSTIC_LOG_EXPIRY_INTERVAL, DiagnosticExpiryDeps, diagnostic_expiry_job,
 };
+use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::database::writer::jobs::{OPTIMIZE_INTERVAL, PASSIVE_CHECKPOINT_INTERVAL};
 
 /// How often the crash report pass runs after its first: hourly, as the diagnostic-log expiry, so a
 /// dump a crash left is reported within the hour.

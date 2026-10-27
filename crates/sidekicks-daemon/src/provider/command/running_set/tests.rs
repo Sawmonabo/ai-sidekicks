@@ -20,14 +20,14 @@ use super::{
     CommandEndingAppender, CommandInput, PromptAnswer, RunningCommandSets, WrapperCommand,
     next_sent_frame, next_sent_set_where,
 };
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::mutex_lock::lock;
-use crate::provider::command::waiting_checks::WaitingState;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::port::running_command_publisher::{
+use crate::command::waiting_checks::WaitingState;
+use crate::driver::contract::{DriverError, MockProviderDriver};
+use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::mutex_lock::lock;
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 const RUN: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0f";

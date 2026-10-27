@@ -23,24 +23,24 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
-use crate::provider::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
-use crate::provider::driver::claude::lifecycle::ClaudeDriver;
-use crate::provider::driver::contract::{
+use crate::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
+use crate::claude::lifecycle::ClaudeDriver;
+use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
     RespondToRequestParams, StartRunParams,
 };
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
-use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
-use crate::provider::driver::run_control::{
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::message_handing::{HandMoment, MessageHanding};
+use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
     PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
-use crate::provider::driver::session_control::{
+use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
@@ -49,14 +49,14 @@ use crate::provider::driver::session_control::{
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
-use crate::provider::driver::{
+use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
-use crate::provider::port::running_command_publisher::{
+use crate::port::running_command_publisher::{
     RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
 };
-use crate::provider::port::session_inbox_address::SessionInboxAddresser;
+use crate::port::session_inbox_address::SessionInboxAddresser;
 
 mod attachments;
 mod capabilities;
@@ -604,10 +604,10 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 
-    use crate::provider::driver::claude::lifecycle::ClaudeDriver;
-    use crate::provider::driver::contract::ProviderDriver;
-    use crate::provider::driver::run_control::PickedSkill;
-    use crate::provider::driver::test_registry::test_driver_services;
+    use crate::claude::lifecycle::ClaudeDriver;
+    use crate::driver::contract::ProviderDriver;
+    use crate::driver::run_control::PickedSkill;
+    use crate::driver::test_registry::test_driver_services;
 
     // Killed by answering no skill, which drops every pick from the stored message.
     #[tokio::test]

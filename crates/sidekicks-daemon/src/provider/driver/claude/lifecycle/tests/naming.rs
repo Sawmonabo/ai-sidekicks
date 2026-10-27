@@ -3,9 +3,9 @@
 use serde_json::Value;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
-use crate::provider::driver::ProviderAccountFolders;
-use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::provider::driver::test_registry::new_session_id;
+use crate::claude::session::scripted::driver::ScriptedDriver;
+use crate::driver::ProviderAccountFolders;
+use crate::driver::test_registry::new_session_id;
 
 /// The conversation the session's stored leg names.
 const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";

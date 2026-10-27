@@ -29,29 +29,31 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::SetOnce;
 
-use crate::database::connection::read_pool::ReadLength;
-use crate::database::statement::WriteStatement;
-use crate::error_description::describe_error;
-use crate::events::session::appender::SessionEventDraft;
-use crate::mutex_lock::lock;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::run_control::DriverRunRefusal;
-use crate::provider::run::start_request::DaemonTurnStartRequest;
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::queue::store::take_over_interrupted_statement;
-use crate::session::run::agent::RunAgentReader;
-use crate::session::run::daemon_turn::queue_daemon_turn_run;
-use crate::session::run::engine::live::{ContinuingGuard, StartingGuard, StartingRun};
-use crate::session::run::engine::{
+use crate::queue_store::take_over_interrupted_statement;
+use crate::run::agent::RunAgentReader;
+use crate::run::daemon_turn::queue_daemon_turn_run;
+use crate::run::engine::live::{ContinuingGuard, StartingGuard, StartingRun};
+use crate::run::engine::{
     LiveAppend, RunEngine, RunEngineError, RunResumeError, with_cleanup_failures,
 };
-use crate::session::run::projection::insert_queued_run_statement;
-use crate::session::run::read::{RunRead, RunStateReader, read_run_provider};
-use crate::session::run::refusals::{RunRefusal, require_expected_version};
-use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
-use crate::session::run::start_request::{RunContinueRequest, RunStartRequest, RunTurnStart};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::projection::insert_queued_run_statement;
+use crate::run::read::{RunRead, RunStateReader, read_run_provider};
+use crate::run::refusals::{RunRefusal, require_expected_version};
+use crate::run::start_request::{RunContinueRequest, RunStartRequest, RunTurnStart};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::run_control::DriverRunRefusal;
+use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::ReadLength;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::session::appender::SessionEventDraft;
+use sidekicks_workspace::run_setup_gates::{
+    RunSetupContext, RunSetupGateError, RunTerminalContext,
+};
 
 // The states a resume continues: a run still finishing its step, or one already held.
 const RESUMABLE_STATES: [RunState; 2] = [RunState::Pausing, RunState::Paused];

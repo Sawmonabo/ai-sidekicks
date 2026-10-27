@@ -5,14 +5,14 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 
-use crate::provider::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::provider::driver::codex::delivery::notices::{
+use crate::codex::delivery::frames::CodexFrameDelivery;
+use crate::codex::delivery::notices::{
     CodexWarningReading, hold_reroute, read_codex_config_warning, read_codex_deprecation_notice,
     read_codex_warning,
 };
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::run::delivery::InboundDelivery;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::run::delivery::InboundDelivery;
 
 /// Frames that draw nothing and go to the daemon's log only.
 const CODEX_LOGGED_ONLY_METHODS: [&str; 5] = [

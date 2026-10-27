@@ -16,11 +16,11 @@ use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 
-use crate::database::statement::{
+use crate::git::worktree::schema::BRANCH_RELEASING_STATE_LIST;
+use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::writer::WriteError;
-use crate::git::worktree::schema::BRANCH_RELEASING_STATE_LIST;
+use sidekicks_store::database::writer::WriteError;
 
 /// The `worktrees` columns a removal reads: the row, its mount, creator, folder, branch and state,
 /// each parsed to its type where the row is read.

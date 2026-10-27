@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 use strum::VariantArray;
 
-use crate::provider::hand_over::canonical_transcript::{
+use crate::hand_over::canonical_transcript::{
     CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
     CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
 };
@@ -332,12 +332,12 @@ mod tests {
         SYNTHETIC_INTERRUPTED_TOOL_RESULT_TEXT, SYNTHETIC_REUSED_IDENTIFIER_TOOL_RESULT_TEXT,
         transform_transcript,
     };
-    use crate::database::writer::test_file::test_session_id;
-    use crate::provider::hand_over::canonical_transcript::{
+    use crate::hand_over::canonical_transcript::{
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// A projection of one assistant turn holding `segments`.
     fn projection_of(segments: Vec<CanonicalTranscriptSegment>) -> CanonicalTranscriptProjection {

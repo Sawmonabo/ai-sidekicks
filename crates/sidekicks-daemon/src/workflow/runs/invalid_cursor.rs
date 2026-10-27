@@ -5,7 +5,7 @@
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// Why a cursor leads to no page.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

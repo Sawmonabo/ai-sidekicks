@@ -14,37 +14,37 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
-use crate::provider::driver::codex::delivery::frames::CodexFrameDelivery;
-use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
-use crate::provider::driver::codex::output_speed::{
+use crate::codex::capabilities::read_codex_service_model_catalog;
+use crate::codex::delivery::frames::CodexFrameDelivery;
+use crate::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::codex::notification_routing::CodexRoutedFrames;
+use crate::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
 };
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::calls::CodexSessionTask;
-use crate::provider::driver::codex::session::controls::update_codex_session_mode;
-use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::errors::{CodexError, classify_rewind_fork_failure};
-use crate::provider::driver::codex::session::history::read_codex_turns;
-use crate::provider::driver::codex::session::slots::let_go_codex_thread;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
-use crate::provider::driver::codex::thread::settings::{
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::calls::CodexSessionTask;
+use crate::codex::session::controls::update_codex_session_mode;
+use crate::codex::session::conversation_release::CodexConversationRelease;
+use crate::codex::session::errors::{CodexError, classify_rewind_fork_failure};
+use crate::codex::session::history::read_codex_turns;
+use crate::codex::session::slots::let_go_codex_thread;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
+use crate::codex::thread::settings::{
     CodexServiceTierChange, CodexThreadSettings, compose_codex_thread_fork_params,
 };
-use crate::provider::driver::codex::thread::view::{
+use crate::codex::thread::view::{
     assert_codex_thread_profile, read_thread, read_thread_reasoning_effort,
 };
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
-use crate::provider::left_conversations::LeftConversation;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::tool_server_route::ToolServerRoute;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::provider::runtime_binding::store::RuntimeBindingRebind;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
+use crate::left_conversations::LeftConversation;
+use crate::port::registration::PortRegistration;
+use crate::port::tool_server_route::ToolServerRoute;
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::store::RuntimeBindingRebind;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 

@@ -9,9 +9,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::KeyHold;
-use crate::provider::driver::message_handing::MessageHanding;
-use crate::provider::driver::run_control::WaitingMessage;
+use crate::driver::message_handing::MessageHanding;
+use crate::driver::run_control::WaitingMessage;
+use sidekicks_std::keyed_lock::KeyHold;
 
 /// A failure the waiting-message queue reports, kept whole.
 pub(crate) type ContinuedMessagesError = Box<dyn Error + Send + Sync>;

@@ -14,24 +14,22 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::rules::{
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::rules::{
     ClaudeProjectFolder, ClaudeRulesError, remove_claude_project_rule,
     resolve_claude_local_settings_file, write_claude_project_rule,
 };
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionsDocument,
 };
-use crate::provider::driver::claude::spawn::settings::{
-    ClaudePermissionsRequest, compose_claude_permissions,
-};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::session_rules::SessionRulePort;
+use crate::claude::spawn::settings::{ClaudePermissionsRequest, compose_claude_permissions};
+use crate::driver::contract::DriverError;
+use crate::port::registration::PortRegistration;
+use crate::port::session_rules::SessionRulePort;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::mutex_lock::lock;
 
 /// Why a standing rule could not be handed to Claude Code or taken out of force there.
 #[derive(Debug, thiserror::Error)]

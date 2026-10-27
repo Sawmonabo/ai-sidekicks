@@ -10,12 +10,12 @@ use serde_json::Value;
 use sidekicks_contracts::run::id::RunId;
 use tokio_util::sync::CancellationToken;
 
-use crate::mcp::client::connection::McpConnectionScope;
-use crate::mcp::client::tasks::{
+use crate::client::connection::McpConnectionScope;
+use crate::client::tasks::{
     AwaitedQuestion, ElicitationAnswer, McpToolCall, QuestionOutcome, QuestionTake, TaskWatches,
     compose_question,
 };
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// The calls in flight on one connection: one entry per call until it ends or is dropped, each
 /// holding its questions until they settle.
@@ -167,8 +167,8 @@ mod tests {
     use serde_json::{Value, json};
     use tokio::time::{Duration, timeout};
 
-    use crate::mcp::client::tasks::McpToolCallEnd;
-    use crate::mcp::client::test_server::{
+    use crate::client::tasks::McpToolCallEnd;
+    use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
         contact, method_not_found, open_test_server, test_client, text_result, track_call,
     };

@@ -20,12 +20,12 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use strum::VariantArray;
 
 use super::app_server_protocol::SERVER_NOTIFICATION_METHODS;
-use crate::provider::driver::diagnostics::{
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::provider::event_disposition::{NormalizedEventKind, resolve_adopted_event_target};
-use crate::provider::inbound_json::decode_inbound_json;
-use crate::provider::thread_frame_router::{
+use crate::event_disposition::{NormalizedEventKind, resolve_adopted_event_target};
+use crate::inbound_json::decode_inbound_json;
+use crate::thread_frame_router::{
     ChildThreadAnnouncement, ThreadFrameFamilyClass, ThreadScopedFrameCapability,
 };
 
@@ -605,8 +605,8 @@ mod tests {
         CODEX_OPT_OUT_NOTIFICATION_METHODS, CodexFrameEmissionRoute, CodexFrameRoot,
         CodexInboundMethod, resolve_codex_frame_emission_route,
     };
-    use crate::provider::driver::codex::vendored_schema::vendored_schema_file;
-    use crate::provider::driver::diagnostics::{OnceReportedDiagnostics, RecordedEvents};
+    use crate::codex::vendored_schema::vendored_schema_file;
+    use crate::driver::diagnostics::{OnceReportedDiagnostics, RecordedEvents};
 
     // The notification names of the vendored service schema, in its order.
     fn bundle_notification_methods() -> Vec<String> {

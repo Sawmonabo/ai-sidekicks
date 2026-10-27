@@ -14,11 +14,11 @@ use sidekicks_contracts::machine::settings::{
 
 use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
 use crate::daemon::machine::settings::refusals::{refuse_branch_pattern, refuse_environment_rows};
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::ipc::stream::feed::Feed;
-use crate::ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_ipc::stream::latest_value::LatestValueFeed;
 
 /// Why a `Branch names` pattern cannot be saved, `None` when it can: git's branch-name rule and
 /// a clash in each project that keeps no pattern of its own. Fails when git could not run.
@@ -140,9 +140,9 @@ mod tests {
 
     use super::{MachineSettingsMethodsDeps, register_machine_settings_methods};
     use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
-    use crate::ipc::stream::feed::CreditGate;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
+    use sidekicks_ipc::stream::feed::CreditGate;
 
     const WAIT: Duration = Duration::from_secs(10);
 

@@ -11,16 +11,14 @@ use sidekicks_contracts::provider::driver::compaction::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::error_description::describe_error;
-use crate::provider::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::ThreadCompactStartParams;
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
-use crate::provider::driver::diagnostics::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::app_server_protocol::ThreadCompactStartParams;
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use sidekicks_std::error_description::describe_error;
 
 /// Codex's own compaction request, answered before the compaction runs.
 const CODEX_THREAD_COMPACT_START_METHOD: &str = "thread/compact/start";

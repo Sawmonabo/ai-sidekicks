@@ -44,21 +44,21 @@ use sidekicks_platforms::{
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PANIC_RECORD_SUFFIX, PanicRecord,
     is_partial_dump_name, panic_record_path, partial_dump_name,
 };
 use crate::daemon::machine::settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
-use crate::daemon::scheduler::ScheduledJobOutcome;
-use crate::daemon::scheduler::budget::{
+use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
+use sidekicks_ipc::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
     BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
 };
-use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-use crate::missing_entry::MissingEntry as _;
-use crate::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
-use crate::text_cut::cut_to_code_points;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// A report's file extension in the crash reports folder.
 pub(crate) const REPORT_EXTENSION: &str = "json";

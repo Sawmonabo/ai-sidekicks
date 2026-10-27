@@ -14,34 +14,32 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::{resume_params, start_params};
-use crate::mutex_lock::lock;
-use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::claude::lifecycle::ClaudeDriver;
-use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
-use crate::provider::driver::claude::session::scripted::driver::{
-    ScriptedDriver, create_params, end_turn_of,
-};
-use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
-use crate::provider::driver::claude::session::scripted::{
+use crate::claude::lifecycle::ClaudeDriver;
+use crate::claude::session::scripted::channel::ScriptedChannel;
+use crate::claude::session::scripted::driver::{ScriptedDriver, create_params, end_turn_of};
+use crate::claude::session::scripted::starts::ScriptedOneTurnRecord;
+use crate::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
-use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::session::transport::control::ClaudePermissionMode;
+use crate::claude::session::transport::declarations::{
     ClaudeCumulativeUsageObservation, ClaudeHandshakeDeclaration, ClaudeInitializeDeclaration,
     ClaudeOfferedModel,
 };
-use crate::provider::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::run_control::InterruptRunRequest;
-use crate::provider::driver::session_control::{
+use crate::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
+use crate::driver::contract::ProviderDriver;
+use crate::driver::run_control::InterruptRunRequest;
+use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
     StartReviewParams,
 };
-use crate::provider::driver::test_registry::{new_run_id, new_session_id};
-use crate::provider::port::run_host::test_host::EngineCall;
-use crate::provider::run::delivery::LateAppendableRow;
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::provider::usage_delta_accountant::UsageAxisCounts;
+use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::run_host::test_host::EngineCall;
+use crate::run::delivery::LateAppendableRow;
+use crate::run::posture::compose_execution_posture;
+use crate::run::state_entry::RunStateEntry;
+use crate::usage_delta_accountant::UsageAxisCounts;
+use sidekicks_std::mutex_lock::lock;
 
 // The full id the build resolves the session's `opus` to.
 const FULL_MODEL_ID: &str = "claude-opus-4-7";

@@ -16,8 +16,8 @@ use sidekicks_contracts::question::{QuestionAnswer, QuestionAskedState, Question
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::error_description::describe_error;
-use crate::keyed_lock::{KeyHold, KeyWait, KeyedLock};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::keyed_lock::{KeyHold, KeyWait, KeyedLock};
 
 // Each run's line of questions taken in its turn, which every driver's question and each tool
 // server's question taken in its run's turn joins, so they open in the order they came.

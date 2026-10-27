@@ -9,10 +9,10 @@ use sidekicks_platforms::{Spawner, read_child_exit, wrap_child_command};
 use tokio::io::AsyncReadExt;
 use tokio::process::ChildStdout;
 
-use crate::provider::driver::codex::service::process::CodexProcessLaunch;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::start::compose_codex_native_launch;
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::service::process::CodexProcessLaunch;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::start::compose_codex_native_launch;
+use crate::codex::session::errors::CodexError;
 
 /// The most a short command may print; the catalog dump, the largest, measured near 660 KB.
 const CODEX_COMMAND_MAX_OUTPUT_BYTES: usize = 16 * 1024 * 1024;

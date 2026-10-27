@@ -6,8 +6,8 @@
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 
-use crate::provider::driver::claude::session::transport::readings::ClaudeReplyReserveReads;
-use crate::provider::record_readers::{read_count, read_non_empty_string};
+use crate::claude::session::transport::readings::ClaudeReplyReserveReads;
+use crate::record_readers::{read_count, read_non_empty_string};
 
 /// The window both reads set: the smallest window Claude Code takes for the key.
 pub(crate) const CLAUDE_RESERVE_READ_WINDOW_TOKENS: u64 = 100_000;

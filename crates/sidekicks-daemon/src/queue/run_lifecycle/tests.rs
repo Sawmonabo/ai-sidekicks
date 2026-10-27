@@ -3,10 +3,10 @@
 use sidekicks_contracts::run::id::RunId;
 
 use super::SELECT_INTERRUPT_TRIGGER_SQL;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
-use crate::questions::schema::schema_parts;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::questions::schema::schema_parts;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 // The trigger read seeks the session's interrupted events of the run through the run index, with
 // no scan of the log and no sort. Killed by dropping the session from the read, which scans the

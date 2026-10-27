@@ -10,8 +10,8 @@ use sidekicks_contracts::plan::{PlanId, PlanProposedPayload};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 
-use crate::provider::port::plan::ProviderPlan;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::port::plan::ProviderPlan;
 
 /// The `plan.proposed` payload for `plan`, kept by `artifact_id`, under a freshly minted plan id.
 pub(crate) fn compose_plan_proposed_payload(
@@ -242,9 +242,9 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::compose_plan_proposed_payload;
-    use crate::artifacts::id::mint_artifact_id;
-    use crate::provider::port::plan::ProviderPlan;
+    use crate::id::mint_artifact_id;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::port::plan::ProviderPlan;
 
     #[rstest]
     #[case::bullets_count_only_their_top_level_items("- one\n- two\n  - nested\n- three\n", 3, 0)]

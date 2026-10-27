@@ -13,9 +13,7 @@ use tokio::io::{AsyncWrite, AsyncWriteExt};
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeWriteAttempt, ClaudeWriteDelivery,
-};
+use crate::claude::session::transport::user_message::{ClaudeWriteAttempt, ClaudeWriteDelivery};
 
 // A line's place: waiting in the queue, being written, or given up by its caller before the
 // writer took it, which the writer then skips.
@@ -244,7 +242,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWrite};
 
     use super::ClaudeInputWriter;
-    use crate::provider::driver::claude::session::transport::user_message::{
+    use crate::claude::session::transport::user_message::{
         ClaudeWriteAttempt, ClaudeWriteDelivery,
     };
 

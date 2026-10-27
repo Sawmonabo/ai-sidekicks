@@ -19,14 +19,14 @@ use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
 use sidekicks_platforms::WallClockTimer;
 
 use super::{ArtifactIngestService, IngestStream};
-use crate::artifacts::ingest::limits::{
+use crate::ingest::limits::{
     ABANDONED_SPOOL_TTL, MAX_ACTIVE_INGEST_STREAMS, MAX_HELD_COMPLETIONS,
     MAX_INGEST_STREAM_LIFETIME,
 };
-use crate::artifacts::refusals::ArtifactError;
-use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
-use crate::daemon::scheduler::budget::ProcessorMeter;
+use crate::refusals::ArtifactError;
+use crate::test_store::{ArtifactTestStore, refusal_code_of};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 
 fn service(store: &ArtifactTestStore) -> Arc<ArtifactIngestService> {
     Arc::new(ArtifactIngestService::new(

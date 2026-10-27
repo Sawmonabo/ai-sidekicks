@@ -36,34 +36,34 @@ use tokio::sync::watch;
 use tokio_util::task::TaskTracker;
 use tracing::Instrument as _;
 
-use crate::admission::memory_gate::{
+use crate::delivery::QueueDelivery;
+use crate::error::QueueError;
+use crate::memory_gate::{
     AdmissionWork, MemoryAdmission, MemoryAdmissionState, MemoryGate, ProviderStartEstimate,
 };
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::error_description::describe_error;
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::read_session_driver;
-use crate::keyed_lock::KeyHold;
-use crate::mutex_lock::lock;
-use crate::provider::driver::contract::{ProviderDriver, bound_failure_detail};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::process_identity::ProviderProcessIds;
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::queue::delivery::QueueDelivery;
-use crate::queue::error::QueueError;
-use crate::queue::provider_session::ProviderSessions;
-use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
-use crate::queue::session_lock::QueueSessionLock;
-use crate::queue::store::summary::summary_of;
-use crate::queue::store::{
+use crate::provider_session::ProviderSessions;
+use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::session_lock::QueueSessionLock;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{ProviderDriver, bound_failure_detail};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::process_identity::ProviderProcessIds;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_session::driver_resolution::read_session_driver;
+use sidekicks_session::queue_store::summary::summary_of;
+use sidekicks_session::queue_store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::read::read_run_through;
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::start_request::RunStartRequest;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_session::run::engine::{RunEngine, RunEngineError};
+use sidekicks_session::run::read::read_run_through;
+use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_session::run::start_request::RunStartRequest;
+use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 pub(crate) use self::opening::RunOpenings;
 

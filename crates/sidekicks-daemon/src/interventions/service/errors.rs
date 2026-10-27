@@ -5,17 +5,17 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::{InterventionId, InterventionState};
 use sidekicks_contracts::wire::text::TextError;
 
-use crate::database::connection::read_pool::DatabaseReadError;
-use crate::error_description::describe_error;
-use crate::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
+use crate::driver_resolution::LiveRunDriverError;
 use crate::interventions::interrupt_queue::InterruptQueueError;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
-use crate::ipc::registry::HandlerError;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::error_causes::RequestUnanswered;
-use crate::session::run::engine::RunEngineError;
-use crate::settle_all::SettleFailures;
+use crate::run::engine::RunEngineError;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::error_causes::RequestUnanswered;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventDraftError};
 
 /// Why a dispatch threw or could not run; its row moves to `failed` with a refusal's code, else
 /// its description.

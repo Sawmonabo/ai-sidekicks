@@ -12,10 +12,10 @@ use sidekicks_contracts::run::state::RunState;
 use strum::VariantArray as _;
 use tokio::sync::watch;
 
-use crate::database::schema::recovery::ProjectionCursorState;
-use crate::database::sql_list::sql_list_of;
-use crate::database::writer::CommitRead;
-use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_store::database::schema::recovery::ProjectionCursorState;
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::writer::CommitRead;
 
 // The live runs of the sessions whose cursor is current. The terminal-state term lets the count
 // search the live runs' covering index rather than read the whole table.

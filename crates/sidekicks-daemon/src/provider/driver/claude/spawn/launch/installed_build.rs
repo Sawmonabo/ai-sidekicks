@@ -12,38 +12,36 @@ use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_platforms::PathRules;
 
-use crate::provider::capability::probe::CapabilityProbeExchange;
-use crate::provider::command_search::{ProviderCommandSearch, list_command_folders};
-use crate::provider::driver::ReportedVersionReading;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::capabilities::read_claude_capabilities;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::capability::probe::CapabilityProbeExchange;
+use crate::claude::DESCRIPTOR;
+use crate::claude::capabilities::read_claude_capabilities;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::declarations::ClaudeInitializeDeclaration;
+use crate::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeModelCatalogReading, ClaudeReplyReserveReads,
     ClaudeSessionFolderReadRequest,
 };
-use crate::provider::driver::claude::spawn::launch::bring_up::{
+use crate::claude::spawn::launch::bring_up::{
     ClaudeBringUpRequest, ClaudeSettingsReadback, bring_up_claude_process,
 };
-use crate::provider::driver::claude::spawn::launch::control_only::{
+use crate::claude::spawn::launch::control_only::{
     ClaudeShortProcess, probe_claude_sign_in, read_claude_model_catalog,
 };
-use crate::provider::driver::claude::spawn::launch::figures::{
+use crate::claude::spawn::launch::figures::{
     read_claude_creation_figures, read_claude_reply_reserve,
 };
-use crate::provider::driver::claude::spawn::launch::one_turn::{
+use crate::claude::spawn::launch::one_turn::{
     ClaudeOneTurnReply, ClaudeOneTurnRequest, run_claude_one_turn,
 };
-use crate::provider::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
-use crate::provider::driver::claude::version::read_reported_version;
-use crate::provider::driver::contract::{
-    DriverError, GetCapabilitiesResult, SpawnedVersionBindingCarriers,
-};
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::spawned_version::{
+use crate::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::claude::version::read_reported_version;
+use crate::command_search::{ProviderCommandSearch, list_command_folders};
+use crate::driver::ReportedVersionReading;
+use crate::driver::contract::{DriverError, GetCapabilitiesResult, SpawnedVersionBindingCarriers};
+use crate::process_identity::ProviderProcessIdentity;
+use crate::spawned_version::{
     ProviderVersionHandshakeRequest, ResolvedProviderExecutable, read_spawned_version,
     resolve_provider_executable, to_binding_version_carriers,
 };

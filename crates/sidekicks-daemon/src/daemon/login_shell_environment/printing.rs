@@ -8,7 +8,7 @@ use std::process::ExitCode;
 
 use sidekicks_platforms::os_text_bytes;
 
-use crate::standard_error::write_error_line;
+use sidekicks_std::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to print its environment.
 pub(crate) const ENVIRONMENT_MODE: &str = "environment";

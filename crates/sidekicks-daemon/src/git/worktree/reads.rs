@@ -25,11 +25,11 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::path_from_program_output;
 
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{
     GitCall, GitError, GitRunner, background_read, strip_carriage_return, strip_line_end,
 };
-use crate::missing_entry::is_missing_entry;
-use crate::workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_std::missing_entry::is_missing_entry;
 
 /// The prefix of every local branch's full ref name.
 pub(crate) const BRANCH_REF_PREFIX: &str = "refs/heads/";

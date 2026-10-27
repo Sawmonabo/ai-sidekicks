@@ -23,31 +23,31 @@ use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::backup::mirror::{
+use crate::database_file::copy::copy_file_replacing;
+use crate::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
+use crate::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::standard_error::write_error_line;
+use sidekicks_store::backup_mirror::{
     MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, bring_level,
     probe_time_precision,
 };
-use crate::daemon::data_folder::data_folder;
-use crate::daemon::data_folder_lock::{DataFolderLock, DataFolderLockError};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::connection::writer_open::{
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder_lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
 };
-use crate::database::schema::DatabaseSchema;
-use crate::database::sibling_path;
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::error_description::describe_error;
-use crate::events::log_service::{
+use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::sibling_path;
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::{
     EventLogAppendOptions, EventLogService, EventLogServiceDependencies,
 };
-use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
-use crate::events::session::followers::SessionEventFollowers;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::missing_entry::MissingEntry as _;
-use crate::recovery::database_file::copy::copy_file_replacing;
-use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
-use crate::recovery::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
-use crate::standard_error::write_error_line;
+use sidekicks_store::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
+use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The arguments the daemon's own program is started with to restore a backup; the backup's
 /// folder follows them.
@@ -460,12 +460,12 @@ mod tests {
     use sidekicks_contracts::release_manifest::ReleaseVersion;
 
     use super::{BACKUP_DATABASE_FILE_NAME, RestoreError, restore_backup};
-    use crate::daemon::data_folder::data_folder;
-    use crate::daemon::data_folder_lock::DataFolderLock;
-    use crate::database::connection::writer_open::{
+    use sidekicks_store::data_folder::data_folder;
+    use sidekicks_store::data_folder_lock::DataFolderLock;
+    use sidekicks_store::database::connection::writer_open::{
         DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
     };
-    use crate::database::schema::{DatabaseSchema, schema_parts};
+    use sidekicks_store::database::schema::{DatabaseSchema, schema_parts};
 
     // A backup folder holding a store opened with `schema`, its `user_version` set to `version`,
     // its manifest naming `service_version`.

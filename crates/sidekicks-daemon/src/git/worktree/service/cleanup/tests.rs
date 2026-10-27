@@ -14,9 +14,6 @@ use tokio_util::sync::CancellationToken;
 use super::{
     RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::{TestLog, open_log};
 use crate::git::process::{
     GitCall, GitError, GitRunner, find_git_executable, in_folder, test_git_runner,
     test_git_runner_with_environment,
@@ -26,8 +23,11 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
-use crate::settle_all::SettleFailures;
-use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use sidekicks_std::settle_all::SettleFailures;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 

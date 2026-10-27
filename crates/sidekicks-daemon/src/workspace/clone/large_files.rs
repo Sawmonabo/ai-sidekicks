@@ -9,7 +9,7 @@ use memchr::memmem;
 use sidekicks_contracts::place::Place;
 
 use crate::git::process::{GitCall, GitError, GitRunner};
-use crate::missing_entry::MissingEntry;
+use sidekicks_std::missing_entry::MissingEntry;
 
 /// The four filter settings `git lfs install` writes, exactly as Git LFS writes them, passed to
 /// the clone as `-c` options so its checkout fetches large files; the clone's own config gets them

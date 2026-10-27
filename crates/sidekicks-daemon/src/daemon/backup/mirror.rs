@@ -24,8 +24,8 @@ use sidekicks_platforms::{
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::missing_entry::{MissingEntry as _, is_missing_entry};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
 
 /// The mirror's folder inside the backups folder; it holds no manifest, so no reader takes it
 /// for a backup.

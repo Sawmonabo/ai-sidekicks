@@ -9,7 +9,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
+use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 
 /// One quota window a provider reported for an account: the provider's own name for the limit, the
 /// window's length in minutes, the share of it used in percent, and when it resets where said.

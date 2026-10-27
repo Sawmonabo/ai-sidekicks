@@ -25,22 +25,22 @@ use sidekicks_terminal::{
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use crate::ipc::registry::TransportId;
-use crate::pty::control_lease::{
+use crate::control_lease::{
     EndedCallerCheck, LeaseBroadcast, LeaseReading, ShellControlLease, ShellLeaseCaller,
 };
-use crate::pty::flow_control::{ReadChange, ShellFlowControl};
-use crate::pty::shell::integration::injection::ShellMarkNonce;
-use crate::pty::shell::integration::marks::{ShellMark, ShellMarkReader};
-use crate::pty::shell::list::ShellListFollowers;
-use crate::pty::shell::output::screen::{
+use crate::flow_control::{ReadChange, ShellFlowControl};
+use crate::integration::injection::ShellMarkNonce;
+use crate::integration::marks::{ShellMark, ShellMarkReader};
+use crate::list::ShellListFollowers;
+use crate::output::screen::{
     ShellScreenAppearance, ShellScreenHooks, ShellScreenListener, is_bracketed_paste_requested,
 };
-use crate::pty::shell::output::stream::{ShellOutputEnd, ShellOutputSource};
-use crate::pty::shell::refusals::{output_subscription_not_found, terminal_not_found};
-use crate::pty::shell::resize::{ResizeTerminal, ShellResizeError, ShellResizeQueue, ShellSize};
-use crate::pty::shell::start::INITIAL_SHELL_SIZE;
-use crate::pty::shell::write::{ShellInput, ShellInputHooks};
+use crate::output::stream::{ShellOutputEnd, ShellOutputSource};
+use crate::refusals::{output_subscription_not_found, terminal_not_found};
+use crate::resize::{ResizeTerminal, ShellResizeError, ShellResizeQueue, ShellSize};
+use crate::start::INITIAL_SHELL_SIZE;
+use crate::write::{ShellInput, ShellInputHooks};
+use sidekicks_ipc::registry::TransportId;
 
 /// A shell's screen copy and scrollback window, as the terminal shares them with its read loop.
 pub(crate) type ShellScreen = Arc<Mutex<TerminalScreen<ShellScreenListener>>>;

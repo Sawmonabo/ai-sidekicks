@@ -34,26 +34,26 @@ use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{ComposedText, NonEmptyText};
 use sidekicks_platforms::WallClock;
 
-use crate::artifacts::payload_store::ContentHash;
-use crate::artifacts::refusals::ArtifactError;
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::statement::{
+use crate::payload_store::ContentHash;
+use crate::refusals::ArtifactError;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_session::directory::lookups::{session_exists, session_exists_statement};
+use sidekicks_session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
+use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_session::run::state_change::refused_statement_index;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{
+use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
-use crate::events::log_service::EventAppendError;
-use crate::events::session::appender::{
+use sidekicks_store::events::log_service::EventAppendError;
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
-use crate::ipc::domain_error::DomainError;
-use crate::session::directory::lookups::{session_exists, session_exists_statement};
-use crate::session::not_found::session_not_found;
-use crate::session::run::ids::{RUN_IN_SESSION_SQL, run_in_session_statement};
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::refused_statement_index;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // One row whatever the group holds: an aggregate with no GROUP BY yields one row, so a path's
 // next version is counted on the writer's connection, and a manifest with no path is version 1.
@@ -407,12 +407,12 @@ mod tests {
     use super::{
         PublishedManifest, check_artifact_owner, manifest_created_at, write_published_manifest,
     };
-    use crate::artifacts::id::mint_artifact_id;
-    use crate::artifacts::payload_store::ContentHash;
-    use crate::artifacts::test_store::{ArtifactTestStore, refusal_code_of};
-    use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-    use crate::database::writer::test_file::test_session_id;
+    use crate::id::mint_artifact_id;
+    use crate::payload_store::ContentHash;
+    use crate::test_store::{ArtifactTestStore, refusal_code_of};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     /// A run of another session never owns an artifact here, so no client writes into another
     /// session's run; the session's own run does. Both the check before spooling and the write's

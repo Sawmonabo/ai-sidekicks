@@ -20,11 +20,11 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_contracts::worktree::lifecycle::NewWorktreeSuggestion;
 
-use crate::git::branch_name_pattern::{
+use crate::auto_title::first_words_of;
+use sidekicks_workspace::git::branch_name_pattern::{
     BranchNamePatternValues, fill_branch_name_pattern, last_fatal_line, strip_lock_clause,
 };
-use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
-use crate::session::auto_title::first_words_of;
+use sidekicks_workspace::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 
 const WORKTREES_FOLDER_NAME: &str = "worktrees";
 

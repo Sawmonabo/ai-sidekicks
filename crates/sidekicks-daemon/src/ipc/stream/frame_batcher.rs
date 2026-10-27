@@ -17,8 +17,8 @@ use sidekicks_contracts::wire::list::BoundedVec;
 use tokio::sync::watch;
 use tokio::time::{Instant, sleep_until};
 
-use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage, SendGate};
+use crate::registry::HandlerError;
+use crate::stream::feed::{ChangeRecord, Feed, RecordPage, SendGate};
 
 /// How long the first change of a frame waits for others before the frame goes out.
 pub(crate) const STREAM_WINDOW: Duration = Duration::from_millis(16);
@@ -195,7 +195,7 @@ mod tests {
     use futures::future::BoxFuture;
 
     use super::*;
-    use crate::ipc::stream::feed::CreditGate;
+    use crate::stream::feed::CreditGate;
 
     /// A record of numbered changes, each change its own cursor.
     struct NumberedRecord {

@@ -22,7 +22,7 @@ mod tests {
     use super::screen::{
         ShellScreenAppearance, ShellScreenHooks, ShellScreenListener, is_bracketed_paste_requested,
     };
-    use crate::pty::shell::resize::ShellSize;
+    use crate::resize::ShellSize;
 
     const TERMINAL_VERSION: &str = "sidekicks(0.1.0)";
     const SIZE: ShellSize = ShellSize {

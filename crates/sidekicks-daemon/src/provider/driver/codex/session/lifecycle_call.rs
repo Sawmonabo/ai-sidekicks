@@ -8,12 +8,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::run::turn_end_waiters::CodexRecordExit;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::session_control::{
-    AskSideQuestionParams, UpdatePermissionLevelParams,
-};
+use crate::codex::run::turn_end_waiters::CodexRecordExit;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::session_control::{AskSideQuestionParams, UpdatePermissionLevelParams};
 
 /// A call of the driver's own on a session's record, each answering on its own `reply`; a dropped
 /// `reply` means the session's task let the record go first.

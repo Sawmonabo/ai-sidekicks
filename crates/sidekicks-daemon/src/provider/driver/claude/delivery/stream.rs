@@ -30,48 +30,42 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::provider::driver::claude::delivery::messages::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::claude::delivery::messages::{
     ClaudeMessageFrame, ClaudeMessageRow, ClaudeMessageRowKind, read_claude_assistant_rows,
     read_claude_user_rows,
 };
-use crate::provider::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
-use crate::provider::driver::claude::delivery::run_readings::{
+use crate::claude::delivery::reviewer::ClaudeReviewerCapture;
+use crate::claude::delivery::run_readings::{
     ClaudeMessageKey, ClaudeRowDelivery, ClaudeStreamSession,
 };
-use crate::provider::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
-use crate::provider::driver::claude::delivery::system::{
+use crate::claude::delivery::streamed_blocks::ClaudeStreamedRun;
+use crate::claude::delivery::system::{
     read_claude_api_retry, read_claude_assistant_refusal, read_claude_model_reroute,
     read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
     read_claude_worker_shutdown_reason,
 };
-use crate::provider::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
-use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::provider::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::provider::driver::claude::rate_limit_windows::{
-    ClaudeUsageProbeModels, read_claude_quota_windows,
-};
-use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::provider::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
-use crate::provider::driver::claude::session::arrivals::{
-    ClaudeArrivalSender, ClaudeRoutedFrame, ClaudeTurnAtRead,
-};
-use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent_retries;
-use crate::provider::driver::diagnostics::{
+use crate::claude::delivery::turn_end::read_claude_result_message_uuids;
+use crate::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::claude::hooks::pause::ClaudeRunPauses;
+use crate::claude::rate_limit_windows::{ClaudeUsageProbeModels, read_claude_quota_windows};
+use crate::claude::run::prompts::ClaudeSentPrompts;
+use crate::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
+use crate::claude::session::arrivals::{ClaudeArrivalSender, ClaudeRoutedFrame, ClaudeTurnAtRead};
+use crate::claude::spent_retries_signal::classify_claude_spent_retries;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::port::usage_sink::UsageSink;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::{
-    DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker,
-};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::registration::PortRegistration;
+use crate::port::run_host::RunHost;
+use crate::port::usage_sink::UsageSink;
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::thread_frame_router::ThreadFrameRoute;
+use sidekicks_std::mutex_lock::lock;
 
 use daemon_ends::ClaudeStreamDialogPorts;
 

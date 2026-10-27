@@ -13,14 +13,14 @@ use serde_json::{Value, json};
 use tokio::sync::{Notify, watch};
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::mcp::client::connection::McpServerConnection;
-use crate::mcp::client::poll::{PollStep, follow_task as poll_until_end};
-use crate::mcp::client::requests::{McpRequestError, RequestWait, ServerRequests};
-use crate::mcp::client::tasks::{
+use crate::client::connection::McpServerConnection;
+use crate::client::poll::{PollStep, follow_task as poll_until_end};
+use crate::client::requests::{McpRequestError, RequestWait, ServerRequests};
+use crate::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
     McpToolCallError, extract_mcp_task_id, observe_mcp_task_acceptance,
 };
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// A task's `tasks/result` held in a task of its own while the polls go on; dropped, it stops
 /// waiting and the server is told the request is canceled.
@@ -218,16 +218,16 @@ mod tests {
     use tokio::time::{Duration, Instant, timeout};
 
     use super::read_task;
-    use crate::mcp::client::tasks::{
+    use crate::client::tasks::{
         ElicitationAnswer, McpTaskContact, McpTaskGeneration, McpTaskHandleObservation,
         McpToolCallEnd, compose_question,
     };
-    use crate::mcp::client::test_server::{
+    use crate::client::test_server::{
         CountingSink, Reply, Responder, board_accepted, board_answer, board_form, contact,
         method_not_found, open_test_server, test_client, text_result, track_call, track_dispatch,
         v1_initialize_result,
     };
-    use crate::provider::port::question::QuestionPort as _;
+    use sidekicks_provider::port::question::QuestionPort as _;
 
     /// A 2025-11-25 server whose `track` tool runs only as a task `task-1`, answering `tasks/get`
     /// through `poll_reply` with the poll's number and `tasks/result` through `result_reply`.

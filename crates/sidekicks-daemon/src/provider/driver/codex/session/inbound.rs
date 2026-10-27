@@ -19,27 +19,23 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::output_speed::CodexSettledOutputSpeed;
-use crate::provider::driver::codex::run::control::record::CodexRunControlCall;
-use crate::provider::driver::codex::run::faster_model_retry::CodexRetryStopAnswer;
-use crate::provider::driver::codex::run::start::record::{
+use crate::codex::output_speed::CodexSettledOutputSpeed;
+use crate::codex::run::control::record::CodexRunControlCall;
+use crate::codex::run::faster_model_retry::CodexRetryStopAnswer;
+use crate::codex::run::start::record::{
     CodexAcceptedTurn, CodexTurnBegin, CodexTurnBeginAnswer, CodexTurnStartOutcome,
 };
-use crate::provider::driver::codex::run::steer::CodexSteerSend;
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnWait, CodexTurnWaitAnswer};
-use crate::provider::driver::codex::server_requests::{
-    CodexInboundServerRequest, CodexServerRequestDecision,
-};
-use crate::provider::driver::codex::session::calls::CodexSessionReading;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::provider::driver::codex::session::recovery::{
-    CodexDroppedTurns, CodexInPlaceResumeCall,
-};
-use crate::provider::driver::codex::session::rewind::CodexMessageTurn;
-use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::{
+use crate::codex::run::steer::CodexSteerSend;
+use crate::codex::run::turn_end_waiters::{CodexTurnWait, CodexTurnWaitAnswer};
+use crate::codex::server_requests::{CodexInboundServerRequest, CodexServerRequestDecision};
+use crate::codex::session::calls::CodexSessionReading;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::codex::session::recovery::{CodexDroppedTurns, CodexInPlaceResumeCall};
+use crate::codex::session::rewind::CodexMessageTurn;
+use crate::codex::transport::connection::CodexForgottenRequest;
+use crate::driver::contract::DriverError;
+use crate::driver::session_control::{
     DriverResumeResult, MoveSessionToForkParams, MoveSessionToForkResult,
 };
 

@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use futures::future::BoxFuture;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::policy::ask_rule::ProviderAskRule;
+use sidekicks_policy::ask_rule::ProviderAskRule;
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 /// Writes `rule` into each of `project_folders` with `write`. When a write fails, removes the rule
 /// with `remove` from every folder already written, `written_already` among them (those the rule
@@ -62,7 +62,7 @@ mod tests {
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
 
     use super::write_into_project_folders;
-    use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
     #[derive(Debug, PartialEq, Eq)]
     struct FolderFailure(PathBuf);

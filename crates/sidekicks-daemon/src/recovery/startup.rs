@@ -38,30 +38,32 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::sync::CancellationToken;
 
-use crate::approvals::store::ApprovalRequestReader;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::writer::{DatabaseWriter, sqlite_error_code};
-use crate::elapsed::elapsed_ms_since;
-use crate::error_description::describe_error;
-use crate::events::session::appender::{
+use crate::damaged_history::{DamagedHistory, DamagedHistoryError};
+use crate::database_file::aside_copy::AsideCopyError;
+use crate::database_file::copy::DatabaseFileCopier;
+use crate::projection_rebuild::{
+    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
+};
+use crate::restart_settle::{RestartSettle, RestartSettleError, RestartTally};
+use crate::status::RecoveryStatusTracker;
+use sidekicks_approval::store::ApprovalRequestReader;
+use sidekicks_artifact::plans::store::read_held_plans;
+use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_session::interventions::store::read_pending_retries;
+use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
+use sidekicks_session::run::provider_choice::read_ended_runs_with_open_choices;
+use sidekicks_session::run::read::RunStateReader;
+use sidekicks_std::elapsed::elapsed_ms_since;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::damage::DatabaseDamageWatch;
+use sidekicks_store::database::writer::{DatabaseWriter, sqlite_error_code};
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
-use crate::interventions::store::read_pending_retries;
-use crate::interventions::unresolved::read_ended_runs_with_unresolved;
-use crate::plans::store::read_held_plans;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::recovery::damaged_history::{DamagedHistory, DamagedHistoryError};
-use crate::recovery::database_file::aside_copy::AsideCopyError;
-use crate::recovery::database_file::copy::DatabaseFileCopier;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::projection_rebuild::{
-    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
-};
-use crate::recovery::restart_settle::{RestartSettle, RestartSettleError, RestartTally};
-use crate::recovery::status::RecoveryStatusTracker;
-use crate::session::run::provider_choice::read_ended_runs_with_open_choices;
-use crate::session::run::read::RunStateReader;
 
 /// The statements the pass's own reads run: the failed passes since the last that succeeded, and
 /// the seven every-session listings of what the restart left (the live runs, the pending retries,

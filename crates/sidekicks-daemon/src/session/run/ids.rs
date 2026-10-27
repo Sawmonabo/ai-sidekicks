@@ -6,8 +6,8 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::text_column;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::text_column;
 
 /// The ids, in one `runId` column, of the runs of the session the `@sessionId` parameter names:
 /// the rows the rebuild wrote, every run its events name, so a run the rebuild never reached past

@@ -26,64 +26,52 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
 use self::pending::{HeldRequest, PendingRequest, RequestTables};
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::ask_action::read_claude_ask_action;
-use crate::provider::driver::claude::delivery::claude_delivery_origin;
-use crate::provider::driver::claude::delivery::dialogs::{
-    ClaudeDialogSession, ClaudeProviderDialogs,
-};
-use crate::provider::driver::claude::delivery::reviewer::{
-    ClaudeReviewerCapture, read_claude_hook_denial,
-};
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::provider::driver::claude::event_normalizer::{
-    CLAUDE_PLAN_EXIT_TOOL_NAME, CLAUDE_QUESTION_TOOL_NAME,
-};
-use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::provider::driver::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
-use crate::provider::driver::claude::run::routes::{
-    ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes,
-};
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::permission_level::claude_permission_mode_for;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::tool_server_calls::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::ask_action::read_claude_ask_action;
+use crate::claude::delivery::claude_delivery_origin;
+use crate::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProviderDialogs};
+use crate::claude::delivery::reviewer::{ClaudeReviewerCapture, read_claude_hook_denial};
+use crate::claude::delivery::stream::ClaudeSessionStream;
+use crate::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::claude::event_normalizer::{CLAUDE_PLAN_EXIT_TOOL_NAME, CLAUDE_QUESTION_TOOL_NAME};
+use crate::claude::hooks::callbacks::answer_claude_request;
+use crate::claude::hooks::registration::ClaudeHookCallback as RegisteredHook;
+use crate::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::permission_level::claude_permission_mode_for;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::inbound::{
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
     ClaudeToolUseAsk,
 };
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeWriteAttempt, ClaudeWriteDelivery,
-};
-use crate::provider::driver::claude::spawn::settings::matches_claude_reviewed_removal_rule;
-use crate::provider::driver::contract::{DriverError, ProviderRequestAnswer};
-use crate::provider::driver::delivery_dispatch::dispatch_delivery;
-use crate::provider::driver::diagnostics::{
+use crate::claude::session::transport::user_message::{ClaudeWriteAttempt, ClaudeWriteDelivery};
+use crate::claude::spawn::settings::matches_claude_reviewed_removal_rule;
+use crate::driver::contract::{DriverError, ProviderRequestAnswer};
+use crate::driver::delivery_dispatch::dispatch_delivery;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::port::in_process_tool_servers::InProcessToolServers;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::permission_ask::{
+use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::permission_ask::{
     PermissionAskPort, ProviderAnswerRule, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
 };
-use crate::provider::port::plan::{PlanPort, ProviderPlan};
-use crate::provider::port::question::{
+use crate::port::plan::{PlanPort, ProviderPlan};
+use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
     QuestionTurnError, take_question_in_turn,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::{
-    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome,
-};
+use crate::port::registration::PortRegistration;
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::{DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome};
+use sidekicks_std::error_description::describe_error;
 
 use answers::{
     ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,

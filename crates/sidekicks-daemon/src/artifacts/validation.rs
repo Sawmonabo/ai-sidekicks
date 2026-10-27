@@ -25,11 +25,11 @@ use sidekicks_contracts::wire::text::{BoundedText, is_ecmascript_whitespace};
 use unicode_normalization::UnicodeNormalization as _;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory as _};
 
-use crate::artifacts::detection::{DETECTION_PREFIX_BYTES, detect_media_type};
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::picture_size::{PictureFormat, read_picture_size};
-use crate::artifacts::refusals::ArtifactError;
-use crate::text_cut::cut_to_code_points;
+use crate::detection::{DETECTION_PREFIX_BYTES, detect_media_type};
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::picture_size::{PictureFormat, read_picture_size};
+use crate::refusals::ArtifactError;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 // The media type recorded for bytes that are neither a known signature nor UTF-8 text.
 const UNKNOWN_MEDIA_TYPE: &str = "application/octet-stream";
@@ -285,7 +285,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{Utf8Check, media_type_of, normalize_file_name};
-    use crate::artifacts::detection::detect_media_type;
+    use crate::detection::detect_media_type;
 
     #[rstest]
     #[case::a_signature_wins_over_the_declaration(

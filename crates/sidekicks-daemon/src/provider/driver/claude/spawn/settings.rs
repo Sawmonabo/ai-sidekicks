@@ -11,15 +11,15 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_platforms::PathRules;
 
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::policy::background_work::{BackgroundWorkForms, plain_background_work_forms};
-use crate::policy::execution_posture_service::{CredentialDenyPath, CredentialDenyPathKind};
-use crate::provider::driver::claude::session::rules::{
+use crate::background_work::{BackgroundWorkForms, plain_background_work_forms};
+use crate::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
 };
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::transport::control::{
     ClaudePermissionsDocument, ClaudeSandboxFilesystem, ClaudeSandboxSettings,
 };
+use crate::run::posture::{CredentialDenyPath, CredentialDenyPathKind};
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 /// How many days Claude Code keeps a conversation file before cleaning it up: long enough that a
 /// session's own history never disappears under it. Written at every start and in each account
@@ -271,8 +271,8 @@ mod tests {
         ClaudePermissionsRequest, ClaudeSessionAdvisor, compose_claude_permissions,
         compose_claude_spawn_settings,
     };
-    use crate::policy::background_work::BackgroundWorkForms;
-    use crate::provider::driver::PROVIDERS;
+    use crate::background_work::BackgroundWorkForms;
+    use crate::driver::PROVIDERS;
 
     // Killed by dropping the memory allows or the `//` anchor, by a `Write(` rule Claude Code never
     // reads, by narrowing the allows to `.md` files, which would keep the agent from its other

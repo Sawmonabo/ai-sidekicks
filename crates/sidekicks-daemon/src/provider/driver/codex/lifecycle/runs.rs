@@ -9,15 +9,15 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
-use crate::provider::driver::codex::run::start::daemon_turns::CodexDaemonTurnError;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::contract::{DriverError, RespondToRequestParams, StartRunParams};
-use crate::provider::driver::run_control::{
+use crate::codex::run::start::daemon_turns::CodexDaemonTurnError;
+use crate::codex::session::errors::CodexError;
+use crate::driver::contract::{DriverError, RespondToRequestParams, StartRunParams};
+use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, FasterModelRetryOutcome,
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
     ResumeRunParams,
 };
-use crate::provider::driver::session_control::StartReviewParams;
+use crate::driver::session_control::StartReviewParams;
 
 impl CodexDriver {
     /// Starts one run's turn on its session's conversation; see the run start.

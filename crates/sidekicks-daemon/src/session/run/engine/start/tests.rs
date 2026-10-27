@@ -4,19 +4,17 @@ use serde_json::{Value, json};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::registry::test_provider;
-use crate::provider::driver::run_control::DriverRunRefusal;
-use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::tests::{
-    DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
-};
-use crate::session::run::start_request::RunStartRequest;
-use crate::session::run::state_change::RunStateChange;
+use crate::run::engine::tests::{DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start};
+use crate::run::start_request::RunStartRequest;
+use crate::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::registry::test_provider;
+use sidekicks_provider::driver::run_control::DriverRunRefusal;
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 // Killed by recording a driver's refused start as a provider failure, which drops the refusal's
 // model and sentence, or by reading only the driver's error and missing the refusal it carries.

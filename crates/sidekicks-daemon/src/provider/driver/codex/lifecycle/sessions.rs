@@ -8,27 +8,25 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
-use crate::provider::driver::codex::lifecycle::intake::call_codex_lifecycle;
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
-use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
-use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
-use crate::provider::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::provider::driver::codex::session::purge::purge_codex_conversations;
-use crate::provider::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
-use crate::provider::driver::run_control::{FindTakenMessagesParams, TakenMessages};
-use crate::provider::driver::session_control::{
+use crate::codex::lifecycle::intake::call_codex_lifecycle;
+use crate::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
+use crate::codex::session::calls::{call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::{CodexError, CodexSessionSlotState};
+use crate::codex::session::history::read_codex_turn_id_by_client_message_id;
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::codex::session::purge::purge_codex_conversations;
+use crate::codex::session::slots::CODEX_LET_GO_TIMEOUT;
+use crate::driver::contract::DriverError;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
+use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, MoveSessionToForkParams,
     MoveSessionToForkResult, ProviderBuildChange, ProviderSessionHandle, PurgeSessionParams,
     ResumeSessionParams,
 };
-use crate::provider::usage_delta_accountant::UsageAxisCounts;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// Lets `inbound`'s record go on its session's task as `exit`; a task that let it go first has
 /// nothing more to let go.

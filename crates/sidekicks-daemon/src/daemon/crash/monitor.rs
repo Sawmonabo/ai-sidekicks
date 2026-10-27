@@ -27,12 +27,12 @@ use sidekicks_platforms::{
     pin_running_process, rename_replacing, replace_file_atomically,
 };
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::data_folder::data_folder;
-use crate::error_description::describe_error;
-use crate::missing_entry::MissingEntry as _;
-use crate::mutex_lock::lock;
-use crate::standard_error::write_error_line;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::standard_error::write_error_line;
+use sidekicks_store::data_folder::data_folder;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
 /// follows it.

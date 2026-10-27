@@ -200,11 +200,11 @@ mod tests {
     use crate::daemon::configuration::{
         ConfigurationChange, ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::log_service::tests::open_log;
     use crate::observability::diagnostic_buckets::recorders::DIAGNOSTICS_FOLDER_NAME;
     use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::tests::open_log;
 
     // Each line of every day file in `folder`, parsed, oldest file first.
     fn recorded_lines(folder: &Path) -> Vec<Value> {

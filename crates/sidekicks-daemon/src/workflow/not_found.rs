@@ -12,7 +12,7 @@ use sidekicks_contracts::workflow::definition::document::{
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// A workflow record no row answers to; nothing was read or written. Each kind answers its own
 /// not-found code, with the address it was asked by as the detail.

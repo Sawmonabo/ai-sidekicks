@@ -34,7 +34,7 @@ use crate::highlight::tokenizer::LineHook;
 use crate::highlight::tokenizer::{
     SettledLines, TokenizeEnd, TokenizeError, Tokenizer, TokenizerBuildError,
 };
-use crate::ipc::registry::TransportId;
+use sidekicks_ipc::registry::TransportId;
 
 /// The thread's name, as a debugger or a crash report shows it.
 const THREAD_NAME: &str = "colorer";
@@ -489,7 +489,7 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{BlockKey, TokenizeFailure, TokenizeJob, TokenizerThread, TokenizerThreadOptions};
-    use crate::ipc::registry::TransportId;
+    use sidekicks_ipc::registry::TransportId;
 
     /// How long any one answer may take before the test fails instead of hanging.
     const WAIT: Duration = Duration::from_secs(60);

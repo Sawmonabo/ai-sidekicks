@@ -34,13 +34,13 @@ pub(crate) struct ProcessStandIn(std::sync::Mutex<Option<ProviderProcessIdentity
 impl ProcessStandIn {
     /// Makes `process` the session's provider process; `None` when none runs.
     pub(crate) fn set(&self, process: Option<ProviderProcessIdentity>) {
-        *crate::mutex_lock::lock(&self.0) = process;
+        *sidekicks_std::mutex_lock::lock(&self.0) = process;
     }
 }
 
 #[cfg(test)]
 impl ProviderProcessIds for ProcessStandIn {
     fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
-        *crate::mutex_lock::lock(&self.0)
+        *sidekicks_std::mutex_lock::lock(&self.0)
     }
 }

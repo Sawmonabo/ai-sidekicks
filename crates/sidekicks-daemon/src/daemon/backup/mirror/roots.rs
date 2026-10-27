@@ -11,15 +11,15 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 
 use crate::daemon::artifact_methods::ARTIFACTS_FOLDER_NAME;
-use crate::daemon::backup::mirror::{MirrorRoot, MirrorRootError};
 use crate::daemon::backup::run::MirrorRootsReader;
-use crate::daemon::data_folder::{agent_memory_folder, data_folder};
 use crate::daemon::machine::settings::file::machine_settings_file_path;
-use crate::daemon::scheduler::budget::ProcessorMeter;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::provider::account_homes::{account_home_conversation_folders, read_account_homes};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::workspace::managed::service::managed_workspaces_folder;
+use sidekicks_provider::account_homes::{account_home_conversation_folders, read_account_homes};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::backup_mirror::{MirrorRoot, MirrorRootError};
+use sidekicks_store::data_folder::{agent_memory_folder, data_folder};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_workspace::managed::service::managed_workspaces_folder;
 
 /// A place the mirror would keep that is no root under the home folder.
 #[derive(Debug, thiserror::Error)]

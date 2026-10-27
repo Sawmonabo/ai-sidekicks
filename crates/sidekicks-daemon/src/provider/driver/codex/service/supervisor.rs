@@ -33,46 +33,42 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::server_requests::CodexServerRequestResponder;
-use crate::provider::driver::codex::service::asks::CodexServiceAsks;
-use crate::provider::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
-use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
-use crate::provider::driver::codex::service::supervisor::drain::LastingServiceDrains;
-use crate::provider::driver::codex::service::supervisor::events::CodexServiceEvents;
-use crate::provider::driver::codex::service::supervisor::routing::{
+use crate::codex::server_requests::CodexServerRequestResponder;
+use crate::codex::service::asks::CodexServiceAsks;
+use crate::codex::service::home::{CodexServiceHome, CodexServiceKind};
+use crate::codex::service::record::LastingServiceRecordFile;
+use crate::codex::service::supervisor::drain::LastingServiceDrains;
+use crate::codex::service::supervisor::events::CodexServiceEvents;
+use crate::codex::service::supervisor::routing::{
     CODEX_CONFIG_WARNING_METHOD, CodexServiceRouting,
 };
-use crate::provider::driver::codex::service::supervisor::runner::{RunnerInput, ServiceRunner};
-use crate::provider::driver::codex::service::supervisor::start::read_codex_loaded_threads;
-use crate::provider::driver::codex::service::supervisor::transition::{
+use crate::codex::service::supervisor::runner::{RunnerInput, ServiceRunner};
+use crate::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::codex::service::supervisor::transition::{
     CodexServiceAvailability, Supervision, SupervisorEvent, SupervisorState,
 };
-use crate::provider::driver::codex::service::threads::{CodexServiceThreads, ThreadClaim};
-use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::errors::{
+use crate::codex::service::threads::{CodexServiceThreads, ThreadClaim};
+use crate::codex::session::conversation_release::CodexConversationRelease;
+use crate::codex::session::errors::{
     CODEX_DRAINING_REASON, CODEX_INVALID_REQUEST_CODE, CodexError,
 };
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionInbound, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
-use crate::provider::driver::codex::transport::connection::{
+use crate::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
+use crate::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
+use crate::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexConnectionHandlers,
     CodexForgottenRequest, open_codex_connection, read_codex_object,
 };
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::codex::transport::socket::{
-    CodexSocketWait, dial_codex_service_socket,
-};
-use crate::provider::driver::codex::usage_limit_signal::CodexRateLimitObservation;
-use crate::provider::driver::codex::version::CODEX_CLIENT_NAME;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
+use crate::codex::usage_limit_signal::CodexRateLimitObservation;
+use crate::codex::version::CODEX_CLIENT_NAME;
+use crate::driver::contract::DriverError;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::process_identity::ProviderProcessIdentity;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
+use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_std::mutex_lock::lock;
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";

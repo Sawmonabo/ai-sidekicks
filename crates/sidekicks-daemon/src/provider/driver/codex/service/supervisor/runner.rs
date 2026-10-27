@@ -15,32 +15,28 @@ use sidekicks_contracts::run::control::ProcessExit;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::service::managed_daemon::stop_codex_managed_daemon;
-use crate::provider::driver::codex::service::socket_link::{clear_socket_link_of, is_listening};
-use crate::provider::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::drain::drain_lasting_service;
-use crate::provider::driver::codex::service::supervisor::reconnect::reconnect_wait;
-use crate::provider::driver::codex::service::supervisor::start::kept_records::retire_own_record;
-use crate::provider::driver::codex::service::supervisor::start::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::service::managed_daemon::stop_codex_managed_daemon;
+use crate::codex::service::socket_link::{clear_socket_link_of, is_listening};
+use crate::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::drain::drain_lasting_service;
+use crate::codex::service::supervisor::reconnect::reconnect_wait;
+use crate::codex::service::supervisor::start::kept_records::retire_own_record;
+use crate::codex::service::supervisor::start::{
     CodexServiceProcess, StartedService, connect, read_codex_loaded_threads, read_service_version,
     start_codex_service,
 };
-use crate::provider::driver::codex::service::supervisor::transition::SupervisorEvent;
-use crate::provider::driver::codex::service::supervisor::transition::action::{
-    LastingServiceEnd, SupervisorAction,
-};
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexTeardownStep, CodexTransportDiagnostic,
-};
-use crate::provider::driver::codex::transport::socket::CodexSocketWait;
-use crate::provider::driver::diagnostics::{
+use crate::codex::service::supervisor::transition::SupervisorEvent;
+use crate::codex::service::supervisor::transition::action::{LastingServiceEnd, SupervisorAction};
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
+use crate::codex::transport::socket::CodexSocketWait;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::spawned_version::SpawnedProviderVersionReading;
+use crate::process_identity::ProviderProcessIdentity;
+use crate::spawned_version::SpawnedProviderVersionReading;
 
 /// How long the daemon's own service has to stop before it is killed, as long as the daemon
 /// gives every child at its own stop.

@@ -4,7 +4,7 @@
 use serde_json::json;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::domain_error::DomainError;
+use crate::domain_error::DomainError;
 
 /// The refusal of `session_id`, which names no session this daemon holds; the id goes out as the
 /// reply's `sessionId` field.

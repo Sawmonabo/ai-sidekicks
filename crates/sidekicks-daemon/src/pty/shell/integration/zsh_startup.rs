@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::RUN_FOLDER_FILE_MODE;
 
-use crate::file::atomic_write::write_file_atomically_if_changed;
-use crate::pty::shell::integration::injection::{ShellStartupError, create_startup_folder};
+use crate::integration::injection::{ShellStartupError, create_startup_folder};
+use sidekicks_std::file::atomic_write::write_file_atomically_if_changed;
 
 /// The folder's name in the shell startup folder.
 const ZSH_FOLDER_NAME: &str = "zsh";

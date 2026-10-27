@@ -16,11 +16,11 @@ use serde::de::value::StrDeserializer;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::attachments::{
-    AttachmentResolver, ProviderAttachment, compose_attachment_text, resolve_message_attachments,
-};
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::session::transport::user_message::{
     ClaudePictureMediaType, ClaudePictureSource, ClaudeUserContentBlock,
+};
+use crate::driver::attachments::{
+    AttachmentResolver, ProviderAttachment, compose_attachment_text, resolve_message_attachments,
 };
 
 /// Claude Code's default per-picture limit on an image block's base64 text, which it checks before
@@ -140,7 +140,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::{ClaudeAttachmentError, claude_picture_media_type, encode_claude_picture};
-    use crate::provider::driver::claude::session::transport::user_message::ClaudePictureMediaType;
+    use crate::claude::session::transport::user_message::ClaudePictureMediaType;
 
     // Killed by a media type the image block writes that its read does not take, which would drop
     // every picture of that type, and by taking one the block cannot carry.

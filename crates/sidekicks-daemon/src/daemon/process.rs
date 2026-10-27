@@ -39,13 +39,10 @@ use tokio_util::sync::CancellationToken;
 use crate::bootstrap::secure_defaults::{
     SecureDefaults, SecureDefaultsConfig, SecureDefaultsError,
 };
-use crate::cleanup_failures::CleanupFailures;
-use crate::credential_store::items::{SecretItems, SecretItemsStart};
-use crate::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
 use crate::daemon::artifact_methods::{
     ArtifactMethodsDeps, ArtifactMethodsError, register_artifact_methods,
 };
-use crate::daemon::backup::mirror::roots::mirror_roots_reader;
+use crate::daemon::backup::roots::mirror_roots_reader;
 use crate::daemon::backup::run::{
     BackupDeps, Backups, backup_folder, backup_manifest_facts, default_backup_folder,
 };
@@ -53,10 +50,7 @@ use crate::daemon::configuration::{ConfigurationError, ConfigurationStore};
 use crate::daemon::crash::monitor::{
     CrashMonitorError, crash_monitor_socket_path, remove_dead_monitor_sockets,
 };
-use crate::daemon::data_folder::data_folder;
-use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
-use crate::daemon::machine::local::{LocalMachineError, read_or_mint_local_machine};
 use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
@@ -79,36 +73,42 @@ use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHook
 use crate::daemon::run_folder::{
     RunFolderError, bind_socket, mint_session_token, prepare_run_folder,
 };
-use crate::daemon::scheduler::{ScheduleError, Scheduler};
 use crate::daemon::service_log::ServiceLogFiles;
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::data_acts::erase::EraseStep;
-use crate::database::connection::writer_open::{
-    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
-};
-use crate::git::process::{GitLimits, GitRunner, find_git_executable};
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::ipc::caller_process::descent::CallerCheck;
-use crate::ipc::in_flight_mutations::InFlightMutations;
 use crate::ipc::local_gateway::{GatewayServices, LocalGateway};
-use crate::ipc::protocol_negotiation::ProtocolNegotiator;
-use crate::ipc::registry::{MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::subscriptions::Subscriptions;
 use crate::observability::diagnostic_buckets::expiry::{
     DiagnosticExpiryDeps, live_diagnostic_files,
 };
-use crate::plans::store::StoredPlanHolds;
-use crate::policy::authorizer::{Authorizer, RulesLoadError};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::PROVIDER_REGISTRATIONS;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::pty::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
-use crate::recovery::database_file::copy::DatabaseFileCopier;
-use crate::recovery::database_file::sqlite_shell::SqliteShell;
-use crate::session::directory::list_feed::SessionListFeed;
-use crate::session::search::index::live::{LiveIndex, LiveIndexOptions};
-use crate::settle_all::{SettleFailures, settle_all};
+use sidekicks_artifact::plans::store::StoredPlanHolds;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::caller_process::descent::CallerCheck;
+use sidekicks_ipc::in_flight_mutations::InFlightMutations;
+use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
+use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::stream::subscriptions::Subscriptions;
+use sidekicks_policy::authorizer::{Authorizer, RulesLoadError};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
+use sidekicks_shell::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::{ScheduleError, Scheduler};
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder_lock::DataFolderLock;
+use sidekicks_store::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
+};
+use sidekicks_store::machine::local::{LocalMachineError, read_or_mint_local_machine};
+use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
 
 /// The longest the stop's drain runs, the work ending and the data folder closing together.
 pub(crate) const DAEMON_STOP_DRAIN_BOUND: Duration =

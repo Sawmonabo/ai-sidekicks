@@ -8,20 +8,20 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 
 use super::{no_turn_end_statement, no_turn_start_from_statement};
-use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
-use crate::events::log_service::tests::open_log;
-use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
-use crate::mutex_lock::lock;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::engine::tests::{
+use crate::run::engine::RunEngineError;
+use crate::run::engine::tests::{
     append, arm_step_count, events, hand_limit_interrupter, insert_running_run, provider_end,
     stored_events, stored_run_state, test_engine, turn, turn_started_at,
 };
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::RunStateChangeCompanions;
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::RunStateChangeCompanions;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError};
+use sidekicks_store::events::log_service::tests::open_log;
+use sidekicks_store::events::session::insert::{SessionEventRow, monotonic_ns_now};
 
 // Killed by the append not writing an event's turn number, which lets every guard pass on a
 // NULL column, by the start guard reading `=` for `>=`, which lets a start numbered below the

@@ -13,18 +13,16 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::VariantArray;
 
-use crate::provider::driver::ProviderDescriptor;
-use crate::provider::driver::capabilities::{
+use crate::driver::ProviderDescriptor;
+use crate::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::provider::driver::contract::{
-    CapabilityDetectionSource, DriverError, GetCapabilitiesResult,
-};
-use crate::provider::driver::diagnostics::{
+use crate::driver::contract::{CapabilityDetectionSource, DriverError, GetCapabilitiesResult};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::is_same_text;
-use crate::provider::spawned_version::SpawnedProviderVersionReading;
+use crate::driver::is_same_text;
+use crate::spawned_version::SpawnedProviderVersionReading;
 
 /// One condition a probe must meet to decide a flag; a flag read from the driver's own table names
 /// each one no probe of it meets.
@@ -423,7 +421,7 @@ mod tests {
         CapabilityWithdrawal, ProbeAdmissibilityConjunct, ProbeAnswer, WithdrawalReason,
         read_capability_detection,
     };
-    use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
+    use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
 
     const CONTROL: &str = "zzq/control";
 

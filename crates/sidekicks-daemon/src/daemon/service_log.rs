@@ -33,8 +33,8 @@ use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
 
-use crate::daemon::data_folder::service_log_folder;
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::data_folder::service_log_folder;
 
 /// The folder in the data folder that holds the service's crash reports, one file per crash.
 pub(crate) const CRASH_REPORTS_FOLDER_NAME: &str = "crash-reports";
@@ -529,7 +529,7 @@ mod tests {
         FILE_FAILED_NOTICE, STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name,
         open_service_log,
     };
-    use crate::daemon::data_folder::service_log_folder;
+    use sidekicks_store::data_folder::service_log_folder;
 
     // Each run of failed writes to the file, two in a row, says so once on standard error, and the
     // next line lands in the file again: on a line of its own after a write that failed halfway,

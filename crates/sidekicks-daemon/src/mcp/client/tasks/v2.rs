@@ -27,17 +27,17 @@ use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
 use tokio::sync::watch;
 
-use crate::mcp::client::calls::TrackedCall;
-use crate::mcp::client::connection::McpServerConnection;
-use crate::mcp::client::poll::{PollStep, follow_task as poll_until_end};
-use crate::mcp::client::requests::ServerRequests;
-use crate::mcp::client::tasks::{
+use crate::client::calls::TrackedCall;
+use crate::client::connection::McpServerConnection;
+use crate::client::poll::{PollStep, follow_task as poll_until_end};
+use crate::client::requests::ServerRequests;
+use crate::client::tasks::{
     McpTaskContact, McpTaskGeneration, McpTaskHandleSink, McpToolCall, McpToolCallEnd,
     McpToolCallError, QuestionOutcome, QuestionTake, observe_mcp_task_acceptance,
 };
-use crate::mcp::elicitation_form::compose_elicitation_content;
-use crate::mutex_lock::lock;
-use crate::provider::port::question::ToolServerQuestionAnswer;
+use sidekicks_provider::mcp::elicitation_form::compose_elicitation_content;
+use sidekicks_provider::port::question::ToolServerQuestionAnswer;
+use sidekicks_std::mutex_lock::lock;
 
 /// The most input requests of one task the client answers; the rest are ignored.
 const MAX_TASK_INPUT_REQUESTS: usize = 16;
@@ -346,8 +346,8 @@ mod tests {
     use serde_json::{Map, Value, json};
     use tokio::time::{Duration, timeout};
 
-    use crate::mcp::client::tasks::{McpTaskGeneration, McpTaskHandleObservation, McpToolCallEnd};
-    use crate::mcp::client::test_server::{
+    use crate::client::tasks::{McpTaskGeneration, McpTaskHandleObservation, McpToolCallEnd};
+    use crate::client::test_server::{
         CountingSink, Reply, Responder, TestServer, board_accepted, board_answer, board_form,
         contact, method_not_found, open_test_server, test_client, text_result, track_call,
         track_dispatch,

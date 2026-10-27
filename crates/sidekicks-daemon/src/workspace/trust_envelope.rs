@@ -17,11 +17,11 @@ use std::path::{Component, Path, PathBuf};
 use sidekicks_contracts::repo::folders::RepoMountOutsideTrustEnvelopeReason;
 use sidekicks_platforms::PathRules;
 
-use crate::file::bounded_read::read_within_ceiling;
-use crate::file::real_location::resolve_real_path;
-use crate::missing_entry::is_missing_entry;
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::repo::root_resolver::{RepoRootResolver, refusal_of_filesystem_failure};
+use crate::repo::errors::RepoRefusal;
+use crate::repo::root_resolver::{RepoRootResolver, refusal_of_filesystem_failure};
+use sidekicks_std::file::bounded_read::read_within_ceiling;
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::missing_entry::is_missing_entry;
 
 /// One picked folder; the caller supplies every root, so the validator looks nothing up.
 #[derive(Clone, Copy, Debug)]
@@ -238,8 +238,8 @@ mod tests {
 
     use super::{WorkspaceExecutionRootCandidate, validate_execution_root};
     use crate::git::process::{GitCall, test_git_runner};
-    use crate::workspace::repo::errors::RepoRefusal;
-    use crate::workspace::repo::root_resolver::RepoRootResolver;
+    use crate::repo::errors::RepoRefusal;
+    use crate::repo::root_resolver::RepoRootResolver;
 
     // How a picked folder tries to leave its mount.
     #[derive(Clone, Copy, Debug)]

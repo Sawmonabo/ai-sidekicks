@@ -6,23 +6,21 @@ use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactRes
 use sidekicks_contracts::session::id::SessionId;
 
 use super::ClaudeDriver;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::compaction::compact_claude_context;
-use crate::provider::driver::claude::session::ultracode::{
-    apply_claude_ultracode, requested_claude_ultracode,
-};
-use crate::provider::driver::contract::{
+use crate::claude::compaction::compact_claude_context;
+use crate::claude::session::ultracode::{apply_claude_ultracode, requested_claude_ultracode};
+use crate::driver::contract::{
     CompactContextParams, DriverError, ListProviderCommandsParams, RespondToRequestParams,
     StartRunParams,
 };
-use crate::provider::driver::run_control::{
+use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
     ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
-use crate::provider::driver::session_control::{
+use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
+use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeDriver {
     /// Starts one run's turn on the session's live process. A process started with another step

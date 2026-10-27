@@ -8,8 +8,8 @@ use futures::FutureExt as _;
 use sidekicks_contracts::artifacts::methods::ArtifactPublish;
 use sidekicks_contracts::method::Method as _;
 
-use crate::artifacts::publish::{ArtifactPublishService, PublishOrigin};
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_artifact::publish::{ArtifactPublishService, PublishOrigin};
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 
 /// Registers `artifact.publish`, answered by `publisher`. A call on a connection that carries no
 /// device is a fault in the daemon, answered as an internal error. Fails the start when the method

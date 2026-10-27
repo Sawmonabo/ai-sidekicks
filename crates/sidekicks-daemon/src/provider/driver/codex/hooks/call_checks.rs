@@ -26,22 +26,22 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
-use crate::mutex_lock::lock;
-use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::policy::shell_commands::unwrap_shell_command_line;
-use crate::provider::driver::codex::hooks::server::{
+use crate::background_work::{BackgroundWorkForms, refuse_background_work};
+use crate::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::port::permission_ask::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::read_codex_object;
+use crate::mcp::tool_name::TOOL_SERVER_TOOL_PREFIX;
+use crate::port::permission_ask::{
     PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::session_rules::SessionRulePort;
+use crate::port::registration::PortRegistration;
+use crate::port::session_rules::SessionRulePort;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_policy::shell_commands::unwrap_shell_command_line;
+use sidekicks_std::mutex_lock::lock;
 
 /// The tool Codex names a shell command by at its hooks.
 const CODEX_HOOK_SHELL_TOOL: &str = "Bash";
@@ -459,19 +459,19 @@ mod tests {
     use tokio_util::task::TaskTracker;
 
     use super::{CodexCallChecks, CodexCallChecksDependencies, CodexCallRuns, CodexHookCallRun};
-    use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-    use crate::policy::background_work::BackgroundWorkForms;
-    use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::codex::hooks::server::{
+    use crate::background_work::BackgroundWorkForms;
+    use crate::codex::hooks::server::{
         CodexHookAnswer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
     };
-    use crate::provider::port::permission_ask::{
+    use crate::driver::PROVIDERS;
+    use crate::port::permission_ask::{
         PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
         ProviderPermissionAskWithdrawal,
     };
-    use crate::provider::port::registration::PortRegistration;
-    use crate::provider::port::session_rules::SessionRulePort;
+    use crate::port::registration::PortRegistration;
+    use crate::port::session_rules::SessionRulePort;
+    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 
     type PortFailure = Box<dyn Error + Send + Sync>;
 

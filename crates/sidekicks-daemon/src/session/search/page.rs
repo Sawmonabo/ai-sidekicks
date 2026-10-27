@@ -13,7 +13,7 @@ use sidekicks_contracts::session::name::SESSION_NAME_MAX_LEN;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::session::search::cursor::SearchPagePosition;
+use crate::search::cursor::SearchPagePosition;
 
 /// A hit offered to a page, with the index key of the row it shows, which a cursor names.
 #[derive(Clone, Debug, PartialEq, Eq)]

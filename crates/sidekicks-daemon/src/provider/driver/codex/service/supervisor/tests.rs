@@ -19,12 +19,10 @@ use super::test_service::{
 use super::{
     CodexService, CodexServiceSocket, CodexWindowsSandboxReadiness, read_windows_sandbox_readiness,
 };
-use crate::provider::driver::codex::service::home::{
-    CodexHomeKind, CodexServiceHome, CodexServiceKind,
-};
-use crate::provider::driver::codex::session::inbound::codex_session_inbound;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::test_registry::new_session_id;
+use crate::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::codex::session::inbound::codex_session_inbound;
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::test_registry::new_session_id;
 
 // Fails when a status Codex did not name as ready, or one this daemon does not know, reads as
 // ready, which would offer a sandbox that cannot run a command.

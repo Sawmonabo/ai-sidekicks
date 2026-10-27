@@ -9,20 +9,18 @@ use sidekicks_contracts::run::state::RunState;
 use tokio::sync::watch;
 
 use super::count_live_runs_after_commits;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::tests::{TestLog, open_log_with};
-use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::session::run::engine::tests::insert_running_run;
-use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeWriter,
-};
+use crate::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use crate::run::engine::tests::insert_running_run;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateChangeWriter};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::tests::{TestLog, open_log_with};
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The event log on a fresh database, its writer counting the live runs after each commit, and
 /// that count.

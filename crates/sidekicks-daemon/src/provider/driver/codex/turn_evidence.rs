@@ -15,17 +15,17 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::diagnostics::{
+use crate::driver::contract::bound_failure_detail;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::provider::inbound_json::decode_inbound_json;
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use crate::provider::terminal_emission_gate::{
+use crate::inbound_json::decode_inbound_json;
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use crate::terminal_emission_gate::{
     TerminalEmissionDecision, TerminalEmissionGate, TerminalRunFrame,
 };
-use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::thread_frame_router::ThreadFrameRoute;
 
 /// The detail of a failed turn whose error message is blank and for which Codex said nothing else.
 static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -284,11 +284,11 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{CodexTurnTerminal, CodexTurnTerminalInput, compose_codex_turn_terminal};
-    use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
-    use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-    use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-    use crate::provider::terminal_emission_gate::TerminalEmissionGate;
-    use crate::provider::thread_frame_router::ThreadFrameRoute;
+    use crate::driver::diagnostics::OnceReportedDiagnostics;
+    use crate::run::state_entry::{RunStateEntry, RunStateReport};
+    use crate::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+    use crate::terminal_emission_gate::TerminalEmissionGate;
+    use crate::thread_frame_router::ThreadFrameRoute;
 
     fn run_id() -> RunId {
         RunId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID")

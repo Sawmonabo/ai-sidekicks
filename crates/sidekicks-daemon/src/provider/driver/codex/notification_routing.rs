@@ -10,33 +10,31 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::context_window::ContextWindowSource;
 use tokio::time::Instant;
 
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::compaction::read_codex_compaction_boundary_position;
-use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::provider::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDispatch};
-use crate::provider::driver::codex::event_normalizer::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::compaction::read_codex_compaction_boundary_position;
+use crate::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDispatch};
+use crate::codex::event_normalizer::{
     CODEX_THREAD_COMPACTED_METHOD, CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD,
     CODEX_TURN_COMPLETED_METHOD, classify_codex_frame_family_for_routing,
 };
-use crate::provider::driver::codex::service::supervisor::routing::{
+use crate::codex::service::supervisor::routing::{
     read_codex_child_thread_announcement, read_codex_frame_thread_id,
 };
-use crate::provider::driver::codex::session::state::{
-    CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord,
-};
-use crate::provider::driver::codex::token_usage::read_codex_token_usage;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::provider::driver::diagnostics::{
+use crate::codex::session::state::{CODEX_THREAD_FRAME_ROUTER_CONFIG, CodexSessionRecord};
+use crate::codex::token_usage::read_codex_token_usage;
+use crate::codex::transport::connection::read_codex_object;
+use crate::codex::turn_evidence::CodexTurnStatus;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::terminal_emission_gate::TerminalEmissionGate;
-use crate::provider::thread_frame_router::{
+use crate::terminal_emission_gate::TerminalEmissionGate;
+use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, RoutableProviderFrame, ThreadFrameFamilyClass,
     ThreadFrameRoute, ThreadFrameRouter,
 };
-use crate::provider::usage_delta_accountant::{
+use crate::usage_delta_accountant::{
     CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
     UsageDeltaAccountant, WindowTelemetry, derive_window_telemetry,
 };

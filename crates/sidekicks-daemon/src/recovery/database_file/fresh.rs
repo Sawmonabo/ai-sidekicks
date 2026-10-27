@@ -25,16 +25,16 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::database::schema::DatabaseSchema;
-use crate::database::schema::recovery::ProjectionCursorState;
-use crate::database::statement::DATABASE_NOW_SQL;
-use crate::recovery::database_file::aside_copy::database_file_name;
-use crate::recovery::database_file::check::SOUND_ROW;
-use crate::recovery::database_file::sqlite_shell::{
+use crate::database_file::aside_copy::database_file_name;
+use crate::database_file::check::SOUND_ROW;
+use crate::database_file::sqlite_shell::{
     SqliteShell, SqliteShellRunError, SqliteShellScript, quote_sql_identifier, quote_sql_text,
 };
-use crate::recovery::database_file::store_folder;
+use crate::database_file::store_folder;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::schema::recovery::ProjectionCursorState;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
 
 /// The fresh file a repair readies, the backup copy it may take sessions from, and the shell its
 /// steps run in.

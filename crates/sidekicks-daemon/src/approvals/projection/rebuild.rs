@@ -25,14 +25,14 @@ use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::approvals::request_create::ApprovalResourceDescriptor;
-use crate::approvals::store::{
+use crate::request_create::ApprovalResourceDescriptor;
+use crate::store::{
     ApprovalSettlement, InsertedApprovalRequest, InsertedApprovalResolution,
     remembered_scope_statement, rewrite_request_statement, rewrite_resolution_statement,
     settle_pending_statement,
 };
-use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::events::projection::{
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 

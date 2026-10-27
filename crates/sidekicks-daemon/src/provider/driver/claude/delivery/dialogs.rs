@@ -31,30 +31,26 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::BoundedInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
-use crate::provider::driver::claude::hooks::registration::ClaudeDialogKind;
-use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::claude::session::transport::declarations::ClaudeOfferedModel;
-use crate::provider::driver::claude::session::transport::inbound::ClaudeUserDialog;
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeWriteAttempt, ClaudeWriteDelivery,
-};
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::error_causes::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::hooks::callbacks::answer_claude_request;
+use crate::claude::hooks::registration::ClaudeDialogKind;
+use crate::claude::run::routes::ClaudeBoundRun;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::claude::session::transport::declarations::ClaudeOfferedModel;
+use crate::claude::session::transport::inbound::ClaudeUserDialog;
+use crate::claude::session::transport::user_message::{ClaudeWriteAttempt, ClaudeWriteDelivery};
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::error_causes::{
     RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
-use crate::provider::driver::run_control::{
+use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
-use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
-use crate::provider::run::delivery::{
-    DeliveryBinding, InboundDelivery, InboundOutcome, UnstampedRow,
-};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome, UnstampedRow};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
 
 // The models a switch off Fable moves to, in the order Claude Code tries them.
 const CLAUDE_SWITCH_MODEL_FAMILIES: [&str; 3] = ["opus", "sonnet", "haiku"];

@@ -27,26 +27,28 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::WriteStatement;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::{
-    AppendedPayload, SessionEventAppendError, SessionEventAppender, SessionEventDraft,
-    SessionEventDraftError, SessionEventLinkage,
-};
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::queue::changes::{QueueChangeSignals, QueueKey};
-use crate::queue::store::send_now::clear_sent_now_statement;
-use crate::queue::store::{
+use crate::changes::{QueueChangeSignals, QueueKey};
+use sidekicks_session::queue_store::send_now::clear_sent_now_statement;
+use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemExit, QueueItemOutcome, QueueItemReader, QueueItemRecord,
     admit_undelivered_statement, current_interrupted_lead_run_statement,
     insert_queue_item_statement, leave_queued_statement, no_live_lead_run_statement,
     placement_statements, retarget_statement, run_live_statement, session_takes_messages_statement,
     supersede_undelivered_statement,
 };
-use crate::session::run::projection::insert_queued_run_statement;
-use crate::session::run::state_change::refused_statement_index;
+use sidekicks_session::run::projection::insert_queued_run_statement;
+use sidekicks_session::run::state_change::refused_statement_index;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::{
+    AppendedPayload, SessionEventAppendError, SessionEventAppender, SessionEventDraft,
+    SessionEventDraftError, SessionEventLinkage,
+};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// Index of a send's session guard (the session takes messages), after its insert at 0.
 pub(crate) const SEND_SESSION_GUARD_STATEMENT_INDEX: usize = 1;

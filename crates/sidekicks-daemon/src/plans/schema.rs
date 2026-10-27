@@ -7,12 +7,12 @@
 
 use sidekicks_contracts::plan::PlanState;
 
-use crate::database::schema::{SchemaPart, SchemaParts};
-use crate::database::sql_list::sql_list_of_every;
+use sidekicks_store::database::schema::{SchemaPart, SchemaParts};
+use sidekicks_store::database::sql_list::sql_list_of_every;
 
 /// The artifacts' list and the plan table's own part.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::artifacts::schema::schema_parts().with_part(SchemaPart::new("plans", plan_schema_sql()))
+    crate::schema::schema_parts().with_part(SchemaPart::new("plans", plan_schema_sql()))
 }
 
 fn plan_schema_sql() -> String {

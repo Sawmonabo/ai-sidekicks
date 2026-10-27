@@ -20,16 +20,14 @@ use super::{
     WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY, WorkflowDefinitionStore,
     WorkflowDefinitionStoreError, WorkflowSaveAuthor,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::workflow::definitions::drafts::{
-    WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore,
-};
-use crate::workflow::definitions::errors::DefinitionRefusal;
-use crate::workflow::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
-use crate::workflow::not_found::{WorkflowNotFound, WorkflowVersionAddress};
-use crate::workflow::schema::schema_parts;
+use crate::definitions::drafts::{WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY, WorkflowDraftStore};
+use crate::definitions::errors::DefinitionRefusal;
+use crate::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
+use crate::not_found::{WorkflowNotFound, WorkflowVersionAddress};
+use crate::schema::schema_parts;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 /// A document of `name` whose trigger feeds its one node, which the graph check passes.
 fn document(name: &str, path: &str) -> Value {

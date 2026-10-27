@@ -8,7 +8,7 @@
 //!   not.
 //! - Settlement is per key; withdrawal is per waiter and settles no one.
 
-use crate::keyed_wait::{ArmedWait, KeyedWaits};
+use sidekicks_std::keyed_wait::{ArmedWait, KeyedWaits};
 
 /// How a compaction wait ended; only `Observed` admits `applied`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

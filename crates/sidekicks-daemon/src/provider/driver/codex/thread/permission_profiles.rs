@@ -8,16 +8,12 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::provider::driver::codex::permission_level::{
-    compose_codex_level_settings, compose_codex_profile_name,
-};
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::thread::settings::{
-    CodexThreadSettings, CodexThreadSettingsUpdateParams,
-};
-use crate::provider::driver::codex::thread::view::read_active_permission_profile;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::codex::permission_level::{compose_codex_level_settings, compose_codex_profile_name};
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::thread::settings::{CodexThreadSettings, CodexThreadSettingsUpdateParams};
+use crate::codex::thread::view::read_active_permission_profile;
+use crate::codex::transport::connection::read_codex_object;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
 
 /// The method that moves a thread's settings from its next turn.
 const CODEX_THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
@@ -154,11 +150,9 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{CodexThreadPermissionProfiles, correct_codex_permission_profile_drift};
-    use crate::provider::driver::codex::permission_level::{
-        CodexProfileFolders, compose_codex_profile_name,
-    };
-    use crate::provider::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
-    use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
+    use crate::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
+    use crate::codex::service::supervisor::test_service::start_scripted_codex_service;
+    use crate::codex::thread::settings::CodexThreadSettings;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     fn ask_settings() -> CodexThreadSettings {

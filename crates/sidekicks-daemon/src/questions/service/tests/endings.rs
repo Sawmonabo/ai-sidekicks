@@ -8,12 +8,12 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{Fixture, choice_page, failed};
-use crate::provider::port::question::ProviderQuestionWithdrawal;
-use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::service::HeldRequestAnswerer;
-use crate::session::run::engine::tests::stored_run_state;
-use crate::session::run::read::{LiveRun, RunRead};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::engine::tests::stored_run_state;
+use crate::run::read::{LiveRun, RunRead};
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_provider::port::question::ProviderQuestionWithdrawal;
+use sidekicks_provider::run::state_entry::RunStateEntry;
 
 /// How a held question ends unanswered.
 #[derive(Clone, Copy, Debug)]

@@ -13,8 +13,8 @@ use sidekicks_platforms::{WATCHES_TREES, entry_changed_at};
 use super::ceiling::{CeilingMisses, log_watch_ceiling};
 use super::root_watchers::RootWatchers;
 use super::{FileWatchError, WalkFilter};
-use crate::missing_entry::is_missing_entry;
-use crate::mutex_lock::lock;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::lock;
 
 /// How a root is watched: the whole tree where the system can, else the root folder alone.
 pub(super) const ROOT_MODE: RecursiveMode = if WATCHES_TREES {

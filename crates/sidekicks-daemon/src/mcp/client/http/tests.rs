@@ -24,13 +24,13 @@ use serde_json::{Value, json};
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
-use crate::mcp::client::http::{
+use crate::client::connection::{McpConnectionError, McpServerConnection};
+use crate::client::http::{
     AuthorizationResult, DEFAULT_MAX_SSE_EVENT_SIZE, McpRequestAuthorizer, NoAuthorization,
     is_dpop_nonce_challenge,
 };
-use crate::mcp::client::requests::RequestWait;
-use crate::mcp::client::test_server::{test_client, test_scope};
+use crate::client::requests::RequestWait;
+use crate::client::test_server::{test_client, test_scope};
 
 /// A 2025-11-25 server at an address whose event stream sends one small event with an id,
 /// then one past the bound; the stream requests it received are counted.

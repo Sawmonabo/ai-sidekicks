@@ -11,23 +11,19 @@ use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 
 use super::CLAUDE_NAMING_DEADLINE;
-use crate::provider::driver::claude::lifecycle::ClaudeDriver;
-use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
-use crate::provider::driver::claude::session::transport::readings::{
+use crate::claude::lifecycle::ClaudeDriver;
+use crate::claude::session::scripted::driver::ScriptedDriver;
+use crate::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeModelCatalogReading, ClaudeReplyReserveReads,
     ClaudeSessionFolderReadRequest,
 };
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::claude::spawn::launch::bring_up::ClaudeBringUpRequest;
-use crate::provider::driver::claude::spawn::launch::installed_build::{
-    ClaudeProcessStarts, ClaudeStartedSession,
-};
-use crate::provider::driver::claude::spawn::launch::one_turn::{
-    ClaudeOneTurnReply, ClaudeOneTurnRequest,
-};
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
-use crate::provider::driver::session_control::NameSessionParams;
-use crate::provider::driver::test_registry::new_session_id;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::claude::spawn::launch::bring_up::ClaudeBringUpRequest;
+use crate::claude::spawn::launch::installed_build::{ClaudeProcessStarts, ClaudeStartedSession};
+use crate::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::driver::session_control::NameSessionParams;
+use crate::driver::test_registry::new_session_id;
 
 /// What a naming pass at rest never starts.
 const ONLY_THE_ONE_TURN: &str = "a naming pass at rest starts only its one turn";
@@ -66,7 +62,7 @@ impl ClaudeProcessStarts for UnansweredOneTurn {
         &'a self,
         request: ClaudeOneTurnRequest<'a>,
     ) -> BoxFuture<'a, Result<ClaudeOneTurnReply, ClaudeLaunchError>> {
-        *crate::mutex_lock::lock(&self.stop) = Some(request.stop.clone());
+        *sidekicks_std::mutex_lock::lock(&self.stop) = Some(request.stop.clone());
         self.started.notify_one();
         async move {
             request.stop.cancelled().await;
@@ -123,7 +119,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     // The clock stops once the one turn runs, past the reads before it on other threads.
     started.await;
     tokio::time::pause();
-    let stop = crate::mutex_lock::lock(&one_turn.stop)
+    let stop = sidekicks_std::mutex_lock::lock(&one_turn.stop)
         .clone()
         .expect("the one turn ran");
 

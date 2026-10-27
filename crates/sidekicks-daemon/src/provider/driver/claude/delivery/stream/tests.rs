@@ -6,16 +6,14 @@ use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
-};
-use crate::provider::driver::diagnostics::RecordedEvents;
-use crate::provider::port::run_host::test_host::EngineCall;
-use crate::provider::port::usage_sink::ProviderQuotaWindow;
-use crate::provider::run::delivery::LateAppendableRow;
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::provider::run::turn_end::TurnOutcome;
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::scripted::{SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle};
+use crate::driver::diagnostics::RecordedEvents;
+use crate::port::run_host::test_host::EngineCall;
+use crate::port::usage_sink::ProviderQuotaWindow;
+use crate::run::delivery::LateAppendableRow;
+use crate::run::state_entry::RunStateEntry;
+use crate::run::turn_end::TurnOutcome;
 
 fn init() -> Value {
     json!({

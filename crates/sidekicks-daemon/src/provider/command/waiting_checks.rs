@@ -369,7 +369,7 @@ mod tests {
     use super::{
         CheckKind, InputWaitReader, WaitingChecks, is_marked_waiting, last_line, reads_as_prompt,
     };
-    use crate::mutex_lock::lock;
+    use sidekicks_std::mutex_lock::lock;
 
     // Fails when the trailing line ends are kept (the `\n` row), when a carriage return is deleted
     // rather than the text before it dropped (the `50%` row), or when one family is dropped.

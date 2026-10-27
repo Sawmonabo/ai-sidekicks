@@ -24,44 +24,42 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::{AskForApproval, ThreadForkParams};
-use crate::provider::driver::codex::attachments::compose_codex_text_input;
-use crate::provider::driver::codex::event_normalizer::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::app_server_protocol::{AskForApproval, ThreadForkParams};
+use crate::codex::attachments::compose_codex_text_input;
+use crate::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
-use crate::provider::driver::codex::permission_level::compose_codex_profile_name;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::routing::read_codex_frame_thread_id;
-use crate::provider::driver::codex::session::detached_conversation::{
+use crate::codex::permission_level::compose_codex_profile_name;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::routing::read_codex_frame_thread_id;
+use crate::codex::session::detached_conversation::{
     CodexDetachedFrame, CodexDetachedFrames, stop_detached_turn,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::establishment::CodexSessionEstablishment;
-use crate::provider::driver::codex::session::slots::let_go_codex_thread;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::settings::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::establishment::CodexSessionEstablishment;
+use crate::codex::session::slots::let_go_codex_thread;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::thread::settings::{
     CodexThreadSettings, CodexTurnStartParams, compose_codex_thread_fork_params,
 };
-use crate::provider::driver::codex::thread::view::{
+use crate::codex::thread::view::{
     TURN_START_METHOD, assert_active_permission_profile, read_thread, read_turn_id,
 };
-use crate::provider::driver::codex::token_usage::read_codex_token_usage;
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::provider::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::usage_sink::UsageSink;
-use crate::provider::run::delivery::{InboundDelivery, SessionScopedRow};
-use crate::provider::usage_delta_accountant::{
+use crate::codex::token_usage::read_codex_token_usage;
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::registration::PortRegistration;
+use crate::port::usage_sink::UsageSink;
+use crate::run::delivery::{InboundDelivery, SessionScopedRow};
+use crate::usage_delta_accountant::{
     MeteredUsageDelta, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
+use sidekicks_std::mutex_lock::lock;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 

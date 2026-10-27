@@ -4,10 +4,8 @@ use std::str::FromStr;
 
 use serde_json::Value;
 
-use crate::provider::driver::claude::event_normalizer::{
-    ClaudeWireFrameKind, compose_claude_wire_frame_kind,
-};
-use crate::provider::turn_evidence::{
+use crate::claude::event_normalizer::{ClaudeWireFrameKind, compose_claude_wire_frame_kind};
+use crate::turn_evidence::{
     TurnEvidenceClass, TurnEvidenceClassification, UNRECOGNIZED_TURN_EVIDENCE,
     observed_turn_evidence,
 };

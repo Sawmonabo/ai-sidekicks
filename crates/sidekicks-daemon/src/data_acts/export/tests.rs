@@ -15,13 +15,13 @@ use tokio::sync::watch;
 use super::{
     DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs, RunningExport, is_finished,
 };
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
-use crate::mutex_lock::lock;
-use crate::transcript::test_log::TranscriptTestLog;
+use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
+use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
+use sidekicks_session::transcript::test_log::TranscriptTestLog;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
 // pasted token and a workflow secret in the data folder's secrets file, and a key.

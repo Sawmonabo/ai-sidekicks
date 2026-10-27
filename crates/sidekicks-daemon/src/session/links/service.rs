@@ -9,16 +9,18 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::links::{SessionLinkKind, SessionLinkRequest};
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{
+use crate::directory::lookups::session_exists_statement;
+use crate::related::ranking::SessionRelatedRanking;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, StatementResult, WriteStatement, text_binding,
 };
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::session::directory::lookups::session_exists_statement;
-use crate::session::not_found::session_not_found;
-use crate::session::related::ranking::SessionRelatedRanking;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the service's reads run: whether a pair holds any link.
 pub(crate) const SESSION_LINK_SERVICE_STATEMENT_CAPACITY: usize = 1;

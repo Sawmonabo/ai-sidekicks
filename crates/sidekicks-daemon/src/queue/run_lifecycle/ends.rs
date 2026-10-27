@@ -11,14 +11,14 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use super::{MovedLeftovers, QueueRunLifecycle};
-use crate::database::connection::read_pool::ReadLength;
-use crate::keyed_lock::KeyHold;
-use crate::queue::error::QueueError;
-use crate::queue::recorder::{RetargetRun, lead_run_queued};
-use crate::queue::store::{CurrentLeadRun, QueueItemReader, QueueItemRecord};
-use crate::session::run::agent::read_lead_agent_through;
-use crate::session::run::read::read_run_through;
+use crate::error::QueueError;
+use crate::recorder::{RetargetRun, lead_run_queued};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::queue_store::{CurrentLeadRun, QueueItemReader, QueueItemRecord};
+use sidekicks_session::run::agent::read_lead_agent_through;
+use sidekicks_session::run::read::read_run_through;
+use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 
 impl QueueRunLifecycle {
     // Under `hold`: what a run's end leaves of its place and its waiting messages.

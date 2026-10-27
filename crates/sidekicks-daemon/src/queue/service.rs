@@ -30,44 +30,42 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::task::TaskTracker;
 
-use crate::admission::memory_gate::MemoryGate;
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::schema::session_directory::read_session_state_through;
-use crate::database::writer::DatabaseWriter;
-use crate::events::log_service::EventLogService;
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::interventions::store::read_sessions_with_unreleased_interrupts;
-use crate::ipc::handlers::driver::resolution::read_session_driver;
-use crate::keyed_lock::KeyHold;
-use crate::provider::driver::ports::ProcessGoneListener;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::process_identity::ProviderProcessIds;
-use crate::queue::admission::{
-    QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings,
-};
-use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::{
+use crate::admission::{QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings};
+use crate::changes::QueueChangeSignals;
+use crate::delivery::{
     InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps, QueueWithdrawal,
 };
-use crate::queue::error::QueueError;
-use crate::queue::provider_session::ProviderSessions;
-use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
-use crate::queue::refusals::{
+use crate::error::QueueError;
+use crate::memory_gate::MemoryGate;
+use crate::provider_session::ProviderSessions;
+use crate::recorder::{QueueRecorder, QueueRecorderDeps};
+use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
-use crate::queue::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps};
-use crate::queue::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
-use crate::queue::session_lock::{QueueSessionLock, UnreleasedInterrupts};
-use crate::queue::store::summary::summary_of;
-use crate::queue::store::{
+use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps};
+use crate::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
+use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::ports::ProcessGoneListener;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::process_identity::ProviderProcessIds;
+use sidekicks_session::changes::refuse_unchangeable_session;
+use sidekicks_session::driver_resolution::read_session_driver;
+use sidekicks_session::interventions::store::read_sessions_with_unreleased_interrupts;
+use sidekicks_session::queue_store::summary::summary_of;
+use sidekicks_session::queue_store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
-use crate::session::changes::refuse_unchangeable_session;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::pause::RunPauseControl;
-use crate::session::run::read::{read_run_through, safe_run_version};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::pause::RunPauseControl;
+use sidekicks_session::run::read::{read_run_through, safe_run_version};
+use sidekicks_std::keyed_lock::KeyHold;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::schema::session_directory::read_session_state_through;
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 // The detail of a queued run ended because every message it was queued for was removed.
 static EMPTIED_RUN_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =

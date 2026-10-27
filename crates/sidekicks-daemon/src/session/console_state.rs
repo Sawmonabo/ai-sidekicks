@@ -17,13 +17,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::statement::{
+use crate::directory::lookups::write_while_session_exists;
+use sidekicks_provider::port::session_advisor_store::SessionAdvisorStore;
+use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{closed_word, safe_int_column, text_column};
-use crate::database::writer::DatabaseWriter;
-use crate::provider::port::session_advisor_store::SessionAdvisorStore;
-use crate::session::directory::lookups::write_while_session_exists;
+use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
+use sidekicks_store::database::writer::DatabaseWriter;
 
 /// The row a session on a provider that offers an advisor is born with when the person picked its
 /// advisor: a model, or `NULL` for off. Never written for an unpicked session, whose advisor the
@@ -197,11 +197,11 @@ mod tests {
     use super::{
         advisor_model_change_statement, read_session_advisor_model, session_mode_change_statement,
     };
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::provider::port::session_advisor_store::SessionAdvisorStore;
     use crate::questions::schema::schema_parts;
+    use sidekicks_provider::port::session_advisor_store::SessionAdvisorStore;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     const AT: &str = "2026-10-23T12:00:00.000Z";
 

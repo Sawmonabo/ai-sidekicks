@@ -17,8 +17,8 @@ use rusqlite::{Connection, OpenFlags, params};
 use rusqlite::ErrorCode;
 use sidekicks_platforms::volume_free_bytes;
 
-use crate::missing_entry::MissingEntry as _;
-use crate::mutex_lock::lock;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::mutex_lock::lock;
 
 // Codex's log database in its home.
 const LOGS_DATABASE_FILE_NAME: &str = "logs_2.sqlite";
@@ -195,7 +195,7 @@ mod tests {
     use super::{
         AccountHomeLogExpiry, LOGS_DATABASE_FILE_NAME, ROWS_PER_DELETE, expire_account_home_logs,
     };
-    use crate::provider::driver::diagnostics::RecordedEvents;
+    use crate::driver::diagnostics::RecordedEvents;
 
     // Codex's `logs` table as its log database holds it.
     const LOGS_TABLE_SQL: &str = "CREATE TABLE logs (id INTEGER PRIMARY KEY AUTOINCREMENT, \

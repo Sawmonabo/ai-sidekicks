@@ -13,11 +13,11 @@ use sidekicks_platforms::{
 };
 
 use super::{COMMAND_PROVIDER_VARIABLE, run_command_wrapper_with};
-use crate::ipc::caller_process::system_reader::ProcessTableReader;
-use crate::provider::command::channel::{
+use crate::command::channel::{
     CommandChannel, DaemonRequest, PartyId, PartyRecord, ReceivedRecord,
 };
-use crate::provider::driver::PROVIDERS;
+use crate::driver::PROVIDERS;
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 
 /// A command that prints `ready` and then a line every 50 ms until it is stopped.
 const TICKING_COMMAND: &str = "echo ready; while :; do echo tick; sleep 0.05; done";

@@ -11,40 +11,34 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_platforms::PathRules;
 
-use crate::policy::ask_rule::ProviderAskRule;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::hooks::registration::compose_claude_initialize_request;
-use crate::provider::driver::claude::session::answered_commands::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::hooks::registration::compose_claude_initialize_request;
+use crate::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, read_claude_attached_advisor,
 };
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::permission_level::claude_permission_mode_for;
-use crate::provider::driver::claude::session::process::{
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::permission_level::claude_permission_mode_for;
+use crate::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudePermissionMode, ClaudeSettingsReply, ClaudeThinkingDisplay,
 };
-use crate::provider::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::session::ultracode::{
-    ClaudeUltracodeReading, read_claude_ultracode,
-};
-use crate::provider::driver::claude::spawn::arguments::{
+use crate::claude::session::transport::declarations::ClaudeInitializeDeclaration;
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::session::ultracode::{ClaudeUltracodeReading, read_claude_ultracode};
+use crate::claude::spawn::arguments::{
     ClaudeArgumentsRequest, ClaudeConversationStart, compose_claude_arguments,
 };
-use crate::provider::driver::claude::spawn::launch::{
-    ClaudeLaunchError, ClaudeProcessLauncher, initialize_reply,
-};
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::claude::spawn::settings::{
-    ClaudePermissionsRequest, compose_claude_spawn_settings,
-};
-use crate::provider::driver::session_control::SubagentPolicy;
-use crate::provider::port::in_process_tool_servers::InProcessToolServers;
-use crate::provider::spawned_version::ResolvedProviderExecutable;
-use crate::provider::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+use crate::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher, initialize_reply};
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::claude::spawn::settings::{ClaudePermissionsRequest, compose_claude_spawn_settings};
+use crate::driver::session_control::SubagentPolicy;
+use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::spawned_version::ResolvedProviderExecutable;
+use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 
 /// The administrator's MCP file, whose presence makes Claude Code exit at startup when it is told
 /// to load only the servers it is given.

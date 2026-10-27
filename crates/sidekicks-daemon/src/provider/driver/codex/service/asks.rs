@@ -10,16 +10,16 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::server_requests::{
+use crate::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestAnswer, CodexServerRequestDecision,
     CodexServerRequestResponder,
 };
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::routing::read_codex_ask_thread_id;
-use crate::provider::driver::codex::session::inbound::CodexSessionInbound;
-use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::DriverError;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::routing::read_codex_ask_thread_id;
+use crate::codex::session::inbound::CodexSessionInbound;
+use crate::codex::transport::connection::CodexForgottenRequest;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::contract::DriverError;
 
 /// Routes one service's asks to their sessions and withdraws those a closed connection let go.
 pub(super) struct CodexServiceAsks {

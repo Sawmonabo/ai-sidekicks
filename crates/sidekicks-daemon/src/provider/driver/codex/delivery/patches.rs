@@ -9,9 +9,9 @@ use sidekicks_contracts::transcript::content::{
     TranscriptPatchAbsentReason, TranscriptPatchUnreadableReason,
 };
 
-use crate::provider::driver::unified_diff::{count_unified_diff, mark_every_line};
-use crate::provider::record_readers::read_non_empty_string;
-use crate::transcript::whole_patch::WholePatchFile;
+use crate::driver::unified_diff::{count_unified_diff, mark_every_line};
+use crate::record_readers::read_non_empty_string;
+use sidekicks_store::transcript_whole_patch::WholePatchFile;
 
 /// Where a Codex update left its file (`kind.move_path`).
 enum CodexFileMove {
@@ -162,7 +162,7 @@ mod tests {
     };
 
     use super::read_codex_patch_files;
-    use crate::transcript::whole_patch::WholePatchFile;
+    use sidekicks_store::transcript_whole_patch::WholePatchFile;
 
     fn path(text: &str) -> FilesystemPath {
         FilesystemPath::new(text.to_owned()).expect("a test path is a valid path")

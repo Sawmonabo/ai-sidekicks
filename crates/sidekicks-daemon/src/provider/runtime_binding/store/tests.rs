@@ -14,14 +14,12 @@ use super::{
     RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
     RuntimeBindingStore, read_binding,
 };
-use crate::database::schema::provider_drivers::schema_parts;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::provider::driver::session_control::{
-    SessionToolServer, SubagentDefinition, SubagentPolicy,
-};
-use crate::provider::left_conversations::LeftConversation;
-use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::driver::schema::schema_parts;
+use crate::driver::session_control::{SessionToolServer, SubagentDefinition, SubagentPolicy};
+use crate::left_conversations::LeftConversation;
+use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
 fn token(text: &str) -> ProviderToken {
     FreeFormText::new(text.to_owned()).expect("the test's token is valid text")

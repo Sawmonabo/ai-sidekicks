@@ -17,35 +17,31 @@ use serde_json::value::RawValue;
 use sidekicks_platforms::{create_private_folder, read_socket_link};
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::driver::ReportedVersionReading;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::ThreadLoadedListParams;
-use crate::provider::driver::codex::native_program::resolve_codex_native_program;
-use crate::provider::driver::codex::service::command_line::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::app_server_protocol::ThreadLoadedListParams;
+use crate::codex::native_program::resolve_codex_native_program;
+use crate::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
 };
-use crate::provider::driver::codex::service::home::{CodexHomeKind, CodexServiceKind};
-use crate::provider::driver::codex::service::process::{
+use crate::codex::service::home::{CodexHomeKind, CodexServiceKind};
+use crate::codex::service::process::{
     CodexProcessLaunch, CodexServiceExit, LastingCodexService, ManagedCodexService,
     start_managed_codex_service,
 };
-use crate::provider::driver::codex::service::record::LastingServiceRecordFile;
-use crate::provider::driver::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::start::terminal::start_terminal_service;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::{
+use crate::codex::service::record::LastingServiceRecordFile;
+use crate::codex::service::start_lock::{CodexStartLock, take_codex_start_lock};
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::start::terminal::start_terminal_service;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::{
     CodexAppServerConnection, open_codex_connection, read_codex_object,
 };
-use crate::provider::driver::codex::transport::socket::{
-    CodexSocketWait, dial_codex_service_socket,
-};
-use crate::provider::driver::codex::version::{
-    CODEX_CLIENT_NAME, CodexInitializeReply, read_reported_version,
-};
-use crate::provider::driver::contract::DriverCliVersionReport;
-use crate::provider::output_validation::check_cli_version_report;
-use crate::provider::spawned_version::{
+use crate::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
+use crate::codex::version::{CODEX_CLIENT_NAME, CodexInitializeReply, read_reported_version};
+use crate::driver::ReportedVersionReading;
+use crate::driver::contract::DriverCliVersionReport;
+use crate::output_validation::check_cli_version_report;
+use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
 

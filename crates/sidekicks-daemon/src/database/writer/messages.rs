@@ -8,13 +8,13 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::budget::Measured;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
 use crate::database::writer::backup::BackupAnswer;
 use crate::database::writer::repack::RepackAnswer;
 use crate::events::session::insert::{SessionEventInsertError, SessionEventRow};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::Measured;
 
 /// One write: its statements, then its event rows in order, run as one unit under a savepoint of
 /// its own.

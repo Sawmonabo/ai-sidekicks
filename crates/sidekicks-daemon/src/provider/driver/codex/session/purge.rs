@@ -6,13 +6,13 @@
 use std::path::Path;
 use std::time::Duration;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::codex::app_server_protocol::ThreadDeleteParams;
-use crate::provider::driver::codex::service::home::CodexHomeKind;
-use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
-use crate::provider::driver::codex::session::helper_roles::remove_codex_helper_roles;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use crate::codex::app_server_protocol::ThreadDeleteParams;
+use crate::codex::service::home::CodexHomeKind;
+use crate::codex::service::registry::CodexServiceRegistry;
+use crate::codex::session::helper_roles::remove_codex_helper_roles;
+use crate::driver::contract::DriverError;
+use crate::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use sidekicks_std::error_description::describe_error;
 
 /// Codex's request that deletes a stored conversation.
 const CODEX_THREAD_DELETE_METHOD: &str = "thread/delete";

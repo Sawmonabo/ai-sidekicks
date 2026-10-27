@@ -8,7 +8,7 @@ use sidekicks_contracts::run::state::{RUN_TERMINAL_STATES, RunState};
 use sidekicks_contracts::transcript::run_facts::{RUN_STATE_EVENT_TYPES, RunStateEventType};
 use strum::VariantArray as _;
 
-use crate::database::sql_list::sql_list_of;
+use sidekicks_store::database::sql_list::sql_list_of;
 
 /// Whether `event_type` enters a terminal state.
 pub(crate) fn is_run_terminal_event_type(event_type: &str) -> bool {

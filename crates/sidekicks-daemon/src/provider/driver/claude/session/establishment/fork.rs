@@ -14,23 +14,21 @@ use super::{
     ClaudeCallbackBinding, ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment,
     ClaudeSessionStart,
 };
-use crate::error_description::describe_error;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::run::start::claude_session_unavailable;
-use crate::provider::driver::claude::session::conversation_file::{
+use crate::claude::run::start::claude_session_unavailable;
+use crate::claude::session::conversation_file::{
     conversation_file_of, read_claude_conversation_outline,
 };
-use crate::provider::driver::claude::session::errors::ClaudeSessionUnavailableReason;
-use crate::provider::driver::claude::session::state::{
-    ClaudeUsageEstablishment, LiveClaudeSession,
-};
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
-use crate::provider::left_conversations::LeftConversation;
-use crate::provider::runtime_binding::store::RuntimeBindingRebind;
+use crate::claude::session::errors::ClaudeSessionUnavailableReason;
+use crate::claude::session::state::{ClaudeUsageEstablishment, LiveClaudeSession};
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::spawn::arguments::ClaudeConversationStart;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
+use crate::left_conversations::LeftConversation;
+use crate::runtime_binding::store::RuntimeBindingRebind;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeSessionEstablishment {
     /// Forks `predecessor`'s conversation at the turn `params` names and moves the session onto

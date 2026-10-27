@@ -2,7 +2,7 @@
 
 use sidekicks_contracts::run::queue::QueueItemSummary;
 
-use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
+use crate::queue_store::{QueueItemRecord, RecordedQueueItemState};
 
 /// The pending row a screen draws for `record`.
 pub(crate) fn summary_of(record: QueueItemRecord) -> QueueItemSummary {

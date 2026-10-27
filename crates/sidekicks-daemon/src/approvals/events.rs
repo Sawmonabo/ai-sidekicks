@@ -16,7 +16,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::events::session::appender::AppendedPayload;
+use sidekicks_store::events::session::appender::AppendedPayload;
 
 // Each payload names its session, and the daemon is the actor of every one.
 macro_rules! daemon_recorded_payloads {

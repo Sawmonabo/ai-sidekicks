@@ -18,10 +18,8 @@ use sidekicks_platforms::{
     process_identity,
 };
 
-use crate::provider::driver::codex::service::process::request_codex_service_shutdown;
-use crate::provider::driver::codex::service::start_lock::{
-    CodexStartLock, codex_daemon_state_folder,
-};
+use crate::codex::service::process::request_codex_service_shutdown;
+use crate::codex::service::start_lock::{CodexStartLock, codex_daemon_state_folder};
 
 /// How long a stopped process has to end before it is killed, Codex's own grace.
 const CODEX_MANAGED_DAEMON_GRACE: Duration = Duration::from_secs(60);

@@ -6,15 +6,15 @@ use sidekicks_contracts::run::id::RunId;
 use super::{
     interrupt_state, limit_record, record_interrupt, step_limit_reached, token_limit_reached,
 };
-use crate::database::statement::DATABASE_NOW_SQL;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::tests::{
+use crate::run::engine::tests::{
     append, events, hand_limit_interrupter, insert_running_run, step_stop, stored_events,
     stored_run_state, test_engine, turn_started_at,
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::statement::DATABASE_NOW_SQL;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 // The provider process's exit the tests report.
 fn process_exit() -> ProcessExit {

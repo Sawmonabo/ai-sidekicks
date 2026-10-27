@@ -17,8 +17,8 @@ use sidekicks_platforms::{PinnedProcess, this_process};
 use tokio::sync::{Notify, mpsc};
 
 use super::{CallerAdmission, CallerAdmissionCheck, NegotiationGate, ProtocolNegotiator};
-use crate::ipc::call_fixtures::{Nothing, context, request};
-use crate::ipc::registry::{
+use crate::call_fixtures::{Nothing, context, request};
+use crate::registry::{
     Dispatch, DispatchError, HandlerContext, MethodRegistryBuilder, Reply, Request,
 };
 

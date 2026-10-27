@@ -10,7 +10,7 @@ use sidekicks_contracts::provider::driver::usage_limit::{
 };
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::provider::record_readers::read_present_member;
+use crate::record_readers::read_present_member;
 
 /// The `account/rateLimits/read` method, the pull carrier of a rate-limit snapshot (a reply).
 pub(crate) const CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD: &str = "account/rateLimits/read";

@@ -17,8 +17,8 @@ use super::super::{CONNECTION_CLOSE_WAIT, SupervisionDisconnectReason};
 use super::{
     Harness, HookCall, assert_refusal, call, channel_feed, harness, settle, subscribe, within,
 };
-use crate::ipc::call_fixtures::{context, request};
-use crate::ipc::registry::{Dispatch as _, DispatchError, HandlerContext, Reply, TransportId};
+use sidekicks_ipc::call_fixtures::{context, request};
+use sidekicks_ipc::registry::{Dispatch as _, DispatchError, HandlerContext, Reply, TransportId};
 
 /// How the test ends the connection.
 #[derive(Clone, Copy, Debug)]

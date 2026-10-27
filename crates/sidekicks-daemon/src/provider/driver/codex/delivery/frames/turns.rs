@@ -12,36 +12,32 @@ use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPay
 use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::failure_cause::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::failure_cause::{
     CODEX_CONTEXT_WINDOW_EXCEEDED_ERROR, CODEX_RATE_LIMIT_EXCEEDED_ERROR,
     CODEX_USAGE_LIMIT_EXCEEDED_ERROR, read_codex_turn_failure_cause,
 };
-use crate::provider::driver::codex::delivery::frames::{
+use crate::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDispatch, CodexPromptHookRun, CodexRunMove, CodexTurnEnding,
     CodexTurnMove, CodexTurnRun, read_turn_ending, report_unattributed,
 };
-use crate::provider::driver::codex::delivery::memory::{
-    CodexTurnErrorReading, read_codex_error_kind,
-};
-use crate::provider::driver::codex::delivery::notices::{provider_words, release_reroute};
-use crate::provider::driver::codex::delivery::reviewer::end_codex_review_turn;
-use crate::provider::driver::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexDeliveryPort, CodexTransportDiagnostic,
-};
-use crate::provider::driver::codex::turn_evidence::{
+use crate::codex::delivery::memory::{CodexTurnErrorReading, read_codex_error_kind};
+use crate::codex::delivery::notices::{provider_words, release_reroute};
+use crate::codex::delivery::reviewer::end_codex_review_turn;
+use crate::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun};
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
+use crate::codex::turn_evidence::{
     CodexTurnStatus, CodexTurnTerminalInput, compose_codex_turn_terminal,
 };
-use crate::provider::driver::run_control::SteerTurnEndedError;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::{
+use crate::driver::run_control::SteerTurnEndedError;
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::{
     DeliveryBinding, DeliveryOperation, InboundDelivery, LateAppendableRow,
 };
-use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
-use crate::provider::terminal_emission_gate::TerminalEmissionGate;
-use crate::provider::thread_frame_router::ThreadFrameRoute;
+use crate::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use crate::terminal_emission_gate::TerminalEmissionGate;
+use crate::thread_frame_router::ThreadFrameRoute;
 
 /// The hook event whose blocked or stopped run keeps the person's prompt from its turn.
 const CODEX_USER_PROMPT_SUBMIT_HOOK: &str = "userPromptSubmit";
@@ -388,7 +384,7 @@ impl CodexFrameDelivery {
 
     // A turn that ended answers no ask it held: their cards are withdrawn, its corrections
     // dropped.
-    pub(in crate::provider::driver::codex::delivery) fn withdraw_ended_turn_asks(
+    pub(in crate::codex::delivery) fn withdraw_ended_turn_asks(
         &self,
         record: &CodexSessionRecord,
         thread_id: &str,

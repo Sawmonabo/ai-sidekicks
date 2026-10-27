@@ -20,16 +20,16 @@ use sidekicks_contracts::session::controls::events::{
 };
 use sidekicks_contracts::wire::text::{ComposedText, FreeFormText};
 
-use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
-use crate::provider::driver::codex::delivery::notices::provider_words;
-use crate::provider::driver::codex::delivery::reviewer::assessment::{
+use crate::codex::delivery::memory::CodexDeliveryMemory;
+use crate::codex::delivery::notices::provider_words;
+use crate::codex::delivery::reviewer::assessment::{
     GuardianAssessmentAction, GuardianAssessmentEvent, GuardianAssessmentStatus,
     ReviewCompletedParams,
 };
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
-use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::UnstampedRow;
+use crate::codex::delivery::rows::CodexRowRun;
+use crate::port::reviewer_denial::ProviderReviewerDenial;
+use crate::record_readers::read_non_empty_string;
+use crate::run::delivery::UnstampedRow;
 
 /// The sentence Codex's own app writes for a required review, which carries no words of its own.
 const CODEX_REVIEW_REQUIRED_SENTENCE: &str =

@@ -10,7 +10,7 @@ use sidekicks_contracts::workflow::run::status::{
 };
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 
-use crate::workflow::schema::WORKFLOW_SCHEMA_SQL;
+use crate::schema::WORKFLOW_SCHEMA_SQL;
 
 /// The session every test run lives in.
 pub(crate) const TEST_SESSION_ID: &str = "00000000-0000-7000-8000-000000000001";

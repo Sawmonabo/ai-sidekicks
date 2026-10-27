@@ -34,27 +34,25 @@ use super::starts::{ScriptedStartRecord, ScriptedStarts};
 use super::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, scripted_staged_changes,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::provider_drivers::schema_parts;
-use crate::database::writer::test_file::TestDatabase;
-use crate::mutex_lock::lock;
-use crate::policy::execution_posture_service::{
-    ExecutionPostureService, compose_execution_posture,
-};
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::lifecycle::ClaudeDriver;
-use crate::provider::driver::contract::DriverCliVersionReport;
-use crate::provider::driver::ports::SessionRelaunchListener;
-use crate::provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
-use crate::provider::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
-use crate::provider::driver::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::lifecycle::ClaudeDriver;
+use crate::driver::contract::DriverCliVersionReport;
+use crate::driver::ports::SessionRelaunchListener;
+use crate::driver::schema::schema_parts;
+use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::driver::{
     DriverServices, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::port::run_host::test_host::RecordingRunEngine;
-use crate::provider::port::session_advisor_store::SessionAdvisorStore;
-use crate::provider::runtime_binding::store::{RuntimeBinding, RuntimeBindingSpawnConfig};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::run_host::RunHost;
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
+use crate::runtime_binding::store::{RuntimeBinding, RuntimeBindingSpawnConfig};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// The statements the driver's read pool caches.
 const POOL_STATEMENT_CAPACITY: usize = 16;

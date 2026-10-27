@@ -7,7 +7,7 @@ use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceId};
 
-use crate::ipc::domain_error::DomainError;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// Why the workspace service refused a call; the execution-root service's `workspace.*` codes are
 /// not among them. Converts into the [`DomainError`] the reply carries.

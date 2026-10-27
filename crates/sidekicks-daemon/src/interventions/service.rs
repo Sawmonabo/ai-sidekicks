@@ -53,36 +53,36 @@ use self::request::{
     stored_payload_of,
 };
 use self::saved::{idempotency_conflict, with_failed_read};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::statement::WriteStatement;
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::{
-    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
-use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::driver_resolution::read_run_driver;
 use crate::interventions::interrupt_queue::{InterruptCause, InterruptEnd, InterruptQueue};
 use crate::interventions::store::{
     InterventionTransition, RequestedIntervention, UnresolvedInterventionState,
     insert_requested_intervention_statement, move_intervention_statement, run_at_version_statement,
     run_in_states_statement,
 };
-use crate::ipc::handlers::driver::resolution::read_run_driver;
-use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::run_control::{
+use crate::run::engine::{InterruptRoute, RunEngine, RunEngineError};
+use crate::run::projection::advance_run_version_statement;
+use crate::run::read::{RunRead, read_run_through};
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::{RunStateChangeCompanions, refused_statement_index};
+use crate::run::transitions::states_that_may_enter;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::{DriverError, bound_failure_detail};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
     InterventionResultStatus,
 };
-use crate::session::run::engine::{InterruptRoute, RunEngine, RunEngineError};
-use crate::session::run::projection::advance_run_version_statement;
-use crate::session::run::read::{RunRead, read_run_through};
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::{RunStateChangeCompanions, refused_statement_index};
-use crate::session::run::transitions::states_that_may_enter;
-use crate::settle_all::{SettleFailures, settle_all};
-use crate::text_cut::cut_to_code_points;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::{
+    SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
+};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// The statements the service's reads prepare on its pooled connection: the run's row, its
 /// provider, and an intervention's row by its id and under a reused key.

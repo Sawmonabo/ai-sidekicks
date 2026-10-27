@@ -13,18 +13,18 @@ use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_platforms::{default_shell, login_shell, stable_working_folder};
 use sidekicks_terminal::{CommandLine, ShellCommand, SpawnRequest};
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::provider::spawn_environment::{
-    SessionEnvironment, build_project_command_environment, remove_environment_names,
-};
-use crate::pty::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
-use crate::pty::shell::integration::injection::{
+use crate::integration::injection::{
     ShellMarkNonce, ShellStartupError, ShellStartupFolders, prepare_shell_launch,
 };
-use crate::pty::shell::refusals::chat_unsupported;
-use crate::pty::shell::resize::ShellSize;
-use crate::session::working_folder::SessionWorkingFolder;
+use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
+use crate::refusals::chat_unsupported;
+use crate::resize::ShellSize;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::spawn_environment::{
+    SessionEnvironment, build_project_command_environment, remove_environment_names,
+};
+use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 /// The size a shell starts at before any pane sizes it: the conventional terminal's.
 pub(crate) const INITIAL_SHELL_SIZE: ShellSize = ShellSize {

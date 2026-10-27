@@ -29,32 +29,36 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::session_scope::SessionScopedSql;
-use crate::database::statement::{StatementBindings, WriteStatement, named_bindings, text_binding};
-use crate::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventLinkage,
-};
-use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::KeyedLock;
-use crate::mutex_lock::lock;
-use crate::provider::driver::contract::{DriverError, ProviderDriver};
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::run_control::{
-    AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
-};
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::pause::run_control_response;
-use crate::session::run::read::{
+use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::pause::run_control_response;
+use crate::run::read::{
     RunRead, RunStateReader, SessionRun, read_run_provider, read_run_through, session_run_of_row,
 };
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::{
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
 };
-use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
+use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::run_control::{
+    AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
+};
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::session_scope::SessionScopedSql;
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, named_bindings, text_binding,
+};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventLinkage,
+};
 
 #[cfg(test)]
 mod tests;

@@ -6,8 +6,8 @@
 
 use std::sync::Arc;
 
-use crate::policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
-use crate::provider::driver::{BackgroundWork, ProviderDescriptor};
+use crate::driver::{BackgroundWork, ProviderDescriptor};
+use sidekicks_policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
 
 /// Every registered provider's background work: the names its command runs under, the
 /// subcommands and flags that start the work, and the refusal an agent reads. Built once at the
@@ -163,8 +163,8 @@ mod tests {
     use rstest::rstest;
 
     use super::{BackgroundWorkForms, refuse_background_work};
-    use crate::policy::shell_commands::ShellLineReader;
-    use crate::provider::driver::PROVIDERS;
+    use crate::driver::PROVIDERS;
+    use sidekicks_policy::shell_commands::ShellLineReader;
 
     // Far past every line here, so the cases read the walk and never the cap.
     const LIMIT: usize = 4096;

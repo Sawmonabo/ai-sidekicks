@@ -10,14 +10,14 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::diagnostics::{
+use crate::driver::contract::bound_failure_detail;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
+use sidekicks_std::error_description::describe_error;
 
 /// Where a delivery came from, as a refusal's diagnostic names it.
 pub(crate) struct DeliveryOrigin<'a> {

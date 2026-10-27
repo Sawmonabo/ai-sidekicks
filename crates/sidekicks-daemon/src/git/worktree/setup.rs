@@ -40,15 +40,15 @@ use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
     keep_succeeded_steps, project_steps_of, run_command, step_error,
 };
-use crate::elapsed::elapsed_ms_since;
-use crate::error_description::describe_error;
+use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
-use crate::mutex_lock::lock;
-use crate::settle_all::{SettleFailures, settle_all};
-use crate::workspace::folder::canonical_path::canonical_folder_path;
-use crate::workspace::trust_envelope::is_contained_within;
+use crate::trust_envelope::is_contained_within;
+use sidekicks_std::elapsed::elapsed_ms_since;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
 /// How long a command ended because its tree is being removed has after it is asked to stop
 /// before every process it started is ended: the grace terminal programs give a process they close.

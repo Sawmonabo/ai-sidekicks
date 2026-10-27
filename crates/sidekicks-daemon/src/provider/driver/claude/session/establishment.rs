@@ -35,72 +35,62 @@ use tokio::sync::SetOnce;
 
 use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
 use self::figures::ClaudeHeldFigures;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::events::canonicalizer::CanonicalizationRefusal;
-use crate::mutex_lock::lock;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::{
-    CredentialPolicyResolveError, ExecutionPostureService,
-};
-use crate::provider::callback_tools::spawn_binding::CallbackToolSpawnBinding;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::stream::{
-    ClaudeSessionStream, ClaudeSessionStreams,
-};
-use crate::provider::driver::claude::frame_routing::ClaudeFrameRouting;
-use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
-use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::run::start::claude_session_unavailable;
-use crate::provider::driver::claude::session::arrivals::task::{
-    ClaudeSessionTask, ClaudeSessionTaskServices,
-};
-use crate::provider::driver::claude::session::arrivals::{
+use crate::background_work::BackgroundWorkForms;
+use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
+use crate::claude::DESCRIPTOR;
+use crate::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
+use crate::claude::frame_routing::ClaudeFrameRouting;
+use crate::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::claude::run::prompts::ClaudeSentPrompts;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::run::start::claude_session_unavailable;
+use crate::claude::session::arrivals::task::{ClaudeSessionTask, ClaudeSessionTaskServices};
+use crate::claude::session::arrivals::{
     ClaudeSessionListener, claude_session_arrivals, drain_claude_session_arrivals,
 };
-use crate::provider::driver::claude::session::errors::{
+use crate::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
-use crate::provider::driver::claude::session::ignored_settings::find_ignored_setting_notice;
-use crate::provider::driver::claude::session::permissions::read_claude_session_rules;
-use crate::provider::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
-use crate::provider::driver::claude::session::state::{
+use crate::claude::session::ignored_settings::find_ignored_setting_notice;
+use crate::claude::session::permissions::read_claude_session_rules;
+use crate::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
+use crate::claude::session::state::{
     CLAUDE_THREAD_FRAME_ROUTER_CONFIG, ClaudeHeldCommandChoices, ClaudeLiveSettings,
     ClaudeRequestedSpawn, ClaudeSessionRoutingBand, ClaudeSpawnBinding, ClaudeUsageEstablishment,
     LiveClaudeSession,
 };
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
-use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::claude::spawn::launch::bring_up::{
-    ClaudeBringUpRequest, ClaudeSessionSpawn,
-};
-use crate::provider::driver::claude::spawn::launch::installed_build::{
-    ClaudeProcessStarts, ClaudeStartedSession,
-};
-use crate::provider::driver::claude::spawn::legs::{
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::session::ultracode::requested_claude_ultracode;
+use crate::claude::spawn::arguments::ClaudeConversationStart;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::claude::spawn::launch::bring_up::{ClaudeBringUpRequest, ClaudeSessionSpawn};
+use crate::claude::spawn::launch::installed_build::{ClaudeProcessStarts, ClaudeStartedSession};
+use crate::claude::spawn::legs::{
     ClaudeCallbackToolRegistry, ClaudeSpawnLegServices, ClaudeSpawnLegsError,
     ClaudeSpawnLegsRequest, bind_claude_callback_tools, build_claude_spawn_binding,
     build_claude_spawn_bound_legs,
 };
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
-use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::session_control::{
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::ports::DriverPorts;
+use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
     SubagentPolicy,
 };
-use crate::provider::port::registration::PortRegistrationError;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::run::delivery::InboundDelivery;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::provider::thread_frame_router::ThreadFrameRouter;
-use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
+use crate::port::registration::PortRegistrationError;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::delivery::InboundDelivery;
+use crate::run::posture::{CredentialPolicyResolveError, ExecutionPostureService};
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::spawn_environment::ReservedEnvironmentNames;
+use crate::thread_frame_router::ThreadFrameRouter;
+use crate::usage_delta_accountant::UsageDeltaAccountant;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 
 /// Why a session's process could not be brought up and adopted.
 #[derive(Debug, thiserror::Error)]
@@ -570,12 +560,10 @@ impl ClaudeSessionEstablishment {
                 provider_session_id: provider_session_id.clone(),
                 conversation,
                 listener,
-                turn_holds: Some(
-                    crate::provider::driver::claude::session::process::ClaudeTurnHolds {
-                        routes: Arc::clone(&self.routes),
-                        session_id,
-                    },
-                ),
+                turn_holds: Some(crate::claude::session::process::ClaudeTurnHolds {
+                    routes: Arc::clone(&self.routes),
+                    session_id,
+                }),
             })
             .await;
         let started = match started {
@@ -673,7 +661,7 @@ impl ClaudeSessionEstablishment {
         &self,
         live: &Arc<LiveClaudeSession>,
         stream: Arc<ClaudeSessionStream>,
-        receiver: crate::provider::driver::claude::session::arrivals::ClaudeArrivalReceiver,
+        receiver: crate::claude::session::arrivals::ClaudeArrivalReceiver,
         started: &ClaudeStartedSession,
     ) {
         let session_id = live.session_id;

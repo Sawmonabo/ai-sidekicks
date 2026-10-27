@@ -8,20 +8,18 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::server_requests::{
-    CodexInboundServerRequest, CodexServerRequestDecision,
-};
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::server_requests::{CodexInboundServerRequest, CodexServerRequestDecision};
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     codex_session_inbound, drain_codex_session_inbound,
 };
-use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::new_session_id;
+use crate::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::codex::transport::connection::CodexForgottenRequest;
+use crate::driver::contract::DriverError;
+use crate::driver::test_registry::new_session_id;
 
 const THREAD: &str = "thread-1";
 

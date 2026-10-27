@@ -26,27 +26,27 @@ use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::schema::session_directory::read_session_state;
-use crate::database::stored_column::text_column;
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::file::real_location::resolve_real_path;
-use crate::git::process::GitRunner;
-use crate::git::worktree::fetch::{BackgroundFetch, FetchHold, FetchedRepository};
-use crate::git::worktree::watch::{
+use crate::review_note::diff_line::NotedLineReader;
+use crate::review_note::store::{ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach};
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::is_gone;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::schema::session_directory::read_session_state;
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, FetchHold, FetchedRepository};
+use sidekicks_workspace::git::worktree::watch::{
     WatchHold, WatchTarget, WorkingFolderError, WorkingFolderWatcher,
 };
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::is_gone;
-use crate::mutex_lock::lock;
-use crate::session::review_note::diff_line::NotedLineReader;
-use crate::session::review_note::store::{
-    ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach,
-};
-use crate::session::working_folder::{
+use sidekicks_workspace::working_folder::{
     SessionWorkingFolder, WorkingFolderReadError, read_working_folder,
 };
-use crate::workspace::folder::canonical_path::canonical_folder_path;
 
 // The events after which a session may work somewhere else, or stop or start being live.
 const SYNCING_EVENT_TYPES: [SessionEventType; 8] = [

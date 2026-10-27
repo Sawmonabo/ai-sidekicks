@@ -14,21 +14,17 @@ use tokio_util::sync::CancellationToken;
 
 use super::kept_records::retire_former_service;
 use super::{StartFailure, StartedService, start_codex_service};
-use crate::provider::driver::codex::service::home::{
-    CodexHomeKind, CodexServiceHome, CodexServiceKind,
-};
-use crate::provider::driver::codex::service::process::{
+use crate::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::codex::service::process::{
     CodexProcessLaunch, repin_lasting_codex_service, start_lasting_codex_service,
 };
-use crate::provider::driver::codex::service::record::{
-    LastingServiceRecord, LastingServiceRecordFile,
-};
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
+use crate::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
     test_codex_service_dependencies, write_failing_codex,
 };
-use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::codex::session::errors::CodexError;
 
 /// The survivor's stand-in: this test program, which holds a connection to the test's socket open
 /// while it runs, so its end closes it.

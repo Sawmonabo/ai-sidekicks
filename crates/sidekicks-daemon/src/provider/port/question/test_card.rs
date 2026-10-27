@@ -15,7 +15,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::{Notify, Semaphore};
 use tokio::time::{Duration, timeout};
 
-use crate::provider::port::question::{
+use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
     WaitingQuestionOpening,
 };

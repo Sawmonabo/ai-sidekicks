@@ -28,19 +28,23 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
-use crate::database::stored_column::{StoredJsonFault, parse_stored_json_object, text_column};
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::provider::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
-use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
-use crate::provider::left_conversations::{LeftConversation, compose_left_conversation_insert};
-use crate::provider::output_validation::{
+use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
+use crate::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
+use sidekicks_store::database::stored_column::{
+    StoredJsonFault, parse_stored_json_object, text_column,
+};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
 /// runs', and every resumable one.

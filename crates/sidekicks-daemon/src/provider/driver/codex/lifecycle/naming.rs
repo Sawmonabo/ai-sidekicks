@@ -19,33 +19,29 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::{CodexDriver, internal};
-use crate::provider::driver::codex::app_server_protocol::{
+use crate::codex::app_server_protocol::{
     AskForApproval, ConfigReadParams, SandboxMode, ThreadReadParams, ThreadSetNameParams,
     ThreadSource, ThreadStartParams,
 };
-use crate::provider::driver::codex::attachments::compose_codex_text_input;
-use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
-use crate::provider::driver::codex::event_normalizer::{
-    CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD,
-};
-use crate::provider::driver::codex::lifecycle::views::CodexConversationView;
-use crate::provider::driver::codex::service::command::run_codex_command;
-use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::supervisor::start::compose_codex_native_launch;
-use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceDependencies};
-use crate::provider::driver::codex::session::detached_conversation::{
+use crate::codex::attachments::compose_codex_text_input;
+use crate::codex::capabilities::read_codex_service_model_catalog;
+use crate::codex::event_normalizer::{CODEX_ITEM_COMPLETED_METHOD, CODEX_TURN_COMPLETED_METHOD};
+use crate::codex::lifecycle::views::CodexConversationView;
+use crate::codex::service::command::run_codex_command;
+use crate::codex::service::home::CodexServiceKind;
+use crate::codex::service::supervisor::start::compose_codex_native_launch;
+use crate::codex::service::supervisor::{CodexService, CodexServiceDependencies};
+use crate::codex::session::detached_conversation::{
     CodexDetachedFrame, CodexDetachedFrames, stop_detached_turn,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::thread::settings::CodexTurnStartParams;
-use crate::provider::driver::codex::thread::view::{TURN_START_METHOD, read_thread, read_turn_id};
-use crate::provider::driver::codex::transport::connection::{
-    CodexAppServerConnection, read_codex_object,
-};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::{NameSessionParams, run_naming_pass_until};
-use crate::provider::runtime_binding::store::RuntimeBinding;
-use crate::provider::spawned_version::ResolvedProviderExecutable;
+use crate::codex::session::errors::CodexError;
+use crate::codex::thread::settings::CodexTurnStartParams;
+use crate::codex::thread::view::{TURN_START_METHOD, read_thread, read_turn_id};
+use crate::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::contract::DriverError;
+use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
+use crate::runtime_binding::store::RuntimeBinding;
+use crate::spawned_version::ResolvedProviderExecutable;
 
 const CONFIG_READ_METHOD: &str = "config/read";
 

@@ -10,9 +10,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::claude::session::scripted::binding_id;
-use crate::provider::driver::contract::{RunOpening, StartRunParams};
-use crate::provider::driver::session_control::ResumeSessionParams;
+use crate::claude::session::scripted::binding_id;
+use crate::driver::contract::{RunOpening, StartRunParams};
+use crate::driver::session_control::ResumeSessionParams;
 
 mod bring_up;
 mod naming;

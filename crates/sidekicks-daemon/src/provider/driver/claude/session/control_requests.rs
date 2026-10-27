@@ -10,16 +10,12 @@ use std::time::Duration;
 
 use tokio::sync::oneshot;
 
-use crate::provider::driver::claude::session::errors::{
+use crate::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
-use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
-use crate::provider::driver::claude::session::transport::inbound::{
-    ClaudeControlAnswer, ClaudeControlOutcome,
-};
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeWriteAttempt, ClaudeWriteDelivery,
-};
+use crate::claude::session::transport::control::ClaudeControlSubtype;
+use crate::claude::session::transport::inbound::{ClaudeControlAnswer, ClaudeControlOutcome};
+use crate::claude::session::transport::user_message::{ClaudeWriteAttempt, ClaudeWriteDelivery};
 
 /// Queues `control_cancel_request {request_id}` on the process's input without waiting, so a
 /// request withdrawn on a deadline or from a dropped caller never blocks.
@@ -249,15 +245,13 @@ mod tests {
     use std::time::Duration;
 
     use super::{ClaudeControlRequests, ClaudeControlSettlement};
-    use crate::provider::driver::claude::session::errors::{
+    use crate::claude::session::errors::{
         ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
     };
-    use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-    use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
-    use crate::provider::driver::claude::session::transport::inbound::{
-        ClaudeControlAnswer, ClaudeControlOutcome,
-    };
-    use crate::provider::driver::claude::session::transport::user_message::{
+    use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+    use crate::claude::session::transport::control::ClaudeControlSubtype;
+    use crate::claude::session::transport::inbound::{ClaudeControlAnswer, ClaudeControlOutcome};
+    use crate::claude::session::transport::user_message::{
         ClaudeWriteAttempt, ClaudeWriteDelivery,
     };
 

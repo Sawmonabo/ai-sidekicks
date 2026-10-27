@@ -9,9 +9,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use tokio::sync::Notify;
 
-use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::feed::{Feed, SendGate};
-use crate::mutex_lock::lock;
+use crate::registry::HandlerError;
+use crate::stream::feed::{Feed, SendGate};
+use sidekicks_std::mutex_lock::lock;
 
 /// What waits between a source and its feed.
 struct WaitingValue<Emission> {
@@ -232,7 +232,7 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
-    use crate::ipc::stream::feed::CreditGate;
+    use crate::stream::feed::CreditGate;
 
     #[tokio::test]
     async fn a_burst_sent_while_the_gate_is_closed_is_read_as_the_newest_alone() {

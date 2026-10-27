@@ -23,13 +23,13 @@ use sidekicks_platforms::{
     signal_command_group, start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
 };
 
-use crate::mutex_lock::lock;
-use crate::provider::command::channel::party::{
+use crate::command::channel::party::{
     ChannelParty, PartyRecords, PartyRequests, PartyStart, RequestError, own_arguments,
 };
-use crate::provider::command::channel::{DaemonRequest, PARTY_SECRET_VARIABLE, PartyRecord};
-use crate::provider::driver::shell_prefix_command_of;
-use crate::standard_error::write_error_line;
+use crate::command::channel::{DaemonRequest, PARTY_SECRET_VARIABLE, PartyRecord};
+use crate::driver::shell_prefix_command_of;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::standard_error::write_error_line;
 use terminal::run_in_terminal;
 
 /// The name of the link a provider runs every shell command through, which reaches this mode.

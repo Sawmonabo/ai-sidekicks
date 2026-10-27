@@ -9,17 +9,15 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 
-use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::codex_session_inbound;
-use crate::provider::driver::codex::session::test_session::{
-    TEST_THREAD, TestCodexSession, fork_reply, no_turns,
-};
-use crate::provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
-use crate::provider::process_identity::ProviderProcessIds as _;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::inbound::codex_session_inbound;
+use crate::codex::session::test_session::{TEST_THREAD, TestCodexSession, fork_reply, no_turns};
+use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::process_identity::ProviderProcessIds as _;
+use crate::run::posture::compose_execution_posture;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.

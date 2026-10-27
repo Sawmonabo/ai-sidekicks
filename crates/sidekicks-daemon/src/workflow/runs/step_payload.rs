@@ -9,9 +9,9 @@ use sidekicks_contracts::workflow::run::step::methods::{
 };
 use sidekicks_contracts::workflow::run::step::record::{WorkflowPayloadRef, WorkflowStepKey};
 
-use crate::database::stored_column::text_column;
-use crate::workflow::not_found::WorkflowNotFound;
-use crate::workflow::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
+use crate::not_found::WorkflowNotFound;
+use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
+use sidekicks_store::database::stored_column::text_column;
 
 /// The statements a [`WorkflowStepPayloadReader`] prepares on a read connection: one per payload a
 /// step stores.
@@ -171,10 +171,8 @@ mod tests {
         WorkflowStepPayloadError, WorkflowStepPayloadReader, decode_step_payload_cursor,
         encode_step_payload_cursor,
     };
-    use crate::workflow::runs::invalid_cursor::{
-        UnresolvableCursorReason, WorkflowCursorUnresolvable,
-    };
-    use crate::workflow::test_rows::{
+    use crate::runs::invalid_cursor::{UnresolvableCursorReason, WorkflowCursorUnresolvable};
+    use crate::test_rows::{
         TEST_NODE_ID, TestStep, insert_run, insert_step, insert_workflow_version, workflow_tables,
     };
 

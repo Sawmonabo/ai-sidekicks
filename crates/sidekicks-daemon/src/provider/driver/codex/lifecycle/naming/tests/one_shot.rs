@@ -11,18 +11,16 @@ use sidekicks_platforms::{
 use tokio::time::Instant;
 
 use super::locked_down_config;
-use crate::provider::driver::codex::lifecycle::naming::{
+use crate::codex::lifecycle::naming::{
     CODEX_NAMING_DEADLINE, CODEX_SERVER_LIST_DEADLINE, name_in_one_shot,
 };
-use crate::provider::driver::codex::service::home::{
-    CodexHomeKind, CodexServiceHome, CodexServiceKind,
-};
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
+use crate::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, script_codex_service, test_codex_service_dependencies,
 };
-use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
-use crate::provider::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
-use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
+use crate::codex::transport::connection::scripted_service::ScriptedService;
 
 // A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
 // with `list_exit`; any other call records its arguments in `arguments` and fails.

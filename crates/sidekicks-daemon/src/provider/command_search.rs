@@ -23,13 +23,11 @@ use sidekicks_platforms::{
 use tokio::process::Command;
 use tokio::sync::OnceCell;
 
-use crate::missing_entry::is_gone;
-use crate::mutex_lock::lock;
-use crate::provider::driver::{InstallFolderBase, ProviderDescriptor};
-use crate::provider::spawn_environment::{
-    place_folder_first_on_search_path, remove_environment_names,
-};
-use crate::provider::spawned_version::{parse_cli_version_report, start_resolved_build};
+use crate::driver::{InstallFolderBase, ProviderDescriptor};
+use crate::spawn_environment::{place_folder_first_on_search_path, remove_environment_names};
+use crate::spawned_version::{parse_cli_version_report, start_resolved_build};
+use sidekicks_std::missing_entry::is_gone;
+use sidekicks_std::mutex_lock::lock;
 
 /// How long one build may take to print its version before it ranks below every build that did.
 const VERSION_READ_DEADLINE: Duration = Duration::from_secs(5);
@@ -413,7 +411,7 @@ mod tests {
     use sidekicks_platforms::{ProgramFolder, Spawner};
 
     use super::ProviderCommandSearch;
-    use crate::file::atomic_write::write_file_atomically;
+    use sidekicks_std::file::atomic_write::write_file_atomically;
 
     // A build whose first version read sleeps past its deadline and whose later ones print 2.0.0.
     const SLOW_ON_FIRST_READ: &str = "marker=\"$(dirname \"$0\")/read\"

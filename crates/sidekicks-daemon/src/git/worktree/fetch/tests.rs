@@ -15,15 +15,15 @@ use tokio::time::timeout;
 use super::{
     BackgroundFetch, BackgroundFetchDeps, FetchCounts, FetchedRepository, read_counts_as_of,
 };
-use crate::daemon::scheduler::Scheduler;
-use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::open_log;
 use crate::git::process::{
     GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
     test_git_runner_with_environment,
 };
 use crate::git::worktree::schema::schema_parts;
-use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::tests::open_log;
 
 const WAIT: Duration = Duration::from_secs(30);
 

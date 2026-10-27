@@ -11,12 +11,12 @@ use sidekicks_contracts::plan::{PlanId, PlanState};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::ComposedText;
 
-use crate::artifacts::manifest_write::{MANIFEST_COLUMN_COUNT, MANIFEST_COLUMNS, read_manifest};
-use crate::artifacts::refusals::ArtifactError;
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{closed_word, safe_int_column, text_column};
-use crate::session::directory::lookups::session_exists;
-use crate::session::not_found::session_not_found;
+use crate::manifest_write::{MANIFEST_COLUMN_COUNT, MANIFEST_COLUMNS, read_manifest};
+use crate::refusals::ArtifactError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::stored_column::{closed_word, safe_int_column, text_column};
 
 // The session's plans, oldest first, each with the word its record holds, or accepted where this
 // session is the one the plan was handed off to.

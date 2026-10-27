@@ -18,19 +18,19 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::oneshot;
 
-use crate::provider::driver::codex::app_server_protocol::{TurnSteerParams, UserInput};
-use crate::provider::driver::codex::delivery::frames::{CodexPromptHookRun, CodexTurnEnding};
-use crate::provider::driver::codex::input_limit::message_too_large_refusal;
-use crate::provider::driver::codex::intervention::CodexSteerAcknowledgment;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::app_server_protocol::{TurnSteerParams, UserInput};
+use crate::codex::delivery::frames::{CodexPromptHookRun, CodexTurnEnding};
+use crate::codex::input_limit::message_too_large_refusal;
+use crate::codex::intervention::CodexSteerAcknowledgment;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::thread::view::read_steered_turn_id;
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::run_control::SteerTurnEndedError;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::thread::view::read_steered_turn_id;
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::run_control::SteerTurnEndedError;
 
 #[cfg(test)]
 mod tests;

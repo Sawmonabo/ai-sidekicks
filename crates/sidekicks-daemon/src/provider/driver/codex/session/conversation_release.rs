@@ -14,24 +14,20 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::app_server_protocol::{
-    ThreadResumeParams, ThreadUnsubscribeParams,
-};
-use crate::provider::driver::codex::event_normalizer::{
+use crate::codex::app_server_protocol::{ThreadResumeParams, ThreadUnsubscribeParams};
+use crate::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_STATUS_CHANGED_METHOD,
 };
-use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceId};
-use crate::provider::driver::codex::session::background_terminals::{
+use crate::codex::service::supervisor::{CodexService, CodexServiceId};
+use crate::codex::session::background_terminals::{
     end_codex_running_commands, list_codex_running_commands,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::CodexSessionInbound;
-use crate::provider::driver::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexTeardownStep, CodexTransportDiagnostic,
-};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::inbound::CodexSessionInbound;
+use crate::codex::session::slots::THREAD_UNSUBSCRIBE_METHOD;
+use crate::codex::transport::connection::read_codex_object;
+use crate::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
+use sidekicks_std::mutex_lock::lock;
 
 const THREAD_RESUME_METHOD: &str = "thread/resume";
 

@@ -33,15 +33,15 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::time::Instant;
 
-use crate::mcp::client::calls::CallsInFlight;
-use crate::mcp::client::idle_window::ToolCallActivity;
-use crate::mcp::client::prompts::PromptWatchers;
-use crate::mcp::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
-use crate::mcp::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
-use crate::mcp::client::stdio::StdioProcess;
-use crate::mcp::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
-use crate::mutex_lock::lock;
-use crate::provider::spawn_environment::SpawnEnvironmentError;
+use crate::client::calls::CallsInFlight;
+use crate::client::idle_window::ToolCallActivity;
+use crate::client::prompts::PromptWatchers;
+use crate::client::raw_copy::{INITIALIZE_METHOD, RawCopyTransport, RawReplyCopy};
+use crate::client::requests::{McpRequestError, PageCursors, RequestWait, ServerRequests};
+use crate::client::stdio::StdioProcess;
+use crate::client::tasks::{McpTaskGeneration, QuestionOutcome, TaskWatches};
+use sidekicks_provider::spawn_environment::SpawnEnvironmentError;
+use sidekicks_std::mutex_lock::lock;
 
 /// The notification a 2025-11-25 server sends when a task's status changes.
 const V1_TASK_STATUS_METHOD: &str = "notifications/tasks/status";
@@ -122,7 +122,7 @@ impl McpConnectionStart {
     pub(super) fn stdio(startup_timeout: Option<Duration>, process: Option<StdioProcess>) -> Self {
         Self::new(
             startup_timeout,
-            crate::mcp::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT,
+            crate::client::requests::STDIO_TOOL_CALL_IDLE_TIMEOUT,
             process,
         )
     }
@@ -131,7 +131,7 @@ impl McpConnectionStart {
     pub(super) fn http(startup_timeout: Option<Duration>) -> Self {
         Self::new(
             startup_timeout,
-            crate::mcp::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
+            crate::client::requests::HTTP_TOOL_CALL_IDLE_TIMEOUT,
             None,
         )
     }
@@ -463,7 +463,7 @@ mod tests {
     use tokio::time::{Duration, Instant, timeout};
 
     use super::{DEFAULT_STARTUP_TIMEOUT, McpConnectionError};
-    use crate::mcp::client::test_server::{Reply, start_test_server, test_client, test_scope};
+    use crate::client::test_server::{Reply, start_test_server, test_client, test_scope};
 
     // Mutation: in `McpServerConnection::open`, await the lifecycle without `timeout_at`, or
     // measure the deadline from a later instant.

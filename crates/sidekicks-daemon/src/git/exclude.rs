@@ -6,10 +6,10 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::file::real_location::resolve_real_location;
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::MissingEntry;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::real_location::resolve_real_location;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry;
 
 // The list is the person's to read, as git leaves it.
 const EXCLUDE_FILE_MODE: u32 = 0o644;

@@ -17,10 +17,10 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::provider::driver::diagnostics::{
+use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::run::delivery::DeliveryOperation;
+use sidekicks_provider::run::delivery::DeliveryOperation;
 
 /// The provider operations a binding remembers: past it the oldest one opened is dropped, and a
 /// late delivery of it may read as from before the last cut.
@@ -438,9 +438,9 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
-    use crate::provider::driver::registry::test_provider;
-    use crate::provider::run::delivery::DeliveryOperation;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::driver::registry::test_provider;
+    use sidekicks_provider::run::delivery::DeliveryOperation;
 
     /// One delivery or fence the binding sees, in its delivery order.
     #[derive(Clone, Copy, Debug)]

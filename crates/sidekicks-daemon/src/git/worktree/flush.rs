@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use tokio::task::JoinError;
 
-use crate::processor_bound::map_with_processor_bound;
-use crate::settle_all::SettleFailures;
+use sidekicks_std::processor_bound::map_with_processor_bound;
+use sidekicks_std::settle_all::SettleFailures;
 
 /// Why one flush to disk failed.
 #[derive(Debug, thiserror::Error)]

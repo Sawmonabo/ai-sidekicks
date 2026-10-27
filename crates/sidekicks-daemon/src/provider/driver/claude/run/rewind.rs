@@ -12,23 +12,23 @@ use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
-use crate::provider::driver::claude::delivery::stream::ClaudeSessionStreams;
-use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::provider::driver::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
-use crate::provider::driver::claude::run::prompts::ClaudeSentPrompts;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::errors::ClaudeSessionError;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlRequest;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::rewind::RewindConversationResult;
-use crate::provider::lenient_json::{lenient_object, read_lenient};
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::claude::delivery::dialogs::ClaudeProviderDialogs;
+use crate::claude::delivery::stream::ClaudeSessionStreams;
+use crate::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::claude::run::controls::{ClaudeChoiceSettling, settle_claude_choice};
+use crate::claude::run::prompts::ClaudeSentPrompts;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::errors::ClaudeSessionError;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::control::ClaudeControlRequest;
+use crate::driver::contract::DriverError;
+use crate::driver::rewind::RewindConversationResult;
+use crate::lenient_json::{lenient_object, read_lenient};
+use crate::port::registration::PortRegistration;
+use crate::port::reviewer_denial::ReviewerDenialPort;
+use crate::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::mutex_lock::lock;
 
 // Why a run whose turn a cut took before Claude Code settled it ended failed.
 const CLAUDE_SUPERSEDED_RUN_DETAIL: &str = "The turn carrying this run's words was cut from the \

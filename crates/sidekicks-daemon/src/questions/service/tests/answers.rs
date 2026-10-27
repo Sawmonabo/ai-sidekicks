@@ -14,8 +14,8 @@ use super::{
     Fixture, HandedAnswers, RecordingTaskAnswer, SECRET, choice_page, form_field_page, refusal_of,
     secret_page,
 };
-use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::questions::service::HeldRequestAnswerer;
+use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 
 // A held question moves its run to `waitingForInput` with its record; its answer goes once to
 // whoever sends it on, the driver under the provider's request id or the tool-server task that

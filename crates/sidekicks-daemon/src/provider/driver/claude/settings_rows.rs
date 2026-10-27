@@ -9,13 +9,13 @@ use sidekicks_contracts::provider::declaration::{
     ProviderValueText,
 };
 
-use crate::provider::driver::claude::session::answered_commands::{
+use crate::claude::session::answered_commands::{
     ClaudeAdvisorChoices, ClaudeCommandChoices, ClaudeOutputStyleDescriptions,
 };
-use crate::provider::driver::claude::session::establishment::context::{
+use crate::claude::session::establishment::context::{
     CLAUDE_ADVISOR_ROW_ID, CLAUDE_OUTPUT_STYLE_ROW_ID, read_claude_row_choice, read_claude_row_text,
 };
-use crate::text_cut::cut_to_code_points;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The line under the `Output style` row.
 const OUTPUT_STYLE_LINE: &str = concat!(

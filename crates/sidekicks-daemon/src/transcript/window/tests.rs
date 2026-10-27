@@ -9,8 +9,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
 
 use super::{TranscriptReadError, read_transcript_window};
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::test_log::AT;
 use crate::questions::schema::schema_parts;
 use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::body::read_row_body;
@@ -19,6 +17,8 @@ use crate::transcript::test_log::{
     STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::test_log::AT;
 
 fn anchored_read(session_id: &SessionId, sequence: i64) -> TranscriptReadRequest {
     serde_json::from_value(json!({

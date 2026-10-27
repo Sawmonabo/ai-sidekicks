@@ -16,16 +16,16 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 
-use crate::artifacts::payload_store::{ContentHash, NotAContentHash};
-use crate::database::sql_list::sql_list_of;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::text_column;
-use crate::git::turn_snapshot::retention::RunContextKey;
-use crate::session::groups::store::remove_empty_groups_of_session_project_statement;
-use crate::session::run::ids::SESSION_RUN_IDS_SQL;
-use crate::workflow::runs::deletion::workflow_run_deletion_statements;
-use crate::workspace::folder::canonical_path::canonical_folder_path;
-use crate::workspace::repo::mount::service::managed_mount_deletion_statements;
+use sidekicks_artifact::payload_store::{ContentHash, NotAContentHash};
+use sidekicks_session::groups::store::remove_empty_groups_of_session_project_statement;
+use sidekicks_session::run::ids::SESSION_RUN_IDS_SQL;
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_workflow::runs::deletion::workflow_run_deletion_statements;
+use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_workspace::git::turn_snapshot::retention::RunContextKey;
+use sidekicks_workspace::repo::mount::service::managed_mount_deletion_statements;
 
 /// The statements the purge's reads prepare, counted into the read pool's statement capacity.
 pub(crate) const SESSION_PURGE_STATEMENT_CAPACITY: usize = 9;

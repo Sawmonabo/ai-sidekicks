@@ -34,12 +34,12 @@ use sidekicks_platforms::PinnedProcess;
 use subtle::ConstantTimeEq as _;
 use tracing::Instrument as _;
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{
+use crate::domain_error::DomainError;
+use crate::registry::{
     Dispatch, DispatchError, HandlerContext, HandlerError, MethodRegistry, MethodRegistryBuilder,
     RegistrationError, Reply, Request, TransportId,
 };
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// How a handshake's caller is admitted, read once per connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

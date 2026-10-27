@@ -12,14 +12,14 @@ use super::stand_in::{
     CRASH_WAIT, FirstResolveOnly, another_daemon, is_running, send_signal, stand_in_services,
     this_daemon,
 };
-use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::registry::OneHome;
-use crate::provider::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
-use crate::provider::driver::codex::service::supervisor::CodexServiceSocket;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::home::CodexServiceKind;
+use crate::codex::service::registry::OneHome;
+use crate::codex::service::registry::{CodexServiceRegistry, home_socket_path};
+use crate::codex::service::supervisor::CodexServiceSocket;
+use crate::codex::service::supervisor::test_service::{
     drop_service_connection, script_codex_service, wait_until_disconnected,
 };
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::daemon_stop::DaemonStopIntent;
 
 // Fails when a planned restart leaves the home's socket on the first service, when the first's
 // stop clears the link the second now holds, when a crash leaves the link naming the socket its

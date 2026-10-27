@@ -35,33 +35,33 @@ use super::{
     ApprovalService, ApprovalServiceError, RaisedCard, RaisedRequestSettlement, ResolveAnswer,
     refuse_unfit_answer,
 };
-use crate::approvals::request_create::{
+use crate::request_create::{
     ApprovalRequestCreateRequest, ApprovalRequestOrigin, ApprovalResourceDescriptor,
 };
-use crate::approvals::run_blocking::ApprovalRunHolds;
-use crate::approvals::store::{APPROVAL_REQUEST_READER_STATEMENT_CAPACITY, StoredApprovalRequest};
-use crate::daemon::scheduler::Scheduler;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::{
+use crate::run_blocking::ApprovalRunHolds;
+use crate::store::{APPROVAL_REQUEST_READER_STATEMENT_CAPACITY, StoredApprovalRequest};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::engine::tests::{stored_run_state, test_engine};
+use sidekicks_session::run::projection::insert_queued_run_statement;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
     SessionAppendRefusal,
 };
-use crate::events::session::appender::{
+use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
-use crate::events::session::followers::SessionEventFollowers;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::git::process::test_git_runner;
-use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
-use crate::ipc::domain_error::DomainError;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::{stored_run_state, test_engine};
-use crate::session::run::projection::insert_queued_run_statement;
+use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
+use sidekicks_workspace::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 
 /// Bounds a wait the test expects to settle, so one that never does fails the test.
 pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(5);
@@ -143,7 +143,7 @@ impl ApprovalFixture {
     }
 
     async fn build(is_engine_reached: bool) -> Self {
-        let database = TestDatabase::new(crate::approvals::schema::schema_parts());
+        let database = TestDatabase::new(crate::schema::schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await

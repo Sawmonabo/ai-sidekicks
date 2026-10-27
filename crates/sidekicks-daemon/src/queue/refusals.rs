@@ -10,8 +10,8 @@ use sidekicks_contracts::run::queue::{
 use sidekicks_contracts::skill::{SkillPathRefusedDetails, SkillPathRefusedReason};
 use sidekicks_contracts::wire::text::BoundedText;
 
-use crate::ipc::domain_error::DomainError;
-use crate::queue::store::{QueueItemRecord, RecordedQueueItemState};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_session::queue_store::{QueueItemRecord, RecordedQueueItemState};
 
 /// Why a withdraw ahead of a change left a message with its provider: taken by the agent, or not
 /// given back and now reading not delivered.

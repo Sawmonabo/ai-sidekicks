@@ -11,19 +11,19 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::diagnostics::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::transport::control::ClaudeControlSubtype;
+use crate::driver::capabilities::DriverCapabilityFlag;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::driver::error_causes::{
+use crate::driver::error_causes::{
     ProviderAxis, ProviderAxisInvalid, RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL,
     provider_failure_refusal,
 };
-use crate::provider::driver::registry::provider_capability_refused;
+use crate::driver::registry::provider_capability_refused;
+use sidekicks_std::error_description::describe_error;
 
 /// The detail an authentication probe records once the provider answered it, naming the evidence
 /// and never a credential source the probe did not report.
@@ -367,8 +367,8 @@ mod tests {
     use sidekicks_contracts::agent::definition::AgentId;
 
     use super::{ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause};
-    use crate::ipc::registry::HandlerError;
-    use crate::provider::driver::contract::DriverError;
+    use crate::driver::contract::DriverError;
+    use sidekicks_ipc::registry::HandlerError;
 
     // The refusal's code a driver error answers a call with; `None` for a failure that is none.
     fn refusal_code(error: DriverError) -> Option<RefusalCode> {

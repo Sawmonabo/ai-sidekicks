@@ -20,12 +20,12 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::number::Percent;
 use sidekicks_contracts::wire::text::BoundedText;
 
-use crate::credential_store::items::SecretItems;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::recovery::status::RecoveryStatusTracker;
+use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_store::credential_store::items::SecretItems;
 
 /// The running daemon's facts the status read reports.
 pub(crate) struct StatusMethodsDeps {
@@ -143,13 +143,13 @@ mod tests {
     use sidekicks_platforms::CredentialStore;
 
     use super::{StatusMethodsDeps, register_status_methods};
-    use crate::credential_store::items::{SecretItems, SecretItemsStart};
-    use crate::credential_store::os::TestStoreAccess;
     use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
-    use crate::mutex_lock::lock;
-    use crate::recovery::status::RecoveryStatusTracker;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
+    use sidekicks_recovery::status::RecoveryStatusTracker;
+    use sidekicks_std::mutex_lock::lock;
+    use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+    use sidekicks_store::credential_store::os::TestStoreAccess;
 
     // Every process state the daemon is in at the call is the one the read reports, read at each
     // call on one registry. Killed by the state read once when the method is registered, and by

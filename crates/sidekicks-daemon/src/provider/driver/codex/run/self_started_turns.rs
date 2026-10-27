@@ -14,24 +14,20 @@ use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::run::routes::CodexRunBinding;
-use crate::provider::driver::codex::run::start::record::{
-    CodexRunCallDependencies, route_accepted_turn,
-};
-use crate::provider::driver::codex::run::turn_interrupt::{
-    CodexTurnInterrupt, interrupt_codex_turn,
-};
-use crate::provider::driver::codex::session::calls::CodexSessionTask;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::bind_codex_first_run;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
-use crate::provider::port::run_host::RunHost;
-use crate::provider::run::start_request::DaemonTurnStartRequest;
+use crate::codex::DESCRIPTOR;
+use crate::codex::run::routes::CodexRunBinding;
+use crate::codex::run::start::record::{CodexRunCallDependencies, route_accepted_turn};
+use crate::codex::run::turn_interrupt::{CodexTurnInterrupt, interrupt_codex_turn};
+use crate::codex::session::calls::CodexSessionTask;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::bind_codex_first_run;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::connection::read_codex_object;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
+use crate::port::run_host::RunHost;
+use crate::run::start_request::DaemonTurnStartRequest;
+use sidekicks_std::mutex_lock::lock;
 
 const TURN_STARTED_METHOD: &str = "turn/started";
 
@@ -229,7 +225,7 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
-    use crate::provider::driver::codex::session::test_session::{
+    use crate::codex::session::test_session::{
         TestCodexSession, answer_fork, turn_completed, turn_started,
     };
 

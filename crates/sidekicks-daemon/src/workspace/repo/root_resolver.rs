@@ -22,16 +22,16 @@ use sidekicks_contracts::repo::folders::{
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, path_from_program_output};
 
-use crate::file::bounded_read::read_within_ceiling;
-use crate::file::real_location::resolve_real_path;
 use crate::git::process::{
     GitCall, GitError, GitRunner, background_read, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::reads::{ListedWorktree, read_listed_worktrees};
-use crate::missing_entry::is_missing_entry;
-use crate::text_cut::cut_to_code_points;
-use crate::workspace::repo::errors::RepoRefusal;
-use crate::workspace::trust_envelope::{components_equal, is_contained_within};
+use crate::repo::errors::RepoRefusal;
+use crate::trust_envelope::{components_equal, is_contained_within};
+use sidekicks_std::file::bounded_read::read_within_ceiling;
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// How long each one of the resolver's git calls may run, so one call a hung network folder holds
 /// ends long before the runner's own bound. It bounds each call, not an attach: an attach makes
@@ -516,9 +516,9 @@ mod tests {
     };
 
     use super::{RepoRootResolution, RepoRootResolver};
-    use crate::file::bounded_read::stall_reads_of;
     use crate::git::process::{GitCall, GitLimits, GitRunner, test_git_runner};
-    use crate::workspace::repo::errors::RepoRefusal;
+    use crate::repo::errors::RepoRefusal;
+    use sidekicks_std::file::bounded_read::stall_reads_of;
 
     // The path a case picks.
     #[derive(Clone, Copy, Debug)]

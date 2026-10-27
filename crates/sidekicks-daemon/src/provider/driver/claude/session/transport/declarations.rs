@@ -5,8 +5,8 @@
 
 use std::collections::HashSet;
 
-use crate::provider::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
-use crate::provider::usage_delta_accountant::UsageAxisCounts;
+use crate::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A fast-mode declaration as sent: `fast_mode_state` and `fast_mode_disabled_reason`, as the
 /// `initialize` reply and each `system/init` report them; `None` where the frame carries none.

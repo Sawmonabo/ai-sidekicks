@@ -15,19 +15,19 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionRestart, SessionTargetRequest};
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::read_session_state_through;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
-use crate::queue::error::QueueError;
-use crate::session::changes::refuse_unchangeable_session;
-use crate::session::not_found::session_not_found;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use sidekicks_queue::error::QueueError;
+use sidekicks_session::changes::refuse_unchangeable_session;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::read_session_state_through;
 
 /// The provider a session ran on, and its last binding rebuilt as the params of a resume.
 pub(crate) struct SessionRestartTarget {
@@ -146,20 +146,20 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::schema::schema_parts;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::ipc::registry::HandlerError;
-    use crate::keyed_lock::KeyedLock;
-    use crate::provider::driver::capabilities::{
+    use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use crate::provider::driver::registry::ProviderRegistry;
-    use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
-    use crate::provider::driver::test_registry::test_driver_services;
-    use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+    use sidekicks_provider::driver::registry::ProviderRegistry;
+    use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+    use sidekicks_provider::driver::test_registry::test_driver_services;
+    use sidekicks_provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use sidekicks_std::keyed_lock::KeyedLock;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::schema_parts;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
 

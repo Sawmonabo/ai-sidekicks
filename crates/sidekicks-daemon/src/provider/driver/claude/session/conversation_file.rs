@@ -21,19 +21,15 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 
-use crate::missing_entry::MissingEntry;
-use crate::provider::driver::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
-use crate::provider::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
-use crate::provider::driver::claude::session::rules::{
-    ClaudeProjectFolder, resolve_claude_local_settings_file,
-};
-use crate::provider::driver::claude::spawn::environment::{
-    claude_config_folder, compose_claude_scratch_folder,
-};
-use crate::provider::inbound_json::decode_inbound_json;
-use crate::provider::lenient_json::{
+use crate::claude::session::plan_files::{ClaudePlan, find_claude_plan_files};
+use crate::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+use crate::claude::session::rules::{ClaudeProjectFolder, resolve_claude_local_settings_file};
+use crate::claude::spawn::environment::{claude_config_folder, compose_claude_scratch_folder};
+use crate::inbound_json::decode_inbound_json;
+use crate::lenient_json::{
     Lenient, LenientElement, LenientVisitor, lenient_object, read_lenient, skip_other_shapes,
 };
+use sidekicks_std::missing_entry::MissingEntry;
 
 /// The turns one conversation file holds.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -547,8 +543,8 @@ mod tests {
         ClaudeConversation, ClaudeConversationFolders, ClaudeConversationOutline,
         delete_claude_conversations, find_claude_taken_messages, read_claude_conversation_outline,
     };
-    use crate::provider::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
-    use crate::provider::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
+    use crate::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
+    use crate::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
     const OTHER_SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000002";

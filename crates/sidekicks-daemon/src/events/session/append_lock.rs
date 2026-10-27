@@ -14,7 +14,7 @@ use std::sync::LazyLock;
 
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
 /// The per-session append lock every service over the daemon's database shares. A session id is
 /// held as its 16 bytes, so either hex spelling of one id takes one lock.

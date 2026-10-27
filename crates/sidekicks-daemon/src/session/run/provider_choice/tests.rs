@@ -27,29 +27,27 @@ use super::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceError,
     ProviderChoiceResolver,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
-};
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
-use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-use crate::provider::driver::run_control::AnswerProviderChoiceResult;
-use crate::provider::driver::test_registry::{
+use crate::driver_resolution::LiveRunDriverError;
+use crate::questions::schema::schema_parts;
+use crate::run::engine::RunEngine;
+use crate::run::engine::tests::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::pause::tests::unanswered;
+use crate::run::refusals::RunRefusal;
+use crate::run::state_change::RunStateChange;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::run_control::AnswerProviderChoiceResult;
+use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use crate::provider::run::state_entry::RunStateEntry;
-use crate::questions::schema::schema_parts;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::{
-    append, insert_running_run, stored_run_state, test_engine,
+use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::session::appender::{
+    SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
-use crate::session::run::pause::tests::unanswered;
-use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::RunStateChange;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// A run waiting on its switch-or-credits choice, the engine that moves it and the resolver.
 struct Fixture {

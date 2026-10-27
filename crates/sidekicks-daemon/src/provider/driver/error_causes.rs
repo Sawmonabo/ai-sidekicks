@@ -14,9 +14,9 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::error_description::describe_error;
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::bound_failure_detail;
+use crate::driver::contract::bound_failure_detail;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_std::error_description::describe_error;
 
 /// Stands in for a provider failure whose words are blank once bounded.
 pub(crate) static UNSPECIFIED_PROVIDER_FAILURE_DETAIL: LazyLock<
@@ -181,8 +181,8 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::{ProviderAxis, ProviderAxisInvalid};
-    use crate::ipc::registry::HandlerError;
-    use crate::provider::driver::contract::DriverError;
+    use crate::driver::contract::DriverError;
+    use sidekicks_ipc::registry::HandlerError;
 
     #[test]
     fn an_axis_refusal_names_the_agent_the_axis_and_the_value() {

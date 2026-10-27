@@ -8,18 +8,18 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use crate::provider::driver::codex::run::routes::CodexRunBinding;
-use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
-use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
-use crate::provider::driver::codex::run::steer::steer_codex_run;
-use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-use crate::provider::driver::codex::session::errors::{CodexError, CodexUnansweredCause};
-use crate::provider::driver::codex::session::state::CodexTurnMessage;
-use crate::provider::driver::codex::session::test_session::{
+use crate::codex::run::routes::CodexRunBinding;
+use crate::codex::run::start::CODEX_TURN_START_TIMEOUT;
+use crate::codex::run::start::record::CodexTurnRequest;
+use crate::codex::run::steer::steer_codex_run;
+use crate::codex::run::turn_end_waiters::CodexTurnEndDeadline;
+use crate::codex::session::errors::{CodexError, CodexUnansweredCause};
+use crate::codex::session::state::CodexTurnMessage;
+use crate::codex::session::test_session::{
     TEST_THREAD, TestCodexSession, turn_completed, turn_reply, turn_started,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::new_run_id;
+use crate::driver::contract::DriverError;
+use crate::driver::test_registry::new_run_id;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
 const DEADLOCK_BOUND: Duration = Duration::from_secs(10);

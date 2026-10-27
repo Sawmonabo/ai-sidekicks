@@ -20,31 +20,31 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::binding_id;
-use crate::mutex_lock::lock;
-use crate::provider::callback_tools::host::{
+use crate::callback_tools::host::{
     CallbackToolActivityRecord, CallbackToolActivitySink, CallbackToolExecutor, CallbackToolHost,
     CallbackToolPortError, CallbackToolSpawnRequest,
 };
-use crate::provider::callback_tools::spawn_binding::{
+use crate::callback_tools::spawn_binding::{
     CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
 };
-use crate::provider::driver::attachments::{
+use crate::claude::DESCRIPTOR;
+use crate::driver::attachments::{
     AttachmentResolver, ProviderAttachment, ResolvedAttachment, UnresolvedAttachmentCause,
     UnresolvedAttachmentMarker,
 };
-use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::ports::{DriverPorts, MessageTakenListener};
-use crate::provider::driver::run_control::{
+use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
+use crate::driver::ports::{DriverPorts, MessageTakenListener};
+use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
-use crate::provider::port::permission_ask::{
+use crate::port::permission_ask::{
     PermissionAskPort, ProviderPermissionAsk, ProviderPermissionAskWithdrawal,
 };
-use crate::provider::port::repository_reader::{RepositoryReader, RepositoryReading};
-use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::provider::port::usage_sink::{ProviderQuotaWindow, UsageSink};
-use crate::provider::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
+use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
+use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use crate::port::usage_sink::{ProviderQuotaWindow, UsageSink};
+use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
+use sidekicks_std::mutex_lock::lock;
 
 /// What reached the approval ports, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]

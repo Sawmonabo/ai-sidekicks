@@ -21,57 +21,51 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 
 use super::{ClaudeDriver, internal, person_settings_folder};
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::capabilities::resolve_claude_model_catalog;
-use crate::provider::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::provider::driver::claude::inbox_address::{
-    ClaudeSessionInboxAddresser, PlaceInboxEnvironment,
-};
-use crate::provider::driver::claude::session::controls::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::capabilities::resolve_claude_model_catalog;
+use crate::claude::delivery::requests::answers::claude_project_folder;
+use crate::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+use crate::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs,
 };
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, record_unheard_claude_failure,
-};
-use crate::provider::driver::claude::session::establishment::ClaudeSpawnSources;
-use crate::provider::driver::claude::session::establishment::context::resolve_claude_spawn_context;
-use crate::provider::driver::claude::session::permission_level::{
+use crate::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
+use crate::claude::session::establishment::ClaudeSpawnSources;
+use crate::claude::session::establishment::context::resolve_claude_spawn_context;
+use crate::claude::session::permission_level::{
     ClaudeStartingLevelSources, can_run_claude_level, list_claude_modes,
     move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,
 };
-use crate::provider::driver::claude::session::permissions::{
+use crate::claude::session::permissions::{
     ClaudeProjectRuleRemoval, read_claude_session_rules, resend_claude_permissions,
     revoke_claude_project_rule,
 };
-use crate::provider::driver::claude::session::settings_file::read_claude_settings_file;
-use crate::provider::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::session::ultracode::{
-    claude_session_options, observe_claude_options,
-};
-use crate::provider::driver::claude::settings_rows::compose_claude_rows;
-use crate::provider::driver::claude::spawn::environment::claude_config_folder;
-use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
-use crate::provider::driver::claude::spawn::launch::{
+use crate::claude::session::settings_file::read_claude_settings_file;
+use crate::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::session::ultracode::{claude_session_options, observe_claude_options};
+use crate::claude::settings_rows::compose_claude_rows;
+use crate::claude::spawn::environment::claude_config_folder;
+use crate::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::claude::spawn::launch::{
     ClaudeLaunchError, initialize_reply::read_claude_initialize_declaration,
 };
-use crate::provider::driver::claude::spawn::legs::{
+use crate::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
-use crate::provider::driver::contract::ProviderCommandsSubscription;
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::ports::SessionPlace;
-use crate::provider::driver::session_control::{
+use crate::driver::contract::ProviderCommandsSubscription;
+use crate::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::ports::SessionPlace;
+use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
     DriverAuthProbeStatus, ProviderCommandsListener, ResumeSessionParams, RevokeRuleParams,
     SessionCommandAnswer, StartReviewParams, StartingLevel, StartingLevelParams,
     SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
     build_auth_probe_result,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::session_inbox_address::SessionInboxAddresser;
+use crate::port::registration::PortRegistration;
+use crate::port::session_inbox_address::SessionInboxAddresser;
+use sidekicks_std::mutex_lock::lock;
 
 /// The model a read of the build's own choices runs on: Claude Code's pointer to its recommended
 /// model, which every account's catalog lists.

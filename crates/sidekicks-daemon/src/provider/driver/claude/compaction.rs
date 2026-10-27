@@ -9,22 +9,20 @@ use sidekicks_contracts::provider::driver::compaction::{
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::error_description::describe_error;
-use crate::provider::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::user_message::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::handshake_register::ClaudeHandshakeRegister;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::user_message::{
     ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
-use crate::provider::driver::diagnostics::{
+use crate::compaction_wait::{CompactionWaitTerminal, PendingCompactionRegistry};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use sidekicks_std::error_description::describe_error;
 
 // Bare, as `system/init` lists `slash_commands`.
 const CLAUDE_COMPACTION_COMMAND_NAME: &str = "compact";
@@ -154,11 +152,11 @@ mod tests {
     };
 
     use super::compact_claude_context;
-    use crate::provider::compaction_wait::PendingCompactionRegistry;
-    use crate::provider::driver::claude::session::scripted::ScriptedSession;
-    use crate::provider::driver::claude::session::transport::{
+    use crate::claude::session::scripted::ScriptedSession;
+    use crate::claude::session::transport::{
         declarations::ClaudeHandshakeDeclaration, user_message::ClaudeWriteDelivery,
     };
+    use crate::compaction_wait::PendingCompactionRegistry;
 
     // Killed by keeping the command's hold after a write that never left, which would refuse every
     // later run on the session, and by releasing it after one Claude Code may still run.

@@ -12,16 +12,12 @@ use std::sync::{Arc, Mutex};
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::SetOnce;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionSlotState,
-};
-use crate::provider::driver::claude::session::state::{
-    ClaudeSessionSlot, ClaudeSlotSettled, LiveClaudeSession,
-};
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::ports::DriverPorts;
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionSlotState};
+use crate::claude::session::state::{ClaudeSessionSlot, ClaudeSlotSettled, LiveClaudeSession};
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::driver::ports::DriverPorts;
+use sidekicks_std::mutex_lock::lock;
 
 /// What runs when a rewind's predecessor, restored after a failed fork, exited while the fork
 /// held its slot: the path any unrequested exit takes.
@@ -476,13 +472,11 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::{ClaudeCloseStart, ClaudeResumeSlot, ClaudeSessionSlots};
-    use crate::provider::driver::claude::session::errors::{
-        ClaudeSessionError, ClaudeSessionSlotState,
-    };
-    use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
-    use crate::provider::driver::claude::session::scripted::scripted_live_session;
-    use crate::provider::driver::claude::session::state::LiveClaudeSession;
-    use crate::provider::driver::test_registry::new_session_id;
+    use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionSlotState};
+    use crate::claude::session::scripted::channel::ScriptedChannel;
+    use crate::claude::session::scripted::scripted_live_session;
+    use crate::claude::session::state::LiveClaudeSession;
+    use crate::driver::test_registry::new_session_id;
     use sidekicks_contracts::session::id::SessionId;
 
     fn live(session_id: SessionId) -> Arc<LiveClaudeSession> {

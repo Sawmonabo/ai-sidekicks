@@ -6,19 +6,19 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use tokio::sync::oneshot;
 
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::tests::open_log;
-use crate::mutex_lock::lock;
-use crate::pause_point::ArmedPause;
 use crate::questions::schema::schema_parts;
-use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::tests::{
+use crate::run::engine::limits::LimitStop;
+use crate::run::engine::tests::{
     SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,
     test_engine, token_limit, turn, turn_completed_at, turn_started_at,
 };
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::limit_interrupter::HandedCut;
+use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::limit_interrupter::HandedCut;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::pause_point::ArmedPause;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::tests::open_log;
 
 // A limit stop of `run_id` the test runs beside others: once `goes_first` reports that the stop
 // before it reached its hand, the stop goes, and its end is reported on `ended`.

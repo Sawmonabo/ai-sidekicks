@@ -15,9 +15,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::provider::run::start_request::DaemonTurnStartRequest;
-use crate::provider::run::turn_end::{ProviderTurnEnd, StartedTurn};
-use crate::provider::runtime_binding::store::RuntimeBinding;
+use crate::run::start_request::DaemonTurnStartRequest;
+use crate::run::turn_end::{ProviderTurnEnd, StartedTurn};
+use crate::runtime_binding::store::RuntimeBinding;
 
 /// A failure the run engine reports to a driver, kept whole.
 pub(crate) type RunHostError = Box<dyn Error + Send + Sync>;

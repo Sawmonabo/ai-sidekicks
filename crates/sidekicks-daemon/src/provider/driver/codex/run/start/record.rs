@@ -16,32 +16,26 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::attachments::compose_codex_message_input;
-use crate::provider::driver::codex::capabilities::read_codex_service_model_catalog;
-use crate::provider::driver::codex::output_speed::{
+use crate::codex::attachments::compose_codex_message_input;
+use crate::codex::capabilities::read_codex_service_model_catalog;
+use crate::codex::output_speed::{
     CodexSettledOutputSpeed, arm_codex_run_output_speed, compose_codex_service_tier,
     resolve_codex_output_speed_level,
 };
-use crate::provider::driver::codex::permission_level::compose_codex_approvals_reviewer;
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
-use crate::provider::driver::codex::session::calls::CodexSessionTask;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::bind_codex_first_run;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::slots::closing_session_refusal;
-use crate::provider::driver::codex::session::state::{
-    CodexSessionRecord, CodexTurnInput, CodexTurnMessage,
-};
-use crate::provider::driver::codex::thread::settings::{
-    CodexTurnStartParams, compose_codex_collaboration_mode,
-};
-use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexTeardownStep, CodexTransportDiagnostic,
-};
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::codex::permission_level::compose_codex_approvals_reviewer;
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::codex::session::calls::CodexSessionTask;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::bind_codex_first_run;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::slots::closing_session_refusal;
+use crate::codex::session::state::{CodexSessionRecord, CodexTurnInput, CodexTurnMessage};
+use crate::codex::thread::settings::{CodexTurnStartParams, compose_codex_collaboration_mode};
+use crate::codex::transport::connection::CodexAppServerConnection;
+use crate::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use sidekicks_std::mutex_lock::lock;
 
 /// One run's turn to start: the person's messages with their skills and files, in send order, and
 /// what the turn carries.

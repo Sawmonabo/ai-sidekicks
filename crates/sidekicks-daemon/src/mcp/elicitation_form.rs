@@ -16,11 +16,11 @@ use sidekicks_contracts::question::{
 use sidekicks_contracts::wire::number::Number;
 use sidekicks_contracts::wire::text::{NonEmptyText, is_ecmascript_whitespace};
 
+use crate::driver::question_answers::read_question_answer_texts;
 use crate::mcp::elicitation_form::option_sets::{
     ElicitationOption, ElicitationOptionSetReading, read_elicitation_field_option_set,
 };
-use crate::provider::driver::question_answers::read_question_answer_texts;
-use crate::provider::record_readers::read_non_empty_string;
+use crate::record_readers::read_non_empty_string;
 
 // 2^63, the first whole number past `i64`; `i64::MAX as f64` rounds up to it.
 const PAST_I64_MAX: f64 = 9_223_372_036_854_775_808.0;

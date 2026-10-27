@@ -13,12 +13,12 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::hooks::server::{
+use crate::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::hook_pauses::{EndedHookPause, HookPauses, PAUSED_REASON, PausedRole};
+use crate::codex::session::errors::CodexError;
+use crate::driver::hook_pauses::{EndedHookPause, HookPauses, PAUSED_REASON, PausedRole};
+use sidekicks_std::mutex_lock::lock;
 
 /// The run a conversation's pause stops, and the binding its `paused` is delivered on.
 #[expect(
@@ -313,11 +313,11 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::{CodexHookPause, CodexPauseRunControl, CodexRunPauses, paused_denial};
-    use crate::provider::driver::codex::hooks::server::{
+    use crate::codex::hooks::server::{
         CodexHookAnswer, CodexHookAnswerer, CodexHookCall, CodexHookDispatch, CodexHookEvent,
         CodexHookInput,
     };
-    use crate::provider::driver::hook_pauses::PausedRole;
+    use crate::driver::hook_pauses::PausedRole;
 
     const LEAD: &str = "thread-lead";
     const HELPER: &str = "thread-helper";

@@ -7,7 +7,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::session::draft::SessionAttachmentSummary;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::ipc::registry::HandlerError;
+use sidekicks_ipc::registry::HandlerError;
 
 /// Reads the files staged for a session's next message, answered by the staged-attachments store.
 pub(crate) trait StagedAttachments: Send + Sync {

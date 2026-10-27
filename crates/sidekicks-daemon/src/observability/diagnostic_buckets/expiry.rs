@@ -25,23 +25,23 @@ use walkdir::WalkDir;
 
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::crash::monitor::{CRASH_DUMPS_FOLDER_NAME, is_partial_dump_name};
-use crate::daemon::data_folder::service_log_folder;
-use crate::daemon::scheduler::ScheduledJobOutcome;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
 use crate::daemon::service_log::{
     CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::missing_entry::{MissingEntry, is_gone};
 use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
-use crate::provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::service_log::{
+use sidekicks_provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::service_log::{
     SERVICE_LOG_CAP_BYTES, cap_provider_service_log, is_provider_service_log_file_name,
 };
+use sidekicks_std::missing_entry::{MissingEntry, is_gone};
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+};
+use sidekicks_store::data_folder::service_log_folder;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
@@ -363,15 +363,15 @@ mod tests {
     };
     use crate::daemon::crash::monitor::CRASH_DUMPS_FOLDER_NAME;
     use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::statement::{StatementBindings, WriteStatement};
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::log_service::tests::open_log;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use crate::provider::driver::test_registry::registry_of_first_providers;
     use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_driver::PROVIDER_REGISTRATIONS;
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+    use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::tests::open_log;
 
     // Past the default bound of seven days.
     const OLD: Duration = Duration::from_hours(24 * 8);

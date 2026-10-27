@@ -15,20 +15,18 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::Instant;
 
 use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnWait;
-use crate::provider::driver::codex::service::home::CodexServiceKind;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::start::read_codex_loaded_threads;
-use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInboundSender,
-};
-use crate::provider::driver::codex::session::slots::{CodexSessionClaim, let_go_codex_thread};
-use crate::provider::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::session_control::{DriverResumeResult, ProviderBuildChange};
+use crate::codex::DESCRIPTOR;
+use crate::codex::run::turn_end_waiters::CodexTurnWait;
+use crate::codex::service::home::CodexServiceKind;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::codex::session::calls::{call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::codex::session::slots::{CodexSessionClaim, let_go_codex_thread};
+use crate::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
 
 /// How long a conversation may take to unload from the service it leaves before its resume on the
 /// new one goes ahead and Codex decides.

@@ -3,14 +3,14 @@
 
 use serde_json::Value;
 
-use crate::provider::capability::probe::ProbeAdmissibilityConjunct::{
+use crate::capability::probe::ProbeAdmissibilityConjunct::{
     DecisiveAtConsumptionGranularity, NonMutating, ZeroTurn,
 };
-use crate::provider::capability::probe::{
+use crate::capability::probe::{
     CapabilityDetection, CapabilityProbeRules, ProbeAnswer, assert_admissible_detection,
 };
-use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::claude::session::transport::control::ClaudeControlSubtype;
+use crate::claude::session::transport::control::ClaudeControlSubtype;
+use crate::driver::capabilities::DriverCapabilityFlag;
 
 /// The control request whose reply reports the fast-mode state before any turn.
 const FAST_MODE_PROBE_NAME: &str = ClaudeControlSubtype::Initialize.as_str();

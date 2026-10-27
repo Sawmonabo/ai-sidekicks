@@ -12,9 +12,9 @@ use sidekicks_contracts::run::queue::QueueItemSummary;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::events::session::append_lock::SessionAppendHold;
-use crate::ipc::domain_error::DomainError;
-use crate::settle_all::{SettleFailures, settle_all};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 /// The run a setup gate checks. Its workspace is the session's own live one: the one the send
 /// that started it named, else the session's newest.

@@ -9,12 +9,12 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::scheduler::ScheduledJobOutcome;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, Measured, WorkUnit, metered_job,
-};
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::{DatabaseWriter, MaintenanceError};
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, Measured, WorkUnit, metered_job,
+};
 
 /// How often the passive WAL checkpoint job runs on the scheduler.
 pub(crate) const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);

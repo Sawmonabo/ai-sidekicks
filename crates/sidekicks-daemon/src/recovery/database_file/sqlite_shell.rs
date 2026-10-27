@@ -23,13 +23,13 @@ use tokio::process::{Child, ChildStderr, Command};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::database::schema::SESSION_EVENTS_TABLE;
-use crate::helper_mode::child::start_helper_mode_child;
-use crate::helper_mode::error_output::read_error_output_tail;
-use crate::recovery::database_file::stall_watch::{
+use crate::database_file::stall_watch::{
     RECOVERY_STALL_WINDOW, RecoveryStallWatch, ShellProcessorTimeReader, ShellProcessorTimes,
 };
-use crate::recovery::database_file::{ERROR_OUTPUT_KEPT_BYTES, READ_BUSY_TIMEOUT};
+use crate::database_file::{ERROR_OUTPUT_KEPT_BYTES, READ_BUSY_TIMEOUT};
+use sidekicks_std::helper_mode::child::start_helper_mode_child;
+use sidekicks_std::helper_mode::error_output::read_error_output_tail;
+use sidekicks_store::database::schema::SESSION_EVENTS_TABLE;
 
 /// The arguments the daemon's own program is started with to run SQLite's shell; the shell's own
 /// arguments follow them.
@@ -653,7 +653,7 @@ mod tests {
     use super::{
         COUNTED_ROW_START, pump_recovery, quote_sql_identifier, quote_sql_text, writer_cache_bytes,
     };
-    use crate::recovery::database_file::stall_watch::RecoveryStallWatch;
+    use crate::database_file::stall_watch::RecoveryStallWatch;
 
     const MIB: u64 = 1024 * 1024;
 

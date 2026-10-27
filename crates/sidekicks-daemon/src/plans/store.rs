@@ -17,13 +17,13 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 
-use crate::database::session_scope::SessionScopedSql;
-use crate::database::statement::{
+use sidekicks_session::plan_holds::{HeldPlan, PlanHolds};
+use sidekicks_store::database::session_scope::SessionScopedSql;
+use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::text_column;
-use crate::events::session::appender::SessionEventDraft;
-use crate::session::plan_holds::{HeldPlan, PlanHolds};
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::events::session::appender::SessionEventDraft;
 
 static INSERT_PLAN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(

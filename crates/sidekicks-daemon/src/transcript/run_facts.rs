@@ -20,9 +20,11 @@ use sidekicks_contracts::transcript::run_facts::{
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::sql_list::sql_list_of;
-use crate::database::stored_column::{json_object_column, optional_text_column, safe_int_column};
-use crate::events::session::read::{readable_event_sql, session_read_bound};
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::stored_column::{
+    json_object_column, optional_text_column, safe_int_column,
+};
+use sidekicks_store::events::session::read::{readable_event_sql, session_read_bound};
 
 const BEAT_COLUMNS_SQL: &str = "sequence, type, actor, payload";
 

@@ -11,16 +11,18 @@ use sidekicks_contracts::approval::{
 };
 use sidekicks_contracts::method::Method as _;
 
-use crate::approvals::permission_asks::PermissionAsks;
-use crate::approvals::projection::read::{ApprovalProjectionReadError, read_approval_projection};
-use crate::approvals::reviewer_denials::ReviewerDenials;
-use crate::approvals::rules::ApprovalRules;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::ipc::registry::{
+use sidekicks_approval::permission_asks::PermissionAsks;
+use sidekicks_approval::projection::read::{ApprovalProjectionReadError, read_approval_projection};
+use sidekicks_approval::reviewer_denials::ReviewerDenials;
+use sidekicks_approval::rules::ApprovalRules;
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::session::directory::lookups::session_exists;
-use crate::session::not_found::session_not_found;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_session::directory::lookups::session_exists;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 #[cfg(test)]
 mod tests;

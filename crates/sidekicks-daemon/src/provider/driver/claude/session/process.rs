@@ -31,25 +31,21 @@ use tokio::process::Command;
 use tokio::sync::watch;
 use tokio::time::Instant;
 
-use crate::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
-use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
-use crate::provider::driver::claude::session::control_requests::ClaudeControlRequests;
-use crate::provider::driver::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
-use crate::provider::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
-use crate::provider::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::provider::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeControlSubtype,
-};
-use crate::provider::driver::claude::session::transport::declarations;
-use crate::provider::driver::claude::session::transport::inbound::{
+use crate::claude::run::routes::ClaudeRunRoutes;
+use crate::claude::session::control_requests::ClaudeControlRequests;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeUnansweredCause};
+use crate::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
+use crate::claude::session::transport::channel::ClaudeProcessChannel;
+use crate::claude::session::transport::control::{ClaudeControlRequest, ClaudeControlSubtype};
+use crate::claude::session::transport::declarations;
+use crate::claude::session::transport::inbound::{
     ClaudeControlAnswer, ClaudeControlFrameReader, ClaudeInboundRequestEvent,
 };
-use crate::provider::driver::claude::session::transport::user_message::{
-    ClaudeUserFrame, ClaudeWriteAttempt,
-};
-use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::claude::session::transport::user_message::{ClaudeUserFrame, ClaudeWriteAttempt};
+use crate::driver::diagnostics::OnceReportedDiagnostics;
+use crate::process_identity::ProviderProcessIdentity;
+use crate::process_registry::ProviderProcessRegistry;
+use sidekicks_std::process_exit::{OutputTail, compose_process_exit, read_output_chunks};
 
 use stdin::ClaudeInputWriter;
 pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;
@@ -575,11 +571,11 @@ mod tests {
         ClaudeOutputReader, ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
         wait_out_startup_deadline,
     };
-    use crate::provider::driver::claude::session::control_requests::ClaudeControlRequests;
-    use crate::provider::driver::claude::session::transport::inbound::{
+    use crate::claude::session::control_requests::ClaudeControlRequests;
+    use crate::claude::session::transport::inbound::{
         ClaudeControlFrameReader, ClaudeInboundRequestEvent,
     };
-    use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
+    use crate::driver::diagnostics::OnceReportedDiagnostics;
 
     struct NoSession;
 

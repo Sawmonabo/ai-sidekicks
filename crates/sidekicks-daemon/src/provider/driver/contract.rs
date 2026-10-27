@@ -43,24 +43,22 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::provider::capability::probe::CapabilityProbeError;
-use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::error_causes::{
+use crate::capability::probe::CapabilityProbeError;
+use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
-use crate::provider::driver::message_handing::MessageHanding;
-use crate::provider::driver::rewind::{RewindConversationParams, RewindConversationResult};
-use crate::provider::driver::run_control::{
+use crate::driver::message_handing::MessageHanding;
+use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
+use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, DriverRunRefusal, FasterModelRetryOutcome, FasterModelRetryParams,
     FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
     PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
-use crate::provider::driver::session_control::{
+use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
@@ -69,13 +67,13 @@ use crate::provider::driver::session_control::{
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
-use crate::provider::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
-use crate::provider::port::running_command_publisher::{
-    RunningCommandParams, WriteCommandInputParams,
-};
-use crate::provider::port::session_inbox_address::SessionInboxAddresser;
-use crate::provider::runtime_binding::store::RuntimeBindingStoreError;
-use crate::text_cut::cut_to_code_points;
+use crate::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
+use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
+use crate::port::session_inbox_address::SessionInboxAddresser;
+use crate::runtime_binding::store::RuntimeBindingStoreError;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// The fixed sentence every `provider.capability.unsupported` refusal carries.
 pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =

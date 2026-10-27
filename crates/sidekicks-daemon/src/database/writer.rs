@@ -34,8 +34,6 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::budget::Measured;
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::statement::{StatementResult, WriteStatement};
 use crate::database::writer::backup::BackupCopy;
@@ -45,6 +43,8 @@ use crate::database::writer::messages::{
 use crate::database::writer::queue::{ThreadLink, WriteQueue};
 use crate::database::writer::repack::RepackEnd;
 use crate::events::session::insert::SessionEventRow;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::Measured;
 
 /// The most entries the write queue holds; each event is one entry, and a write with none is one.
 pub(crate) const WRITE_QUEUE_CAPACITY: usize = 10_000;

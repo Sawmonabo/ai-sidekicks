@@ -12,9 +12,9 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 
 /// What one wait waits for on a session's record.
 #[derive(Clone, Debug, PartialEq, Eq)]

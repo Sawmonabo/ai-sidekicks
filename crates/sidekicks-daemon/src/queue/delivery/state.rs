@@ -10,10 +10,10 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::message_handing::MessageHanding;
-use crate::provider::process_identity::ProviderProcessIdentity;
-use crate::queue::delivery::chain::SessionChain;
-use crate::queue::store::QueueItemRecord;
+use crate::delivery::chain::SessionChain;
+use sidekicks_provider::driver::message_handing::MessageHanding;
+use sidekicks_provider::process_identity::ProviderProcessIdentity;
+use sidekicks_session::queue_store::QueueItemRecord;
 
 /// How a message reached its provider: by the driver, which answered how it takes messages at the
 /// hand, or by the continue of a paused run, which delivers the messages that waited for it.

@@ -29,50 +29,48 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::PathRules;
 use tokio_util::sync::CancellationToken;
 
-use crate::git::worktree::staged_changes::StagedChangesWorktrees;
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::provider::driver::claude::run::start::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::event_normalizer::is_claude_result_frame_kind;
+use crate::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
 };
-use crate::provider::driver::claude::session::answered_commands::{
+use crate::claude::session::answered_commands::{
     ClaudeAnsweredCommand, ClaudeAttachedAdvisor, ClaudeCommandOutcome, answer_claude_advisor,
     answer_claude_output_style, read_claude_answered_command, read_claude_attached_advisor,
 };
-use crate::provider::driver::claude::session::arrivals::deliver_in_session_order;
-use crate::provider::driver::claude::session::errors::{
+use crate::claude::session::arrivals::deliver_in_session_order;
+use crate::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
-use crate::provider::driver::claude::session::permission_level::claude_permission_mode_for;
-use crate::provider::driver::claude::session::permissions::read_claude_session_rules;
-use crate::provider::driver::claude::session::state::LiveClaudeSession;
-use crate::provider::driver::claude::session::transport::control::{
+use crate::claude::session::permission_level::claude_permission_mode_for;
+use crate::claude::session::permissions::read_claude_session_rules;
+use crate::claude::session::state::LiveClaudeSession;
+use crate::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode, ClaudeSettingsReply,
 };
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::session::transport::declarations::{
     ClaudeCumulativeUsageObservation, ClaudeInitializeDeclaration,
 };
-use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
-use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::provider::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
-use crate::provider::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
-use crate::provider::driver::claude::spawn::launch::one_turn::{
-    ClaudeOneTurnReply, ClaudeOneTurnRequest,
-};
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::contract::{DriverError, ProviderCommandsSubscription};
-use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
-use crate::provider::port::in_process_tool_servers::InProcessToolServers;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::session_rules::SessionRulePort;
-use crate::provider::port::usage_sink::UsageSink;
-use crate::provider::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
-use crate::provider::usage_delta_accountant::{
+use crate::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
+use crate::claude::spawn::launch::ClaudeLaunchError;
+use crate::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
+use crate::claude::spawn::launch::installed_build::ClaudeProcessStarts;
+use crate::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::{DriverError, ProviderCommandsSubscription};
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::port::in_process_tool_servers::InProcessToolServers;
+use crate::port::registration::PortRegistration;
+use crate::port::session_rules::SessionRulePort;
+use crate::port::usage_sink::UsageSink;
+use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
+use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 // The bundled skill Claude Code's review runs, by the name the build's skill list gives it.
 const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";

@@ -8,7 +8,7 @@ use std::error::Error;
 use futures::future::BoxFuture;
 use tokio::sync::watch;
 
-use crate::ipc::registry::HandlerError;
+use crate::registry::HandlerError;
 
 /// A subscription that closed (canceled, or its connection gone) while a feed waited to send.
 #[derive(Debug, thiserror::Error)]

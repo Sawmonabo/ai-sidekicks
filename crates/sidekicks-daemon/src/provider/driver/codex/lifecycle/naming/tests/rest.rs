@@ -9,19 +9,19 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use crate::database::schema::provider_drivers::schema_parts;
-use crate::database::writer::test_file::TestDatabase;
-use crate::provider::driver::codex::lifecycle::CodexDriver;
-use crate::provider::driver::codex::service::home::CodexServiceHome;
-use crate::provider::driver::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::lifecycle::CodexDriver;
+use crate::codex::service::home::CodexServiceHome;
+use crate::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::codex::session::test_session::TestDaemonTurnBindings;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::test_registry::{new_session_id, test_driver_services};
-use crate::provider::port::run_host::test_host::RecordingRunEngine;
-use crate::provider::runtime_binding::test_store::record_session_leg;
+use crate::codex::session::test_session::TestDaemonTurnBindings;
+use crate::driver::contract::DriverError;
+use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::{new_session_id, test_driver_services};
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::runtime_binding::test_store::record_session_leg;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// How long a rename that asks Codex nothing may take.
 const NOTHING_SENT_BOUND: Duration = Duration::from_secs(5);

@@ -11,15 +11,15 @@ use rusqlite::{Connection, OptionalExtension, named_params};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::refusals::ArtifactError;
-use crate::artifacts::validation::FILE_NAME_MEMBER;
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
-use crate::database::stored_column::text_column;
-use crate::provider::driver::attachments::{
+use crate::payload_store::{ContentHash, PayloadStore};
+use crate::refusals::ArtifactError;
+use crate::validation::FILE_NAME_MEMBER;
+use sidekicks_provider::driver::attachments::{
     AttachmentResolver, ProviderAttachment, ResolvedAttachment, UnresolvedAttachmentCause,
     UnresolvedAttachmentMarker,
 };
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use sidekicks_store::database::stored_column::text_column;
 
 // The manifest's newest payload reference within the message's session; a manifest whose payload
 // was reclaimed has none.
@@ -145,14 +145,14 @@ mod tests {
     use sidekicks_contracts::artifacts::id::ArtifactId;
 
     use super::ArtifactAttachmentResolver;
-    use crate::artifacts::id::mint_artifact_id;
-    use crate::artifacts::test_store::ArtifactTestStore;
-    use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-    use crate::database::writer::test_file::test_session_id;
-    use crate::provider::driver::attachments::{
+    use crate::id::mint_artifact_id;
+    use crate::test_store::ArtifactTestStore;
+    use sidekicks_provider::driver::attachments::{
         AttachmentResolver, ProviderAttachment, ResolvedAttachment, UnresolvedAttachmentCause,
         UnresolvedAttachmentMarker,
     };
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     const CONTENT_HASH: &str =
         "sha256:0000000000000000000000000000000000000000000000000000000000000000";
@@ -213,9 +213,8 @@ mod tests {
             .await
             .expect("the resolver reads the store");
 
-        let content_hash =
-            crate::artifacts::payload_store::ContentHash::from_stored(CONTENT_HASH.to_owned())
-                .expect("the test's hash is one");
+        let content_hash = crate::payload_store::ContentHash::from_stored(CONTENT_HASH.to_owned())
+            .expect("the test's hash is one");
         assert_eq!(
             attachments,
             vec![

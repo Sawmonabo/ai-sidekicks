@@ -192,7 +192,7 @@ mod tests {
     use rstest::rstest;
 
     use super::{PICTURE_METADATA_MAX_BYTES, PictureFormat, read_picture_size};
-    use crate::artifacts::detection::detect_media_type;
+    use crate::detection::detect_media_type;
 
     /// More metadata than a size read touches, so a header after it lies past the bound.
     const PAST_THE_BOUND: usize = PICTURE_METADATA_MAX_BYTES + 1;

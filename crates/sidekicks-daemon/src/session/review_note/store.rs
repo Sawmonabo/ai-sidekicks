@@ -35,23 +35,23 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::sync::Notify;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{
+use crate::directory::lookups::{SessionWriteError, session_exists, write_while_session_exists};
+use crate::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, nullable_text_binding, text_binding,
 };
-use crate::database::stored_column::{
+use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
 };
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::ipc::stream::latest_value::LatestValueOutlet;
-use crate::mutex_lock::lock;
-use crate::session::directory::lookups::{
-    SessionWriteError, session_exists, write_while_session_exists,
-};
-use crate::session::not_found::session_not_found;
-use crate::session::review_note::diff_line::{NoteLocation, NotedLineError, NotedLineReader};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements the store's reads prepare on a read connection: the session's notes, one note,
 /// and whether the session has a row.
@@ -728,13 +728,13 @@ mod tests {
         REVIEW_NOTE_STORE_STATEMENT_CAPACITY, ReviewNoteFolderError, ReviewNoteFolders,
         SessionReviewNoteStore, WorkingFolderDetach,
     };
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::ipc::registry::HandlerError;
     use crate::questions::schema::schema_parts;
-    use crate::session::review_note::diff_line::NotedLineReader;
+    use crate::review_note::diff_line::NotedLineReader;
+    use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     /// A session that works in no repository's folder.
     struct NoWorkingFolder;

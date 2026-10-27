@@ -16,12 +16,12 @@ use sidekicks_contracts::repo::mount::{
 };
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::events::log_service::{EventLogAppendReceipt, EventLogService};
-use crate::events::session::appender::{
+use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
+use sidekicks_store::events::session::appender::{
     AppendedPayload, SessionEventAppender, SessionEventDraft, SessionEventEmitError,
     SessionEventLinkage,
 };
-use crate::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// What every workspace event names: the session whose log takes it, the workspace, the mount when
 /// the event names one, and who acted.

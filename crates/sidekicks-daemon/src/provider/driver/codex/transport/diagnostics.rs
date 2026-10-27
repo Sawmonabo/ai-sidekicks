@@ -11,12 +11,12 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
 use strum::IntoStaticStr;
 
-use crate::error_description::describe_error;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::session::helper_roles::CodexRoleFileWithheldField;
-use crate::provider::driver::diagnostics::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::session::helper_roles::CodexRoleFileWithheldField;
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use sidekicks_std::error_description::describe_error;
 
 /// A failure a diagnostic carries, logged with every cause.
 type DiagnosticCause = Box<dyn Error + Send + Sync>;

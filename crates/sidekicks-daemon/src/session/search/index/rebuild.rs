@@ -20,14 +20,16 @@ use tokio::process::Command;
 use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::helper_mode::child::{HelperModeChildError, HelperModeEnd, run_helper_mode_child};
-use crate::session::search::index::batch_builder::IndexBatchBuilder;
-use crate::session::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
-use crate::session::search::index::columns::source_rowid_of;
-use crate::session::search::index::rows::{
+use crate::search::index::batch_builder::IndexBatchBuilder;
+use crate::search::index::build_mode::SEARCH_INDEX_BUILD_MODE;
+use crate::search::index::columns::source_rowid_of;
+use crate::search::index::rows::{
     INDEX_BATCH_ROW_LIMIT, INDEX_BATCH_TEXT_LIMIT, IndexRowReader, SourceRowRead,
     empty_index_batch_room,
+};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::helper_mode::child::{
+    HelperModeChildError, HelperModeEnd, run_helper_mode_child,
 };
 
 // The indexing arena, at its budget's ceiling: the larger the arena, the fewer segments a batch
@@ -422,8 +424,8 @@ mod tests {
         make_index_at, open_search_index,
     };
     use crate::questions::schema::schema_parts;
-    use crate::session::search::index::rows::IndexRowReader;
-    use crate::session::search::index::schema::add_titled_session;
+    use crate::search::index::rows::IndexRowReader;
+    use crate::search::index::schema::add_titled_session;
 
     // A database holding one titled session, whose insert gave the outbox its first ids, and the
     // outbox's highest id.

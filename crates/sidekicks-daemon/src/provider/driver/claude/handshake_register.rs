@@ -19,19 +19,17 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::mutex_lock::lock;
-use crate::provider::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason,
-};
-use crate::provider::driver::claude::session::state::{ClaudeHeldHandshake, LiveClaudeSession};
-use crate::provider::driver::claude::session::transport::declarations::{
+use crate::claude::DESCRIPTOR;
+use crate::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::claude::session::state::{ClaudeHeldHandshake, LiveClaudeSession};
+use crate::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration,
 };
-use crate::provider::driver::diagnostics::{
+use crate::declared_output_speed::{DeclaredOutputSpeed, read_declared_output_speed};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use sidekicks_std::mutex_lock::lock;
 
 // The scope a command Claude Code runs only in its own terminal screen is listed with.
 const TERMINAL_COMMAND_SCOPE: &str = "terminal";

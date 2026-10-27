@@ -27,17 +27,15 @@ use tokio::sync::oneshot::{self, error::TryRecvError};
 use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::events::session::pending::PendingSessions;
-use crate::file::bounded_read::run_on_own_thread;
-use crate::file::real_location::resolve_real_path;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
-use crate::missing_entry::is_missing_entry;
-use crate::mutex_lock::lock;
-use crate::workspace::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher,
-};
-use crate::workspace::repo::mount::service::{RepoMountService, RepoMountServiceError};
+use crate::managed::write_watcher::{ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher};
+use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::bounded_read::run_on_own_thread;
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::missing_entry::is_missing_entry;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::events::session::pending::PendingSessions;
 
 const MANAGED_WORKSPACES_FOLDER_NAME: &str = "workspaces";
 
@@ -474,14 +472,12 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{ManagedWorkspaceService, SessionListRefresh, managed_workspaces_folder};
-    use crate::database::writer::test_file::TestDatabase;
     use crate::git::process::test_git_runner;
     use crate::git::worktree::schema::schema_parts;
-    use crate::workspace::managed::write_watcher::{
-        ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
-    };
-    use crate::workspace::repo::mount::service::RepoMountService;
-    use crate::workspace::repo::root_resolver::RepoRootResolver;
+    use crate::managed::write_watcher::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind};
+    use crate::repo::mount::service::RepoMountService;
+    use crate::repo::root_resolver::RepoRootResolver;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     const WAIT: Duration = Duration::from_secs(20);
 

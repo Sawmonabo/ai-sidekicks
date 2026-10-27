@@ -4,9 +4,9 @@ use rusqlite::params;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::read_streamed_pieces;
-use crate::events::content::codec::BodyDecodeError;
-use crate::events::session::read::MalformedStoredEventError;
 use crate::transcript::test_log::TranscriptTestLog;
+use sidekicks_store::events::content::codec::BodyDecodeError;
+use sidekicks_store::events::session::read::MalformedStoredEventError;
 
 // Writes a reply row at `sequence` holding `body`, its payload stored as `payload`, past the
 // append path, as only damage leaves one.

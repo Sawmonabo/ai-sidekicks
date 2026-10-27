@@ -23,85 +23,77 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 
-use crate::database::schema::provider_drivers::schema_parts;
-use crate::database::writer::test_file::TestDatabase;
-use crate::mutex_lock::lock;
-use crate::policy::execution_posture_service::{
-    ExecutionPostureService, compose_execution_posture,
-};
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
-use crate::provider::driver::codex::commands::CodexProviderCommandCache;
-use crate::provider::driver::codex::delivery::frames::{
+use crate::codex::commands::CodexProviderCommandCache;
+use crate::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
 };
-use crate::provider::driver::codex::delivery::rows::CodexRowRun;
-use crate::provider::driver::codex::lifecycle::intake::{
+use crate::codex::delivery::rows::CodexRowRun;
+use crate::codex::lifecycle::intake::{
     CodexRoutedFramesIntake, apply_codex_routed_frames, observe_codex_session_frame,
 };
-use crate::provider::driver::codex::notification_routing::{
-    CodexRoutedFrames, CodexSessionRouting,
-};
-use crate::provider::driver::codex::permission_level::{
-    CodexProfileFolders, compose_codex_profile_name,
-};
-use crate::provider::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
-use crate::provider::driver::codex::run::faster_model_retry::{
+use crate::codex::notification_routing::{CodexRoutedFrames, CodexSessionRouting};
+use crate::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
+use crate::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
+use crate::codex::run::faster_model_retry::{
     CodexFasterModelRetries, CodexFasterModelRetryDependencies,
 };
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::run::self_started_turns::{
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::run::self_started_turns::{
     CodexSelfStartedTurnDependencies, open_codex_self_started_turn,
 };
-use crate::provider::driver::codex::run::start::record::{
+use crate::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
-use crate::provider::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
-use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
-use crate::provider::driver::codex::server_requests::{
+use crate::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
+use crate::codex::run::turn_end_waiters::CodexTurnEndWaiters;
+use crate::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
 };
-use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::service::registry::CodexServiceRegistry;
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::provider::driver::codex::session::calls::{
+use crate::codex::session::calls::{
     CodexSessionCallDependencies, CodexSessionTask, run_codex_session_call,
 };
-use crate::provider::driver::codex::session::establishment::{
+use crate::codex::session::establishment::{
     CodexSessionEstablishment, CodexSessionEstablishmentDependencies,
 };
-use crate::provider::driver::codex::session::fork::CodexForkDependencies;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::session::fork::CodexForkDependencies;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundSender,
     codex_session_inbound, drain_codex_session_inbound,
 };
-use crate::provider::driver::codex::session::lifecycle_call::CodexLifecycleCall;
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::{
-    CodexEstablishedConversation, CodexSessionRecord,
-};
-use crate::provider::driver::codex::thread::settings::CodexThreadSettings;
-use crate::provider::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::run_control::{
+use crate::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::session::state::{CodexEstablishedConversation, CodexSessionRecord};
+use crate::codex::thread::settings::CodexThreadSettings;
+use crate::codex::transport::connection::CodexForgottenRequest;
+use crate::codex::transport::connection::scripted_service::ScriptedService;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+use crate::driver::contract::DriverError;
+use crate::driver::ports::DriverPorts;
+use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
-use crate::provider::driver::test_registry::{RecordedQueue, new_session_id};
-use crate::provider::driver::{
+use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::{RecordedQueue, new_session_id};
+use crate::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::port::run_host::test_host::RecordingRunEngine;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
-use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
+use crate::port::registration::PortRegistration;
+use crate::port::run_host::RunHost;
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
+use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";
@@ -526,7 +518,7 @@ pub(crate) async fn open_test_record(
             delivery,
             &mut record,
             TEST_THREAD.to_owned(),
-            crate::provider::usage_delta_accountant::ThreadBaseEstablishment::Fresh,
+            crate::usage_delta_accountant::ThreadBaseEstablishment::Fresh,
         )
         .await;
     (record, routing)

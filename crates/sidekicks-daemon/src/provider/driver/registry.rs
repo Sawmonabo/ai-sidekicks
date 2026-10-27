@@ -16,10 +16,10 @@ use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSI
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::provider::driver::contract::{PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
-use crate::provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
+use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
+use crate::driver::contract::{PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, ProviderDriver};
+use crate::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
+use sidekicks_ipc::domain_error::DomainError;
 
 /// The refusal for a call naming a provider no registered driver answers; its detail carries only
 /// the id, so nothing internal leaks.
@@ -209,10 +209,10 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::{ProviderRegistry, test_provider};
-    use crate::provider::driver::capabilities::DriverCapabilityFlag;
-    use crate::provider::driver::contract::MockProviderDriver;
-    use crate::provider::driver::test_registry::test_driver_services;
-    use crate::provider::driver::{PROVIDERS, ProviderRegistration};
+    use crate::driver::capabilities::DriverCapabilityFlag;
+    use crate::driver::contract::MockProviderDriver;
+    use crate::driver::test_registry::test_driver_services;
+    use crate::driver::{PROVIDERS, ProviderRegistration};
 
     #[tokio::test]
     async fn the_registry_keeps_the_table_order_and_refuses_an_unknown_id() {

@@ -24,12 +24,12 @@ use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::record::Record;
 
-use crate::events::log_service::{EventLogFollowError, EventLogReadError};
-use crate::ipc::domain_error::{DomainError, refusal_fields};
-use crate::ipc::registry::{DispatchError, HandlerError};
+use crate::domain_error::{DomainError, refusal_fields};
 use crate::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH};
-use crate::session::not_found::session_not_found;
-use crate::text_cut::cut_to_code_points;
+use crate::registry::{DispatchError, HandlerError};
+use crate::session_not_found::session_not_found;
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::events::log_service::{EventLogFollowError, EventLogReadError};
 
 /// What replaces an absolute path in a message or a field.
 const REDACTED_PATH: &str = "<redacted-path>";
@@ -435,8 +435,8 @@ mod tests {
         CallFailure, FIELDS_MAX_ARRAY_LEN, FIELDS_MAX_DEPTH, FIELDS_MAX_KEYS, FIELDS_MAX_NODES,
         FIELDS_VALUE_MAX_LEN, map_json_rpc_error,
     };
-    use crate::ipc::domain_error::DomainError;
-    use crate::ipc::registry::DispatchError;
+    use crate::domain_error::DomainError;
+    use crate::registry::DispatchError;
 
     /// The received value the refusals below must never quote.
     const SECRET_DIGITS: &str = "7340251";

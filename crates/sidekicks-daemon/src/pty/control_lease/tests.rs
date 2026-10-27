@@ -14,8 +14,8 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use tokio::sync::oneshot;
 
 use super::{ShellConnection, ShellControlLease, ShellLeaseCaller, ShellLeaseRun, ShellWriter};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::TransportId;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::TransportId;
 
 /// A lease whose broadcasts are recorded as sent, and whose next broadcasts a case can hold back
 /// and then land or fail.

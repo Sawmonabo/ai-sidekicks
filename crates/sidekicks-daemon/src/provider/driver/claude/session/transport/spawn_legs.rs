@@ -9,12 +9,12 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::CredentialDenyPath;
-use crate::provider::driver::callback_tool::CallbackToolDispatcher;
-use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
-use crate::provider::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::background_work::BackgroundWorkForms;
+use crate::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::callback_tool::CallbackToolDispatcher;
+use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
+use crate::run::posture::CredentialDenyPath;
 
 /// The legs a session's process is started with.
 #[derive(Clone)]

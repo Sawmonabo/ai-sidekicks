@@ -21,11 +21,13 @@ use std::path::{Path, PathBuf};
 
 use rusqlite::OptionalExtension as _;
 
-use crate::artifacts::refusals::ArtifactError;
-use crate::daemon::scheduler::budget::ProcessorMeter;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::{MissingEntry as _, is_missing_entry};
+use crate::refusals::ArtifactError;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::{MissingEntry as _, is_missing_entry};
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 // The digest's algorithm, the key's prefix and the store's top folder.
 const CONTENT_HASH_ALGORITHM: &str = "sha256";
@@ -326,9 +328,9 @@ mod tests {
     use tokio::sync::oneshot;
 
     use super::{ContentHash, PayloadStore};
-    use crate::artifacts::refusals::ArtifactError;
-    use crate::artifacts::test_store::{ArtifactTestStore, write_payload_reference};
-    use crate::daemon::scheduler::budget::ProcessorMeter;
+    use crate::refusals::ArtifactError;
+    use crate::test_store::{ArtifactTestStore, write_payload_reference};
+    use sidekicks_std::scheduler::budget::ProcessorMeter;
 
     fn content_hash_of(bytes: &[u8]) -> ContentHash {
         ContentHash::of_sha256(&Sha256::digest(bytes))

@@ -13,7 +13,7 @@ use sidekicks_platforms::{
     PathRules, RunningProgramPath, ShellWordRefused, read_running_program_path,
 };
 
-use crate::provider::driver::codex::service::home::CodexServiceKind;
+use crate::codex::service::home::CodexServiceKind;
 
 /// The hook `timeout`, 10^12 seconds, a hold no call outlasts and one Codex runs without fault;
 /// the code-mode yield takes the same hold in milliseconds, 10^15.

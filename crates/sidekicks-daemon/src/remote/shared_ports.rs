@@ -17,10 +17,6 @@ use sidekicks_contracts::wire::integer::Port;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
-use crate::mutex_lock::lock;
 use crate::remote::shared_ports::listening::{
     PortListeningReadings, PortListeningSink, SharedPortListeningSource,
 };
@@ -31,6 +27,10 @@ use crate::remote::shared_ports::store::{
     SharedPortsReadError, delete_every_shared_port, delete_shared_port, insert_shared_port,
     read_shared_ports,
 };
+use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 pub(crate) mod listening;
 pub(crate) mod loopback;
@@ -367,14 +367,14 @@ mod tests {
     use super::methods::port_not_shared;
     use super::store::SHARED_PORTS_STATEMENT_CAPACITY;
     use super::{SharedPortAddError, SharedPorts, added_after};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::ipc::domain_error::refusal_fields;
-    use crate::ipc::stream::feed::{CreditGate, Feed};
-    use crate::ipc::stream::latest_value::LatestValueFeed;
-    use crate::mutex_lock::lock;
     use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_ipc::domain_error::refusal_fields;
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
+    use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+    use sidekicks_std::mutex_lock::lock;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     const WAIT: Duration = Duration::from_secs(10);
 

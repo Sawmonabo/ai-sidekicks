@@ -11,14 +11,14 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{Placed, QueueAdmission, is_invalid_transition, is_waiting, log_failure};
-use crate::database::connection::read_pool::ReadLength;
-use crate::provider::driver::contract::ProviderDriver;
-use crate::queue::error::QueueError;
-use crate::queue::store::QueueItemReader;
-use crate::queue::store::summary::summary_of;
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::read::read_run_through;
-use crate::session::run::start_request::RunContinueRequest;
+use crate::error::QueueError;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_session::queue_store::QueueItemReader;
+use sidekicks_session::queue_store::summary::summary_of;
+use sidekicks_session::run::engine::RunEngineError;
+use sidekicks_session::run::read::read_run_through;
+use sidekicks_session::run::start_request::RunContinueRequest;
+use sidekicks_store::database::connection::read_pool::ReadLength;
 
 impl QueueAdmission {
     pub(super) async fn continue_interrupted(

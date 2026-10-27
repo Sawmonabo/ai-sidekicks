@@ -11,8 +11,8 @@ use std::process::ExitCode;
 
 use sidekicks_platforms::{ShellStart, describe_start_failure, prepare_shell_start, start_program};
 
-use crate::error_description::describe_error;
-use crate::standard_error::write_error_line;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with, before the daemon's process id, to run the
 /// `shell` mode.

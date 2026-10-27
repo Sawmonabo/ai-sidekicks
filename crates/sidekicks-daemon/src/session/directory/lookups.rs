@@ -12,15 +12,15 @@ use rusqlite::{Connection, named_params};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 
-use crate::database::sql_list::sql_list_of;
-use crate::database::statement::{
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::statement::{
     StatementBindings, StatementResult, WriteStatement, text_binding,
 };
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::session::not_found::session_not_found;
-use crate::workspace::schema::MountOrigin;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_workspace::schema::MountOrigin;
 
 /// The states of a session that has ended, closed or being purged, as a SQL list of quoted words
 /// for a `state IN (…)` condition: such a session takes no message, ask or rule.

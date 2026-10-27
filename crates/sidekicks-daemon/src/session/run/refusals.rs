@@ -10,8 +10,8 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::ipc::domain_error::DomainError;
-use crate::session::run::read::RunRead;
+use crate::run::read::RunRead;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// Why the run engine refused a call or a move; nothing was written for any of them.
 #[derive(Debug, thiserror::Error)]

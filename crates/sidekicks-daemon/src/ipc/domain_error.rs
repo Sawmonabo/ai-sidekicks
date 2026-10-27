@@ -10,8 +10,8 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 
-use crate::credential_store::KeychainRefusal;
-use crate::events::log_service::SessionAppendRefusal;
+use sidekicks_store::credential_store::KeychainRefusal;
+use sidekicks_store::events::log_service::SessionAppendRefusal;
 
 /// A handler's refusal with its wire form; its `Display` is the message a person reads.
 #[derive(Debug, thiserror::Error)]

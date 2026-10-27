@@ -23,68 +23,58 @@ use std::time::Duration;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::task::TaskTracker;
 
-use crate::daemon::data_folder::service_log_folder;
-use crate::mutex_lock::lock;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::SessionSpawnContextResolver;
-use crate::provider::driver::codex::account_home_logs::AccountHomeLogExpiry;
-use crate::provider::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
-use crate::provider::driver::codex::delivery::asks::attribution::CodexAskIntake;
-use crate::provider::driver::codex::delivery::asks::{
-    CodexAskHandOff, CodexAskHandOffDependencies, CodexAskOwners,
-};
-use crate::provider::driver::codex::delivery::frames::{
-    CodexFrameDelivery, CodexFrameDeliveryDependencies,
-};
-use crate::provider::driver::codex::goals::CodexSessionGoals;
-use crate::provider::driver::codex::intervention::CodexInterventionDispatcher;
-use crate::provider::driver::codex::lifecycle::effects::{CodexDriverEffects, CodexDriverLink};
-use crate::provider::driver::codex::lifecycle::intake::CodexSessionIntake;
-use crate::provider::driver::codex::lifecycle::service_events::CodexDriverServiceEvents;
-use crate::provider::driver::codex::lifecycle::views::CodexSessionViews;
-use crate::provider::driver::codex::rate_limits::CodexRateLimitFiling;
-use crate::provider::driver::codex::rules::CodexProjectRuleFiles;
-use crate::provider::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
-use crate::provider::driver::codex::run::faster_model_retry::{
+use crate::background_work::BackgroundWorkForms;
+use crate::codex::account_home_logs::AccountHomeLogExpiry;
+use crate::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
+use crate::codex::delivery::asks::attribution::CodexAskIntake;
+use crate::codex::delivery::asks::{CodexAskHandOff, CodexAskHandOffDependencies, CodexAskOwners};
+use crate::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDeliveryDependencies};
+use crate::codex::goals::CodexSessionGoals;
+use crate::codex::intervention::CodexInterventionDispatcher;
+use crate::codex::lifecycle::effects::{CodexDriverEffects, CodexDriverLink};
+use crate::codex::lifecycle::intake::CodexSessionIntake;
+use crate::codex::lifecycle::service_events::CodexDriverServiceEvents;
+use crate::codex::lifecycle::views::CodexSessionViews;
+use crate::codex::rate_limits::CodexRateLimitFiling;
+use crate::codex::rules::CodexProjectRuleFiles;
+use crate::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
+use crate::codex::run::faster_model_retry::{
     CodexFasterModelRetries, CodexFasterModelRetryDependencies,
 };
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::run::self_started_turns::CodexSelfStartedTurnDependencies;
-use crate::provider::driver::codex::run::start::record::{
-    CodexBindingAdoptions, CodexRunCallDependencies,
-};
-use crate::provider::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
-use crate::provider::driver::codex::service::home::CodexHomes;
-use crate::provider::driver::codex::service::program::CodexInstalledProgram;
-use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
-use crate::provider::driver::codex::service::supervisor::drain::LastingServiceDrains;
-use crate::provider::driver::codex::service::supervisor::{
-    CodexServiceDependencies, CodexServiceId,
-};
-use crate::provider::driver::codex::session::calls::CodexSessionCallDependencies;
-use crate::provider::driver::codex::session::controls::CodexSessionControls;
-use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::establishment::{
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::run::self_started_turns::CodexSelfStartedTurnDependencies;
+use crate::codex::run::start::record::{CodexBindingAdoptions, CodexRunCallDependencies};
+use crate::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
+use crate::codex::service::home::CodexHomes;
+use crate::codex::service::program::CodexInstalledProgram;
+use crate::codex::service::registry::CodexServiceRegistry;
+use crate::codex::service::supervisor::drain::LastingServiceDrains;
+use crate::codex::service::supervisor::{CodexServiceDependencies, CodexServiceId};
+use crate::codex::session::calls::CodexSessionCallDependencies;
+use crate::codex::session::controls::CodexSessionControls;
+use crate::codex::session::conversation_release::CodexConversationRelease;
+use crate::codex::session::establishment::{
     CodexOpenedSession, CodexSessionEstablishment, CodexSessionEstablishmentDependencies,
 };
-use crate::provider::driver::codex::session::fork::CodexForkDependencies;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::recovery::{
-    CodexServiceRecovery, CodexServiceRecoveryDependencies,
-};
-use crate::provider::driver::codex::session::rewind::CodexConversationRewind;
-use crate::provider::driver::codex::session::side_questions::CodexSideQuestions;
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::ports::DriverPorts;
-use crate::provider::driver::{DriverServices, attachments::AttachmentResolver};
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::run_host::RunHost;
-use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
+use crate::codex::session::fork::CodexForkDependencies;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::recovery::{CodexServiceRecovery, CodexServiceRecoveryDependencies};
+use crate::codex::session::rewind::CodexConversationRewind;
+use crate::codex::session::side_questions::CodexSideQuestions;
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::SessionSpawnContextResolver;
+use crate::driver::contract::DriverError;
+use crate::driver::ports::DriverPorts;
+use crate::driver::{DriverServices, attachments::AttachmentResolver};
+use crate::port::registration::PortRegistration;
+use crate::port::run_host::RunHost;
+use crate::process_registry::ProviderProcessRegistry;
+use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::data_folder::service_log_folder;
 
 /// The folder under the daemon's data folder that holds each session's helper role files.
 const CODEX_HELPER_ROLES_FOLDER_NAME: &str = "codex-helper-roles";
@@ -100,7 +90,7 @@ pub(crate) struct CodexDriver {
     execution_postures: Arc<ExecutionPostureService>,
     attachments: Arc<dyn AttachmentResolver>,
     runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
-    shell_lines: Arc<crate::policy::shell_commands::reading_bound::ShellLineReadingBound>,
+    shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
     pending_compactions: PendingCompactionRegistry,
     processes: Arc<ProviderProcessRegistry>,
@@ -431,7 +421,7 @@ impl CodexDriver {
     fn read_rate_limits_once(
         &self,
         parts: &Arc<CodexDriverParts>,
-        service: Arc<crate::provider::driver::codex::service::supervisor::CodexService>,
+        service: Arc<crate::codex::service::supervisor::CodexService>,
     ) {
         let is_first = lock(&self.rate_limits_read).insert(service.id());
         if !is_first {

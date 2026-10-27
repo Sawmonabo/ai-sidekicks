@@ -19,14 +19,10 @@ use sidekicks_contracts::wire::record::Record;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::codex::permission_level::{
-    CodexProfileFolders, compose_codex_profile_name,
-};
-use crate::provider::driver::codex::service::supervisor::test_service::{
-    next_socket_request, send_on_socket,
-};
-use crate::provider::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::codex::permission_level::{CodexProfileFolders, compose_codex_profile_name};
+use crate::codex::service::supervisor::test_service::{next_socket_request, send_on_socket};
+use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::run::posture::compose_execution_posture;
 
 /// The resting session's stored conversation.
 pub(crate) const STORED_THREAD: &str = "stored-thread";

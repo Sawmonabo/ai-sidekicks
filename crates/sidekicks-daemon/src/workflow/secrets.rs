@@ -15,7 +15,7 @@ use std::sync::Arc;
 use secrecy::SecretString;
 use sidekicks_contracts::workflow::secret::{WorkflowSecretId, WorkflowSecretValue};
 
-use crate::credential_store::{KeychainRefusal, SecretKeychain};
+use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 
 /// Seals, resolves and removes workflow secrets' values in the keychain.
 #[cfg_attr(
@@ -87,8 +87,8 @@ mod tests {
     };
 
     use super::WorkflowSecretStore;
-    use crate::credential_store::{KeychainRefusal, SecretKeychain};
-    use crate::ipc::domain_error::DomainError;
+    use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
 
     /// The value the seal writes.
     const SECRET: &str = "hunter2-do-not-print";

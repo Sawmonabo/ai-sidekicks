@@ -14,23 +14,25 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{CHECK_FAILED_REFUSAL, PermissionAskError, PermissionAsks, PermissionAsksDeps};
-use crate::approvals::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
-use crate::approvals::service::ApprovalServiceError;
-use crate::approvals::service::tests::{SETTLE_WAIT, from_json};
-use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::mutex_lock::lock;
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::permission_check::tests::{CheckFixture, LINE_LIMIT};
-use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderRequestAnswer};
-use crate::provider::driver::test_registry::{
+use crate::permission_check::tests::{CheckFixture, LINE_LIMIT};
+use crate::request_create::{ApprovalRequestCreateRequest, ApprovalRequestOrigin};
+use crate::service::ApprovalServiceError;
+use crate::service::tests::{SETTLE_WAIT, from_json};
+use crate::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_provider::driver::contract::{
+    DriverError, MockProviderDriver, ProviderRequestAnswer,
+};
+use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
-use crate::provider::port::permission_ask::{
+use sidekicks_provider::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal,
 };
-use crate::session::run::pause::tests::unanswered;
+use sidekicks_session::run::pause::tests::unanswered;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 /// The intake over the check's fixture, and every answer its driver was handed.
 pub(crate) struct AsksFixture {

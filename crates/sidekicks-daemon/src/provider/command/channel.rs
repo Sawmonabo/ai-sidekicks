@@ -23,8 +23,8 @@ use sidekicks_platforms::{
 };
 use zeroize::Zeroizing;
 
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::mutex_lock::lock;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_std::mutex_lock::lock;
 
 pub(crate) mod party;
 pub(crate) mod records;

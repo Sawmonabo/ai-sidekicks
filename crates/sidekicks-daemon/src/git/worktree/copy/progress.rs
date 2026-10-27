@@ -18,7 +18,7 @@ use sidekicks_contracts::worktree::copy_progress::{WorktreeCopy, WorktreeCopyPro
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
 
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// How often a running copy's figure is sent: four times a second reads as steady progress on the
 /// row and costs the stream next to nothing.

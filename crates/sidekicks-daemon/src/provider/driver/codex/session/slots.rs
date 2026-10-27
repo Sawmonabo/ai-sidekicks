@@ -10,22 +10,20 @@ use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::mutex_lock::lock;
-use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
-use crate::provider::driver::codex::commands::CodexProviderCommandCache;
-use crate::provider::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::background_terminals::end_codex_running_commands;
-use crate::provider::driver::codex::session::conversation_release::CodexConversationRelease;
-use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
-use crate::provider::driver::codex::session::inbound::CodexSessionInboundSender;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::{
-    CodexTeardownStep, CodexTransportDiagnostic,
-};
+use crate::codex::app_server_protocol::ThreadUnsubscribeParams;
+use crate::codex::commands::CodexProviderCommandCache;
+use crate::codex::delivery::frames::turns::codex_compaction_wait_key;
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::background_terminals::end_codex_running_commands;
+use crate::codex::session::conversation_release::CodexConversationRelease;
+use crate::codex::session::errors::{CodexError, CodexSessionSlotState};
+use crate::codex::session::inbound::CodexSessionInboundSender;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
+use crate::compaction_wait::PendingCompactionRegistry;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::mutex_lock::lock;
 
 /// The request that lets a conversation go from a connection.
 pub(crate) const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
@@ -334,9 +332,9 @@ mod tests {
     use std::sync::Arc;
 
     use super::CodexSessionSlots;
-    use crate::provider::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
-    use crate::provider::driver::codex::session::inbound::codex_session_inbound;
-    use crate::provider::driver::test_registry::new_session_id;
+    use crate::codex::session::errors::{CodexError, CodexSessionSlotState};
+    use crate::codex::session::inbound::codex_session_inbound;
+    use crate::driver::test_registry::new_session_id;
 
     // Killed by removing the free check a create makes, and by removing the check an
     // establishment makes once it got the slot after a close.

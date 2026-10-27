@@ -21,11 +21,11 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::IntoStaticStr;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
-use crate::provider::driver::diagnostics::{
+use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
+use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use sidekicks_std::mutex_lock::lock;
 
 /// An error a seam, executor or sink returns: anything that failed, with its causes.
 pub(crate) type CallbackToolPortError = Box<dyn Error + Send + Sync>;

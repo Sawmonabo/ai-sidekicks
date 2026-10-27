@@ -22,7 +22,7 @@ use sidekicks_contracts::machine::settings::{
 };
 use sidekicks_platforms::PathRules;
 
-use crate::provider::driver::ProviderDescriptor;
+use crate::driver::ProviderDescriptor;
 
 /// The names a person's row may not set because a registered driver sets them: every driver's
 /// process, launch, credential-home, screen-reader and background-work switch names; and every
@@ -330,7 +330,7 @@ mod tests {
         SpawnEnvironmentError, build_conversation_command_environment,
         build_project_command_environment, build_provider_process_environment,
     };
-    use crate::provider::driver::{
+    use crate::driver::{
         BackgroundWork, CommandSandboxNeeds, ProviderCommand, ProviderDescriptor,
         ProviderMemoryEstimates,
     };

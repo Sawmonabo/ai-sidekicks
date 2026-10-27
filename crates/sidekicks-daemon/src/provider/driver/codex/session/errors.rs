@@ -13,16 +13,16 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::capabilities::DriverCapabilityFlag;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::contract::{
+use crate::codex::DESCRIPTOR;
+use crate::driver::capabilities::DriverCapabilityFlag;
+use crate::driver::contract::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
-use crate::provider::driver::error_causes::{
+use crate::driver::error_causes::{
     RequestUnanswered, UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal,
 };
-use crate::provider::driver::registry::provider_capability_refused;
+use crate::driver::registry::provider_capability_refused;
+use sidekicks_ipc::domain_error::DomainError;
 
 /// The request that forks a conversation, the one whose boundary member a build may refuse.
 const THREAD_FORK_METHOD: &str = "thread/fork";

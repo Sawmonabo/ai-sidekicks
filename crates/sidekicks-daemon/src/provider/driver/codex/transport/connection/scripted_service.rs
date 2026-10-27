@@ -6,11 +6,11 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Bytes;
 
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::{
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionHandlers, ServiceMessageReader, ServiceMessageWriter,
 };
-use crate::provider::driver::codex::transport::socket::CodexSocketEvent;
+use crate::codex::transport::socket::CodexSocketEvent;
 
 /// The connection's socket as a test drives it: what the connection sent arrives on `sent`, and
 /// what the service sends goes in through `inbound`.

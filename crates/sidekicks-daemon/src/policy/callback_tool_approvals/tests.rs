@@ -16,19 +16,19 @@ use tokio::task::JoinHandle;
 use super::{
     CallbackToolApprovalError, CallbackToolApprovals, CallbackToolGate, UNGATED_TOOL_REFUSAL,
 };
-use crate::approvals::permission_asks::tests::{AsksFixture, device};
-use crate::approvals::service::tests::{SETTLE_WAIT, from_json};
-use crate::policy::execution_posture_service::CURATED_CREDENTIAL_POLICY_REF;
-use crate::provider::callback_tools::host::{
+use crate::permission_asks::tests::{AsksFixture, device};
+use crate::service::tests::{SETTLE_WAIT, from_json};
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::callback_tools::host::{
     CallbackToolApprovalBasis, CallbackToolApprovalOutcome, CallbackToolApprovalSeam,
     CallbackToolPortError,
 };
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::callback_tool::CallbackToolInvocation;
-use crate::provider::driver::contract::MockProviderDriver;
-use crate::provider::driver::test_registry::registry_of_first_providers;
-use crate::provider::port::permission_ask::ProviderAskAction;
-use crate::session::run::setup_gates::{RunSetupContext, RunSetupGate};
+use sidekicks_provider::driver::callback_tool::CallbackToolInvocation;
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+use sidekicks_provider::port::permission_ask::ProviderAskAction;
+use sidekicks_provider::run::posture::CURATED_CREDENTIAL_POLICY_REF;
+use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate};
 
 // A tool that only reads, and one that acts.
 const READ_TOOL: &str = "session_list";

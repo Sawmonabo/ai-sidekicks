@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use serde::Deserialize;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::lenient_json::{lenient_object, read_lenient};
+use crate::lenient_json::{lenient_object, read_lenient};
 
 // Claude Code's kind of task for a helper.
 const CLAUDE_HELPER_TASK_TYPE: &str = "local_agent";

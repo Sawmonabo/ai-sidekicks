@@ -17,14 +17,12 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::delivery::memory::CodexDeliveryMemory;
-use crate::provider::driver::codex::delivery::rows::{
-    CodexRow, CodexRowDelivery, CodexRowRun, event_text,
-};
-use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::provider::run::delivery::LateAppendableRow;
-use crate::text_cut::cut_to_code_points;
+use crate::codex::DESCRIPTOR;
+use crate::codex::delivery::memory::CodexDeliveryMemory;
+use crate::codex::delivery::rows::{CodexRow, CodexRowDelivery, CodexRowRun, event_text};
+use crate::record_readers::{read_count, read_non_empty_string};
+use crate::run::delivery::LateAppendableRow;
+use sidekicks_std::text_cut::cut_to_code_points;
 
 /// Codex's one reroute reason, a cyber-safety check.
 const CODEX_CYBER_REROUTE_REASON: &str = "highRiskCyberActivity";

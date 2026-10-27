@@ -3,19 +3,19 @@
 
 use sidekicks_contracts::run::id::RunId;
 
-use crate::admission::memory_gate::MemoryAdmissionError;
-use crate::database::connection::read_pool::DatabaseReadError;
-use crate::database::writer::WriteError;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
-use crate::ipc::registry::HandlerError;
-use crate::provider::driver::contract::DriverError;
-use crate::queue::delivery::DeliveryError;
-use crate::queue::provider_session::ProviderSessionError;
-use crate::queue::recorder::QueueRecordError;
-use crate::session::run::agent::RunAgentReadError;
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::refusals::RunRefusal;
+use crate::delivery::DeliveryError;
+use crate::memory_gate::MemoryAdmissionError;
+use crate::provider_session::ProviderSessionError;
+use crate::recorder::QueueRecordError;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_session::driver_resolution::LiveRunDriverError;
+use sidekicks_session::run::agent::RunAgentReadError;
+use sidekicks_session::run::engine::RunEngineError;
+use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::database::writer::WriteError;
 
 /// Why a run queue call, or the work it runs on its own, failed.
 #[derive(Debug, thiserror::Error)]

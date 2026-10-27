@@ -14,17 +14,17 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::task::TaskTracker;
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
-use crate::provider::driver::codex::session::calls::CodexSessionTask;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::{CodexForkDependencies, establish_codex_fork};
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::notification_routing::CodexRoutedFrames;
+use crate::codex::session::calls::CodexSessionTask;
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::{CodexForkDependencies, establish_codex_fork};
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use sidekicks_std::mutex_lock::lock;
 
 /// A config fork in flight, shared by every caller waiting on it: `true` once the session moved
 /// onto the fork, `false` when it owed none by the time the fork ran.

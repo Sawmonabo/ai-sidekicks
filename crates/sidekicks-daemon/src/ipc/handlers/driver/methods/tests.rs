@@ -27,23 +27,23 @@ use super::{
     DRIVER_METHODS_STATEMENT_CAPACITY, DriverMethodSources, list_models, list_modes,
     list_provider_commands,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::provider::driver::PROVIDERS;
-use crate::provider::driver::capabilities::{
+use crate::remote::shared_ports::schema::schema_parts;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_driver::PROVIDER_REGISTRATIONS;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::provider::driver::contract::{
+use sidekicks_provider::driver::contract::{
     DriverError, ListModelsParams, MockProviderDriver, ProviderDriver,
 };
-use crate::provider::driver::error_causes::ExecutableUnresolvable;
-use crate::provider::driver::test_registry::registry_of_first_providers;
-use crate::remote::shared_ports::schema::schema_parts;
-use crate::session::run::engine::tests::insert_running_run;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_provider::driver::error_causes::ExecutableUnresolvable;
+use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+use sidekicks_session::run::engine::tests::insert_running_run;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
 /// The instant the tests' events carry.
 const AT: &str = "2026-10-19T12:00:00.000Z";

@@ -8,16 +8,16 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_platforms::PathRules;
 
-use crate::provider::command_search::{ProviderCommandSearch, list_command_folders};
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::service::home::CodexServiceHome;
-use crate::provider::driver::codex::service::supervisor::CodexProgramResolver;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::spawn_environment::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::service::home::CodexServiceHome;
+use crate::codex::service::supervisor::CodexProgramResolver;
+use crate::command_search::{ProviderCommandSearch, list_command_folders};
+use crate::driver::contract::DriverError;
+use crate::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     build_provider_process_environment,
 };
-use crate::provider::spawned_version::{ResolvedProviderExecutable, resolve_provider_executable};
+use crate::spawned_version::{ResolvedProviderExecutable, resolve_provider_executable};
 
 /// The build the configured Codex command names, resolved at every start in the home's
 /// environment: the login shell's, with the home as `CODEX_HOME`.

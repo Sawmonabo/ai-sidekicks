@@ -14,20 +14,20 @@ use sidekicks_platforms::WallClockTimer;
 use tokio::time::timeout;
 
 use super::{LiveSessionFolders, LiveSessionFoldersDeps};
-use crate::daemon::scheduler::Scheduler;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-use crate::events::log_service::EventLogAppendOptions;
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
-use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
-use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 use crate::questions::schema::schema_parts;
-use crate::workspace::folder::canonical_path::canonical_folder_path;
-use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
+use sidekicks_store::events::log_service::EventLogAppendOptions;
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_workspace::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
+use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
+use sidekicks_workspace::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
+use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const WAIT: Duration = Duration::from_secs(30);
 

@@ -12,14 +12,14 @@ use sidekicks_contracts::plan::PlanHoldEndedReason;
 use sidekicks_contracts::question::{QuestionCanceledReason, QuestionSettledState};
 use sidekicks_contracts::run::state::RunState;
 
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::plan_holds::PlanHolds;
 use crate::questions::service::canceled_event;
 use crate::questions::store::{read_unsettled_held_questions, settle_question_statement};
-use crate::session::plan_holds::PlanHolds;
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::provider_choice::read_open_choice_settlements;
-use crate::session::run::read::RunStateReader;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::engine::RunEngineError;
+use crate::run::provider_choice::read_open_choice_settlements;
+use crate::run::read::RunStateReader;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
 /// Adds to `companions`, the write of `change`, a run's end, the settle of every held question,
 /// holding plan `plan_holds` reads and unsettled choice of the run but the choices the companions

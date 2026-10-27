@@ -8,13 +8,13 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use tokio::sync::SetOnce;
 
-use crate::events::session::append_lock::SessionAppendHold;
-use crate::mutex_lock::lock;
-use crate::session::run::engine::live::{EndingWrite, LiveRuns, settle};
-use crate::session::run::engine::{RunEngine, RunEngineError, settled};
-use crate::session::run::read::RunRead;
-use crate::session::run::setup_gates::RunTerminalContext;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use crate::run::engine::live::{EndingWrite, LiveRuns, settle};
+use crate::run::engine::{RunEngine, RunEngineError, settled};
+use crate::run::read::RunRead;
+use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
+use sidekicks_workspace::run_setup_gates::RunTerminalContext;
 
 impl RunEngine {
     /// Writes `change`, under `hold` where the caller holds the run's session. A terminal is kept
@@ -159,9 +159,9 @@ mod tests {
     use tokio::sync::SetOnce;
 
     use super::EndingGuard;
-    use crate::mutex_lock::lock;
-    use crate::session::run::engine::live::{EndingWrite, LiveRuns};
+    use crate::run::engine::live::{EndingWrite, LiveRuns};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_std::mutex_lock::lock;
 
     // How long the live lock is held after the guard begins to drop, long enough for a guard that
     // lands its write before taking the lock to have landed it.

@@ -21,19 +21,21 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::VariantArray;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
-use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::keyed_lock::KeyedLock;
-use crate::provider::driver::ProviderDescriptor;
-use crate::provider::driver::capabilities::{
+use crate::driver::ProviderDescriptor;
+use crate::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::provider::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
-use crate::provider::output_validation::{ProviderOutputValidationError, check_contract_version};
+use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
+use crate::output_validation::{ProviderOutputValidationError, check_contract_version};
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::statement::{
+    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
+};
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
 /// the flag rows and the tool rows.
@@ -482,11 +484,11 @@ fn refresh_cli_version_statement(
 /// A writer over `database`, opening its database writer, for tests that declare a reading.
 #[cfg(test)]
 pub(crate) async fn test_capabilities_writer(
-    database: &crate::database::writer::test_file::TestDatabase,
+    database: &sidekicks_store::database::writer::test_file::TestDatabase,
 ) -> DriverCapabilitiesWriter {
     let writer = DatabaseWriter::open(
         database.opener(),
-        crate::database::writer::DatabaseWriterOptions::default(),
+        sidekicks_store::database::writer::DatabaseWriterOptions::default(),
     )
     .await
     .expect("the writer opens its database");
@@ -507,13 +509,13 @@ mod tests {
     use super::{
         CapabilitySnapshotChange, DriverCapabilitiesWriterError, test_capabilities_writer,
     };
-    use crate::database::schema::provider_drivers::schema_parts;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::capabilities::{
+    use crate::driver::PROVIDERS;
+    use crate::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use crate::provider::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
+    use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
+    use crate::driver::schema::schema_parts;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
 
     const SENTINEL: &str = "2000-01-01T00:00:00.000Z";
 

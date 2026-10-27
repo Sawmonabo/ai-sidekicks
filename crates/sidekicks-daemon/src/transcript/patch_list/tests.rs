@@ -9,13 +9,13 @@ use sidekicks_contracts::transcript::content::TranscriptPatchListRequest;
 use sidekicks_contracts::transcript::limits::TRANSCRIPT_ROW_BODY_INLINE_MAX_BYTES;
 
 use super::{PatchListError, list_patches};
-use crate::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use crate::transcript::block_cut::MARKDOWN_PARSE;
 use crate::transcript::body::read_row_body;
 use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::test_log::{TranscriptTestLog, wire_message};
-use crate::transcript::whole_patch::text_of_part;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
+use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
+use sidekicks_store::transcript_whole_patch::text_of_part;
 
 fn list(log: &TranscriptTestLog, tool_call_id: &str, cursor: Option<&Value>) -> Value {
     let page = list_patches(

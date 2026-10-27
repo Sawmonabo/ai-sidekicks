@@ -16,22 +16,20 @@ use super::{
     ClaudeEstablishmentError, ClaudeResumeAnswer, ClaudeSessionEstablishment, ClaudeSessionStart,
     ClaudeSpawnRequest,
 };
-use crate::mutex_lock::lock;
-use crate::provider::driver::claude::output_speed::resolve_claude_output_speed;
-use crate::provider::driver::claude::run::start::claude_session_unavailable;
-use crate::provider::driver::claude::session::conversation_file::read_turn_count;
-use crate::provider::driver::claude::session::errors::{
+use crate::claude::output_speed::resolve_claude_output_speed;
+use crate::claude::run::start::claude_session_unavailable;
+use crate::claude::session::conversation_file::read_turn_count;
+use crate::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionSlotState, ClaudeSessionUnavailableReason,
 };
-use crate::provider::driver::claude::session::slots::ClaudeResumeSlot;
-use crate::provider::driver::claude::session::state::{
-    ClaudeUsageEstablishment, LiveClaudeSession,
-};
-use crate::provider::driver::claude::session::ultracode::requested_claude_ultracode;
-use crate::provider::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::provider::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use crate::claude::session::slots::ClaudeResumeSlot;
+use crate::claude::session::state::{ClaudeUsageEstablishment, LiveClaudeSession};
+use crate::claude::session::ultracode::requested_claude_ultracode;
+use crate::claude::spawn::arguments::ClaudeConversationStart;
+use crate::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use sidekicks_std::mutex_lock::lock;
 
 impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process, or answers the session's live
@@ -233,7 +231,7 @@ fn resume_failure(
     DriverResumeResult::Failed {
         recovery_condition,
         provider_failure_detail: bound_failure_detail(
-            &crate::error_description::describe_error(error),
+            &sidekicks_std::error_description::describe_error(error),
             UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
         ),
     }

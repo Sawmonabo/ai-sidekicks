@@ -47,31 +47,33 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use tokio::task::JoinError;
 
-use crate::approvals::refusals::{
+use crate::refusals::{
     approval_rule_already_revoked, approval_rule_not_found, approval_rule_revoke_not_kept,
 };
-use crate::approvals::store::{StoredApprovalRequest, remembered_scope_statement};
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{closed_word, text_column};
-use crate::events::log_service::EventAppendError;
-use crate::events::session::appender::{
+use crate::store::{StoredApprovalRequest, remembered_scope_statement};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::session_control::RevokeRuleParams;
+use sidekicks_provider::port::permission_ask::{ProviderAnswerRule, ProviderAskAction};
+use sidekicks_session::directory::lookups::{session_exists, session_project_sql};
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::stored_column::{closed_word, text_column};
+use sidekicks_store::events::log_service::EventAppendError;
+use sidekicks_store::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
-use crate::events::session::pending::PendingSessions;
-use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::registry::HandlerError;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::session_control::RevokeRuleParams;
-use crate::provider::port::permission_ask::{ProviderAnswerRule, ProviderAskAction};
-use crate::session::directory::lookups::{session_exists, session_project_sql};
-use crate::session::not_found::session_not_found;
-use crate::workspace::schema::MountOrigin;
+use sidekicks_store::events::session::pending::PendingSessions;
+use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use sidekicks_workspace::schema::MountOrigin;
 
 /// The distinct statements [`ApprovalRules`] prepares, for the reading connection's statement
 /// cache.

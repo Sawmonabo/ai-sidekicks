@@ -23,31 +23,31 @@ use sidekicks_platforms::bind_socket_listener;
 
 use super::CodexDriver;
 use super::intake::CodexSessionIntake;
-use crate::database::schema::provider_drivers::schema_parts;
-use crate::database::writer::test_file::TestDatabase;
-use crate::provider::driver::DriverServices;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
-use crate::provider::driver::codex::run::routes::CodexRunBinding;
-use crate::provider::driver::codex::service::registry::home_socket_path;
-use crate::provider::driver::codex::service::supervisor::test_service::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::notification_routing::CodexRoutedFrames;
+use crate::codex::run::routes::CodexRunBinding;
+use crate::codex::service::registry::home_socket_path;
+use crate::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
     write_failing_codex,
 };
-use crate::provider::driver::codex::session::inbound::codex_session_inbound;
-use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
-use crate::provider::driver::codex::session::test_session::{
+use crate::codex::session::inbound::codex_session_inbound;
+use crate::codex::session::state::{CodexTurnInput, CodexTurnMessage};
+use crate::codex::session::test_session::{
     TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
-use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::provider::driver::test_registry::{
+use crate::codex::transport::connection::scripted_service::ScriptedService;
+use crate::driver::DriverServices;
+use crate::driver::schema::schema_parts;
+use crate::driver::test_registry::{
     RecordedQueue, new_run_id, new_session_id, test_driver_services,
 };
-use crate::provider::port::question::QuestionPort;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::run_host::test_host::RecordingRunEngine;
-use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
-use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::port::question::QuestionPort;
+use crate::port::registration::PortRegistration;
+use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
+use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use sidekicks_store::database::writer::test_file::TestDatabase;
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";

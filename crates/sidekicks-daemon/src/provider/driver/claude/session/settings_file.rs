@@ -12,11 +12,11 @@ use jsonc_parser::cst::{CstInputValue, CstObject, CstRootNode};
 use serde::de::IgnoredAny;
 use serde_json::{Map, Value};
 
-use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
-use crate::file::real_location::resolve_real_location;
-use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::missing_entry::MissingEntry;
-use crate::provider::inbound_json::decode_inbound_json;
+use crate::inbound_json::decode_inbound_json;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
+use sidekicks_std::file::real_location::resolve_real_location;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::missing_entry::MissingEntry;
 
 // Held on a settings file the daemon edits across its read and write, so two edits never drop each
 // other's.

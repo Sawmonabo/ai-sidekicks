@@ -26,26 +26,28 @@ use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::schema::recovery::ProjectionCursorState;
-use crate::database::statement::{
-    DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
-};
-use crate::database::stored_column::{closed_word, text_column};
-use crate::database::writer::messages::WriteJobFailure;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::events::projection::{
-    ProjectionFailure, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
-};
-use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
-use crate::events::session::read::SessionLogReadError;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::session::service::{
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_session::service::{
     EventsReadAfterSequenceRequest, EventsReadAfterSequenceResponse, SessionService,
     SessionServiceError,
 };
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::damage::DatabaseDamageWatch;
+use sidekicks_store::database::schema::recovery::ProjectionCursorState;
+use sidekicks_store::database::statement::{
+    DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
+};
+use sidekicks_store::database::stored_column::{closed_word, text_column};
+use sidekicks_store::database::writer::messages::WriteJobFailure;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::projection::{
+    ProjectionFailure, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
+};
+use sidekicks_store::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
+use sidekicks_store::events::session::read::SessionLogReadError;
 
 /// The most events one page of a rebuild reads and writes: a page's envelopes and the statements
 /// built from them are what a rebuild holds at once, and each page is one write.

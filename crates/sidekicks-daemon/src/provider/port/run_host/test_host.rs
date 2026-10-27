@@ -21,18 +21,18 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::{Notify, oneshot};
 
-use crate::mutex_lock::lock;
-use crate::provider::driver::test_registry::new_run_id;
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::run_host::{RunHost, RunHostError};
-use crate::provider::run::delivery::{
+use crate::driver::test_registry::new_run_id;
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::run_host::{RunHost, RunHostError};
+use crate::run::delivery::{
     InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow, SessionScopedRow,
     UnstampedRow,
 };
-use crate::provider::run::start_request::DaemonTurnStartRequest;
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
-use crate::provider::runtime_binding::store::RuntimeBinding;
+use crate::run::start_request::DaemonTurnStartRequest;
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
+use crate::runtime_binding::store::RuntimeBinding;
+use sidekicks_std::mutex_lock::lock;
 
 /// The refusal of every daemon turn a test asked the engine to refuse, before any run exists.
 #[derive(Debug, thiserror::Error)]

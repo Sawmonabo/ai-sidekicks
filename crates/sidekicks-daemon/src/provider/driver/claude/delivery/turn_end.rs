@@ -19,15 +19,15 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::{BoolLiteral, True};
 use strum::EnumString;
 
-use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::provider::driver::claude::turn_evidence::classify_claude_turn_evidence;
-use crate::provider::driver::contract::bound_failure_detail;
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
-use crate::provider::run::turn_end::TurnOutcome;
-use crate::provider::turn_evidence::TurnEvidenceClass;
+use crate::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::claude::turn_evidence::classify_claude_turn_evidence;
+use crate::driver::contract::bound_failure_detail;
+use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
+use crate::record_readers::read_non_empty_string;
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::run::turn_end::TurnOutcome;
+use crate::turn_evidence::TurnEvidenceClass;
 
 /// Why Claude Code's loop ended a turn, the whole union its `result` frame's `terminal_reason`
 /// takes; a reason a newer build adds reads as none.
@@ -350,10 +350,10 @@ mod tests {
     use sidekicks_contracts::run::events::TurnEndCause;
 
     use super::{ClaudeTurnEndMarks, compose_claude_turn_end};
-    use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
-    use crate::provider::driver::test_registry::new_run_id;
-    use crate::provider::run::state_entry::RunStateEntry;
-    use crate::provider::run::turn_end::TurnOutcome;
+    use crate::claude::event_normalizer::ClaudeWireFrameKind;
+    use crate::driver::test_registry::new_run_id;
+    use crate::run::state_entry::RunStateEntry;
+    use crate::run::turn_end::TurnOutcome;
 
     // Killed by ending a turn stopped at its step bound `failed`, as a declared failure would.
     #[test]

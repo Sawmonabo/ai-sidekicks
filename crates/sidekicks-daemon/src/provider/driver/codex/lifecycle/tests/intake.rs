@@ -13,25 +13,23 @@ use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReaso
 use sidekicks_contracts::run::state::RunState;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
-use crate::mutex_lock::lock;
-use crate::provider::driver::codex::run::control::record::{
-    CodexContinuePlace, CodexRunControlCall,
-};
-use crate::provider::driver::codex::session::calls::call_codex_session;
-use crate::provider::driver::codex::session::inbound::CodexSessionCall;
-use crate::provider::driver::codex::session::test_session::{
+use crate::codex::run::control::record::{CodexContinuePlace, CodexRunControlCall};
+use crate::codex::session::calls::call_codex_session;
+use crate::codex::session::inbound::CodexSessionCall;
+use crate::codex::session::test_session::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::run_control::{
+use crate::driver::contract::DriverError;
+use crate::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
     WaitingMessage,
 };
-use crate::provider::driver::test_registry::new_message_id;
-use crate::provider::port::question::QuestionPort;
-use crate::provider::port::question::test_card::QuestionCard;
-use crate::provider::run::delivery::LateAppendableRow;
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::driver::test_registry::new_message_id;
+use crate::port::question::QuestionPort;
+use crate::port::question::test_card::QuestionCard;
+use crate::run::delivery::LateAppendableRow;
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::mutex_lock::lock;
 
 // Real time under a timeout, since the session's task applies each frame on its own task. Two
 // handlers run on each prompt: the opening prompt's second blocks, the first steer

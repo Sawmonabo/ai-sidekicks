@@ -15,7 +15,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
 use tokio::time::{Instant, Sleep};
 use tracing::warn;
 
-use crate::mutex_lock::lock;
+use sidekicks_std::mutex_lock::lock;
 
 /// How long the recovery may pass no byte before the shells' processor time is read.
 pub(crate) const RECOVERY_STALL_WINDOW: Duration = Duration::from_secs(60);

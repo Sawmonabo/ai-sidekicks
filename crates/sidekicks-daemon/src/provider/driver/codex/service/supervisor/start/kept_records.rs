@@ -14,24 +14,18 @@ use std::sync::Arc;
 use sidekicks_platforms::{CAN_LINK_A_SOCKET, ProcessRecord, read_socket_link};
 use tokio::time::Instant;
 
-use crate::provider::driver::codex::service::process::{
+use crate::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry, repin_lasting_codex_service,
 };
-use crate::provider::driver::codex::service::record::{
+use crate::codex::service::record::{
     LastingServiceRecord, LastingServiceRecordFile, LockedServiceRecord,
 };
-use crate::provider::driver::codex::service::socket_link::{
-    clear_socket_link_of, is_listening, restore_socket_link,
-};
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::service::supervisor::drain::{
-    LastingServiceDrainWatch, read_drain_end,
-};
-use crate::provider::driver::codex::service::supervisor::runner::SERVICE_STOP_GRACE;
-use crate::provider::driver::codex::service::supervisor::start::{
-    StartFailure, start_failed, take_start_lock,
-};
-use crate::provider::driver::codex::session::errors::CodexError;
+use crate::codex::service::socket_link::{clear_socket_link_of, is_listening, restore_socket_link};
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::service::supervisor::drain::{LastingServiceDrainWatch, read_drain_end};
+use crate::codex::service::supervisor::runner::SERVICE_STOP_GRACE;
+use crate::codex::service::supervisor::start::{StartFailure, start_failed, take_start_lock};
+use crate::codex::session::errors::CodexError;
 
 // One record kept for the folder, held under the folder's lock, with what it keeps.
 type KeptRecord = (Arc<LockedServiceRecord>, LastingServiceRecord);
@@ -504,7 +498,7 @@ mod tests {
     use sidekicks_platforms::ProcessRecord;
 
     use super::{find_holder_socket, find_link_holder};
-    use crate::provider::driver::codex::service::record::LastingServiceRecord;
+    use crate::codex::service::record::LastingServiceRecord;
 
     const HOME: &str = "/home/app-server-control/app-server-control.sock";
     const OWN: &str = "/sockets/own";

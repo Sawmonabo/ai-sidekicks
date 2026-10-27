@@ -6,7 +6,7 @@ use std::io;
 
 use serde::{Deserialize, Serialize};
 
-use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 /// One user message line as Claude Code's stream-json input reads it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

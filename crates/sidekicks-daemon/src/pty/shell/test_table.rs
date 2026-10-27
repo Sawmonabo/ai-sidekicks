@@ -14,14 +14,12 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::pty::orphan::guard::open_orphan_guard;
-use crate::pty::shell::integration::injection::ShellStartupFolders;
-use crate::pty::shell::table::{
-    ReadSessionWorkingFolder, ShellSettings, ShellTable, ShellTableDeps,
-};
-use crate::session::not_found::session_not_found;
-use crate::session::working_folder::SessionWorkingFolder;
+use crate::integration::injection::ShellStartupFolders;
+use crate::orphan::guard::open_orphan_guard;
+use crate::table::{ReadSessionWorkingFolder, ShellSettings, ShellTable, ShellTableDeps};
+use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_workspace::working_folder::SessionWorkingFolder;
 
 /// The session the table's tests open shells in.
 pub(crate) const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";

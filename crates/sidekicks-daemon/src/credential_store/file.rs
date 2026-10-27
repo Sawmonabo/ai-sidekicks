@@ -39,12 +39,12 @@ use sidekicks_platforms::{SealFailure, SealHeader, SealKey};
 use tokio::sync::{Mutex, MutexGuard, oneshot};
 use zeroize::Zeroizing;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
-use crate::file::atomic_write::write_file_atomically;
-use crate::keyed_lock::KeyedLock;
-use crate::missing_entry::MissingEntry;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::file::atomic_write::write_file_atomically;
+use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::missing_entry::MissingEntry;
 
 const ITEMS_FILE_NAME: &str = "secrets.json";
 

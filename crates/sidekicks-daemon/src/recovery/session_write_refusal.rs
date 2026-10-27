@@ -6,10 +6,10 @@
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::SessionHistoryDamagedRecovery;
 
-use crate::events::log_service::SessionAppendRefusal;
-use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
-use crate::ipc::domain_error::DomainError;
-use crate::recovery::status::{RecoveryStatusTracker, SessionWriteRefusal};
+use crate::status::{RecoveryStatusTracker, SessionWriteRefusal};
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_store::events::log_service::SessionAppendRefusal;
+use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
 /// Refuses a call naming the session with `session.rebuilding` while the restart's pass is still
 /// rebuilding it, or `session.history.damaged` once its history is damaged; `method` names the
@@ -80,10 +80,10 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{refuse_call_naming_session, refuse_session_event};
-    use crate::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
-    use crate::ipc::domain_error::DomainError;
-    use crate::recovery::status::{LastGoodPoint, RecoveryStatusTracker};
+    use crate::status::{LastGoodPoint, RecoveryStatusTracker};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_ipc::domain_error::DomainError;
+    use sidekicks_store::events::session::skipped_ranges::DAMAGED_EVENTS_SKIPPED_TYPE;
 
     const METHOD: &str = "agent.run.create";
     const EVENT_TYPE: &str = "agent.message.sent";

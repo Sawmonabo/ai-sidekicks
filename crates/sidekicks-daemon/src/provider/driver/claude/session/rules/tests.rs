@@ -10,8 +10,8 @@ use super::{
     compose_claude_session_rule_lists, remove_claude_project_rule, remove_claude_tool_server_rules,
     resolve_claude_local_settings_file, write_claude_project_rule,
 };
-use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-use crate::provider::driver::claude::session::settings_file::ClaudeSettingsFileError;
+use crate::claude::session::settings_file::ClaudeSettingsFileError;
+use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 fn rule(
     sense: RememberedRuleSense,

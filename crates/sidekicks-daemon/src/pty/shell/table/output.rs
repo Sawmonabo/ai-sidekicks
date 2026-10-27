@@ -10,12 +10,12 @@ use sidekicks_contracts::terminal::TerminalOutputSubscribeRequest;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_terminal::{TerminalEvent, TerminalExit, TerminalOutput};
 
-use crate::ipc::registry::{HandlerError, TransportId};
-use crate::pty::shell::output::stream::{ShellOutputEnd, ShellOutputSource, ShellOutputStream};
-use crate::pty::shell::record::ShellRecord;
-use crate::pty::shell::table::end::{close_terminal, let_shell_go};
-use crate::pty::shell::table::open::discard_unread_nonce;
-use crate::pty::shell::table::{ShellTable, TableShared, log_failure};
+use crate::output::stream::{ShellOutputEnd, ShellOutputSource, ShellOutputStream};
+use crate::record::ShellRecord;
+use crate::table::end::{close_terminal, let_shell_go};
+use crate::table::open::discard_unread_nonce;
+use crate::table::{ShellTable, TableShared, log_failure};
+use sidekicks_ipc::registry::{HandlerError, TransportId};
 
 #[expect(
     dead_code,

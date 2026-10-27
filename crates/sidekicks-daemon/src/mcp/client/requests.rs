@@ -19,8 +19,8 @@ use rmcp::service::{PeerRequestOptions, ServiceError};
 use rmcp::{Peer, RoleClient};
 use serde_json::{Map, Value};
 
-use crate::mcp::client::idle_window::ToolCallActivity;
-use crate::mcp::client::raw_copy::RawReplyCopy;
+use crate::client::idle_window::ToolCallActivity;
+use crate::client::raw_copy::RawReplyCopy;
 
 /// How long an ordinary request waits for its answer (the TypeScript SDK's default).
 pub(super) const ORDINARY_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
@@ -358,7 +358,7 @@ mod tests {
     use tokio::time::{Duration, timeout};
 
     use super::{MAX_LIST_PAGES, RequestWait};
-    use crate::mcp::client::test_server::{
+    use crate::client::test_server::{
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
 

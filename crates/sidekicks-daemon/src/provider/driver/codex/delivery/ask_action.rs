@@ -11,11 +11,11 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::approval::RememberedScopeKind;
 
+use crate::background_work::{BackgroundWorkForms, refuse_background_work};
 use crate::mcp::tool_name::compose_tool_server_tool_name;
-use crate::policy::background_work::{BackgroundWorkForms, refuse_background_work};
-use crate::policy::shell_commands::{ShellLineReader, unwrap_shell_command_line};
-use crate::provider::port::permission_ask::ProviderAskAction;
-use crate::provider::record_readers::read_non_empty_string;
+use crate::port::permission_ask::ProviderAskAction;
+use crate::record_readers::read_non_empty_string;
+use sidekicks_policy::shell_commands::{ShellLineReader, unwrap_shell_command_line};
 
 /// The method Codex asks on before it runs a command, or writes to a running one.
 pub(crate) const CODEX_COMMAND_APPROVAL_METHOD: &str = "item/commandExecution/requestApproval";
@@ -196,10 +196,10 @@ mod tests {
     use sidekicks_contracts::approval::RememberedScopeKind;
 
     use super::read_codex_ask_action;
-    use crate::policy::background_work::BackgroundWorkForms;
-    use crate::policy::shell_commands::ShellLineReader;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::port::permission_ask::ProviderAskAction;
+    use crate::background_work::BackgroundWorkForms;
+    use crate::driver::PROVIDERS;
+    use crate::port::permission_ask::ProviderAskAction;
+    use sidekicks_policy::shell_commands::ShellLineReader;
 
     const BOTH_SCOPES: [RememberedScopeKind; 2] =
         [RememberedScopeKind::Session, RememberedScopeKind::Project];

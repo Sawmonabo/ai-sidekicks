@@ -16,7 +16,6 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::backpressure::BackpressureAlert;
 use crate::database::writer::messages::{
@@ -32,6 +31,7 @@ use crate::database::writer::{
     WriteFailureListener, WriteRequest, WriterCloseError, WriterShared, WritesHeldError,
     is_interrupt, join_thread,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
 
 mod maintenance;
 

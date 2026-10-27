@@ -10,11 +10,11 @@ use serde::Deserialize;
 use serde_json::Value;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
-use crate::provider::driver::codex::app_server_protocol::ConfigReadParams;
-use crate::provider::driver::codex::service::supervisor::CodexService;
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::transport::connection::read_codex_object;
-use crate::provider::driver::session_control::StartingLevel;
+use crate::codex::app_server_protocol::ConfigReadParams;
+use crate::codex::service::supervisor::CodexService;
+use crate::codex::session::errors::CodexError;
+use crate::codex::transport::connection::read_codex_object;
+use crate::driver::session_control::StartingLevel;
 
 const CONFIG_READ_METHOD: &str = "config/read";
 

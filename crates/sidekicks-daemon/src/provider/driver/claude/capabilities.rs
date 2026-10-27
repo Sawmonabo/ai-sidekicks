@@ -14,14 +14,12 @@ use super::capability_probe::CAPABILITY_PROBE_RULES;
 use super::session::model_figures::ClaudeModelFigures;
 use super::session::transport::readings::{ClaudeModelCatalogReading, ClaudeModelContextRead};
 use super::tools::claude_tool_metadata;
-use crate::provider::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
-use crate::provider::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
-use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
-use crate::provider::driver::error_causes::{
-    ModelCatalogUnreadable, UNSPECIFIED_PROVIDER_FAILURE_DETAIL,
-};
-use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::spawned_version::SpawnedProviderVersionReading;
+use crate::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
+use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
+use crate::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
+use crate::driver::error_causes::{ModelCatalogUnreadable, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
+use crate::record_readers::read_non_empty_string;
+use crate::spawned_version::SpawnedProviderVersionReading;
 
 /// The capability contract's version, which the writer compares to see a change; it moves
 /// whenever the shape of what this driver declares changes.
@@ -247,7 +245,7 @@ mod tests {
     use serde_json::json;
 
     use super::normalize_claude_model_catalog;
-    use crate::provider::driver::contract::DriverError;
+    use crate::driver::contract::DriverError;
 
     // Killed by reading a non-boolean `supportsFastMode` as `false`, or by keeping the `default`
     // pointer's row over the row that names the model.

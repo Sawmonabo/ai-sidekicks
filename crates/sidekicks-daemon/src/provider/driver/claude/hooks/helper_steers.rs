@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
+use crate::claude::hooks::pause::ClaudeHookAnswer;
 
 /// Each running helper's waiting words, by session and agent id, in the order handed over.
 #[derive(Default)]

@@ -14,7 +14,7 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use crate::daemon::configuration::{
     ConfigurationChange, ConfigurationError, ConfigurationStore, DaemonConfiguration,
 };
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 
@@ -97,12 +97,12 @@ mod tests {
     use crate::daemon::configuration::{
         ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
     use crate::remote::shared_ports::schema::schema_parts;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::tests::open_log;
 
     // The port and step bound as the row holds them.
     fn stored_settings(database: &TestDatabase) -> (i64, Option<i64>) {

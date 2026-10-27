@@ -5,8 +5,8 @@ use sidekicks_contracts::question::{QuestionAskedState, QuestionId};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{Fixture, choice_page};
-use crate::provider::port::question::{ProviderQuestionWithdrawal, WaitingQuestionOpening};
 use crate::questions::service::HeldRequestAnswerer;
+use sidekicks_provider::port::question::{ProviderQuestionWithdrawal, WaitingQuestionOpening};
 
 /// The questions [`write_queued_answers`] settled, and the unwaited question's state after its
 /// first queued answer was sent and after that send was withdrawn.

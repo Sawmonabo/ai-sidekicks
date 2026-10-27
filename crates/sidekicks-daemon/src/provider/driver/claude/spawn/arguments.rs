@@ -5,8 +5,8 @@
 
 use serde_json::{Map, Value};
 
-use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
-use crate::provider::driver::claude::spawn::settings::ClaudeSpawnSettings;
+use crate::claude::session::transport::control::ClaudePermissionMode;
+use crate::claude::spawn::settings::ClaudeSpawnSettings;
 
 /// How a spawn's conversation starts: a new one, a resume of one, one kept nowhere (a throwaway
 /// copy of a conversation or a new one), or a fork at one message.
@@ -178,10 +178,10 @@ mod tests {
     use rstest::rstest;
 
     use super::{ClaudeArgumentsRequest, ClaudeConversationStart, compose_claude_arguments};
-    use crate::provider::driver::claude::session::transport::control::{
+    use crate::claude::session::transport::control::{
         ClaudePermissionMode, ClaudePermissionsDocument,
     };
-    use crate::provider::driver::claude::spawn::settings::{
+    use crate::claude::spawn::settings::{
         AgentViewOff, CLAUDE_CLEANUP_PERIOD_DAYS, ClaudeSpawnSettings,
     };
 

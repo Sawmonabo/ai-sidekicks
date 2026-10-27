@@ -11,9 +11,7 @@ use std::ops::ControlFlow;
 
 use sidekicks_search::index::{IndexBatch, IndexRow, LongRowDocuments};
 
-use crate::session::search::index::rows::{
-    DamagedSourceRow, IndexRowReader, PageReadError, SourceRowRead,
-};
+use crate::search::index::rows::{DamagedSourceRow, IndexRowReader, PageReadError, SourceRowRead};
 
 /// One batch being filled, with the text bound its pages are charged to.
 pub(crate) struct IndexBatchBuilder {
@@ -179,13 +177,11 @@ mod tests {
     };
 
     use super::IndexBatchBuilder;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::session::search::hits::HitLineReader;
-    use crate::session::search::index::applier::SearchIndexApplyError;
-    use crate::session::search::index::rows::{
-        IndexRowReader, SourceRowRead, empty_index_batch_room,
-    };
+    use crate::search::hits::HitLineReader;
+    use crate::search::index::applier::SearchIndexApplyError;
+    use crate::search::index::rows::{IndexRowReader, SourceRowRead, empty_index_batch_room};
     use crate::transcript::test_log::TranscriptTestLog;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
 
     const OUTBOX_ID_BEFORE_ROW: u64 = 7;
     const LAST_OUTBOX_ID: u64 = 9;

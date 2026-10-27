@@ -12,11 +12,9 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use tokio_util::sync::CancellationToken;
 
-use crate::bounded_wait::wait_within;
-use crate::ipc::registry::{
-    Dispatch, DispatchError, HandlerContext, MethodRegistry, Reply, Request,
-};
-use crate::mutex_lock::lock;
+use crate::registry::{Dispatch, DispatchError, HandlerContext, MethodRegistry, Reply, Request};
+use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_std::mutex_lock::lock;
 
 /// A recorded mutating call's place: ids rise in the order the gate records calls, so a call
 /// recorded earlier has a smaller id.
@@ -170,8 +168,8 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use super::InFlightMutations;
-    use crate::ipc::call_fixtures::{Nothing, context, request};
-    use crate::ipc::registry::{Dispatch, HandlerContext, MethodRegistryBuilder, Request};
+    use crate::call_fixtures::{Nothing, context, request};
+    use crate::registry::{Dispatch, HandlerContext, MethodRegistryBuilder, Request};
 
     struct Write;
 

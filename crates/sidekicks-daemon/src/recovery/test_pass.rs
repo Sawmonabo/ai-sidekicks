@@ -22,43 +22,43 @@ use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
 
-use crate::approvals::permission_asks::{PermissionAsks, PermissionAsksDeps};
-use crate::approvals::run_blocking::ApprovalRunEnd;
-use crate::approvals::service::tests::test_approval_service;
-use crate::artifacts::test_store::ArtifactTestStore;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::statement::{DATABASE_NOW_SQL, WriteStatement};
-use crate::database::writer::test_file::{
+use crate::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge};
+use crate::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
+use crate::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
+use crate::restart_settle::{RestartSettle, RestartSettleDeps};
+use crate::session_write_refusal::refuse_session_event;
+use crate::startup::{StartupRecovery, StartupRecoveryDeps};
+use crate::status::RecoveryStatusTracker;
+use sidekicks_approval::permission_asks::{PermissionAsks, PermissionAsksDeps};
+use sidekicks_approval::permission_check::tests::test_permission_check;
+use sidekicks_approval::run_blocking::ApprovalRunEnd;
+use sidekicks_approval::service::tests::test_approval_service;
+use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_artifact::plans::store::StoredPlanHolds;
+use sidekicks_artifact::test_store::ArtifactTestStore;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_session::run::engine::tests::{insert_running_run, test_engine_with};
+use sidekicks_session::run::live_count::count_live_runs_after_commits;
+use sidekicks_session::service::SessionService;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::damage::DatabaseDamageWatch;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::statement::{DATABASE_NOW_SQL, WriteStatement};
+use sidekicks_store::database::writer::test_file::{
     TestDatabase, session_event_row, test_run_id, test_session_id,
 };
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-use crate::events::log_service::tests::TestLog;
-use crate::events::log_service::{
+use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_store::events::log_service::tests::TestLog;
+use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
 };
-use crate::events::projection::{
+use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
-use crate::events::session::followers::SessionEventFollowers;
-use crate::plans::service::PlansService;
-use crate::plans::store::StoredPlanHolds;
-use crate::policy::permission_check::tests::test_permission_check;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::test_registry::test_driver_services;
-use crate::recovery::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge};
-use crate::recovery::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
-use crate::recovery::restart_settle::{RestartSettle, RestartSettleDeps};
-use crate::recovery::session_write_refusal::refuse_session_event;
-use crate::recovery::startup::{StartupRecovery, StartupRecoveryDeps};
-use crate::recovery::status::RecoveryStatusTracker;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::{insert_running_run, test_engine_with};
-use crate::session::run::live_count::count_live_runs_after_commits;
-use crate::session::run::setup_gates::RunSetupGate;
-use crate::session::service::SessionService;
+use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_workspace::run_setup_gates::RunSetupGate;
 
 // Statements every pool of the pass caches; a cache size, not a bound on what runs.
 const TEST_STATEMENT_CAPACITY: usize = 64;
@@ -157,9 +157,9 @@ impl PassFixture {
     /// The fixture over a fresh database.
     pub(crate) async fn new() -> Self {
         let database = TestDatabase::new(
-            crate::approvals::schema::schema_parts()
-                .with_parts(crate::plans::schema::schema_parts())
-                .with_parts(crate::workflow::schema::schema_parts()),
+            sidekicks_approval::schema::schema_parts()
+                .with_parts(sidekicks_artifact::plans::schema::schema_parts())
+                .with_parts(sidekicks_workflow::schema::schema_parts()),
         );
         let status = Arc::new(RecoveryStatusTracker::new());
         let (after_commit, live_runs) = count_live_runs_after_commits();
@@ -495,7 +495,7 @@ impl PassFixture {
     /// Appends `event`, a session event's `type` and `payload` as JSON, through the engine.
     pub(crate) async fn append(&self, session_id: SessionId, event: Value) {
         let event: SessionEvent = serde_json::from_value(event).expect("the test's event reads");
-        crate::session::run::engine::tests::append(&self.engine, session_id, &event).await;
+        sidekicks_session::run::engine::tests::append(&self.engine, session_id, &event).await;
     }
 }
 

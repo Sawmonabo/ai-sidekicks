@@ -9,14 +9,16 @@ use rusqlite::Connection;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
-use crate::provider::left_conversations::read_left_conversations;
-use crate::session::run::stored_leg::read_session_bindings;
-use crate::settle_all::{SettleFailures, settle_all};
+use crate::run::stored_leg::read_session_bindings;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
+use sidekicks_provider::left_conversations::read_left_conversations;
+use sidekicks_std::settle_all::{SettleFailures, settle_all};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
 /// bindings and the conversations the session left.
@@ -162,15 +164,15 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
     use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::schema::runs::schema_parts;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::provider::driver::contract::MockProviderDriver;
-    use crate::provider::driver::registry::{ProviderRegistry, test_provider};
-    use crate::provider::driver::test_registry::test_driver_services;
-    use crate::provider::driver::{PROVIDERS, ProviderRegistration};
+    use crate::run::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::registry::{ProviderRegistry, test_provider};
+    use sidekicks_provider::driver::test_registry::test_driver_services;
+    use sidekicks_provider::driver::{PROVIDERS, ProviderRegistration};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.
     fn insert_binding(

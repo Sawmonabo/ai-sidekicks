@@ -24,47 +24,41 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio_util::task::TaskTracker;
 
-use crate::provider::driver::attachments::AttachmentResolver;
-use crate::provider::driver::codex::DESCRIPTOR;
-use crate::provider::driver::codex::app_server_protocol::UserInput;
-use crate::provider::driver::codex::attachments::{
-    compose_codex_message_input, resolve_codex_turn_message,
-};
-use crate::provider::driver::codex::intervention::{
+use crate::codex::DESCRIPTOR;
+use crate::codex::app_server_protocol::UserInput;
+use crate::codex::attachments::{compose_codex_message_input, resolve_codex_turn_message};
+use crate::codex::intervention::{
     CodexInterventionRuntime, CodexSteerAcknowledgment, CodexSteerRunRequest,
 };
-use crate::provider::driver::codex::run::control::record::{
-    CodexContinuePlace, CodexRunControlCall,
-};
-use crate::provider::driver::codex::run::faster_model_retry::{
-    CodexFasterModelRetries, CodexStoppedRetry,
-};
-use crate::provider::driver::codex::run::routes::CodexRunRoutes;
-use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
-use crate::provider::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
-use crate::provider::driver::codex::run::steer::steer_codex_run;
-use crate::provider::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
-use crate::provider::driver::codex::run::turn_interrupt::interrupt_codex_turn;
-use crate::provider::driver::codex::session::background_terminals::end_codex_running_commands;
-use crate::provider::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
-use crate::provider::driver::codex::session::errors::CodexError;
-use crate::provider::driver::codex::session::fork::config_change::CodexConfigForks;
-use crate::provider::driver::codex::session::inbound::{
+use crate::codex::run::control::record::{CodexContinuePlace, CodexRunControlCall};
+use crate::codex::run::faster_model_retry::{CodexFasterModelRetries, CodexStoppedRetry};
+use crate::codex::run::routes::CodexRunRoutes;
+use crate::codex::run::start::record::CodexTurnRequest;
+use crate::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
+use crate::codex::run::steer::steer_codex_run;
+use crate::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
+use crate::codex::run::turn_interrupt::interrupt_codex_turn;
+use crate::codex::session::background_terminals::end_codex_running_commands;
+use crate::codex::session::calls::{call_codex_session, wait_for_codex_turns};
+use crate::codex::session::errors::CodexError;
+use crate::codex::session::fork::config_change::CodexConfigForks;
+use crate::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundSender,
 };
-use crate::provider::driver::codex::session::slots::CodexSessionSlots;
-use crate::provider::driver::codex::session::state::CodexSessionRecord;
-use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::provider::driver::contract::{DriverError, bound_failure_detail};
-use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::provider::driver::run_control::{
+use crate::codex::session::slots::CodexSessionSlots;
+use crate::codex::session::state::CodexSessionRecord;
+use crate::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::attachments::AttachmentResolver;
+use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::run_control::{
     InterruptRunRequest, PauseRunParams, ResumeRunParams, SteerTurnEndedError, WaitingMessage,
 };
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::run_pause::{ContinuedMessages, RunPauses};
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
-use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::port::inbound_dispatch::InboundDispatch;
+use crate::port::registration::PortRegistration;
+use crate::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::run::state_entry::{RunStateEntry, RunStateReport};
 
 /// What run control acts through.
 pub(crate) struct CodexRunControlDependencies {

@@ -18,12 +18,12 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc::{self, error::TryRecvError};
 use tokio_util::sync::CancellationToken;
 
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::budget::{Measured, ThreadProcessorTime};
 use crate::database::writer::ThreadStop;
 use crate::database::writer::messages::ThreadRequest;
 use crate::database::writer::thread::{ThreadCommits, serve_request};
 use crate::events::content::codec::BodyEncoder;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::scheduler::budget::{Measured, ThreadProcessorTime};
 
 /// The pages one step copies, rusqlite's own step size.
 const PAGES_PER_STEP: i32 = 100;

@@ -14,11 +14,11 @@ use std::collections::{HashMap, HashSet};
 
 use sidekicks_contracts::provider::driver::declared_loss::DeclaredLossKind;
 
-use crate::provider::hand_over::canonical_transcript::{
+use crate::hand_over::canonical_transcript::{
     CanonicalTranscriptProjection, CanonicalTranscriptRole, CanonicalTranscriptSegment,
     CanonicalTranscriptTurn,
 };
-use crate::provider::hand_over::transform_pipeline::{
+use crate::hand_over::transform_pipeline::{
     order_declared_losses, segment_content_is_unavailable, transform_transcript,
 };
 
@@ -365,12 +365,12 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
 
     use super::{BriefBudgetPolicy, BriefProjection};
-    use crate::database::writer::test_file::test_session_id;
-    use crate::provider::hand_over::canonical_transcript::{
+    use crate::hand_over::canonical_transcript::{
         CanonicalToolResultOutcome, CanonicalToolResultProvenance, CanonicalTranscriptProjection,
         CanonicalTranscriptRole, CanonicalTranscriptSegment, CanonicalTranscriptTurn,
     };
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::test_session_id;
 
     fn words(position: u64, role: CanonicalTranscriptRole, text: &str) -> CanonicalTranscriptTurn {
         CanonicalTranscriptTurn {

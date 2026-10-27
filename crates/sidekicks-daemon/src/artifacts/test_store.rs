@@ -14,22 +14,22 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::WallClockTimer;
 use tempfile::TempDir;
 
-use crate::artifacts::admission::UploadAdmission;
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::publish::ArtifactPublishService;
-use crate::artifacts::refusals::ArtifactError;
-use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::writer::DatabaseWriter;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::events::log_service::EventLogService;
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::admission::UploadAdmission;
+use crate::payload_store::{ContentHash, PayloadStore};
 use crate::plans::schema::schema_parts;
+use crate::publish::ArtifactPublishService;
+use crate::refusals::ArtifactError;
+use crate::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::log_service::tests::{TestLog, open_log};
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 /// Free room the test volume reports: far more than any test writes.
 const TEST_VOLUME_FREE_BYTES: u64 = 1 << 40;
