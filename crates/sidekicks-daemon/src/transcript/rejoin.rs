@@ -15,7 +15,6 @@ use serde_json::{Map, Value};
 use sidekicks_contracts::event::declared_variants::CONTENT_LENGTH_PAYLOAD_KEY;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::{
     StoredRowBody, TranscriptRowContent, transcript_row_content_of,
@@ -99,31 +98,6 @@ static ROWS_AT_OR_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
         AND {} AND {}
       ORDER BY event.sequence DESC
       LIMIT @limit",
-        readable_event_sql("event"),
-        row_condition_sql("event"),
-    )
-});
-
-// A run's rows: its own events, the events filed under it, and its children's creation rows, each
-// a search of its own index, merged in log order.
-static RUN_ROWS_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT {SELECTED_COLUMNS} FROM (
-         SELECT * FROM session_events
-          WHERE session_id = @session_id AND run_id = @run_id AND sequence > @after_position
-         UNION ALL
-         SELECT * FROM session_events
-          WHERE session_id = @session_id AND target_run_id = @run_id
-            AND sequence > @after_position
-         UNION ALL
-         SELECT * FROM session_events
-          WHERE session_id = @session_id AND type = '{}' AND sequence > @after_position
-            AND run_id IN (SELECT run_id FROM runs WHERE parent_run_id = @run_id)
-       ) AS event
-      WHERE {} AND {}
-      ORDER BY event.sequence ASC
-      LIMIT @limit",
-        SessionEventType::AgentRunQueued.as_str(),
         readable_event_sql("event"),
         row_condition_sql("event"),
     )
@@ -230,15 +204,6 @@ static PIECE_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Which rows a read takes: the whole session's, or one run's with its children's creation rows.
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum RowScope<'run> {
-    /// Every row of the session.
-    Session,
-    /// The run's own rows, the rows filed under it, and its children's creation rows.
-    Run(&'run RunId),
-}
-
 /// One stored piece of a row's body.
 #[derive(Clone, Debug)]
 pub(crate) struct RowMember {
@@ -262,7 +227,7 @@ impl<'reads, 'reader, DamagedFrom> RowReads<'reads, 'reader, DamagedFrom>
 where
     DamagedFrom: Fn(&SessionId) -> Option<i64>,
 {
-    /// The row reads of `session_id` over `reads`, on `reader`, the connection `reads` runs on.
+    /// The row reads of `session_id` over `reads`, on `reader`, the connection under `reads`.
     pub(crate) fn new(
         reads: &'reads SessionEventReads<'reader, DamagedFrom>,
         reader: &'reader Connection,
@@ -275,37 +240,23 @@ where
         }
     }
 
-    /// Up to `limit` rows of `scope` after `after_position`, below `before_sequence` where given.
+    /// Up to `limit` rows of the session after `after_position`, below `before_sequence` where
+    /// given.
     pub(crate) fn rows_after(
         &self,
-        scope: RowScope<'_>,
         after_position: i64,
         before_sequence: Option<i64>,
         limit: i64,
     ) -> Result<Vec<EventEnvelope>, SessionLogReadError> {
-        let read_bound = self.reads.read_bound(self.session_id, before_sequence);
-        let session_id = self.session_id.text();
-        match scope {
-            RowScope::Session => self.reads.read_envelopes(
-                &ROWS_AFTER_SQL,
-                named_params! {
-                    "@session_id": session_id.as_str(),
-                    "@after_position": after_position,
-                    "@read_bound": read_bound,
-                    "@limit": limit,
-                },
-            ),
-            RowScope::Run(run_id) => self.reads.read_envelopes(
-                &RUN_ROWS_AFTER_SQL,
-                named_params! {
-                    "@session_id": session_id.as_str(),
-                    "@run_id": run_id.text().as_str(),
-                    "@after_position": after_position,
-                    "@read_bound": read_bound,
-                    "@limit": limit,
-                },
-            ),
-        }
+        self.reads.read_envelopes(
+            &ROWS_AFTER_SQL,
+            named_params! {
+                "@session_id": self.session_id.text().as_str(),
+                "@after_position": after_position,
+                "@read_bound": self.reads.read_bound(self.session_id, before_sequence),
+                "@limit": limit,
+            },
+        )
     }
 
     /// The newest `limit` rows of the session at or below `position`, oldest first.

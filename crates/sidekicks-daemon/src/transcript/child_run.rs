@@ -33,16 +33,43 @@ use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 use sidekicks_contracts::wire::{False, True};
 
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
-use crate::events::session::read::{SessionEventReads, readable_event_sql, resolve_event_cursor};
+use crate::events::session::read::{
+    SELECTED_COLUMNS, SessionEventReads, readable_event_sql, resolve_event_cursor,
+};
 use crate::ipc::domain_error::DomainError;
 use crate::session::run::refusals::RunRefusal;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::projector::project_window;
-use crate::transcript::rejoin::{RowReads, RowScope, stored_patch_part_sql};
+use crate::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 use crate::transcript::window::{TranscriptReadError, read_transcript_head};
 
 /// The payload member of an `agent.run.queued` that names the run it is a child of.
 const PARENT_RUN_ID_PAYLOAD_KEY: &str = "parentRunId";
+
+// A run's rows: its own events, the events filed under it, and its children's creation rows, each
+// a search of its own index, merged in log order.
+static RUN_ROWS_AFTER_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT {SELECTED_COLUMNS} FROM (
+         SELECT * FROM session_events
+          WHERE session_id = @session_id AND run_id = @run_id AND sequence > @after_position
+         UNION ALL
+         SELECT * FROM session_events
+          WHERE session_id = @session_id AND target_run_id = @run_id
+            AND sequence > @after_position
+         UNION ALL
+         SELECT * FROM session_events
+          WHERE session_id = @session_id AND type = '{}' AND sequence > @after_position
+            AND run_id IN (SELECT run_id FROM runs WHERE parent_run_id = @run_id)
+       ) AS event
+      WHERE {} AND {}
+      ORDER BY event.sequence ASC
+      LIMIT @limit",
+        SessionEventType::AgentRunQueued.as_str(),
+        readable_event_sql("event"),
+        row_condition_sql("event"),
+    )
+});
 
 // Each child's state and its events through the head: all of them, and those the log can read; a
 // completion's stored parts are no events, so neither count takes them.
@@ -290,11 +317,15 @@ where
             },
         ));
     };
-    let candidates = RowReads::new(&reads, reader, &session_id).rows_after(
-        RowScope::Run(&run_id),
-        after_position,
-        None,
-        count_bound(TRANSCRIPT_READ_LIMIT_MAX + 1),
+    let candidates = reads.read_envelopes(
+        &RUN_ROWS_AFTER_SQL,
+        named_params! {
+            "@session_id": session_id.text().as_str(),
+            "@run_id": run_id.text().as_str(),
+            "@after_position": after_position,
+            "@read_bound": reads.read_bound(&session_id, None),
+            "@limit": count_bound(TRANSCRIPT_READ_LIMIT_MAX + 1),
+        },
     )?;
     let stretch = &candidates[..TRANSCRIPT_READ_LIMIT_MAX.min(candidates.len())];
     let mut rows = project_window(

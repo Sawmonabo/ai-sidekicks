@@ -2,8 +2,6 @@
 //! name, project, activity and a chat's document count among them, read a page at a time for the
 //! opening list and by id for the sessions that changed.
 
-use std::sync::LazyLock;
-
 use rusqlite::{Connection, Row, named_params};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::session::directory::{
@@ -19,6 +17,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::database::stored_column::{closed_word, optional_text_column, text_column};
 use crate::session::directory::lookups::session_project_sql;
 use crate::session::directory::run_activity::session_activity_sql;
+use crate::session::plan_holds::PlanHolds;
 
 /// The statements the list's reads prepare, counted into the read pool's statement capacity.
 pub(crate) const SESSION_LIST_ROWS_STATEMENT_CAPACITY: usize = 2;
@@ -26,35 +25,72 @@ pub(crate) const SESSION_LIST_ROWS_STATEMENT_CAPACITY: usize = 2;
 /// The rows one read of the opening list takes, so no read holds a connection for the whole list.
 pub(super) const OPENING_READ_PAGE_ROWS: usize = 500;
 
-// One session's list facts and the row's position in the table, which the opening read pages by.
-// A chat's document count is kept on its managed mount's row, so no folder is walked here.
-static SESSION_LIST_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT s.rowid, s.id, s.shape, s.state, s.name, s.first_message_preview, s.branch,
+/// The list's two row reads, their SQL composed once with the condition under which a session
+/// reads as waiting on a plan's card.
+pub(super) struct ListRowSql {
+    page: String,
+    some: String,
+}
+
+impl ListRowSql {
+    /// The reads, with the waiting-plan condition `plan_holds` answers.
+    pub(super) fn new(plan_holds: &dyn PlanHolds) -> Self {
+        // One session's list facts and the row's position in the table, which the opening read
+        // pages by. A chat's document count is kept on its managed mount's row, so no folder is
+        // walked here.
+        let row = format!(
+            "SELECT s.rowid, s.id, s.shape, s.state, s.name, s.first_message_preview, s.branch,
                 s.pinned_at, s.muted_at, s.last_activity_at, g.id, g.name,
                 {} AS project_id,
                 {} AS activity,
                 (SELECT mount.document_count FROM repo_mounts AS mount
                   WHERE mount.managed_session_id = s.id) AS document_count
            FROM sessions AS s LEFT JOIN session_groups AS g ON g.id = s.group_id",
-        session_project_sql("s.id"),
-        session_activity_sql("s.id", "s.last_run_outcome"),
-    )
-});
+            session_project_sql("s.id"),
+            session_activity_sql(
+                "s.id",
+                "s.last_run_outcome",
+                &plan_holds.waiting_plan_sql("s.id")
+            ),
+        );
+        Self {
+            page: format!("{row} WHERE s.rowid > @after ORDER BY s.rowid LIMIT @limit"),
+            some: format!("{row} WHERE s.id IN (SELECT value FROM json_each(@sessionIds))"),
+        }
+    }
 
-static READ_PAGE_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "{} WHERE s.rowid > @after ORDER BY s.rowid LIMIT @limit",
-        *SESSION_LIST_ROW_SQL
-    )
-});
+    /// The rows after `after_position` in table order, at most [`OPENING_READ_PAGE_ROWS`]. Fails
+    /// when SQLite refuses the read or a stored column does not read as its type.
+    pub(super) fn read_list_page(
+        &self,
+        connection: &Connection,
+        after_position: i64,
+    ) -> rusqlite::Result<Vec<SessionListRow>> {
+        let limit = i64::try_from(OPENING_READ_PAGE_ROWS).expect("a page's row count fits i64");
+        connection
+            .prepare_cached(&self.page)?
+            .query_map(
+                named_params! { "@after": after_position, "@limit": limit },
+                row_of,
+            )?
+            .collect()
+    }
 
-static READ_SOME_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "{} WHERE s.id IN (SELECT value FROM json_each(@sessionIds))",
-        *SESSION_LIST_ROW_SQL
-    )
-});
+    /// The rows of `session_ids` that exist; a purged session has none. Fails as
+    /// [`ListRowSql::read_list_page`] does.
+    pub(super) fn read_list_rows(
+        &self,
+        connection: &Connection,
+        session_ids: &[SessionId],
+    ) -> rusqlite::Result<Vec<SessionListRow>> {
+        let ids: Vec<String> = session_ids.iter().map(SessionId::to_string).collect();
+        let ids = serde_json::to_string(&ids).expect("a list of strings writes as JSON");
+        connection
+            .prepare_cached(&self.some)?
+            .query_map(named_params! { "@sessionIds": ids }, row_of)?
+            .collect()
+    }
+}
 
 /// One `sessions` row as the list reads it: the session, its entry, and the row's position.
 pub(super) struct SessionListRow {
@@ -64,36 +100,6 @@ pub(super) struct SessionListRow {
     pub(super) session_id: SessionId,
     /// Its entry; `None` for a project session with no project, which shows no entry.
     pub(super) entry: Option<SessionListEntry>,
-}
-
-/// The rows after `after_position` in table order, at most [`OPENING_READ_PAGE_ROWS`]. Fails when
-/// SQLite refuses the read or a stored column does not read as its type.
-pub(super) fn read_list_page(
-    connection: &Connection,
-    after_position: i64,
-) -> rusqlite::Result<Vec<SessionListRow>> {
-    let limit = i64::try_from(OPENING_READ_PAGE_ROWS).expect("a page's row count fits i64");
-    connection
-        .prepare_cached(&READ_PAGE_SQL)?
-        .query_map(
-            named_params! { "@after": after_position, "@limit": limit },
-            row_of,
-        )?
-        .collect()
-}
-
-/// The rows of `session_ids` that exist; a purged session has none. Fails as
-/// [`read_list_page`] does.
-pub(super) fn read_list_rows(
-    connection: &Connection,
-    session_ids: &[SessionId],
-) -> rusqlite::Result<Vec<SessionListRow>> {
-    let ids: Vec<String> = session_ids.iter().map(SessionId::to_string).collect();
-    let ids = serde_json::to_string(&ids).expect("a list of strings writes as JSON");
-    connection
-        .prepare_cached(&READ_SOME_SQL)?
-        .query_map(named_params! { "@sessionIds": ids }, row_of)?
-        .collect()
 }
 
 fn row_of(row: &Row<'_>) -> rusqlite::Result<SessionListRow> {

@@ -44,7 +44,7 @@ impl Steps {
     }
 
     fn push(&self, step: String) {
-        lock(&self.heard).push((step, turn_ends(&self.engine)));
+        lock(&self.heard).push((step, self.engine.turn_ends()));
     }
 
     fn read(&self) -> Vec<(String, Vec<EngineCall>)> {
@@ -178,7 +178,7 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
         .await;
 
     let ended = vec![EngineCall::EndTurnOnProcessExit(run_id)];
-    assert_eq!(turn_ends(&session.engine), ended);
+    assert_eq!(session.engine.turn_ends(), ended);
     assert_eq!(
         steps.read(),
         [
@@ -338,19 +338,5 @@ fn notices_on(engine: &RecordingRunEngine, session_id: SessionId) -> Vec<Value> 
             delivery.kind == "sessionNotice" && delivery.session_id == Some(session_id)
         })
         .map(|delivery| delivery.payload.expect("a notice carries its payload"))
-        .collect()
-}
-
-// The turn ends the run engine took so far, in order.
-fn turn_ends(engine: &RecordingRunEngine) -> Vec<EngineCall> {
-    engine
-        .calls()
-        .into_iter()
-        .filter(|call| {
-            matches!(
-                call,
-                EngineCall::EndTurnOnProcessExit(_) | EngineCall::EndTurnOnClose(_)
-            )
-        })
         .collect()
 }

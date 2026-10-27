@@ -2,10 +2,12 @@
 //! pass's recovery state says, with a projection that folds `session.pinned` and writes nothing,
 //! so a stale session's runs stand as the test wrote them and one broken row damages its history.
 
+use std::error::Error;
 use std::fs;
-use std::os::unix::fs::PermissionsExt as _;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::envelope::EventEnvelope;
@@ -15,7 +17,7 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{Spawner, harness_test_name, pass_through_start};
 use tempfile::TempDir;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -39,15 +41,13 @@ use crate::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use crate::events::session::followers::SessionEventFollowers;
-use crate::events::session::purge::SessionPurge;
-use crate::events::session::purge::tests::{TestPurge, test_purge};
 use crate::plans::service::PlansService;
+use crate::plans::store::StoredPlanHolds;
 use crate::policy::permission_check::tests::test_permission_check;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::test_driver_services;
-use crate::pty::shell::test_table::TableFixture;
-use crate::recovery::damaged_history::{DamagedHistory, DamagedHistoryDeps};
-use crate::recovery::database_file::copy::DatabaseFileCopier;
+use crate::recovery::damaged_history::{DamagedHistory, DamagedHistoryDeps, DamagedSessionPurge};
+use crate::recovery::database_file::copy::{DATABASE_COPY_MODE, DatabaseFileCopier};
 use crate::recovery::database_file::damage::DatabaseDamageWatch;
 use crate::recovery::projection_rebuild::{ProjectionRebuildService, mark_stale_statement};
 use crate::recovery::restart_settle::{RestartSettle, RestartSettleDeps};
@@ -55,12 +55,33 @@ use crate::recovery::session_write_refusal::refuse_session_event;
 use crate::recovery::startup::{StartupRecovery, StartupRecoveryDeps};
 use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::{insert_running_run, test_engine};
+use crate::session::run::engine::tests::{insert_running_run, test_engine_with};
 use crate::session::run::live_count::count_live_runs_after_commits;
+use crate::session::run::setup_gates::RunSetupGate;
 use crate::session::service::SessionService;
 
 // Statements every pool of the pass caches; a cache size, not a bound on what runs.
 const TEST_STATEMENT_CAPACITY: usize = 64;
+
+/// The test the pass's database copy runs as.
+const COPY_STAND_IN: &str = "a_database_copy_stand_in_copies_its_file";
+
+// The `database copy` mode's stand-in: copies the source the mode's arguments name to their copy's
+// path, as the mode does.
+#[test]
+#[ignore = "run only as the database copy the pass's repair starts"]
+fn a_database_copy_stand_in_copies_its_file() {
+    let arguments: Vec<_> = std::env::args_os().collect();
+    let mode_end = arguments
+        .windows(2)
+        .position(|pair| pair[0] == DATABASE_COPY_MODE[0] && pair[1] == DATABASE_COPY_MODE[1])
+        .expect("the copy is started in the database copy mode")
+        + DATABASE_COPY_MODE.len();
+    let [source, destination] = &arguments[mode_end..] else {
+        panic!("the copy names its source and its copy's path: {arguments:?}");
+    };
+    fs::copy(source, destination).expect("the stand-in copies the file");
+}
 
 // Folds `session.pinned` and writes no row, so a rebuild leaves the test's rows as they stand.
 struct PinnedEvents;
@@ -94,6 +115,26 @@ impl SessionProjectionFold for PinnedEvents {
     }
 }
 
+/// A purge that removes nothing and keeps each session it was asked to purge, in order.
+#[derive(Default)]
+pub(crate) struct RecordedPurges {
+    /// The sessions asked for.
+    pub(crate) session_ids: Mutex<Vec<SessionId>>,
+}
+
+impl DamagedSessionPurge for RecordedPurges {
+    fn purge_damaged_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        self.session_ids
+            .lock()
+            .expect("no purge panics while it records")
+            .push(session_id);
+        async { Ok(()) }.boxed()
+    }
+}
+
 /// The store with its seeded session and running run, the services the pass settles through, the
 /// recovery state the event log refuses by, and the writer's count of live runs.
 pub(crate) struct PassFixture {
@@ -107,9 +148,8 @@ pub(crate) struct PassFixture {
     pub(crate) live_runs: watch::Receiver<u32>,
     /// The data folder the store's files are copied aside into, holding the copier.
     pub(crate) data_folder: TempDir,
-    purge: Arc<SessionPurge>,
-    _purge_shells: TableFixture,
-    _purge_home: TempDir,
+    /// The purges damaged history asked for.
+    pub(crate) purges: Arc<RecordedPurges>,
     _home: TempDir,
 }
 
@@ -157,15 +197,8 @@ impl PassFixture {
             followers,
             service,
         };
-        let TestPurge {
-            purge,
-            truncation: _,
-            shells,
-            home: purge_home,
-        } = test_purge(&database, &log, Arc::clone(&status)).await;
         let store = ArtifactTestStore::open_on(database, log);
         let home = tempfile::tempdir().expect("the test makes a home folder");
-        let mut engine = test_engine(&store.database, Arc::clone(&store.event_log), home.path());
         // Its cancels never move a run, so its holds reach no engine.
         let (run_end_approvals, _run_holds) = test_approval_service(
             &store.database,
@@ -191,26 +224,24 @@ impl PassFixture {
                 &test_driver_services(),
             )),
         }));
-        Arc::get_mut(&mut engine)
-            .expect("no one shares the engine before its gates are registered")
-            .register_setup_gate(Arc::new(ApprovalRunEnd::new(
-                run_end_approvals,
-                permission_asks,
-            )));
+        let engine = test_engine_with(
+            &store.database,
+            Arc::clone(&store.event_log),
+            home.path(),
+            Arc::new(StoredPlanHolds),
+            vec![
+                Arc::new(ApprovalRunEnd::new(run_end_approvals, permission_asks))
+                    as Arc<dyn RunSetupGate>,
+            ],
+        );
         let data_folder = tempfile::tempdir().expect("the test makes a data folder");
-        // The copy mode's arguments are `database copy <source> <destination>`.
-        let copier = data_folder.path().join("copy");
-        fs::write(&copier, "#!/bin/sh\ncp \"$3\" \"$4\"\n").expect("the copier is written");
-        fs::set_permissions(&copier, fs::Permissions::from_mode(0o755)).expect("the copier runs");
         Self {
             store,
             engine,
             status,
             live_runs,
             data_folder,
-            purge: Arc::new(purge),
-            _purge_shells: shells,
-            _purge_home: purge_home,
+            purges: Arc::new(RecordedPurges::default()),
             _home: home,
         }
     }
@@ -231,8 +262,8 @@ impl PassFixture {
             damage: services.damage,
             database_path: store.database.path(),
             data_folder: self.data_folder.path().to_path_buf(),
-            copier: Arc::new(DatabaseFileCopier::new(
-                self.data_folder.path().join("copy"),
+            copier: Arc::new(DatabaseFileCopier::with_stand_in(
+                pass_through_start(&harness_test_name(module_path!(), COPY_STAND_IN)),
                 Spawner::new(Handle::current()).expect("the spawner starts"),
             )),
         })
@@ -285,7 +316,7 @@ impl PassFixture {
             writer: Arc::clone(&store.writer),
             projection_rebuild: Arc::clone(&projection_rebuild),
             restart_settle: Arc::clone(&restart_settle),
-            purge: Arc::clone(&self.purge),
+            purge: Arc::clone(&self.purges) as Arc<dyn DamagedSessionPurge>,
             status,
         }));
         RecoveryServices {

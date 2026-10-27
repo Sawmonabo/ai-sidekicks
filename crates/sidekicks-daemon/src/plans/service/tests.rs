@@ -14,9 +14,12 @@ use super::PlansService;
 use crate::artifacts::list::list_artifacts;
 use crate::artifacts::test_store::ArtifactTestStore;
 use crate::database::schema::session_directory::insert_session_row;
+use crate::plans::store::StoredPlanHolds;
 use crate::provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
 use crate::provider::run::state_entry::RunStateEntry;
-use crate::session::run::engine::tests::test_engine;
+use crate::session::directory::run_activity::session_activity_sql;
+use crate::session::plan_holds::PlanHolds as _;
+use crate::session::run::engine::tests::test_engine_with;
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -81,10 +84,11 @@ impl Fixture {
 
 // A plan is kept as a `summary` artifact naming it, and `artifact.published` and the
 // `plan.proposed` that names the artifact land in one write, the artifact first. The list shows it
-// as a plan with its first heading and `waiting`, then `open` once its hold ends; a manifest of the
-// same plan in the session it was handed off to lists there as accepted. Killed by appending
-// `plan.proposed` before or without its artifact, by a missing artifact id, by dropping the join
-// on the plan, and by dropping the fresh-session rule.
+// as a plan with its first heading and `waiting`, its session's activity reading waiting, then
+// `open` once its hold ends, the activity back to its running run's; a manifest of the same plan in
+// the session it was handed off to lists there as accepted. Killed by appending `plan.proposed`
+// before or without its artifact, by a missing artifact id, by dropping the join on the plan, by
+// dropping the fresh-session rule, and by a waiting-plan condition that never holds.
 #[tokio::test]
 async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
     let fixture = Fixture::new().await;
@@ -138,6 +142,16 @@ async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
         plan_word(listed(&fixture.store, fixture.store.session_id).await),
         vec![(title.clone(), PlanState::Waiting)]
     );
+    let activity_sql = format!(
+        "SELECT {}",
+        session_activity_sql("?1", "'idle'", &StoredPlanHolds.waiting_plan_sql("?1"))
+    );
+    let activity = || {
+        fixture
+            .store
+            .read_rows(&activity_sql, fixture.store.session_id.text().as_str())
+    };
+    assert_eq!(activity(), ["waiting"]);
 
     fixture
         .plans
@@ -152,6 +166,7 @@ async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
         plan_word(listed(&fixture.store, fixture.store.session_id).await),
         vec![(title.clone(), PlanState::Open)]
     );
+    assert_eq!(activity(), ["running"]);
 
     let fresh_session = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID");
     let reader = fixture.store.database.reader();
@@ -264,10 +279,12 @@ async fn a_lost_hold_reopens_a_holding_plan_once_and_leaves_a_codex_plan(
                     process_exit: None,
                 }
             };
-            test_engine(
+            test_engine_with(
                 &fixture.store.database,
                 Arc::clone(&fixture.store.event_log),
                 home.path(),
+                Arc::new(StoredPlanHolds),
+                Vec::new(),
             )
             .transition(
                 RunStateChange::new(fixture.store.run_id, entry),

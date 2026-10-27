@@ -99,6 +99,8 @@ mod shell_line_command;
 mod shell_start;
 mod socket;
 mod spawner;
+#[cfg(any(test, feature = "test-support"))]
+mod stand_in_program;
 mod standard_streams;
 mod system_folder;
 mod system_locale;
@@ -284,8 +286,8 @@ pub use posix::error_codes::{
 pub use posix::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
-    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, is_superuser,
-    make_folder_link, make_unreadable,
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
+    is_superuser, make_folder_link, make_unreadable, make_unwritable,
 };
 #[cfg(unix)]
 pub use posix::file_system::{
@@ -330,6 +332,8 @@ pub use posix::socket::connection::{
 pub use posix::socket::link::{read_socket_link, remove_socket_link, replace_socket_link};
 #[cfg(unix)]
 pub use posix::socket::listener::bind_socket_listener;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::socket::path::short_socket_folder;
 #[cfg(unix)]
 pub use posix::socket::path::{check_socket_path, read_socket_path_entry};
 #[cfg(unix)]
@@ -375,6 +379,10 @@ pub use shell_start::{ShellLaunch, ShellStart, ShellStartError, describe_start_f
 pub use socket::connection::found_no_listener;
 pub use socket::path::{SocketPathEntry, SocketPathRefused};
 pub use spawner::Spawner;
+#[cfg(any(test, feature = "test-support"))]
+pub use stand_in_program::{
+    StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
+};
 pub use standard_streams::set_binary_standard_streams;
 pub use system_folder::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
@@ -445,8 +453,8 @@ pub use windows::error_codes::{
 pub use windows::file_facts::{entry_changed_at, file_facts};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
-    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, is_superuser,
-    make_folder_link, make_unreadable,
+    CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
+    is_superuser, make_folder_link, make_unreadable, make_unwritable,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_system::{
@@ -510,6 +518,8 @@ pub use windows::socket::connection::connect_socket;
 pub use windows::socket::link::{read_socket_link, remove_socket_link, replace_socket_link};
 #[cfg(target_os = "windows")]
 pub use windows::socket::listener::bind_socket_listener;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::socket::path::short_socket_folder;
 #[cfg(target_os = "windows")]
 pub use windows::socket::path::{check_socket_path, read_socket_path_entry};
 #[cfg(target_os = "windows")]

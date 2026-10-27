@@ -8,6 +8,7 @@ mod checks;
 pub(crate) mod context;
 pub(crate) mod figures;
 mod fork;
+mod resume;
 
 use std::error::Error;
 use std::io;
@@ -21,14 +22,13 @@ use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{PathRules, Spawner};
 use tokio::sync::SetOnce;
 
@@ -58,7 +58,6 @@ use crate::provider::driver::claude::session::arrivals::task::{
 use crate::provider::driver::claude::session::arrivals::{
     ClaudeSessionListener, claude_session_arrivals, drain_claude_session_arrivals,
 };
-use crate::provider::driver::claude::session::conversation_file::read_turn_count;
 use crate::provider::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
@@ -85,16 +84,12 @@ use crate::provider::driver::claude::spawn::legs::{
     build_claude_spawn_bound_legs,
 };
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::provider::driver::contract::{
-    DriverError, SpawnedVersionBindingCarriers, bound_failure_detail,
-};
+use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
-use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
-    SessionToolServer, SubagentPolicy,
+    CreateSessionParams, ProviderSessionHandle, SessionToolServer, SubagentPolicy,
 };
 use crate::provider::port::registration::PortRegistrationError;
 use crate::provider::process_registry::ProviderProcessRegistry;
@@ -341,7 +336,7 @@ impl ClaudeSessionEstablishment {
             )
             .into());
         }
-        let claim = self.slots.claim_bring_up(session_id)?;
+        let claim = self.slots.claim_create(session_id)?;
         let provider_session_id = mint_uuid_v7().to_string();
         let request = ClaudeSpawnRequest {
             session_id,
@@ -377,85 +372,6 @@ impl ClaudeSessionEstablishment {
         Ok(ProviderSessionHandle {
             resume_handle: provider_session_id.clone(),
             provider_session_id,
-        })
-    }
-
-    /// Resumes the conversation `params` names in a fresh process; every failure answers the
-    /// `Failed` arm, nothing left running.
-    pub(crate) async fn resume(&self, params: ResumeSessionParams) -> DriverResumeResult {
-        match self.try_resume(params).await {
-            Ok(result) => result,
-            Err(error) => resume_failure(error.recovery_condition(), &error),
-        }
-    }
-
-    // A resume's bring-up; its failures are the caller's to answer through the `Failed` arm.
-    async fn try_resume(
-        &self,
-        params: ResumeSessionParams,
-    ) -> Result<DriverResumeResult, ClaudeEstablishmentError> {
-        let session_id = params.session_id;
-        if params.larger_window.is_some() {
-            return Err(claude_session_unavailable(
-                ClaudeSessionUnavailableReason::LargerWindowFigureUnsupported,
-                session_id,
-                None,
-            )
-            .into());
-        }
-        let claim = self.slots.claim_bring_up(session_id)?;
-        let resume_handle = params.resume_handle.clone();
-        let request = ClaudeSpawnRequest {
-            session_id,
-            agent_id: params.agent_id,
-            model: params.model.as_str().to_owned(),
-            execution_posture: params.execution_posture,
-            callback_tools: params.callback_tools,
-            subagent_policy: params.subagent_policy,
-            tool_servers: params.tool_servers,
-            output_schema: params.output_schema,
-            on_mcp_server_status: params.on_mcp_server_status,
-            provider_account_id: params.provider_account_id,
-            ultracode: requested_claude_ultracode(&params.options),
-            row_values: params.row_values,
-        };
-        let start = self
-            .compose_start(
-                claim,
-                request,
-                resume_handle.clone(),
-                ClaudeConversationStart::Resume {
-                    resume_handle: resume_handle.clone(),
-                },
-                (
-                    params.mode,
-                    params.output_speed.map(FreeFormText::into_string),
-                ),
-                ClaudeUsageEstablishment::Resume {
-                    prior_emitted_thread_id: resume_handle.clone(),
-                },
-            )
-            .await?;
-        // Where the conversation stood when it was resumed, read before the process adds to it.
-        let session_position =
-            match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
-                Ok(session_position) => session_position,
-                Err(source) => {
-                    start.callback_tools.roll_back();
-                    return Err(ClaudeEstablishmentError::ConversationUnreadable {
-                        resume_handle,
-                        source,
-                    });
-                }
-            };
-        let started = self.bring_up(start).await?;
-        Ok(DriverResumeResult::Resumed {
-            binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
-                .expect("a minted UUID is a binding id"),
-            session_position,
-            resume_handle: NonEmptyText::new(resume_handle)
-                .expect("a resumed conversation's id is never empty"),
-            spawned_version: started,
         })
     }
 
@@ -709,6 +625,7 @@ impl ClaudeSessionEstablishment {
             process_exit: OnceLock::new(),
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
+            spawned_version: started.spawned_version.clone(),
             spawn_bound_legs: legs,
         });
         if let Err(error) = before_install(&live).await {
@@ -832,19 +749,5 @@ fn legs_failure(error: ClaudeSpawnLegsError, session_id: SessionId) -> ClaudeEst
         error @ (ClaudeSpawnLegsError::HomeRetention(_)
         | ClaudeSpawnLegsError::CredentialPolicy(_)
         | ClaudeSpawnLegsError::Environment(_)) => error.into(),
-    }
-}
-
-/// The `Failed` resume arm for `error`, its words fitted to the detail's cap.
-pub(crate) fn resume_failure(
-    recovery_condition: RecoveryCondition,
-    error: &(dyn Error + 'static),
-) -> DriverResumeResult {
-    DriverResumeResult::Failed {
-        recovery_condition,
-        provider_failure_detail: bound_failure_detail(
-            &crate::error_description::describe_error(error),
-            UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-        ),
     }
 }

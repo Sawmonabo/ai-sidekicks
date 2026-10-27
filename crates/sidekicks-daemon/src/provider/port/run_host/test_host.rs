@@ -4,15 +4,17 @@
 use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::Value;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -28,7 +30,7 @@ use crate::provider::run::delivery::{
     UnstampedRow,
 };
 use crate::provider::run::start_request::DaemonTurnStartRequest;
-use crate::provider::run::state_entry::RunStateReport;
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::provider::runtime_binding::store::RuntimeBinding;
 
@@ -74,7 +76,7 @@ pub(crate) enum EngineCall {
     CountStep(RunId),
     /// A turn's end that moves no run.
     RecordTurnEnd(RunId, TurnOutcome),
-    /// A turn the daemon or Claude Code started itself, as the minted run.
+    /// A turn the daemon or the provider started itself, as the minted run.
     StartDaemonTurn(RunId),
     /// A run's turn ended on its process's exit.
     EndTurnOnProcessExit(RunId),
@@ -82,14 +84,17 @@ pub(crate) enum EngineCall {
     EndTurnOnClose(RunId),
 }
 
-/// A run engine that records each call and answers as the real one would on success: every ask is
-/// admitted, every child run started, every turn opened and numbered.
+/// A run engine that records each call and answers as the real one would on success: each
+/// delivery with the outcome its kind gets, every ask admitted, every child run started, every
+/// turn opened and numbered within its run.
 #[derive(Default)]
 pub(crate) struct RecordingRunEngine {
     calls: Mutex<Vec<EngineCall>>,
+    delivery_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     ask_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
     turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
-    turns_started: AtomicU64,
+    daemon_turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    turns_numbered: Mutex<HashMap<RunId, u64>>,
     fails_daemon_turns: AtomicBool,
     leaves_turns_unnumbered: AtomicBool,
     session_legs: Mutex<HashMap<SessionId, RuntimeBinding>>,
@@ -118,12 +123,41 @@ impl RecordingRunEngine {
             .collect()
     }
 
-    /// The run moves delivered so far, in order.
-    pub(crate) fn run_moves(&self) -> Vec<RecordedDelivery> {
+    /// The run moves delivered so far, on every run, in order.
+    pub(crate) fn run_moves(&self) -> Vec<RunStateReport> {
         self.deliveries()
             .into_iter()
-            .filter(|delivery| delivery.change.is_some())
+            .filter_map(|delivery| delivery.change)
             .collect()
+    }
+
+    /// The state entries delivered so far for `run_id`, in order.
+    pub(crate) fn moves_of_run(&self, run_id: RunId) -> Vec<RunStateEntry> {
+        self.run_moves()
+            .into_iter()
+            .filter(|change| change.run_id == run_id)
+            .map(|change| change.entry)
+            .collect()
+    }
+
+    /// The turns ended through the engine as their process exited or their session closed, in
+    /// order.
+    pub(crate) fn turn_ends(&self) -> Vec<EngineCall> {
+        self.calls()
+            .into_iter()
+            .filter(|call| {
+                matches!(
+                    call,
+                    EngineCall::EndTurnOnProcessExit(_) | EngineCall::EndTurnOnClose(_)
+                )
+            })
+            .collect()
+    }
+
+    /// Holds the next delivery's outcome, recorded at once, until the returned sender fires or
+    /// drops.
+    pub(crate) fn hold_next_delivery(&self) -> oneshot::Sender<()> {
+        hold_next(&self.delivery_holds)
     }
 
     /// Holds the next ask's admission until the returned sender fires or drops.
@@ -134,6 +168,12 @@ impl RecordingRunEngine {
     /// Holds the next turn's opening until the returned sender fires or drops.
     pub(crate) fn hold_next_turn_start(&self) -> oneshot::Sender<()> {
         hold_next(&self.turn_start_holds)
+    }
+
+    /// Holds the next daemon turn's start, before its run's turn opens, until the returned sender
+    /// fires or drops.
+    pub(crate) fn hold_next_daemon_turn_start(&self) -> oneshot::Sender<()> {
+        hold_next(&self.daemon_turn_start_holds)
     }
 
     /// Makes every later daemon turn's start fail before any run exists.
@@ -180,7 +220,7 @@ impl InboundDispatch for RecordingRunEngine {
         delivery: InboundDelivery<'_>,
     ) -> BoxFuture<'dispatch, Result<InboundOutcome, Box<dyn Error + Send + Sync>>> {
         let recorded = record_delivery(&delivery);
-        let (outcome, hold) = match &delivery {
+        let (outcome, ask_hold) = match &delivery {
             InboundDelivery::PermissionAsk { .. } => (
                 InboundOutcome::AskAdmitted,
                 lock(&self.ask_holds).pop_front(),
@@ -191,10 +231,15 @@ impl InboundDispatch for RecordingRunEngine {
                 },
                 None,
             ),
-            InboundDelivery::SessionRow { .. } | InboundDelivery::UnstampedRow { .. } => (
+            InboundDelivery::SessionRow { .. }
+            | InboundDelivery::UnstampedRow { .. }
+            | InboundDelivery::ThinkingUpdate { .. }
+            | InboundDelivery::RunMarker { .. }
+            | InboundDelivery::SessionNotice { .. }
+            | InboundDelivery::SessionEvent { .. }
+            | InboundDelivery::MachineEvent { .. } => (
                 InboundOutcome::Appended {
-                    event_id: FreeFormText::new(mint_uuid_v7().to_string())
-                        .expect("a minted UUID is an event id"),
+                    event_id: minted_event_id(),
                 },
                 None,
             ),
@@ -204,18 +249,20 @@ impl InboundDispatch for RecordingRunEngine {
                 },
                 None,
             ),
-            InboundDelivery::TurnBoundary { .. }
-            | InboundDelivery::RunContinued { .. }
-            | InboundDelivery::RunMarker { .. }
-            | InboundDelivery::LiveRunState { .. }
-            | InboundDelivery::ThinkingUpdate { .. }
-            | InboundDelivery::SessionNotice { .. }
-            | InboundDelivery::SessionEvent { .. }
-            | InboundDelivery::MachineEvent { .. } => (InboundOutcome::Published, None),
+            // A continued run runs again.
+            InboundDelivery::RunContinued { .. } => (
+                InboundOutcome::Transitioned {
+                    state: RunState::Running,
+                },
+                None,
+            ),
+            InboundDelivery::TurnBoundary { .. } => (InboundOutcome::TurnOpened, None),
+            InboundDelivery::LiveRunState { .. } => (InboundOutcome::Published, None),
         };
+        let delivery_hold = lock(&self.delivery_holds).pop_front();
         self.record(EngineCall::Deliver(Box::new(recorded)));
         async move {
-            if let Some(hold) = hold {
+            for hold in [delivery_hold, ask_hold].into_iter().flatten() {
                 hold.await.unwrap_or(());
             }
             Ok(outcome)
@@ -231,20 +278,22 @@ impl RunHost for RecordingRunEngine {
         _step_bound: Option<SafeInt<1>>,
     ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunHostError>> {
         self.record(EngineCall::StartTurn(run_id));
-        let turn_number = self.turns_started.fetch_add(1, Ordering::SeqCst) + 1;
+        // Numbered within its run, as the engine numbers a run's turns; an unnumbered turn takes
+        // no number.
+        let turn_number = (!self.leaves_turns_unnumbered.load(Ordering::SeqCst)).then(|| {
+            let mut numbered = lock(&self.turns_numbered);
+            let last = numbered.entry(run_id).or_default();
+            *last += 1;
+            *last
+        });
         let hold = lock(&self.turn_start_holds).pop_front();
-        let is_unnumbered = self.leaves_turns_unnumbered.load(Ordering::SeqCst);
         async move {
             if let Some(hold) = hold {
                 hold.await.unwrap_or(());
             }
-            if is_unnumbered {
-                return Ok(None);
-            }
-            Ok(Some(StartedTurn {
+            Ok(turn_number.map(|turn_number| StartedTurn {
                 turn_number: SafeInt::new(turn_number).expect("a turn number is positive"),
-                event_id: FreeFormText::new(format!("turn-{turn_number}"))
-                    .expect("an event id fits"),
+                event_id: minted_event_id(),
             }))
         }
         .boxed()
@@ -282,7 +331,11 @@ impl RunHost for RecordingRunEngine {
             return async move { Err(DaemonTurnsRefused { run_id }.into()) }.boxed();
         }
         self.record(EngineCall::StartDaemonTurn(run_id));
+        let hold = lock(&self.daemon_turn_start_holds).pop_front();
         async move {
+            if let Some(hold) = hold {
+                hold.await.unwrap_or(());
+            }
             (request.start_turn)(run_id).await?;
             Ok(run_id)
         }
@@ -312,9 +365,9 @@ impl RunHost for RecordingRunEngine {
     }
 }
 
-/// Queues a hold on the next call that takes one from `holds`, released when the returned sender
-/// fires or drops.
-pub(crate) fn hold_next(holds: &Mutex<VecDeque<oneshot::Receiver<()>>>) -> oneshot::Sender<()> {
+// Queues a hold on the next call that takes one from `holds`, released when the returned sender
+// fires or drops.
+fn hold_next(holds: &Mutex<VecDeque<oneshot::Receiver<()>>>) -> oneshot::Sender<()> {
     let (release, held) = oneshot::channel();
     lock(holds).push_back(held);
     release
@@ -414,6 +467,11 @@ fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
         }
     }
     recorded
+}
+
+// A fresh id of an event the engine wrote.
+fn minted_event_id() -> FreeFormText<EVENT_FIELD_MAX_LEN> {
+    FreeFormText::new(mint_uuid_v7().to_string()).expect("a minted UUID is an event id")
 }
 
 // A row's payload as its event carries it.

@@ -12,7 +12,7 @@ use super::{limit_record, record_interrupt, running_at};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::EventLogService;
 use crate::events::log_service::tests::open_log;
-use crate::plans::schema::schema_parts;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{
     SETTLE_WAIT, TestLimitInterrupter, append, continue_request, events, hand_limit_interrupter,

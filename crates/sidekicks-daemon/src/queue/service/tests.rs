@@ -20,7 +20,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
-    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId,
+    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -40,7 +40,6 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
-use crate::plans::schema::schema_parts;
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
@@ -52,6 +51,7 @@ use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use crate::provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
+use crate::questions::schema::schema_parts;
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::test_opening::{
@@ -388,6 +388,14 @@ impl Fixture {
     /// Sends a message to the session's lead as a person does and answers its id. Fails as the
     /// queue refuses the send.
     async fn send(&self) -> Result<QueueItemId, QueueError> {
+        self.send_picking(None).await
+    }
+
+    /// [`Fixture::send`] with the skills `skills` picks.
+    async fn send_picking(
+        &self,
+        skills: Option<Vec<QueuedSkillPick>>,
+    ) -> Result<QueueItemId, QueueError> {
         let key = client_key();
         self.queue
             .create(
@@ -398,7 +406,7 @@ impl Fixture {
                     client_idempotency_key: key.clone(),
                     content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
                     attachments: None,
-                    skills: None,
+                    skills,
                     replaces_queue_item_id: None,
                     answers_question_id: None,
                     output_speed_for_turn: None,

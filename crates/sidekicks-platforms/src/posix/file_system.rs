@@ -119,26 +119,57 @@ pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = false;
 /// mode back.
 #[cfg(any(test, feature = "test-support"))]
 pub struct UnreadableEntry {
-    path: std::path::PathBuf,
-    permissions: fs::Permissions,
+    _mode: ChangedMode,
 }
 
 /// Makes the file or folder at `path` unreadable (mode `0o000`) until the returned guard drops.
 /// Fails with the stat's or the mode change's error.
 #[cfg(any(test, feature = "test-support"))]
 pub fn make_unreadable(path: &Path) -> io::Result<UnreadableEntry> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let permissions = fs::metadata(path)?.permissions();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o000))?;
     Ok(UnreadableEntry {
-        path: path.to_path_buf(),
-        permissions,
+        _mode: ChangedMode::change(path, |_| 0o000)?,
     })
 }
 
+/// A file no one but root may write, or a folder no one but root may make or remove entries in,
+/// until this is dropped, when it gets its mode back.
 #[cfg(any(test, feature = "test-support"))]
-impl Drop for UnreadableEntry {
+pub struct UnwritableEntry {
+    _mode: ChangedMode,
+}
+
+/// Makes the file or folder at `path` unwritable (its write bits cleared) until the returned guard
+/// drops. Fails with the stat's or the mode change's error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_unwritable(path: &Path) -> io::Result<UnwritableEntry> {
+    Ok(UnwritableEntry {
+        _mode: ChangedMode::change(path, |mode| mode & !0o222)?,
+    })
+}
+
+// An entry's mode changed until this drops, when the mode it had is given back.
+#[cfg(any(test, feature = "test-support"))]
+struct ChangedMode {
+    path: std::path::PathBuf,
+    permissions: fs::Permissions,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl ChangedMode {
+    // Sets the mode at `path` to what `changed` makes of its current one.
+    fn change(path: &Path, changed: impl FnOnce(u32) -> u32) -> io::Result<Self> {
+        let permissions = fs::metadata(path)?.permissions();
+        let changed_mode = changed(permissions.mode());
+        fs::set_permissions(path, fs::Permissions::from_mode(changed_mode))?;
+        Ok(Self {
+            path: path.to_path_buf(),
+            permissions,
+        })
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for ChangedMode {
     fn drop(&mut self) {
         fs::set_permissions(&self.path, self.permissions.clone())
             .expect("the entry's mode is given back");
@@ -156,7 +187,7 @@ mod tests {
 
     use nix::sys::stat::Mode;
 
-    use super::{create_new_file, remove_tree};
+    use super::{create_new_file, is_superuser, make_unwritable, remove_tree};
 
     // A secret written at 0o600 must not be readable by others, and a second writer must never
     // open the first one's file.
@@ -191,6 +222,27 @@ mod tests {
             fs::symlink_metadata(&link).is_err_and(|error| error.kind() == ErrorKind::NotFound)
         );
         assert!(target.join("kept").is_file());
+    }
+
+    // Mutation: keep the write bits in `make_unwritable`, and the write lands.
+    #[test]
+    fn an_unwritable_folder_refuses_a_new_file_until_its_guard_drops() {
+        // Root writes into a folder whatever its mode.
+        if is_superuser() {
+            return;
+        }
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let folder = scratch.path();
+        let read_mode = || fs::metadata(folder).map(|entry| entry.permissions().mode());
+        let mode = read_mode().expect("the folder reads");
+
+        let unwritable = make_unwritable(folder).expect("the folder is made unwritable");
+        let refusal = fs::write(folder.join("refused"), b"x").expect_err("the write is refused");
+        drop(unwritable);
+
+        assert_eq!(refusal.kind(), ErrorKind::PermissionDenied);
+        assert_eq!(read_mode().expect("the folder reads"), mode);
+        fs::write(folder.join("written"), b"x").expect("the folder takes a write again");
     }
 
     #[test]

@@ -48,11 +48,12 @@ use crate::events::session::pending::PendingSessions;
 use crate::ipc::registry::HandlerError;
 use crate::mutex_lock::lock;
 use crate::session::directory::list_feed::rows::{
-    OPENING_READ_PAGE_ROWS, SessionListRow, read_list_page, read_list_rows,
+    ListRowSql, OPENING_READ_PAGE_ROWS, SessionListRow,
 };
 use crate::session::directory::list_feed::subscriber::{
     ListEnd, SessionListSubscriber, SubscriberChanges,
 };
+use crate::session::plan_holds::PlanHolds;
 use crate::workspace::managed::service::SessionListRefresh;
 
 // The sessions one read of changed rows takes at most, so a burst of changes reads in short reads.
@@ -102,6 +103,7 @@ pub(crate) struct SessionListOpening {
 /// the last one closes.
 pub(crate) struct SessionListFeed {
     reads: Arc<DatabaseReadPool>,
+    row_sql: Arc<ListRowSql>,
     scheduler: Arc<Scheduler>,
     pending: Arc<PendingSessions>,
     // Set from the opening read's start until the list is dropped, so sessions are collected only
@@ -124,11 +126,13 @@ struct OpenList {
 
 impl SessionListFeed {
     /// The list read through `reads`, kept current from `followers`' committed events and renewed
-    /// on `scheduler`'s wakes.
+    /// on `scheduler`'s wakes, a session reading waiting while `plan_holds` has a plan of its
+    /// waiting.
     pub(crate) fn new(
         reads: Arc<DatabaseReadPool>,
         followers: &Arc<SessionEventFollowers>,
         scheduler: Arc<Scheduler>,
+        plan_holds: &dyn PlanHolds,
     ) -> Self {
         let pending = Arc::new(PendingSessions::default());
         let is_listening = Arc::new(AtomicBool::new(false));
@@ -148,6 +152,7 @@ impl SessionListFeed {
         };
         Self {
             reads,
+            row_sql: Arc::new(ListRowSql::new(plan_holds)),
             scheduler,
             pending,
             is_listening,
@@ -159,7 +164,8 @@ impl SessionListFeed {
         }
     }
 
-    /// The list on `database`, kept current from `followers`, with a scheduler that hears no wake.
+    /// The list on `database`, kept current from `followers`, with a scheduler that hears no wake
+    /// and no plan holds.
     #[cfg(test)]
     pub(crate) fn for_test(
         database: &crate::database::writer::test_file::TestDatabase,
@@ -174,7 +180,12 @@ impl SessionListFeed {
             None,
             tokio::sync::watch::channel(0).1,
         ));
-        Arc::new(Self::new(reads, followers, scheduler))
+        Arc::new(Self::new(
+            reads,
+            followers,
+            scheduler,
+            &crate::session::plan_holds::NoPlanHolds,
+        ))
     }
 
     /// Opens the list for one subscription: its first page now and the rest through its feed.
@@ -185,7 +196,7 @@ impl SessionListFeed {
             return Ok(opening);
         }
         self.is_listening.store(true, Ordering::Release);
-        let rows = match read_opening_list(&self.reads).await {
+        let rows = match read_opening_list(&self.reads, &self.row_sql).await {
             Ok(rows) => rows,
             Err(error) => {
                 self.is_listening.store(false, Ordering::Release);
@@ -198,6 +209,7 @@ impl SessionListFeed {
         let tasks = [
             AbortOnDropHandle::new(tokio::spawn(read_changed(
                 Arc::clone(&self.reads),
+                Arc::clone(&self.row_sql),
                 Arc::clone(&self.pending),
                 Arc::downgrade(self),
                 Arc::clone(&list),
@@ -485,14 +497,18 @@ impl ListState {
 // Every row, a page per pool read.
 async fn read_opening_list(
     reads: &DatabaseReadPool,
+    row_sql: &Arc<ListRowSql>,
 ) -> Result<Vec<SessionListRow>, SessionListReadError> {
     let mut rows = Vec::new();
     // A table's rowids start at 1.
     let mut after_position = 0;
     loop {
+        let row_sql = Arc::clone(row_sql);
         let page = reads
             .read(ReadLength::Long, move |connection| {
-                read_list_page(connection, after_position).map_err(SessionListReadError::from)
+                row_sql
+                    .read_list_page(connection, after_position)
+                    .map_err(SessionListReadError::from)
             })
             .await?;
         let page_length = page.len();
@@ -511,6 +527,7 @@ async fn read_opening_list(
 // closing under the daemon's stop finishes them.
 async fn read_changed(
     reads: Arc<DatabaseReadPool>,
+    row_sql: Arc<ListRowSql>,
     pending: Arc<PendingSessions>,
     feed: Weak<SessionListFeed>,
     list: Arc<SharedList>,
@@ -520,9 +537,12 @@ async fn read_changed(
         for chunk in session_ids.chunks(CHANGED_READ_SESSIONS) {
             let chunk = chunk.to_vec();
             let read_ids = chunk.clone();
+            let row_sql = Arc::clone(&row_sql);
             let read = reads
                 .read(ReadLength::Short, move |connection| {
-                    read_list_rows(connection, &read_ids).map_err(SessionListReadError::from)
+                    row_sql
+                        .read_list_rows(connection, &read_ids)
+                        .map_err(SessionListReadError::from)
                 })
                 .await;
             match read {

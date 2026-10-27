@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_platforms::{LeftoverSweep, replace_file_atomically};
+use sidekicks_platforms::{
+    StandInAnswer, StandInProgram, read_recorded_arguments, write_stand_in_program,
+};
 use tokio::time::Instant;
 
 use super::locked_down_config;
@@ -23,17 +25,28 @@ use crate::provider::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
 
 // A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
-// with `list_exit`; any other call writes its arguments, one a line, to `arguments` and fails.
+// with `list_exit`; any other call records its arguments in `arguments` and fails.
 fn write_stand_in(folder: &Path, listing: &str, list_exit: u8, arguments: &Path) -> PathBuf {
-    let program = folder.join("codex");
-    let body = format!(
-        "#!/bin/sh\nif [ \"$1\" = mcp ]; then printf '%s' '{listing}'; exit {list_exit}; fi\n\
-         for argument in \"$@\"; do printf '%s\\n' \"$argument\" >> '{}'; done\nexit 1\n",
-        arguments.display()
-    );
-    replace_file_atomically(&program, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
-        .expect("the stand-in is written");
-    program
+    write_stand_in_program(
+        folder,
+        "codex",
+        &StandInProgram {
+            answers_by_first_argument: vec![(
+                "mcp".to_owned(),
+                StandInAnswer {
+                    standard_output: listing.to_owned(),
+                    exit_code: list_exit,
+                    argument_record: None,
+                },
+            )],
+            otherwise: StandInAnswer {
+                standard_output: String::new(),
+                exit_code: 1,
+                argument_record: Some(arguments.to_owned()),
+            },
+        },
+    )
+    .expect("the stand-in is written")
 }
 
 // A service whose program is `program`, with its folders under `folder`, up on a connection the
@@ -133,11 +146,7 @@ async fn a_one_shot_pass_disables_every_listed_server_or_runs_no_exec(
             "the stand-in names nothing"
         );
         catalog.await.expect("the catalog was read");
-        let arguments: Vec<String> = std::fs::read_to_string(&arguments_file)
-            .expect("`exec` ran")
-            .lines()
-            .map(str::to_owned)
-            .collect();
+        let arguments = read_recorded_arguments(&arguments_file).expect("`exec` ran");
         let mut expected = locked_down_config();
         expected["model"] = json!("gpt-5.6-luna");
         expected["model_reasoning_effort"] = json!("low");

@@ -36,9 +36,9 @@ use crate::provider::driver::codex::turn_evidence::{
 };
 use crate::provider::driver::run_control::SteerTurnEndedError;
 use crate::provider::record_readers::read_non_empty_string;
-use crate::provider::run::delivery::DeliveryOperation;
-use crate::provider::run::delivery::LateAppendableRow;
-use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, LateAppendableRow,
+};
 use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;

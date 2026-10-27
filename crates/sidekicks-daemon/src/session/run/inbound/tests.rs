@@ -23,7 +23,6 @@ use tempfile::TempDir;
 use super::{InboundDispatchError, RunInboundDispatch};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::plans::schema::schema_parts;
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::driver::test_registry::new_run_id;
@@ -33,6 +32,7 @@ use crate::provider::run::delivery::{
     LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
 };
 use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
     stored_run_state, test_engine, turn_completed_at, turn_started_at,
@@ -526,8 +526,9 @@ async fn inbound_fails_a_piece_of_a_run_with_no_row() {
 
 // Killed by a late `paused` or `running` report on a run a resume already set running surfaced as
 // a failure on the event path, or by any row written for it; and by the engine taking a pause
-// report from `running` (`Next::Paused` added to `running`'s row in `transitions.rs`) or refusing
-// one from `pausing` (`Next::Paused` dropped from `pausing`'s row).
+// report that expects no state from `running` (`Next::Paused` added to `running`'s row in
+// `transitions.rs`, which kills `a_late_pause_expecting_no_state`) or refusing one from `pausing`
+// (`Next::Paused` dropped from `pausing`'s row).
 #[rstest]
 #[case::a_late_pause(
     RunState::Running,
@@ -535,6 +536,7 @@ async fn inbound_fails_a_piece_of_a_run_with_no_row() {
     Some(RunState::Pausing),
     None
 )]
+#[case::a_late_pause_expecting_no_state(RunState::Running, RunStateEntry::Paused, None, None)]
 #[case::a_late_turn_under_way(
     RunState::Running,
     RunStateEntry::Running {

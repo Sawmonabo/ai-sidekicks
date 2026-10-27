@@ -39,6 +39,7 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::watch::WorkingFolderWatcher;
+use crate::plans::store::StoredPlanHolds;
 use crate::policy::authorizer::Authorizer;
 use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -104,6 +105,7 @@ async fn fixture() -> Fixture {
         Arc::clone(&reads),
         &log.followers,
         Arc::clone(&scheduler),
+        &StoredPlanHolds,
     ));
     let machine = LocalMachine {
         machine_id: MachineId::new(mint_uuid_v7().to_string()).expect("a machine id"),

@@ -1,13 +1,11 @@
 //! Test support for the Claude driver: a scripted Claude Code process that records everything the
-//! driver writes to it and answers each control request as scripted, a run engine that holds a
-//! delivery or a daemon turn's start, approval ports that record what reaches them, and one live session on the driver's
-//! own composition, reached through its routing, queue, session task, stream, requests and
-//! interventions.
+//! driver writes to it and answers each control request as scripted, approval ports that record
+//! what reaches them, and one live session on the driver's own composition, reached through its
+//! routing, queue, session task, stream, requests and interventions.
 
 pub(crate) mod channel;
 pub(crate) mod daemon_services;
 pub(crate) mod driver;
-pub(crate) mod run_engine;
 pub(crate) mod starts;
 
 use std::path::PathBuf;
@@ -33,6 +31,7 @@ use self::daemon_services::{
     RecordingPorts, RecordingUsage, ScriptedAttachments, test_callback_tool_binding,
 };
 use self::driver::{ScriptedDriver, create_params};
+use self::starts::SCRIPTED_BUILD_VERSION;
 use crate::database::writer::test_file::TestDatabase;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -67,6 +66,7 @@ use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::test_registry::{new_run_id, new_session_id};
 use crate::provider::port::run_host::test_host::RecordingRunEngine;
 use crate::provider::process_identity::ProviderProcessIdentity;
+use crate::provider::runtime_binding::test_store::spawned_build;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {
@@ -137,6 +137,7 @@ pub(crate) fn scripted_live_session(
             ultracode_requested: None,
             ultracode: None,
         }),
+        spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
         process_identity: ProviderProcessIdentity {
             process_id: 1,
             spawn_sequence: 0,

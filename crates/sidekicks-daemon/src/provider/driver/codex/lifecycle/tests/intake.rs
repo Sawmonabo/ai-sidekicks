@@ -30,7 +30,6 @@ use crate::provider::driver::run_control::{
 use crate::provider::driver::test_registry::new_message_id;
 use crate::provider::port::question::QuestionPort;
 use crate::provider::port::question::test_card::QuestionCard;
-use crate::provider::port::run_host::test_host::EngineCall;
 use crate::provider::run::delivery::LateAppendableRow;
 use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
@@ -293,8 +292,10 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
     }
     tokio::time::timeout(
         Duration::from_secs(10),
-        session.engine.wait_until(|calls| {
-            run_moves(calls)
+        session.engine.wait_until(|_| {
+            session
+                .engine
+                .run_moves()
                 .iter()
                 .any(|change| change.entry.state() == expected_state)
                 .then_some(())
@@ -324,7 +325,7 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
 
     assert_eq!(live_turn_runs, Vec::new());
 
-    let moves = run_moves(&session.engine.calls());
+    let moves = session.engine.run_moves();
     match end {
         PauseEnd::Stopped | PauseEnd::CompletedByItself => {
             // Reported from the pausing state, so a pause a resume already moved past is refused.
@@ -351,20 +352,6 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
     let given_back: Vec<String> = steers.iter().map(ToString::to_string).collect();
     assert_eq!(*lock(&session.queue.given_back), given_back);
     assert!(lock(&session.queue.refused).is_empty());
-}
-
-// Each run move the driver delivered among `calls`, in order.
-fn run_moves(calls: &[EngineCall]) -> Vec<RunStateReport> {
-    calls
-        .iter()
-        .filter_map(|call| {
-            if let EngineCall::Deliver(delivery) = call {
-                delivery.change.clone()
-            } else {
-                None
-            }
-        })
-        .collect()
 }
 
 // Codex's refusal of an interrupt whose turn already ended.
@@ -448,7 +435,7 @@ async fn an_interrupts_turn_ending_ahead_of_its_answer_is_the_interrupts() {
     };
 
     assert_eq!(dropped, [steer]);
-    assert_eq!(run_moves(&session.engine.calls()), Vec::new());
+    assert_eq!(session.engine.run_moves(), Vec::new());
 }
 
 // Real time under a timeout, as above. A steer still unechoed when a faster-model retry stops its
@@ -592,9 +579,10 @@ fn refused_words(session: &LiveCodexSession) -> Vec<(String, String)> {
         .collect()
 }
 
-// Real time under a timeout, as above. Killed by dropping the context-window readings from the session task's `apply`, and by reading
-// each reading's run after the batch's turn ends retired their routes: no row would be filed, or
-// the one of a turn that ended in the same batch would name no run.
+// Real time under a timeout, as above. Killed by dropping the context-window readings from the
+// session task's `apply`, and by reading each reading's run after the batch's turn ends retired
+// their routes: no row would be filed, or the one of a turn that ended in the same batch would name
+// no run.
 #[tokio::test]
 async fn a_token_usage_reading_files_the_context_window_on_its_run_even_as_its_turn_ends() {
     let usage = json!({
@@ -637,13 +625,12 @@ async fn a_token_usage_reading_files_the_context_window_on_its_run_even_as_its_t
 async fn wait_for_context_windows(session: &LiveCodexSession) -> Vec<Value> {
     tokio::time::timeout(
         Duration::from_secs(10),
-        session.engine.wait_until(|calls| {
-            let payloads: Vec<Value> = calls
+        session.engine.wait_until(|_| {
+            let payloads: Vec<Value> = session
+                .engine
+                .deliveries()
                 .iter()
-                .filter_map(|call| {
-                    let EngineCall::Deliver(delivery) = call else {
-                        return None;
-                    };
+                .filter_map(|delivery| {
                     let Some(LateAppendableRow::UsageContextWindowUpdated(payload)) = &delivery.row
                     else {
                         return None;

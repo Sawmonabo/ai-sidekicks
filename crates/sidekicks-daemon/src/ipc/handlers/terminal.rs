@@ -90,6 +90,7 @@ fn admit_write(
 #[cfg(test)]
 mod tests {
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
     use futures::FutureExt as _;
     use serde_json::json;
@@ -99,11 +100,13 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::terminal::{TERMINAL_WRITES_WAITING_LIMIT, TerminalId};
     use sidekicks_contracts::trust_statement::DeviceId;
+    use tokio::time::timeout;
 
     use super::register_terminal_write;
     use crate::ipc::call_fixtures::context;
     use crate::ipc::jsonrpc_error_mapping::{CallFailure, map_json_rpc_error};
     use crate::ipc::registry::{Dispatch, MethodRegistryBuilder, Request, TransportId};
+    use crate::mutex_lock::lock;
     use crate::pty::control_lease::{ShellConnection, ShellControlLease, ShellLeaseCaller};
     use crate::pty::input_lookup::ShellInputLookup;
     use crate::pty::shell::refusals::terminal_not_found;
@@ -112,6 +115,9 @@ mod tests {
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 
     const PASTE: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d1f";
+
+    // How long another connection's keys may wait on a paste that its last part closes.
+    const OTHER_WRITE_BOUND: Duration = Duration::from_secs(5);
 
     /// A shell whose terminal hands each write's take to `queue_write`, its program asking for
     /// pasted text to be marked when `is_bracketed`, its lease broadcasting every change at once,
@@ -273,9 +279,10 @@ mod tests {
             "a write admitted in the freed place waits on the shell"
         );
     }
-    // Catches a paste's last part taken for a middle one, which leaves the marked paste open: its
-    // two parts, then another connection's keys, reach the program as the whole paste, end mark
-    // included, before the keys.
+
+    // Catches a paste's last part taken for a middle one, which leaves the marked paste open, so
+    // the other connection's keys wait past the bound: its two parts, then another connection's
+    // keys, reach the program as the whole paste, end mark included, before the keys.
     #[tokio::test]
     async fn a_paste_s_parts_reach_the_shell_whole_before_another_connection_s_write() {
         let written: Arc<Mutex<Vec<u8>>> = Arc::default();
@@ -285,10 +292,7 @@ mod tests {
             Box::new({
                 let written = Arc::clone(&written);
                 move |bytes| {
-                    written
-                        .lock()
-                        .expect("no writer panics")
-                        .extend_from_slice(&bytes);
+                    lock(&written).extend_from_slice(&bytes);
                     async { Ok(()) }.boxed()
                 }
             }),
@@ -306,14 +310,14 @@ mod tests {
                 .await
                 .expect("the paste's part is answered");
         }
-        registry
-            .dispatch(write("terminal-1", 2), context(2))
-            .await
-            .expect("the other connection's write is answered");
+        timeout(
+            OTHER_WRITE_BOUND,
+            registry.dispatch(write("terminal-1", 2), context(2)),
+        )
+        .await
+        .expect("the other connection's write is answered once the paste is whole")
+        .expect("the other connection's write is taken");
 
-        assert_eq!(
-            *written.lock().expect("no writer panics"),
-            b"\x1b[200~one two\x1b[201~a"
-        );
+        assert_eq!(*lock(&written), b"\x1b[200~one two\x1b[201~a");
     }
 }

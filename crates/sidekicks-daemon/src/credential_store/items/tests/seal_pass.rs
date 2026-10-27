@@ -8,7 +8,7 @@ use rstest::rstest;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::json;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
-use sidekicks_platforms::{SealKey, is_superuser, make_unreadable};
+use sidekicks_platforms::{SealKey, is_superuser, make_unreadable, make_unwritable};
 
 use super::sealed::{NO_SEAL_SERVICE, SEAL_FAILED, form};
 use super::{
@@ -339,8 +339,7 @@ async fn an_erase_refuses_within_its_time_while_a_pass_holds_the_file() {
 /// A re-seal of a sealed file that fails on the file refuses that call and starts no other this
 /// run: the next call probes once, seals no item, and is served from the file as it is. Mutation:
 /// drop the `inspect_err` on `open_sealed`'s re-seal, so the second call seals the items again and
-/// is refused again. A read-only folder refuses the write on POSIX alone.
-#[cfg(unix)]
+/// is refused again.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_re_seal_that_fails_on_the_file_starts_no_other_this_run() {
     // Root writes into a folder whatever its mode.
@@ -352,8 +351,7 @@ async fn a_re_seal_that_fails_on_the_file_starts_no_other_this_run() {
     let seal = TestSeal::new();
     file_before(folder.path(), &seal, Before::Sealed(SealKey::SystemKey)).await;
     seal.seal_with(SealKey::Chip, 0);
-    let held = sidekicks_platforms::UnremovableFile::create_in(folder.path(), "held")
-        .expect("the folder is made read-only");
+    let unwritable = make_unwritable(folder.path()).expect("the folder is made unwritable");
     let items = secret_items(
         folder.path(),
         &TestStoreAccess::sealing(Arc::clone(&seal)),
@@ -365,7 +363,7 @@ async fn a_re_seal_that_fails_on_the_file_starts_no_other_this_run() {
     let first = keychain.read(EARLIER).await;
     let seals = seal.seals();
     let second = keychain.read(EARLIER).await;
-    drop(held);
+    drop(unwritable);
 
     assert!(first.is_err(), "the failed re-seal refuses the call");
     assert_eq!(

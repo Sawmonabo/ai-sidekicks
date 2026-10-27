@@ -51,7 +51,7 @@ use crate::provider::driver::{
 use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::run_host::RunHost;
 use crate::provider::port::run_host::test_host::RecordingRunEngine;
-use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
+use crate::provider::port::session_advisor_store::SessionAdvisorStore;
 use crate::provider::runtime_binding::store::{RuntimeBinding, RuntimeBindingSpawnConfig};
 
 /// The statements the driver's read pool caches.
@@ -115,7 +115,7 @@ pub(crate) struct RecordedAdvisors {
     advisors: Mutex<HashMap<SessionId, Option<String>>>,
 }
 
-impl ClaudeSessionAdvisorStore for RecordedAdvisors {
+impl SessionAdvisorStore for RecordedAdvisors {
     fn record_resolved(
         &self,
         session_id: SessionId,

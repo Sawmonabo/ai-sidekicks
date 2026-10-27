@@ -98,6 +98,7 @@ use crate::ipc::stream::subscriptions::Subscriptions;
 use crate::observability::diagnostic_buckets::expiry::{
     DiagnosticExpiryDeps, live_diagnostic_files,
 };
+use crate::plans::store::StoredPlanHolds;
 use crate::policy::authorizer::{Authorizer, RulesLoadError};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::PROVIDER_REGISTRATIONS;
@@ -527,6 +528,7 @@ impl DaemonProcess {
             Arc::clone(&reads),
             &followers,
             Arc::clone(&scheduler),
+            &StoredPlanHolds,
         ));
         self.repo = Some(build_repo_services(RepoServiceStart {
             home_folder: home_folder.to_path_buf(),

@@ -17,7 +17,7 @@ use super::{
 };
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::plans::schema::schema_parts;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::tests::{
     append, continue_request, events, hand_limit_interrupter, insert_running_run, started_turn,

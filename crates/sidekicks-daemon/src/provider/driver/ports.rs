@@ -26,7 +26,7 @@ use crate::provider::port::repository_reader::RepositoryReader;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::port::run_host::RunHost;
 use crate::provider::port::run_pause::{ContinuedMessages, RunPauses};
-use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
+use crate::provider::port::session_advisor_store::SessionAdvisorStore;
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::port::usage_sink::UsageSink;
@@ -125,7 +125,7 @@ pub(crate) struct DriverPorts {
     /// The approval pipeline's intake of reviewer blocks, and its release of held presses.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The record of the advisor Claude Code resolved for a session no one picked one for.
-    pub(crate) session_advisors: Arc<PortRegistration<Arc<dyn ClaudeSessionAdvisorStore>>>,
+    pub(crate) session_advisors: Arc<PortRegistration<Arc<dyn SessionAdvisorStore>>>,
     /// The rules in force on each session.
     pub(crate) session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     /// The places the daemon runs sessions in, which each session's inbox address is composed for.

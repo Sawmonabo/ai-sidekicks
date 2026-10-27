@@ -10,7 +10,7 @@ use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::mutex_lock::lock;
 use crate::pause_point::ArmedPause;
-use crate::plans::schema::schema_parts;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::tests::{
     SETTLE_WAIT, append, arm_step_count, hand_limit_interrupter, insert_running_run, stored_events,

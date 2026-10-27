@@ -9,7 +9,7 @@ use super::{
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
-use crate::plans::schema::schema_parts;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::tests::{
     append, events, hand_limit_interrupter, insert_running_run, step_stop, stored_events,
     stored_run_state, test_engine, turn_started_at,

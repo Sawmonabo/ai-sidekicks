@@ -18,7 +18,7 @@ use crate::provider::driver::claude::spawn::environment::ClaudeAccountFolders;
 use crate::provider::driver::claude::spawn::legs::ClaudeSpawnContext;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::port::registration::PortRegistration;
-use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
+use crate::provider::port::session_advisor_store::SessionAdvisorStore;
 
 /// The id of the Settings row holding the output style new sessions start with.
 pub(crate) const CLAUDE_OUTPUT_STYLE_ROW_ID: &str = "outputStyle";
@@ -103,7 +103,7 @@ pub(crate) async fn resolve_claude_spawn_context(
 /// so every later start runs with it; nothing where `picked` is a pick, the reply named none or the
 /// store is not registered yet. Fails when the store's write fails.
 pub(crate) async fn record_claude_resolved_advisor(
-    store: Option<&Arc<dyn ClaudeSessionAdvisorStore>>,
+    store: Option<&Arc<dyn SessionAdvisorStore>>,
     session_id: SessionId,
     picked: &ClaudeSessionAdvisor,
     resolved: &ClaudeSessionAdvisor,

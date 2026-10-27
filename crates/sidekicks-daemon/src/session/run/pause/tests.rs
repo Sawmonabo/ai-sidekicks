@@ -26,7 +26,6 @@ use crate::events::log_service::tests::{TestLog, open_log};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::LiveRunDriverError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
-use crate::plans::schema::schema_parts;
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::error_causes::RequestUnanswered;
@@ -37,6 +36,7 @@ use crate::provider::driver::test_registry::{
 };
 use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
 use crate::provider::run::state_entry::RunStateEntry;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
 use crate::session::run::engine::{InterruptRoute, RunEngine};
 use crate::session::run::refusals::RunRefusal;

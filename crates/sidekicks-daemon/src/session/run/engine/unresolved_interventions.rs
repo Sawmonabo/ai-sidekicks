@@ -80,7 +80,13 @@ impl RunEngine {
             let mut with_settle = companions.clone();
             with_settle.statements.extend(statements);
             with_settle.preceding_events.extend(events);
-            settle_held_requests_at_run_end(&self.pool, &change, &mut with_settle).await?;
+            settle_held_requests_at_run_end(
+                &self.pool,
+                &self.plan_holds,
+                &change,
+                &mut with_settle,
+            )
+            .await?;
             match self.changes.write(change.clone(), with_settle, hold).await {
                 Ok(run) => return Ok((run, released_choices)),
                 // A row the settle read moved since, by its own dispatch's outcome.

@@ -1,6 +1,6 @@
 //! The plan row's writes, each the statement its event's live write and a rebuild's fold share,
-//! with the guards the live write keeps, and the reads of the plans whose held request a run's end
-//! or a restart lets go.
+//! with the guards the live write keeps, the reads of the plans whose held request a run's end or a
+//! restart lets go, and the plans as a run's end and the session list read them.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -23,6 +23,7 @@ use crate::database::statement::{
 };
 use crate::database::stored_column::text_column;
 use crate::events::session::appender::SessionEventDraft;
+use crate::session::plan_holds::{HeldPlan, PlanHolds};
 
 static INSERT_PLAN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -73,15 +74,6 @@ static HELD_PLANS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
         )
     })
 });
-
-/// A plan waiting on a request its driver holds.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct HeldPlan {
-    /// The plan.
-    pub(crate) plan_id: PlanId,
-    /// Its session.
-    pub(crate) session_id: SessionId,
-}
 
 /// The plan's row as `proposed` writes it, waiting, at `created_at`. Refused when the plan is
 /// already recorded.
@@ -160,19 +152,40 @@ pub(crate) fn hold_end_write(
     (end_hold_statement(&held.plan_id), event)
 }
 
-/// The plans of `run_id` still waiting on a request their driver holds. Fails as SQLite does, or
-/// when a stored id does not read.
-pub(crate) fn read_held_plans_of_run(
-    connection: &Connection,
-    run_id: &RunId,
-) -> rusqlite::Result<Vec<HeldPlan>> {
-    connection
-        .prepare_cached(&HELD_PLANS_OF_RUN_SQL)?
-        .query_map(
-            named_params! { "@runId": run_id.text().as_str() },
-            held_plan_of_row,
-        )?
-        .collect()
+/// The plans table as a run's end and the session list read it.
+pub(crate) struct StoredPlanHolds;
+
+impl PlanHolds for StoredPlanHolds {
+    fn read_held_plans_of_run(
+        &self,
+        connection: &Connection,
+        run_id: &RunId,
+    ) -> rusqlite::Result<Vec<HeldPlan>> {
+        connection
+            .prepare_cached(&HELD_PLANS_OF_RUN_SQL)?
+            .query_map(
+                named_params! { "@runId": run_id.text().as_str() },
+                held_plan_of_row,
+            )?
+            .collect()
+    }
+
+    fn hold_end_write(
+        &self,
+        held: HeldPlan,
+        reason: PlanHoldEndedReason,
+    ) -> (WriteStatement, SessionEventDraft) {
+        hold_end_write(held, reason)
+    }
+
+    // An indexed lookup of the session's plans.
+    fn waiting_plan_sql(&self, session_id_sql: &str) -> String {
+        format!(
+            "EXISTS (SELECT 1 FROM plans WHERE plans.session_id = {session_id_sql}
+                AND plans.state = '{waiting}')",
+            waiting = <&'static str>::from(PlanState::Waiting)
+        )
+    }
 }
 
 /// The plans of `session_id`, or of every session when it is `None`, still waiting on a request

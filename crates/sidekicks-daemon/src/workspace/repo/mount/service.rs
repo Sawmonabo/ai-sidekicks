@@ -555,8 +555,8 @@ impl RepoMountService {
         row.ok_or_else(|| RepoRefusal::MountNotFound { repo_mount_id }.into())
     }
 
-    /// One mount's facts, in any state, with a freshly probed health verdict, `unreachable` when the
-    /// root or git gives no answer in time. Refuses `repoMount.notFound`, and
+    /// One mount's facts, in any state, with a freshly probed health verdict, `unreachable` when
+    /// the root or git gives no answer in time. Refuses `repoMount.notFound`, and
     /// `repoMount.rootResolutionFailed` (`vcsError`) when git cannot answer for the root otherwise;
     /// fails as [`RepoMountService::read_row`] does.
     pub(crate) async fn read(
@@ -638,7 +638,6 @@ impl RepoMountService {
 /// The statements that delete a chat's managed mount row with every workspace on it and the run
 /// and branch rows naming those workspaces, in foreign-key order; a session with none matches
 /// nothing. They go in one write, alone or inside the purge's.
-#[cfg_attr(not(test), expect(dead_code, reason = "the session purge"))]
 pub(crate) fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStatement> {
     DELETE_MANAGED_MOUNT_SQL
         .iter()

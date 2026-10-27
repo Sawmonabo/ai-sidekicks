@@ -42,6 +42,8 @@ pub(crate) mod shell_folder_start;
 pub(crate) mod shell_start;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod socket;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod stand_in_program;
 pub(crate) mod standard_streams;
 pub(crate) mod stop_request;
 pub(crate) mod system_locale;

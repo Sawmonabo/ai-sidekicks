@@ -1,6 +1,7 @@
 //! A session's process ending: the restarts after an exit, a move to a new build, and the held
 //! presses each end lets go.
 
+use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -11,7 +12,7 @@ use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
 use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADVISOR_ROW_ID;
-use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
+use crate::provider::driver::claude::session::scripted::channel::{ScriptedChannel, ScriptedWrite};
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::provider::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
 use crate::provider::driver::claude::session::scripted::{binding_id, settle};
@@ -95,6 +96,96 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
         vec![(session_id, true)]
     );
     assert!(!fixture.driver.starts_process(session_id));
+}
+
+// What a resume arriving during a restart's relaunch asks for, beside the relaunched process.
+#[derive(Clone, Copy)]
+enum RelaunchResume {
+    // The relaunched conversation at the settings it runs.
+    Same,
+    // Another conversation.
+    OtherConversation,
+    // The relaunched conversation at another level.
+    OtherLevel,
+}
+
+// Killed by a resume refused while a restart's relaunch holds the slot establishing, by one
+// answering the relaunched process for another conversation, and by one answering it at another
+// level than asked, which would leave the session on the relaunch's level.
+#[rstest]
+#[case::same(RelaunchResume::Same)]
+#[case::other_conversation(RelaunchResume::OtherConversation)]
+#[case::other_level(RelaunchResume::OtherLevel)]
+#[tokio::test(start_paused = true)]
+async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked(
+    #[case] ask: RelaunchResume,
+) {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    let relaunched = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&relaunched));
+    let held = fixture.starts.hold_next_session_start();
+    ScriptedDriver::exit(&first);
+    let relaunch = fixture.next_start().await;
+    let ClaudeConversationStart::Resume {
+        resume_handle: relaunched_conversation,
+    } = relaunch.conversation
+    else {
+        unreachable!("a restart resumes the conversation")
+    };
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    let params = ResumeSessionParams {
+        resume_handle: match ask {
+            RelaunchResume::OtherConversation => "another conversation".to_owned(),
+            RelaunchResume::Same | RelaunchResume::OtherLevel => relaunched_conversation.clone(),
+        },
+        execution_posture: match ask {
+            RelaunchResume::OtherLevel => None,
+            RelaunchResume::Same | RelaunchResume::OtherConversation => {
+                create_params(session_id).execution_posture
+            }
+        },
+        ..resume_params(session_id)
+    };
+
+    let mut resuming = pin!(fixture.driver.resume_session(params));
+    assert!(futures::poll!(resuming.as_mut()).is_pending());
+    drop(held);
+    let resumed = resuming.await.expect("the resume answers");
+
+    let started = fixture.starts.take_started();
+    let is_relaunch_closed = relaunched.writes().contains(&ScriptedWrite::Terminate);
+    match ask {
+        RelaunchResume::OtherConversation => {
+            assert!(
+                matches!(resumed, DriverResumeResult::Failed { .. }),
+                "{resumed:?}"
+            );
+            assert!(started.is_empty());
+            assert!(!is_relaunch_closed);
+        }
+        RelaunchResume::Same | RelaunchResume::OtherLevel => {
+            let DriverResumeResult::Resumed { resume_handle, .. } = &resumed else {
+                unreachable!("the resume answers the relaunched conversation: {resumed:?}")
+            };
+            assert_eq!(resume_handle.as_str(), relaunched_conversation);
+            let is_brought_up_again = matches!(ask, RelaunchResume::OtherLevel);
+            assert_eq!(is_relaunch_closed, is_brought_up_again);
+            assert_eq!(started.len(), usize::from(is_brought_up_again));
+            assert!(started.iter().all(|start| matches!(
+                &start.conversation,
+                ClaudeConversationStart::Resume { resume_handle }
+                    if *resume_handle == relaunched_conversation
+            )));
+        }
+    }
+    assert_eq!(
+        fixture.relaunches.reported(1).await,
+        vec![(session_id, true)]
+    );
 }
 
 // Killed by moving a busy session to the new build at once, which would end its running reply,

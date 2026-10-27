@@ -36,7 +36,6 @@ use crate::events::session::appender::{
 };
 use crate::events::session::followers::SessionEventFollowers;
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::plans::schema::schema_parts;
 use crate::provider::driver::contract::{MockProviderDriver, ProviderRequestAnswer};
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
@@ -44,6 +43,7 @@ use crate::provider::driver::test_registry::{
 use crate::provider::port::question::{ProviderQuestion, ToolServerQuestionAnswer};
 use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::projection::question_projection_statements;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};

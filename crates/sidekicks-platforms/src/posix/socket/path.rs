@@ -42,6 +42,14 @@ pub fn read_socket_path_entry(path: &Path) -> io::Result<SocketPathEntry> {
     }
 }
 
+/// A new folder, removed with everything in it when dropped, short enough that a socket a few
+/// folders deep inside it stays under the system's limit: under `/tmp`, since macOS's own
+/// temporary folder takes half the limit. Fails with the folder's making error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn short_socket_folder() -> io::Result<tempfile::TempDir> {
+    tempfile::tempdir_in("/tmp")
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::ffi::OsStrExt;

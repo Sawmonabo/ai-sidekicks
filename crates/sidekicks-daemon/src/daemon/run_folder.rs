@@ -148,8 +148,10 @@ pub(crate) async fn bind_socket(
 
 #[cfg(test)]
 mod tests {
+    use interprocess::local_socket::traits::tokio::Listener as _;
     use sidekicks_platforms::{
-        DaemonRunFolder, SocketPathEntry, create_private_folder, read_socket_path_entry,
+        DaemonRunFolder, SocketPathEntry, askpass_socket_path, bind_socket_listener,
+        create_private_folder, read_socket_path_entry,
     };
 
     use super::{RunFolderError, prepare_run_folder};
@@ -189,20 +191,18 @@ mod tests {
 
     // Killed by the askpass socket dropped from the sockets the preparation clears: a crashed
     // daemon's askpass socket then stays, and every later start fails as already running.
-    #[cfg(unix)]
     #[tokio::test]
     async fn a_crashed_daemon_s_askpass_socket_is_removed() {
-        use sidekicks_platforms::askpass_socket_path;
-
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let folder_path = scratch.path().join("run");
         create_private_folder(&folder_path).expect("the run folder is made");
         let askpass_path = askpass_socket_path(&folder_path);
-        // A dropped standard listener leaves its socket file, as a crashed daemon's does.
-        drop(
-            std::os::unix::net::UnixListener::bind(&askpass_path)
-                .expect("the test binds the askpass socket"),
-        );
+        // A listener dropped without removing its socket file, as a crashed daemon leaves it.
+        let mut listener =
+            bind_socket_listener(&askpass_path).expect("the test binds the askpass socket");
+        listener.do_not_reclaim_name_on_drop();
+        drop(listener);
+        assert!(askpass_path.exists(), "the dropped listener left its file");
 
         let result = prepare_run_folder(&DaemonRunFolder {
             token_path: folder_path.join("daemon.token"),

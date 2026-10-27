@@ -19,7 +19,6 @@ use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel
 use crate::provider::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
 };
-use crate::provider::driver::claude::session::scripted::run_engine::HeldDeliveryEngine;
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::provider::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
@@ -36,8 +35,6 @@ use crate::provider::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, StartReviewParams,
 };
 use crate::provider::driver::test_registry::{new_run_id, new_session_id};
-use crate::provider::port::inbound_dispatch::InboundDispatch;
-use crate::provider::port::run_host::RunHost;
 use crate::provider::port::run_host::test_host::EngineCall;
 use crate::provider::run::delivery::LateAppendableRow;
 use crate::provider::run::state_entry::RunStateEntry;
@@ -109,16 +106,8 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
     settle().await;
 
     assert_eq!(fixture.starts.take_one_turns(), []);
-    let ends: Vec<_> = fixture
-        .engine
-        .run_moves()
-        .into_iter()
-        .filter_map(|delivery| delivery.change)
-        .filter(|change| change.run_id == run_id)
-        .map(|change| change.entry)
-        .collect();
     assert!(matches!(
-        ends.as_slice(),
+        fixture.engine.moves_of_run(run_id).as_slice(),
         [RunStateEntry::Interrupted { .. }]
     ));
 }
@@ -248,11 +237,8 @@ fn daemon_turn_run(fixture: &ScriptedDriver) -> Option<RunId> {
 fn run_ends(fixture: &ScriptedDriver, run_id: RunId) -> Vec<RunStateEntry> {
     fixture
         .engine
-        .run_moves()
+        .moves_of_run(run_id)
         .into_iter()
-        .filter_map(|delivery| delivery.change)
-        .filter(|change| change.run_id == run_id)
-        .map(|change| change.entry)
         .filter(|entry| {
             matches!(
                 entry,
@@ -260,22 +246,6 @@ fn run_ends(fixture: &ScriptedDriver, run_id: RunId) -> Vec<RunStateEntry> {
                     | RunStateEntry::Interrupted { .. }
                     | RunStateEntry::Stopped { .. }
                     | RunStateEntry::Failed { .. }
-            )
-        })
-        .collect()
-}
-
-// The turns the driver ended through the run engine as their process exited or their session
-// closed.
-fn engine_ends(fixture: &ScriptedDriver) -> Vec<EngineCall> {
-    fixture
-        .engine
-        .calls()
-        .into_iter()
-        .filter(|call| {
-            matches!(
-                call,
-                EngineCall::EndTurnOnClose(_) | EngineCall::EndTurnOnProcessExit(_)
             )
         })
         .collect()
@@ -343,7 +313,10 @@ async fn a_close_ends_the_run_in_flight_through_the_engines_close() {
         .expect("the session closes");
     settle().await;
 
-    assert_eq!(engine_ends(&fixture), [EngineCall::EndTurnOnClose(run_id)]);
+    assert_eq!(
+        fixture.engine.turn_ends(),
+        [EngineCall::EndTurnOnClose(run_id)]
+    );
     assert_eq!(run_ends(&fixture, run_id), []);
 }
 
@@ -357,17 +330,7 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let run_id = new_run_id();
-    let engine = Arc::new(HeldDeliveryEngine::new(fixture.engine.clone()));
-    let claude = Arc::new(
-        ClaudeDriver::with_engine(
-            &fixture.services,
-            fixture.starts.clone(),
-            &(Arc::clone(&engine) as Arc<dyn RunHost>),
-            &(Arc::clone(&engine) as Arc<dyn InboundDispatch>),
-        )
-        .expect("the driver composes"),
-    );
-    let driver: Arc<dyn ProviderDriver> = claude.clone();
+    let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
     driver
@@ -379,7 +342,7 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
         .start_run(start_params(session_id, run_id))
         .await
         .expect("the run starts");
-    let release_engine = engine.hold_next_delivery();
+    let release_engine = fixture.engine.hold_next_delivery();
     let release_close = channel.hold_next_close();
 
     let close = tokio::spawn({
@@ -391,7 +354,8 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
         }
     });
     settle().await;
-    let routes = &claude.composed_parts().expect("composed").run_start.routes;
+    let parts = fixture.driver.composed_parts().expect("composed");
+    let routes = &parts.run_start.routes;
     for frame in [
         json!({"type": "system", "subtype": "init", "session_id": SCRIPTED_PROVIDER_SESSION_ID}),
         json!({
@@ -449,17 +413,7 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
 async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
-    let engine = Arc::new(HeldDeliveryEngine::new(fixture.engine.clone()));
-    let claude = Arc::new(
-        ClaudeDriver::with_engine(
-            &fixture.services,
-            fixture.starts.clone(),
-            &(Arc::clone(&engine) as Arc<dyn RunHost>),
-            &(Arc::clone(&engine) as Arc<dyn InboundDispatch>),
-        )
-        .expect("the driver composes"),
-    );
-    let driver: Arc<dyn ProviderDriver> = claude.clone();
+    let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
     fixture
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
@@ -468,8 +422,9 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
         .await
         .expect("the session opens");
     let start = fixture.next_start().await;
-    let release_start = engine.hold_next_daemon_turn_start();
-    let routes = &claude.composed_parts().expect("composed").run_start.routes;
+    let release_start = fixture.engine.hold_next_daemon_turn_start();
+    let parts = fixture.driver.composed_parts().expect("composed");
+    let routes = &parts.run_start.routes;
     hand_scripted_frame(
         &*start.listener,
         routes,
@@ -496,7 +451,7 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
 
     let self_started = daemon_turn_run(&fixture).expect("the self-started turn's run opened");
     assert_eq!(
-        engine_ends(&fixture),
+        fixture.engine.turn_ends(),
         [EngineCall::EndTurnOnClose(self_started)]
     );
 }

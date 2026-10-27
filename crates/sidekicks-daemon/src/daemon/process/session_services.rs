@@ -34,6 +34,7 @@ use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
 use crate::interventions::service::{InterventionService, InterventionServiceDeps};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::plans::service::PlansService;
+use crate::plans::store::StoredPlanHolds;
 use crate::policy::authorizer::Authorizer;
 use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
@@ -274,6 +275,7 @@ pub(crate) fn build_session_services(
                 event_log: Arc::clone(&event_log),
                 execution_postures,
                 providers: Arc::clone(&providers),
+                plan_holds: Arc::new(StoredPlanHolds),
             },
             engine.clone(),
         );

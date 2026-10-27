@@ -16,7 +16,7 @@ use sidekicks_contracts::session::id::SessionId;
     not(test),
     expect(
         dead_code,
-        reason = "the Claude Code and Codex drivers' file tools, which report each write"
+        reason = "the providers' drivers' file tools, which report each write"
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -32,7 +32,7 @@ pub(crate) struct FileToolWriteOpened {
 /// What a file tool's call left at its path.
 #[expect(
     dead_code,
-    reason = "the Claude Code and Codex drivers' file tools, which report each write"
+    reason = "the providers' drivers' file tools, which report each write"
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FileToolWriteOutcome {
@@ -47,7 +47,7 @@ pub(crate) enum FileToolWriteOutcome {
     not(test),
     expect(
         dead_code,
-        reason = "the Claude Code and Codex drivers' file tools, which report each write"
+        reason = "the providers' drivers' file tools, which report each write"
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,7 +69,7 @@ pub(crate) struct FileToolWriteSettled {
     not(test),
     expect(
         dead_code,
-        reason = "the Claude Code and Codex drivers' file tools, which report each write"
+        reason = "the providers' drivers' file tools, which report each write"
     )
 )]
 pub(crate) trait FileToolWritePort: Send + Sync {

@@ -62,13 +62,33 @@ enum CopyModeError {
 /// Starts the daemon's own program in the `database copy` mode, each child on one spawner.
 pub struct DatabaseFileCopier {
     program: PathBuf,
+    // What the program takes before the mode's arguments: none for the daemon's own.
+    leading_arguments: Vec<String>,
     spawner: Spawner,
 }
 
 impl DatabaseFileCopier {
     /// A copier starting `program`, the daemon's own, on `spawner`'s thread.
     pub fn new(program: PathBuf, spawner: Spawner) -> Self {
-        Self { program, spawner }
+        Self {
+            program,
+            leading_arguments: Vec::new(),
+            spawner,
+        }
+    }
+
+    /// A copier starting `stand_in`, a test program standing in for the daemon's, which takes its
+    /// own arguments before the mode's, on `spawner`'s thread.
+    #[cfg(test)]
+    pub(crate) fn with_stand_in(
+        stand_in: sidekicks_platforms::TestProgram,
+        spawner: Spawner,
+    ) -> Self {
+        Self {
+            program: PathBuf::from(stand_in.program),
+            leading_arguments: stand_in.arguments,
+            spawner,
+        }
     }
 
     /// Copies `source` to `destination`, replacing it, as a clone where the file system makes one,
@@ -84,6 +104,7 @@ impl DatabaseFileCopier {
     ) -> Result<(), DatabaseCopyError> {
         let mut command = Command::new(&self.program);
         command
+            .args(&self.leading_arguments)
             .args(DATABASE_COPY_MODE)
             .arg(source)
             .arg(destination);

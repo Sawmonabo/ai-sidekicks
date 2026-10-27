@@ -12,8 +12,8 @@ use super::LimitStop;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::mutex_lock::lock;
-use crate::plans::schema::schema_parts;
 use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::live::ContinuingRun;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, events, hand_limit_interrupter,

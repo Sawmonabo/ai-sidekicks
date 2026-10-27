@@ -7,10 +7,11 @@
 //! the live writes wrote. The category's other events write no approval row: a rule's revocation
 //! and a reviewer's block live with the provider and in their own table.
 //!
-//! An ask a workflow gate's answer names keeps its row and its answer through the clear, since the
-//! gate's row references the ask and no rebuild writes the gate's rows; the fold writes both over
-//! as it reaches them. Such an ask whose answer the fold never reaches, its answer in a range the
-//! session skipped as damaged, settles as the gate's row says, the later fact.
+//! An ask a workflow gate's answer names keeps its row and its answer through the clear, which
+//! skips the asks `GATE_NAMED_ASKS_SQL` reads, since the gate's row names the ask by its id and no
+//! rebuild writes the gate's rows; the fold writes both over as it reaches them. Such an ask whose
+//! answer the fold never reaches, its answer in a range the session skipped as damaged, settles as
+//! the gate's row says, the later fact.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;

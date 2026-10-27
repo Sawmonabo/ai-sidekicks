@@ -364,9 +364,11 @@ impl ClaudeDriver {
         &self,
         session_id: SessionId,
     ) -> Result<Option<RuntimeBinding>, DriverError> {
-        self.parts()?
-            .run_start
-            .engine
+        self.sources
+            .ports
+            .run_engine
+            .require_port()
+            .map_err(internal)?
             .read_session_leg(session_id)
             .await
             .map_err(DriverError::Internal)

@@ -54,6 +54,7 @@ use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::run::delivery::RunMarker;
 use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use crate::session::plan_holds::PlanHolds;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
@@ -79,7 +80,7 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// turn and every open turn, its provider, whether it ended since a version, its interventions with
 /// no outcome and one session's ended runs still holding one, the two agent reads, and the run
 /// end's reads of its held questions open or waiting for it (`UNSETTLED_HELD_OF_RUN_SQL`), its
-/// plans still holding a request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest
+/// plans still holding a request (its plan holds' read) and its open choices (the newest
 /// request of each dialog and whether it was settled since), and a driver's read of a session's
 /// stored leg (the session's runs and their bindings).
 pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
@@ -241,6 +242,8 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// The plans a run's end reopens as it lets their held requests go.
+    pub(crate) plan_holds: Arc<dyn PlanHolds>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -267,6 +270,7 @@ pub(crate) struct RunEngine {
     gates: RunSetupGates,
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
+    plan_holds: Arc<dyn PlanHolds>,
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
@@ -298,6 +302,7 @@ impl RunEngine {
             event_log,
             execution_postures,
             providers,
+            plan_holds,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -312,6 +317,7 @@ impl RunEngine {
             gates,
             execution_postures,
             providers,
+            plan_holds,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
@@ -754,7 +760,8 @@ fn settled(
         })
 }
 
-// The event a provider's marker on a live run is recorded as, at the session and version `run` read.
+// The event a provider's marker on a live run is recorded as, at the session and version `run`
+// read.
 fn run_marker_event(marker: RunMarker, run: &RunRead) -> SessionEvent {
     let session_id = run.session_id;
     let run_version = safe_run_version(run.version);

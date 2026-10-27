@@ -19,7 +19,9 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{LeftoverSweep, bind_socket_listener, replace_file_atomically};
+use sidekicks_platforms::{
+    StandInAnswer, StandInProgram, bind_socket_listener, write_stand_in_program,
+};
 
 use super::CodexDriver;
 use super::intake::CodexSessionIntake;
@@ -225,8 +227,9 @@ impl LiveCodexSession {
 const CODEX_FOLDER_NAME: &str = "codex-home";
 
 /// A driver whose person's own Codex folder is `codex-home` under `folder`, its Codex command a
-/// script that exits at once, so a service it launches never answers; with the services it was
-/// built on. `folder` sits under `/tmp`, so a socket's path in it fits the system's limit.
+/// stand-in that fails at once with nothing printed, so a service it launches never answers; with
+/// the services it was built on. `folder` is a `short_socket_folder`, so a socket's path in it
+/// fits the system's limit.
 pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServices) {
     let codex_home = folder.join(CODEX_FOLDER_NAME);
     let programs = folder.join("bin");
@@ -234,11 +237,17 @@ pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServi
         std::fs::create_dir_all(made).expect("a test folder is made");
     }
     // Found first on the search path as Codex's command.
-    replace_file_atomically(
-        &programs.join("codex"),
-        b"#!/bin/sh\nexit 1\n",
-        0o755,
-        LeftoverSweep::Unswept,
+    write_stand_in_program(
+        &programs,
+        "codex",
+        &StandInProgram {
+            answers_by_first_argument: Vec::new(),
+            otherwise: StandInAnswer {
+                standard_output: String::new(),
+                exit_code: 1,
+                argument_record: None,
+            },
+        },
     )
     .expect("the command is written");
     let mut services = test_driver_services();

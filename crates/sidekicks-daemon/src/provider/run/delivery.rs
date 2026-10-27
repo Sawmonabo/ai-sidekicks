@@ -291,9 +291,9 @@ impl RunMarker {
 // source-epoch stamp, and the one conversion that stamps a row and makes its event.
 macro_rules! late_appendable_rows {
     ($($(#[$doc:meta])* $variant:ident($payload:ty) => $into_event:expr,)+) => {
-        /// A provider row this dispatch appends: one of the registered events whose payload takes
-        /// the source-epoch stamp, its payload as the producer built it, without the stamp. A
-        /// reasoning update is not one: it is its own delivery, since its body is required.
+        /// A provider row a late delivery carries: one of the registered events whose payload
+        /// takes the source-epoch stamp, its payload as the producer built it, without the stamp.
+        /// A reasoning update is not one: it is its own delivery, since its body is required.
         #[derive(Debug)]
         #[cfg_attr(test, derive(Clone, PartialEq))]
         #[expect(dead_code, reason = "the provider's event delivery builds each row it hands over")]

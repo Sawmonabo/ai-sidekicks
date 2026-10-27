@@ -28,6 +28,7 @@ use crate::provider::driver::claude::session::transport::declarations::{
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::provider::driver::contract::SpawnedVersionBindingCarriers;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
 use crate::provider::process_identity::ProviderProcessIdentity;
@@ -179,6 +180,8 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
+    /// The build that runs the process, which a resume that found it already up answers.
+    pub(crate) spawned_version: SpawnedVersionBindingCarriers,
     /// The process's identity in the daemon's spawn count, removed from the process registry at
     /// its exit.
     pub(crate) process_identity: ProviderProcessIdentity,

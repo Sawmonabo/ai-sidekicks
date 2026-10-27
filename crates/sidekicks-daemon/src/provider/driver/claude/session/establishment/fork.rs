@@ -9,10 +9,12 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use super::context::ClaudeSpawnContextError;
 use super::{
     ClaudeCallbackBinding, ClaudeEstablishmentError, ClaudeModelCheck, ClaudeSessionEstablishment,
     ClaudeSessionStart,
 };
+use crate::error_description::describe_error;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::run::start::claude_session_unavailable;
 use crate::provider::driver::claude::session::conversation_file::{
@@ -54,6 +56,11 @@ impl ClaudeSessionEstablishment {
                 Ok(point) => point,
                 Err(reason) => return Ok(degraded("rewind-refused", &reason)),
             };
+        // The session's bound as it stands at the fork's bring-up, as every spawn reads it.
+        let step_bound = match self.read_step_bound(&predecessor).await {
+            Ok(step_bound) => step_bound,
+            Err(error) => return Ok(degraded("rewind-adoption-failed", &describe_error(&error))),
+        };
         let settings = lock(&predecessor.settings).clone();
         // The predecessor's own legs, at the level, model, advisor and style it runs with now.
         let legs = ClaudeSpawnBoundLegs {
@@ -89,11 +96,7 @@ impl ClaudeSessionEstablishment {
             spawn_binding: predecessor.spawn_binding.clone(),
             model_check: ClaudeModelCheck::Unchecked,
             ultracode: settings.ultracode_requested,
-            // The predecessor's bound; a run started under another one relaunches the fork first.
-            step_bound: self
-                .streams
-                .get(session_id)
-                .and_then(|stream| stream.step_bound()),
+            step_bound,
         };
         let rebind = |resume_handle: &str, left: Vec<LeftConversation>| RuntimeBindingRebind {
             binding_id: params.binding_id.clone(),
@@ -164,6 +167,26 @@ impl ClaudeSessionEstablishment {
         lock(&self.prompts).forget_session(session_id);
         predecessor.channel.terminate().await;
         predecessor.release_served_presses(&self.sources.ports.reviewer_denials);
+    }
+
+    // The session's step bound as the daemon resolves it now, on the account the predecessor runs
+    // on.
+    async fn read_step_bound(
+        &self,
+        predecessor: &LiveClaudeSession,
+    ) -> Result<Option<SafeInt<1>>, ClaudeEstablishmentError> {
+        let context = self
+            .sources
+            .ports
+            .spawn_contexts
+            .require_port()?
+            .resolve_spawn_context(
+                predecessor.session_id,
+                predecessor.admitted_provider_account_id.clone(),
+            )
+            .await
+            .map_err(ClaudeSpawnContextError::Place)?;
+        Ok(context.step_bound)
     }
 
     // Points the session's binding at the conversation it moved onto.

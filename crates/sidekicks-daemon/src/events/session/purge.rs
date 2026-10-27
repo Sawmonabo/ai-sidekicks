@@ -30,6 +30,7 @@ use std::error::Error;
 use std::io;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use sidekicks_contracts::event::declared_variants::{
     SessionEventCompactedPayload, SessionEventCompactedRemovedSession,
 };
@@ -68,6 +69,7 @@ use crate::git::turn_snapshot::service::{
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
 use crate::pty::shell::table::ShellTable;
+use crate::recovery::damaged_history::DamagedSessionPurge;
 use crate::recovery::status::RecoveryStatusTracker;
 use crate::session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use crate::session::directory::list_feed::SessionListFeed;
@@ -238,14 +240,6 @@ impl SessionPurge {
     /// again the sessions they were linked to and starts the log's truncation. Never fails: each
     /// session's failure is its outcome. The payloads a purge unlinks are charged to `meter`, the
     /// meter of the job or call the purge runs under.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "`Delete old data`'s retention handler and `session.recovery.delete` purge \
-                      through it"
-        )
-    )]
     pub(crate) async fn purge(
         &self,
         session_ids: &[SessionId],
@@ -492,6 +486,34 @@ impl SessionPurge {
             None,
             SESSION_EVENT_VERSION.clone(),
         ))
+    }
+}
+
+impl DamagedSessionPurge for SessionPurge {
+    fn purge_damaged_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        Box::pin(async move {
+            let report = self
+                .purge(
+                    &[session_id],
+                    PurgeCaller::DamagedHistory,
+                    &ProcessorMeter::default(),
+                )
+                .await;
+            let (_, outcome) = report
+                .outcomes
+                .into_iter()
+                .next()
+                .expect("a purge answers one outcome for each session id it was given");
+            match outcome {
+                SessionPurgeOutcome::Removed { .. } => Ok(()),
+                SessionPurgeOutcome::Refused(refusal) => {
+                    Err(Box::<dyn Error + Send + Sync>::from(refusal))
+                }
+            }
+        })
     }
 }
 

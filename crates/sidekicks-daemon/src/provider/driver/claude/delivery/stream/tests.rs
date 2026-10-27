@@ -3,7 +3,6 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
@@ -59,17 +58,6 @@ fn tool_call(message_id: &str, tool_use_id: &str, agent_id: Option<&str>) -> Val
     frame
 }
 
-fn moves_of(session: &ScriptedSession, run_id: RunId) -> Vec<RunStateEntry> {
-    session
-        .engine
-        .run_moves()
-        .into_iter()
-        .filter_map(|delivery| delivery.change)
-        .filter(|change| change.run_id == run_id)
-        .map(|change| change.entry)
-        .collect()
-}
-
 // Killed by reading a frame under the run holding the turn when the session's task reaches it: the
 // reader releases the hold as it reads the `result`, so the turn's earlier frames would open a run
 // of their own, and the lead run would never end.
@@ -91,7 +79,7 @@ async fn a_turns_frames_stay_its_runs_after_the_reader_released_its_hold() {
     );
     assert!(calls.contains(&EngineCall::CountStep(run_id)));
     assert_eq!(
-        moves_of(&session, run_id),
+        session.engine.moves_of_run(run_id),
         [RunStateEntry::Completed {
             intended_close: None
         }]
@@ -121,7 +109,7 @@ async fn a_turn_ending_with_a_steer_still_waiting_writes_its_end_and_moves_no_ru
             .calls()
             .contains(&EngineCall::RecordTurnEnd(run_id, TurnOutcome::Completed))
     );
-    assert_eq!(moves_of(&session, run_id), []);
+    assert_eq!(session.engine.moves_of_run(run_id), []);
     assert_eq!(
         session
             .start
@@ -150,7 +138,7 @@ async fn a_turn_ending_after_the_daemon_wrote_the_runs_end_writes_only_the_turn_
             .calls()
             .contains(&EngineCall::RecordTurnEnd(run_id, TurnOutcome::Completed))
     );
-    assert_eq!(moves_of(&session, run_id), []);
+    assert_eq!(session.engine.moves_of_run(run_id), []);
 }
 
 // Killed by swapping a release with an interrupt's answer, and by delivering the end the daemon
@@ -177,7 +165,7 @@ async fn a_held_turn_end_is_delivered_as_the_daemons_end_settles(
     session.frame(&init());
     session.frame(&result(&json!({})));
     settle().await;
-    assert_eq!(moves_of(&session, run_id), []);
+    assert_eq!(session.engine.moves_of_run(run_id), []);
 
     match settlement {
         ClaudeDaemonEndSettlement::Interrupted => session.stream.interrupt_daemon_end(run_id),
@@ -186,7 +174,10 @@ async fn a_held_turn_end_is_delivered_as_the_daemons_end_settles(
     }
     settle().await;
 
-    assert_eq!(moves_of(&session, run_id), Vec::from_iter(delivered));
+    assert_eq!(
+        session.engine.moves_of_run(run_id),
+        Vec::from_iter(delivered)
+    );
 }
 
 // Killed by counting each frame of one message as its own step, by counting a reply with no tool
@@ -245,7 +236,7 @@ async fn only_the_result_naming_a_now_steer_ends_its_turn() {
     })));
     settle().await;
 
-    assert_eq!(moves_of(&session, run_id), []);
+    assert_eq!(session.engine.moves_of_run(run_id), []);
     assert_eq!(
         session
             .start
@@ -259,7 +250,7 @@ async fn only_the_result_naming_a_now_steer_ends_its_turn() {
     settle().await;
 
     assert_eq!(
-        moves_of(&session, run_id),
+        session.engine.moves_of_run(run_id),
         [RunStateEntry::Completed {
             intended_close: None
         }]
@@ -294,7 +285,7 @@ async fn each_unnumbered_turn_of_a_run_settles_its_own_end() {
     settle().await;
 
     assert_eq!(
-        moves_of(&session, run_id),
+        session.engine.moves_of_run(run_id),
         [RunStateEntry::Completed {
             intended_close: None
         }]
@@ -330,7 +321,7 @@ async fn a_turn_failing_after_its_last_announced_retry_fails_as_retries_spent(
     })));
     settle().await;
 
-    let moves = moves_of(&session, run_id);
+    let moves = session.engine.moves_of_run(run_id);
     assert!(
         matches!(
             moves.as_slice(),
@@ -519,7 +510,7 @@ async fn a_result_of_an_unlisted_subtype_or_none_fails_its_run_once_and_is_repor
     settle().await;
     drop(recording);
 
-    let moves = moves_of(&session, run_id);
+    let moves = session.engine.moves_of_run(run_id);
     assert!(
         matches!(
             moves.as_slice(),

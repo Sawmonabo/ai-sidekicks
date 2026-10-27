@@ -38,8 +38,9 @@ use crate::provider::port::run_host::test_host::{EngineCall, RecordingRunEngine}
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
 
-// Real time under a timeout, the close waiting on the service's answers. Killed by dropping the interrupt from `close_session` and by sending it after the
-// let-go: Codex would run the turn on unsubscribed.
+// Real time under a timeout, the close waiting on the service's answers. Killed by dropping the
+// interrupt from `close_session` and by sending it after the let-go: Codex would run the turn on
+// unsubscribed.
 #[tokio::test]
 async fn a_close_interrupts_the_live_turn_and_ends_its_run_before_letting_the_conversation_go() {
     close_live_turn(true).await;
@@ -81,7 +82,7 @@ async fn close_live_turn(is_interrupt_answered: bool) {
             sent = scripted.script.next_sent() => {
                 if sent["method"] == "thread/unsubscribe" {
                     assert_eq!(
-                        closed_runs(&engine),
+                        engine.turn_ends(),
                         [EngineCall::EndTurnOnClose(run_id)],
                         "the run ended as closed before its conversation was let go"
                     );
@@ -95,16 +96,7 @@ async fn close_live_turn(is_interrupt_answered: bool) {
     }
 
     assert_interrupted_before_let_go(&methods, TEST_TURN);
-    assert_eq!(closed_runs(&engine), [EngineCall::EndTurnOnClose(run_id)]);
-}
-
-// The runs whose turns the driver ended as their session closed, in order.
-fn closed_runs(engine: &RecordingRunEngine) -> Vec<EngineCall> {
-    engine
-        .calls()
-        .into_iter()
-        .filter(|call| matches!(call, EngineCall::EndTurnOnClose(_)))
-        .collect()
+    assert_eq!(engine.turn_ends(), [EngineCall::EndTurnOnClose(run_id)]);
 }
 
 // Real time under a timeout, as above. Killed by dropping the interrupt from `close_session` and

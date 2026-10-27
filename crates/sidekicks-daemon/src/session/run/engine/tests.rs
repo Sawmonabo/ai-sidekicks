@@ -37,10 +37,12 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::run::start_request::DriverStep;
 use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use crate::session::plan_holds::{NoPlanHolds, PlanHolds};
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::turns::StepCount;
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
+use crate::session::run::setup_gates::RunSetupGate;
 use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -53,12 +55,24 @@ pub(crate) const SETTLE_WAIT: Duration = Duration::from_secs(10);
 pub(crate) const DRIVER_HOLD: Duration = Duration::from_millis(200);
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
-/// interventions service and its posture files under `home`; a test makes the tables its runs
-/// need.
+/// interventions service, no plan holds and its posture files under `home`; a test makes the
+/// tables its runs need.
 pub(crate) fn test_engine(
     database: &TestDatabase,
     event_log: Arc<EventLogService>,
     home: &Path,
+) -> Arc<RunEngine> {
+    test_engine_with(database, event_log, home, Arc::new(NoPlanHolds), Vec::new())
+}
+
+/// [`test_engine`] whose runs' ends read and reopen the plans `plan_holds` holds, with
+/// `setup_gates` registered after the posture gate, in order.
+pub(crate) fn test_engine_with(
+    database: &TestDatabase,
+    event_log: Arc<EventLogService>,
+    home: &Path,
+    plan_holds: Arc<dyn PlanHolds>,
+    setup_gates: Vec<Arc<dyn RunSetupGate>>,
 ) -> Arc<RunEngine> {
     let services = test_driver_services();
     let deps = RunEngineDeps {
@@ -72,8 +86,15 @@ pub(crate) fn test_engine(
             home.join("session-token"),
         )),
         providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
+        plan_holds,
     };
-    Arc::new_cyclic(|this| RunEngine::new(deps, this.clone()))
+    Arc::new_cyclic(|this| {
+        let mut engine = RunEngine::new(deps, this.clone());
+        for gate in setup_gates {
+            engine.register_setup_gate(gate);
+        }
+        engine
+    })
 }
 
 /// A stand-in interventions service that refuses the first limit interrupts it is handed, as many

@@ -20,7 +20,7 @@ use crate::database::writer::test_file::{TestDatabase, test_envelope, test_sessi
 use crate::events::log_service::EventLogAppendOptions;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::ipc::stream::feed::{CreditGate, Feed as _};
-use crate::plans::schema::schema_parts;
+use crate::questions::schema::schema_parts;
 use crate::session::directory::list_feed::subscriber::SessionListSubscriber;
 use crate::session::directory::list_feed::{SessionListFeed, SessionListOpening};
 use crate::workspace::managed::service::SessionListRefresh as _;

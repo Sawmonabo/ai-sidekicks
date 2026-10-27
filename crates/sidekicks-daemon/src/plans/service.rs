@@ -27,8 +27,9 @@ use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use crate::plans::record::compose_plan_proposed_payload;
-use crate::plans::store::{HeldPlan, hold_end_write, insert_plan_statement, read_held_plans};
+use crate::plans::store::{hold_end_write, insert_plan_statement, read_held_plans};
 use crate::provider::port::plan::{PlanPort, ProviderPlan, ProviderPlanHoldEnd};
+use crate::session::plan_holds::HeldPlan;
 use crate::session::run::state_change::refused_statement_index;
 use crate::settle_all::{SettleFailures, settle_all};
 
