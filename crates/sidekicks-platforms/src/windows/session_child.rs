@@ -50,13 +50,10 @@ impl SessionChild {
         &mut self.output
     }
 
-    /// Ends the child's whole job, the child and what it started with it, the child ended or not.
-    /// Fails with the system's error from the end.
-    #[expect(
-        clippy::unused_async,
-        reason = "the macOS and Linux arms await their group's kill on a blocking thread"
-    )]
-    pub async fn end_group(&mut self) -> io::Result<()> {
-        self.child.start_kill()
+    /// Ends the child's whole job, the child and what it started with it, the child ended or not;
+    /// the end is sent at the call, and the future, awaited as the other systems' end is, answers
+    /// at once. Fails with the system's error from the end.
+    pub fn end_group(&mut self) -> impl Future<Output = io::Result<()>> {
+        std::future::ready(self.child.start_kill())
     }
 }
