@@ -1,5 +1,5 @@
 ---
-source: crates/sidekicks-daemon/src/git/turn_snapshot/capture_steps.rs
+source: crates/sidekicks-workspace/src/git/turn_snapshot/capture_steps.rs
 expression: message
 ---
 sidekicks: turn-boundary snapshot

@@ -1,0 +1,58 @@
+[package]
+name = "sidekicks-workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Workspaces, repositories, git and worktrees, the file watch and the run setup gates."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+base16ct.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+icu_collator.workspace = true
+ignore.workspace = true
+interprocess.workspace = true
+jiff.workspace = true
+lru.workspace = true
+memchr.workspace = true
+notify.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+unicode-normalization.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+rstest.workspace = true
+# A file whose removal the system refuses, for the clone's failed-removal test.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+# The paused clock the clone progress gate's and the worktree setup's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# Helpers other crates' tests use: the workspace and worktree rows other tables build on, and the
+# git runner a test scripts.
+test-support = []
+
+[lints]
+workspace = true

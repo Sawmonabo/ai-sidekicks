@@ -20,7 +20,6 @@ pub(crate) mod provider_choice;
 pub(crate) mod read;
 pub(crate) mod refusals;
 pub(crate) mod restart;
-pub(crate) mod setup_gates;
 pub(crate) mod start_request;
 pub(crate) mod state_change;
 pub(crate) mod stored_leg;

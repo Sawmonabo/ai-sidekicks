@@ -23,4 +23,3 @@ pub(crate) mod service;
 pub mod spawn_cwd_translator;
 pub(crate) mod staged_attachments;
 pub(crate) mod tags;
-pub(crate) mod working_folder;
