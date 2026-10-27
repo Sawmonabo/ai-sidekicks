@@ -1,0 +1,40 @@
+[package]
+name = "sidekicks-workflow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Workflows: their definitions and versions, runs, secrets and the agent tools that write them."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+blake3.workspace = true
+garde.workspace = true
+jiff.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-store.workspace = true
+sidekicks-workspace.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[features]
+# Helpers other crates' tests use: the workflow rows other tables build on.
+test-support = []
+
+[lints]
+workspace = true

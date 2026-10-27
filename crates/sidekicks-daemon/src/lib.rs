@@ -26,4 +26,3 @@ pub mod recovery;
 pub mod remote;
 pub mod session;
 pub mod transcript;
-pub mod workflow;

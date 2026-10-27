@@ -32,6 +32,7 @@ sidekicks-search = { path = "crates/sidekicks-search" }
 sidekicks-std = { path = "crates/sidekicks-std" }
 sidekicks-store = { path = "crates/sidekicks-store" }
 sidekicks-terminal = { path = "crates/sidekicks-terminal" }
+sidekicks-workflow = { path = "crates/sidekicks-workflow" }
 sidekicks-workspace = { path = "crates/sidekicks-workspace" }
 
 # Runtime, errors and logs.
