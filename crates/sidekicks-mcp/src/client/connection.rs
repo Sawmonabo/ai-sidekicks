@@ -29,6 +29,7 @@ use rmcp::service::{
 use rmcp::{ClientHandler, RoleClient};
 use serde_json::{Value, json};
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::spawn_environment::SpawnEnvironmentError;
@@ -92,8 +93,8 @@ pub(crate) enum McpConnectionError {
     },
 }
 
-/// What a connection is: its session, its server's name, the client's shared HTTP client and the
-/// shared watches its handler feeds.
+/// What a connection is: its session, its server's name, the client's shared HTTP client, the
+/// shared watches its handler feeds and the release version it declares.
 #[derive(Clone)]
 pub(crate) struct McpConnectionScope {
     /// The session the connection serves.
@@ -106,6 +107,8 @@ pub(crate) struct McpConnectionScope {
     pub(crate) prompt_watchers: Arc<PromptWatchers>,
     /// The tasks the connection follows.
     pub(crate) task_watches: Arc<TaskWatches>,
+    /// The daemon's release version, which the client declares to the server.
+    pub(crate) release_version: ReleaseVersion,
 }
 
 /// How a connection starts: the deadline its start is held to, its tool calls' idle window, and
@@ -359,7 +362,7 @@ impl ClientHandler for McpClientHandler {
                 .enable_elicitation()
                 .enable_tasks()
                 .build(),
-            Implementation::new("sidekicks-daemon", env!("CARGO_PKG_VERSION")),
+            Implementation::new("sidekicks-daemon", self.scope.release_version.as_str()),
         )
     }
 

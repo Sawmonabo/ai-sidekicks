@@ -20,6 +20,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::mcp::server::McpServerName;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::question::QuestionPort;
 use sidekicks_provider::port::registration::PortRegistration;
@@ -50,11 +51,14 @@ pub(crate) struct McpClient {
     http: reqwest::Client,
     prompt_watchers: Arc<PromptWatchers>,
     task_watches: Arc<TaskWatches>,
+    /// The daemon's release version, which each connection declares to its server.
+    release_version: ReleaseVersion,
 }
 
 impl McpClient {
     /// A client asking its tasks' questions through `questions`, the drivers' questions card
-    /// intake. Fails when its HTTP client cannot be built.
+    /// intake, and declaring `release_version`, the daemon's, to each server. Fails when its HTTP
+    /// client cannot be built.
     #[cfg_attr(
         not(test),
         expect(
@@ -65,6 +69,7 @@ impl McpClient {
     )]
     pub(crate) fn new(
         questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
+        release_version: ReleaseVersion,
     ) -> Result<Self, McpClientError> {
         // No `timeout` or `read_timeout`: either would cut a quiet event stream; each request
         // keeps its own bound.
@@ -77,6 +82,7 @@ impl McpClient {
             http,
             prompt_watchers: Arc::new(PromptWatchers::default()),
             task_watches: Arc::new(TaskWatches::new(questions)),
+            release_version,
         })
     }
 
@@ -132,6 +138,7 @@ impl McpClient {
             http: self.http.clone(),
             prompt_watchers: Arc::clone(&self.prompt_watchers),
             task_watches: Arc::clone(&self.task_watches),
+            release_version: self.release_version.clone(),
         }
     }
 

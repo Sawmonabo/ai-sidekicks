@@ -10,6 +10,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
 use sidekicks_contracts::question::QuestionAnswer;
+use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -236,7 +237,11 @@ pub(super) fn test_client() -> (McpClient, Arc<QuestionCard>) {
         .register(port)
         .expect("a new registration takes its port");
     (
-        McpClient::new(Arc::new(questions)).expect("the client builds"),
+        McpClient::new(
+            Arc::new(questions),
+            ReleaseVersion::new("0.0.0".to_owned()).expect("a release version"),
+        )
+        .expect("the client builds"),
         card,
     )
 }
