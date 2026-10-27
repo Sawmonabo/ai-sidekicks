@@ -195,7 +195,7 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
     // SAFETY: the file actions were set up above, and the folder is a C string that outlives the
     // spawn.
     check_spawn_status(unsafe {
-        libc::posix_spawn_file_actions_addchdir_np(file_actions.as_mut_ptr(), folder.as_ptr())
+        libc::posix_spawn_file_actions_addchdir(file_actions.as_mut_ptr(), folder.as_ptr())
     })?;
 
     let mut attributes = SpawnAttributes::new()?;
@@ -249,7 +249,8 @@ pub(crate) fn reap_spawned_child(id: u32) -> io::Result<ExitStatus> {
 /// Waits with no thread for the end of `process`, a child this process spawned, then reaps it on
 /// a blocking thread, where the reap answers at once, and answers how it ended; where the wait for
 /// its end cannot be set up, the blocking reap waits for the exit itself, so no child is left a
-/// zombie. Must be called within the runtime. Fails with the system's error from the reap.
+/// zombie, at the cost of one blocking thread held until the child exits, which the daemon's stop
+/// then waits on up to its drain bound. Must be called within the runtime. Fails with the system's error from the reap.
 pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<ExitStatus> {
     let id = process.id();
     if let Err(error) = process.wait_for_end().await {
@@ -264,9 +265,10 @@ pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<Exit
 }
 
 /// Kills the child `id` this process spawned, it alone, on this thread, and reaps it, so nothing
-/// runs on that no one answers for and nothing is left a zombie; a child already ended is reaped
-/// all the same. The reap, which waits for the killed child's exit, runs on a blocking thread when
-/// a runtime is current, logging its failure, else on this thread. Fails with the system's error
+/// runs on that no one answers for; a child already ended is reaped all the same. The reap, which
+/// waits for the killed child's exit, runs on this thread with no runtime current, else on the
+/// runtime's blocking pool while the runtime runs, logging its failure; a drop as the runtime ends
+/// can leave the child unreaped until this process exits. Fails with the system's error
 /// from the kill, which leaves the child unreaped rather than wait on one still running, or from
 /// a reap on this thread.
 pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {

@@ -88,6 +88,16 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
     }
 }
 
+/// Kills every member of the group process `id` leads on a blocking thread, as [`signal_group`]
+/// sends a `SIGKILL`; a group already ended is no failure. Must be called within the runtime. Fails
+/// as `signal_group` does.
+pub(crate) async fn end_group(id: u32) -> io::Result<()> {
+    tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
+        .await
+        .map_err(io::Error::other)?
+        .map(drop)
+}
+
 /// Sends `signal` once to every member of the group process `id` leads, never listing or sleeping;
 /// `false` when the group had already ended. Fails with `InvalidInput` for an id of 0 or past
 /// `i32::MAX`, else with the system's error, `EPERM` among them.

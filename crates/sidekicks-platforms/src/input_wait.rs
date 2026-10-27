@@ -247,7 +247,7 @@ mod tests {
         // the shell about to replace itself with it, whose stop macOS drops once the command runs.
         let is_stopped = matches!(at_prompt, AtPrompt::Stop);
         let before_stop = if prompt.is_ok() && is_stopped {
-            read_readings(&terminal, &spawner, &peer_failure_noted, |reading| {
+            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
                 reading.is_waiting
             })
             .await
@@ -261,7 +261,7 @@ mod tests {
         // A waiting command is read until it reads as waiting; one that waits on nothing is read
         // across the whole bound, and must never read as waiting.
         let readings = if prompt.is_ok() {
-            read_readings(&terminal, &spawner, &peer_failure_noted, |reading| {
+            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
                 is_marked && *reading == expected
             })
             .await
@@ -298,10 +298,10 @@ mod tests {
         }
     }
 
-    // The readings of `terminal`'s wait every few milliseconds until one `is_settled` or the bound
-    // passes, the command's output read away as the daemon reads it, so a command drawing a screen
-    // never blocks on a full terminal.
-    async fn read_readings(
+    // The readings of `terminal`'s wait every few milliseconds until one `is_settled`, one fails or
+    // the bound passes, the command's output read away as the daemon reads it, so a command drawing
+    // a screen never blocks on a full terminal.
+    async fn read_input_waits(
         terminal: &InnerTerminal,
         spawner: &Spawner,
         peer_failure_noted: &Once,

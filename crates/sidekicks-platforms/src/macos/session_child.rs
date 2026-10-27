@@ -5,13 +5,12 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsFd as _, OwnedFd};
 
-use nix::sys::signal::Signal;
 use tokio::net::unix::pipe::Receiver;
 
 use crate::macos::posix_spawn::{
     SessionLeaderSpawn, SpawnStream, end_spawned_child, spawn_session_leader,
 };
-use crate::posix::process::group::signal_group;
+use crate::posix::process::group;
 use crate::session_child::SessionCommand;
 
 /// A started session child: its output and an end for its whole group. Dropped, it kills the
@@ -59,10 +58,7 @@ impl SessionChild {
     pub async fn end_group(&mut self) -> io::Result<()> {
         // Unreaped until the drop, the child keeps its id, so its group's id names no other group.
         let id = self.id;
-        tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
-            .await
-            .map_err(io::Error::other)?
-            .map(drop)
+        group::end_group(id).await
     }
 }
 

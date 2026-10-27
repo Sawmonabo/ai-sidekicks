@@ -190,7 +190,9 @@ pub(crate) fn prepare_lasting_child_command(command: &mut Command) {
 }
 
 /// A test's own child, its standard input and output pipes the test holds, started with no fork on
-/// macOS, where a fork in the multi-threaded test program can abort the child.
+/// macOS, where a fork in the multi-threaded test program can abort the child. Of the
+/// `SessionCommand` it starts from, it reads only the program, the words, the added entries and the
+/// folder.
 #[cfg(test)]
 pub(crate) struct StandInChild {
     /// The child's id.

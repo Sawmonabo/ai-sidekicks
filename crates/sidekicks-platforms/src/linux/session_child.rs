@@ -4,12 +4,11 @@
 use std::io;
 use std::process::Stdio;
 
-use nix::sys::signal::Signal;
 use nix::unistd::setsid;
 use tokio::process::{Child, ChildStdout, Command};
 
 use crate::posix::child_command::prepare_child_command;
-use crate::posix::process::group::signal_group;
+use crate::posix::process::group;
 use crate::session_child::SessionCommand;
 
 /// A started session child: its output and an end for its whole group. Dropped, it kills the
@@ -72,9 +71,6 @@ impl SessionChild {
         let Some(id) = self.child.id() else {
             return Ok(());
         };
-        tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
-            .await
-            .map_err(io::Error::other)?
-            .map(drop)
+        group::end_group(id).await
     }
 }
