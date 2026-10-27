@@ -20,7 +20,6 @@
 //!   every session is done the sessions they were linked to are scored again, and the
 //!   write-ahead log is truncated, tried again until it succeeds, even when nothing was deleted.
 
-pub(crate) mod checkpoint;
 pub(crate) mod rows;
 #[cfg(test)]
 pub(crate) mod tests;

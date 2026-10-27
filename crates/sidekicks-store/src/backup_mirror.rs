@@ -10,8 +10,6 @@
 //! renamed over its copy, so a copy whose size and time reached the disk holds its bytes too. Links
 //! are not followed and not copied.
 
-pub(crate) mod roots;
-
 use std::fs::{self, File};
 use std::io;
 use std::path::{Component, Path, PathBuf};

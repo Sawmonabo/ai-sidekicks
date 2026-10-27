@@ -163,6 +163,7 @@ sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-search = { workspace = true, features = ["index"] }
 sidekicks-std.workspace = true
+sidekicks-store.workspace = true
 sidekicks-terminal.workspace = true
 snow.workspace = true
 sse-stream.workspace = true

@@ -4,11 +4,13 @@
 
 pub(crate) mod checkpoint;
 pub mod connection;
+pub(crate) mod damage;
 pub mod schema;
 pub(crate) mod session_scope;
 pub(crate) mod sql_list;
 pub(crate) mod statement;
 pub(crate) mod stored_column;
+pub(crate) mod wal_truncation;
 pub mod writer;
 
 use std::ffi::OsString;

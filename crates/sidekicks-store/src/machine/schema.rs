@@ -2,7 +2,7 @@
 //! the daemon's first start and kept the same at every later start.
 
 /// This machine's tables.
-pub(super) const MACHINE_SCHEMA_SQL: &str = "
+pub(crate) const MACHINE_SCHEMA_SQL: &str = "
 -- ---------------------------------------------------------------------------
 -- This machine: its id and its owner's user id, both minted at the daemon's
 -- first start, and the friendly name read then. One row.

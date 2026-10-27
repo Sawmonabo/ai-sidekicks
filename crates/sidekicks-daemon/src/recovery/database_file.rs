@@ -1,15 +1,13 @@
-//! The database file's check, repair and copies: the start's check of the file, the damage found
-//! while the daemon has it open and the record of it the next start repairs from, the repair
-//! itself and the readying of the fresh file it recovers into, the record of how the last run on
-//! it ended, the newest backup a repair reads from, the daemon's SQLite shell that recovers a
-//! damaged file, the copies aside made before any repair, the copy every copy of a file runs in,
-//! the watch that stops a recovery whose shells have stalled, and the offline restore from a
-//! backup. Every child it starts is the daemon's own program in a mode, ended at once by a stop.
+//! The database file's check, repair and copies: the start's check of the file, the repair itself
+//! and the readying of the fresh file it recovers into, the record of how the last run on it ended,
+//! the newest backup a repair reads from, the daemon's SQLite shell that recovers a damaged file,
+//! the copies aside made before any repair, the copy every copy of a file runs in, the watch that
+//! stops a recovery whose shells have stalled, and the offline restore from a backup. Every child
+//! it starts is the daemon's own program in a mode, ended at once by a stop.
 
 pub mod aside_copy;
 pub mod check;
 pub mod copy;
-pub(crate) mod damage;
 pub mod fresh;
 pub mod last_run;
 pub(crate) mod newest_backup;

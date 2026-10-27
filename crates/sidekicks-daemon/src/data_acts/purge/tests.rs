@@ -20,7 +20,6 @@ use tempfile::TempDir;
 use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
 
-use super::checkpoint::WriteAheadLogTruncation;
 use super::rows::{PurgeCaller, SESSION_PURGE_STATEMENT_CAPACITY};
 use super::{SessionPurge, SessionPurgeDeps, SessionPurgeError, SessionPurgeOutcome};
 use crate::remote::shared_ports::schema::schema_parts;
@@ -47,6 +46,7 @@ use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
 use sidekicks_store::database::writer::test_file::{
     TestDatabase, session_event_row, test_envelope,
 };

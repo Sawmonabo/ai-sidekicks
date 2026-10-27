@@ -11,11 +11,8 @@ use std::sync::Arc;
 
 mod daemon_configuration;
 mod event_log;
-mod machine;
 mod provider_accounts;
-pub(crate) mod provider_drivers;
 pub(crate) mod recovery;
-pub(crate) mod runs;
 pub mod session_directory;
 
 /// The event log's table, by the name the schema creates it under and the reads that look for it
@@ -108,7 +105,10 @@ pub(crate) fn schema_parts() -> SchemaParts {
             "session_directory",
             session_directory::session_directory_schema_sql(),
         ))
-        .with_part(SchemaPart::new("machine", machine::MACHINE_SCHEMA_SQL))
+        .with_part(SchemaPart::new(
+            "machine",
+            crate::machine::schema::MACHINE_SCHEMA_SQL,
+        ))
         .with_part(SchemaPart::new(
             "daemon_configuration",
             daemon_configuration::daemon_configuration_schema_sql(),
