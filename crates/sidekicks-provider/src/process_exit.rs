@@ -6,7 +6,7 @@ use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAI
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode, ProcessExitWithSignal};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::ChildExit;
-use sidekicks_std::process_exit::OutputTail;
+use sidekicks_std::output_tail::OutputTail;
 
 /// The exit a process crosses the wire with: the name of the signal that ended it, or that the
 /// daemon asked, where there is one, else its exit code, with its output tail. `CAP` is at most
@@ -42,7 +42,7 @@ pub fn compose_process_exit<const CAP: usize>(
 mod tests {
     use sidekicks_contracts::run::control::ProcessExit;
     use sidekicks_platforms::ChildExit;
-    use sidekicks_std::process_exit::OutputTail;
+    use sidekicks_std::output_tail::OutputTail;
 
     use super::compose_process_exit;
 

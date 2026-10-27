@@ -5,7 +5,7 @@ use std::io;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::process_exit::OUTPUT_CHUNK_BYTES;
+use crate::output_tail::OUTPUT_CHUNK_BYTES;
 
 /// The last `kept_bytes` of `stream`, read to its end, decoded lossily once, starting on a whole
 /// character and trimmed of white space at either end. Fails with the read's error.

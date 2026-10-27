@@ -30,7 +30,7 @@ use sidekicks_provider::spawn_environment::{
     remove_environment_names,
 };
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
+use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 use tokio::io::AsyncRead;
 use tokio::process::Command;

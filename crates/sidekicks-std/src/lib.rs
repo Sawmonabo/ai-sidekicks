@@ -13,9 +13,9 @@ pub mod keyed_lock;
 pub mod keyed_wait;
 pub mod missing_entry;
 pub mod mutex_lock;
+pub mod output_tail;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pause_point;
-pub mod process_exit;
 pub mod processor_bound;
 pub mod random_hex;
 pub mod retry;

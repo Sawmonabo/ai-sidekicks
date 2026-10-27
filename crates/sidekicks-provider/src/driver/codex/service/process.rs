@@ -21,7 +21,7 @@ use sidekicks_platforms::{
     Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
     leave_daemon_scope, read_child_exit, spawn_lasting_child, wrap_child_command,
 };
-use sidekicks_std::process_exit::{OUTPUT_CHUNK_BYTES, OutputTail};
+use sidekicks_std::output_tail::{OUTPUT_CHUNK_BYTES, OutputTail};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
 use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};

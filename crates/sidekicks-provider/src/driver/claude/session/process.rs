@@ -26,7 +26,7 @@ use sidekicks_platforms::{
     ChildEnd, ChildExit, ProgramStart, Spawner, ask_child_to_stop, read_child_exit,
     wrap_child_command,
 };
-use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
+use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
 use tokio::process::Command;
 use tokio::sync::watch;

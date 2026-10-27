@@ -22,7 +22,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::process_exit::{OutputTail, read_output_chunks};
+use sidekicks_std::output_tail::{OutputTail, read_output_chunks};
 use tokio::io::AsyncRead;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;

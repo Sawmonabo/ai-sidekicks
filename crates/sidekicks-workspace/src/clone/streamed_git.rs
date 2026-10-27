@@ -14,7 +14,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{
     ChildEnd, ChildExit, ChildTree, ChildTreeOutputError, read_child_exit, read_stderr_left_at_exit,
 };
-use sidekicks_std::process_exit::OUTPUT_CHUNK_BYTES;
+use sidekicks_std::output_tail::OUTPUT_CHUNK_BYTES;
 use sidekicks_std::utf8_stream::Utf8StreamDecoder;
 use tokio::io::AsyncReadExt as _;
 use tokio::process::ChildStderr;

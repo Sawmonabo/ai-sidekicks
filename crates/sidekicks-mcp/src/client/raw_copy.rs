@@ -22,7 +22,7 @@ use rmcp::transport::async_rw::DEFAULT_MAX_LINE_LENGTH;
 use serde_json::Value;
 use sidekicks_provider::inbound_json::decode_inbound_json;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::process_exit::OUTPUT_CHUNK_BYTES;
+use sidekicks_std::output_tail::OUTPUT_CHUNK_BYTES;
 use tokio::io::{AsyncRead, ReadBuf};
 
 /// The method of the one request rmcp sends itself whose reply the client reads raw.
