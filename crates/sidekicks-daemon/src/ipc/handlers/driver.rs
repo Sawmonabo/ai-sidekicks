@@ -574,11 +574,11 @@ mod tests {
         }
     }
 
-    // One provider's failed read of its models, and of its modes, shows under its own heading as its
-    // failure while the other's still list, a typed command path with nothing runnable at it among the
-    // failures, and a provider that is not installed is left out of both. Killed by failing a whole
-    // list on one provider's failure, by listing a provider that is not installed, or by leaving out a
-    // typed path that does not run.
+    // One provider's failed read of its models, and of its modes, shows under its own heading as
+    // its failure while the other's still list, a typed command path with nothing runnable at it
+    // among the failures, and a provider that is not installed is left out of both. Killed by
+    // failing a whole list on one provider's failure, by listing a provider that is not installed,
+    // or by leaving out a typed path that does not run.
     #[rstest]
     #[case::fails(SecondRead::Fails)]
     #[case::not_installed(SecondRead::NotInstalled)]
@@ -638,9 +638,10 @@ mod tests {
         assert_eq!(modes.providers, expected_modes);
     }
 
-    // The session's own provider lists first, read against the session and its bound account, while
-    // every other provider reads its default account with no session, in the table's order. Killed by
-    // keeping the table's order, or by passing the session or the account to another provider.
+    // The session's own provider lists first, read against the session and its bound account,
+    // while every other provider reads its default account with no session, in the table's order.
+    // Killed by keeping the table's order, or by passing the session or the account to another
+    // provider.
     #[tokio::test]
     async fn the_sessions_own_provider_lists_first_on_its_own_account() {
         let reads: Arc<Mutex<Vec<(usize, ListModelsParams)>>> = Arc::default();
@@ -724,8 +725,8 @@ mod tests {
         );
     }
 
-    // An agent live on two bindings, the second's driver without the command list, is refused at the
-    // gate before any list is read. Killed by reading each binding as it is admitted.
+    // An agent live on two bindings, the second's driver without the command list, is refused at
+    // the gate before any list is read. Killed by reading each binding as it is admitted.
     #[tokio::test]
     async fn every_binding_is_admitted_before_any_command_list_is_read() {
         let mut first = MockProviderDriver::new();

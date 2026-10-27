@@ -3,7 +3,7 @@ name = "sidekicks-daemon"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The daemon's program at the top of its crates: the start, the jobs, every IPC handler, the data acts, the service log, highlighting, observability, Remote Control and the helper modes."
+description = "The daemon's program at the top of its crates."
 license.workspace = true
 publish.workspace = true
 
