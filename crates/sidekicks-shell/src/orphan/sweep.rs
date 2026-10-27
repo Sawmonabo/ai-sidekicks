@@ -140,14 +140,14 @@ mod tests {
     use std::process::Stdio;
 
     use sidekicks_platforms::{
-        ProcessRecord, pin_child_process, process_identity, wrap_session_child_command,
+        ProcessRecord, pin_child_process, process_identity, wrap_group_child_command,
     };
     use tokio::process::Command;
 
     use super::{OrphanSweepResult, sweep_orphans};
     use crate::orphan::registry::{OrphanRegistryEntry, OrphanRegistryLeftover};
 
-    /// A child that waits, leading a session of its own so its kill reaches nothing else.
+    /// A child that waits, leading a process group of its own so its kill reaches nothing else.
     const WAITING_CHILD_STAND_IN: &str = "orphan::sweep::tests::a_child_that_waits";
 
     #[test]
@@ -175,7 +175,7 @@ mod tests {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        let mut child = wrap_session_child_command(command, std::process::id())
+        let mut child = wrap_group_child_command(command, std::process::id())
             .spawn()
             .expect("the child starts");
         let child_id = child.id().expect("the child has an id");

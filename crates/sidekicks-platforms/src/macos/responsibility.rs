@@ -9,7 +9,7 @@
 //! Each is looked up once at run time, so a macOS without one refuses instead of failing to load
 //! the daemon.
 
-use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_short};
+use std::ffi::{CString, OsStr, OsString, c_char, c_int};
 use std::io;
 use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
@@ -17,6 +17,7 @@ use std::sync::OnceLock;
 use crate::ResponsibleProcess;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
 use crate::macos::pinned_process::pin_running_process;
+use crate::macos::posix_spawn::{SpawnAttributes, check_spawn_status, null_terminated};
 use crate::own_root::OwnRootError;
 use crate::posix::process::id::system_process_id;
 
@@ -171,8 +172,8 @@ fn clear_errno() {
 /// and every call found beforehand, so [`OwnRootStart::exec`] makes the one system call and is safe
 /// in a child forked from a process running other threads.
 pub(crate) struct OwnRootStart {
-    /// `POSIX_SPAWN_SETEXEC` with the disclaim attribute, destroyed when this drops.
-    attributes: libc::posix_spawnattr_t,
+    /// `POSIX_SPAWN_SETEXEC` with the disclaim attribute.
+    attributes: SpawnAttributes,
     /// The program's path.
     program: CString,
     /// The strings `argument_pointers` points into, kept alive with them.
@@ -195,36 +196,20 @@ impl OwnRootStart {
         environment: Vec<CString>,
     ) -> io::Result<Self> {
         let calls = responsibility_calls()?;
-        let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
-        // SAFETY: `attributes` is a live, writable attributes object for the call to set up.
-        let status = unsafe { libc::posix_spawnattr_init(&raw mut attributes) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
+        let mut attributes = SpawnAttributes::new()?;
+        attributes.set_flags(libc::POSIX_SPAWN_SETEXEC)?;
+        // SAFETY: the attributes were set up above and live across the call.
+        check_spawn_status(unsafe { (calls.disclaim)(attributes.as_mut_ptr(), 1) })?;
         let argument_pointers = null_terminated(&arguments);
         let environment_pointers = null_terminated(&environment);
-        // From here a failure drops the start, which destroys the attributes.
-        let mut start = Self {
+        Ok(Self {
             attributes,
             program,
             _arguments: arguments,
             argument_pointers,
             _environment: environment,
             environment_pointers,
-        };
-        let flags = c_short::try_from(libc::POSIX_SPAWN_SETEXEC)
-            .expect("the exec flag fits the flags' short");
-        // SAFETY: the attributes were set up above and live as long as `start`.
-        let status = unsafe { libc::posix_spawnattr_setflags(&raw mut start.attributes, flags) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
-        // SAFETY: the attributes were set up above and live as long as `start`.
-        let status = unsafe { (calls.disclaim)(&raw mut start.attributes, 1) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
-        Ok(start)
+        })
     }
 
     /// Replaces this process with the program, keeping its id, its descriptors not marked
@@ -239,30 +224,13 @@ impl OwnRootStart {
                 std::ptr::null_mut(),
                 self.program.as_ptr(),
                 std::ptr::null(),
-                &raw const self.attributes,
+                self.attributes.as_ptr(),
                 self.argument_pointers.as_ptr(),
                 self.environment_pointers.as_ptr(),
             )
         };
         io::Error::from_raw_os_error(status)
     }
-}
-
-impl Drop for OwnRootStart {
-    fn drop(&mut self) {
-        // SAFETY: the attributes were set up by `new` and are destroyed only here. The call frees
-        // memory and cannot fail on a set-up object.
-        unsafe { libc::posix_spawnattr_destroy(&raw mut self.attributes) };
-    }
-}
-
-/// Pointers to `strings`, followed by the `NULL` an exec's arrays end with.
-fn null_terminated(strings: &[CString]) -> Vec<*mut c_char> {
-    strings
-        .iter()
-        .map(|string| string.as_ptr().cast_mut())
-        .chain(std::iter::once(std::ptr::null_mut()))
-        .collect()
 }
 
 /// Makes this program its own responsible process: when it is not yet, and no other instance of

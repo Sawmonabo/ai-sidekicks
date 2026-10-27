@@ -1,8 +1,9 @@
 //! A tool server the daemon starts as a child and talks to over its standard input and output.
 //!
-//! - It starts on the daemon's spawner thread, leading a session of its own so a stop reaches
-//!   what it started too, armed to end with the daemon, in the environment a conversation's
-//!   commands get with the server's own values laid over it.
+//! - It starts on the daemon's spawner thread, leading a process group of its own so a stop
+//!   reaches what it started too, prepared as every child of the daemon is, in the environment a
+//!   conversation's commands get with the server's own values laid over it, its program found
+//!   along that environment's `PATH` when it is no absolute path.
 //! - Its error output goes to the service log line by line and into the bounded tail its exit
 //!   carries, so a server that dies at its start says why.
 //! - It closes as the protocol asks: its input closed, 2 s, `SIGTERM` to its group, 2 s, then a
@@ -20,7 +21,8 @@ use rmcp::transport::async_rw::AsyncRwTransport;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
-    ChildEnd, Spawner, ask_child_to_stop, read_child_exit, wrap_session_child_command,
+    ChildEnd, Spawner, ask_child_to_stop, find_executables, read_child_exit,
+    wrap_group_child_command,
 };
 use sidekicks_provider::process_exit::compose_process_exit;
 use sidekicks_provider::spawn_environment::{
@@ -60,7 +62,7 @@ pub(crate) type ProcessEnd = Result<ProcessExit, Arc<io::Error>>;
 /// A tool server the daemon starts as a child and talks to over its standard input and output.
 #[derive(Clone, Debug)]
 pub(crate) struct McpStdioServer {
-    /// The program.
+    /// The program: an absolute path, or a name or relative path found as a shell finds it.
     pub(crate) program: PathBuf,
     /// Its arguments.
     pub(crate) arguments: Vec<String>,
@@ -76,8 +78,9 @@ impl McpServerConnection {
     /// Starts `server` on `spawner`'s thread in the environment `environment` builds for a
     /// conversation's commands, with the server's own values over it, and opens a connection over
     /// its standard streams, its output teed into the raw copy. Fails when the environment cannot
-    /// be built, the process cannot start, or the server does not complete its start in time or
-    /// its first tools read; past the spawn, the error carries the process's exit.
+    /// be built, the process cannot start (`NotFound` for a program no search finds), or the
+    /// server does not complete its start in time or its first tools read; past the spawn, the
+    /// error carries the process's exit.
     #[cfg_attr(
         not(test),
         expect(
@@ -94,20 +97,23 @@ impl McpServerConnection {
     ) -> Result<Self, McpConnectionError> {
         let mut start = McpConnectionStart::stdio(server.startup_timeout, None);
         let environment = compose_server_environment(environment, &server.environment)?;
-        let mut command = Command::new(&server.program);
-        command
-            .args(&server.arguments)
-            .env_clear()
-            .envs(environment)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if let Some(working_folder) = &server.working_folder {
-            command.current_dir(working_folder);
-        }
         let daemon_pid = std::process::id();
         let mut child = spawner
-            .run(move || wrap_session_child_command(command, daemon_pid).spawn())
+            .run(move || {
+                let program = find_server_program(&server, &environment)?;
+                let mut command = Command::new(program);
+                command
+                    .args(&server.arguments)
+                    .env_clear()
+                    .envs(environment)
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped());
+                if let Some(working_folder) = &server.working_folder {
+                    command.current_dir(working_folder);
+                }
+                wrap_group_child_command(command, daemon_pid).spawn()
+            })
             .await
             .and_then(|spawned| spawned)
             .map_err(McpConnectionError::Start)?;
@@ -143,6 +149,41 @@ impl McpServerConnection {
 
 /// The server's environment: a conversation command's, with every value starting with `()` left
 /// out, as a shell exports a function, then the server's own values over it.
+// The server's program as an absolute path, so the start sets `PATH` and still runs through the
+// system's spawn rather than a fork: as configured when it is one, else the first absolute file a
+// shell's search finds for it along `environment`'s `PATH`, a path joined onto the server's folder
+// or the daemon's; a relative `PATH` entry is passed over, since it would name the daemon's folder.
+// Reads the file system, so it runs on the spawner's thread. Fails with `NotFound` when no search
+// finds it, `InvalidInput` for a program that is not text, and with the read of the daemon's
+// folder.
+fn find_server_program(
+    server: &McpStdioServer,
+    environment: &[(String, String)],
+) -> io::Result<PathBuf> {
+    if server.program.is_absolute() {
+        return Ok(server.program.clone());
+    }
+    let name = server.program.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "the tool server's program is not text",
+        )
+    })?;
+    let daemon_folder = std::env::current_dir()?;
+    let folder = match &server.working_folder {
+        Some(working_folder) => daemon_folder.join(working_folder),
+        None => daemon_folder,
+    };
+    find_executables(name, environment, &folder, &[])
+        .find(|candidate| candidate.is_absolute())
+        .ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("the tool server's program {name} names no executable file"),
+            )
+        })
+}
+
 fn compose_server_environment(
     request: &ProviderEnvironmentRequest<'_>,
     server_environment: &[(String, String)],
@@ -349,7 +390,7 @@ mod tests {
     use serde_json::json;
     use sidekicks_contracts::run::control::ProcessExit;
     use sidekicks_platforms::{
-        POSIX_SHELL, PathRules, Spawner, shell_line_command, wrap_session_child_command,
+        POSIX_SHELL, PathRules, Spawner, shell_line_command, wrap_group_child_command,
     };
     use sidekicks_provider::driver::PROVIDERS;
     use sidekicks_provider::spawn_environment::{
@@ -438,7 +479,7 @@ mod tests {
             .stderr(Stdio::null());
         let daemon_pid = std::process::id();
         let mut child = spawner
-            .run(move || wrap_session_child_command(command, daemon_pid).spawn())
+            .run(move || wrap_group_child_command(command, daemon_pid).spawn())
             .await
             .and_then(|spawned| spawned)
             .expect("the child starts");

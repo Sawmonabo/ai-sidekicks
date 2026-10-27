@@ -9,10 +9,11 @@
     reason = "the terminal's window size, queued-byte counts (`FIONREAD`, on Linux on the \
               program's side `TIOCGPTPEER` opens), signal request (`TIOCSIG`), console, console \
               input count (`GetNumberOfConsoleInputEvents`) and library-search calls, the shell \
-              start's signal and console-handler calls, the parent check a `Command` child runs in \
-              `pre_exec`, a lasting child's `setsid` and `prctl` in `pre_exec`, the stop of a \
-              pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, descendant list \
-              and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
+              start's signal and console-handler calls, the parent check a Linux `Command` child \
+              runs in `pre_exec`, a Linux lasting child's `setsid` and `prctl` in `pre_exec`, a \
+              lasting child's `posix_spawn` on macOS (its attributes, file actions and reap), the \
+              stop of a pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, \
+              descendant list and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
               `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
               lasting child's start on Windows (`CreateProcessW` with its attribute list, its \
               job's creation and access list, the handles it inherits and the wait for its exit), \
@@ -254,7 +255,8 @@ pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
-    prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_session_child_command,
+    prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
+    wrap_session_child_command,
 };
 #[cfg(unix)]
 pub use posix::command_wrapper::{
@@ -313,6 +315,8 @@ pub use posix::run_folder::{
 };
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
+#[cfg(target_os = "linux")]
+pub use posix::shell_start::arm_parent_death;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::shell_start::{
     DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, DOES_POSIX_SHELL_LACK_BUILTIN,
@@ -320,8 +324,7 @@ pub use posix::shell_start::{
 };
 #[cfg(unix)]
 pub use posix::shell_start::{
-    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, arm_parent_death, default_shell, prepare_shell_start,
-    start_program,
+    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
 pub use posix::terminal::inner::start_inner_terminal;
@@ -427,7 +430,8 @@ pub use windows::caller_process::{
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
-    prepare_child_command, wrap_child_command, wrap_session_child_command,
+    prepare_child_command, wrap_child_command, wrap_group_child_command,
+    wrap_session_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
