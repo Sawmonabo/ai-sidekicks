@@ -25,11 +25,7 @@ unsafe extern "C" {
 
 /// Runs SQLite's shell with `arguments`, its first the program's name.
 fn run_sqlite_shell(arguments: &[CString]) -> c_int {
-    let mut argv: Vec<*mut c_char> = arguments
-        .iter()
-        .map(|argument| argument.as_ptr().cast_mut())
-        .chain(std::iter::once(std::ptr::null_mut()))
-        .collect();
+    let mut argv = sidekicks_platforms::null_terminated_pointers(arguments);
     let argc = c_int::try_from(arguments.len()).expect("a program's arguments fit a C int");
     // SAFETY: `argv` holds `argc` pointers to NUL-terminated strings that outlive the call, then a
     // null, as C's `main` takes them; the shell may rewrite the array but writes through no string.

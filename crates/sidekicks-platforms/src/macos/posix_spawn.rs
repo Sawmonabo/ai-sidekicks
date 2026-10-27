@@ -1,9 +1,8 @@
 //! What macOS's `posix_spawn` takes, owned: its attributes and its file actions, each destroyed
-//! when dropped, and the `NULL`-terminated arrays its arguments and environment pass as; the start
-//! of a child leading a session of its own through it, which runs no fork handler in the child,
-//! and that child's reap, since no runtime reaps a child it did not spawn.
+//! when dropped; the start of a child leading a session of its own through it, which runs no fork
+//! handler in the child, and that child's reap, since no runtime reaps a child it did not spawn.
 
-use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_short};
+use std::ffi::{CString, OsStr, OsString, c_int, c_short};
 use std::io;
 use std::os::fd::{AsRawFd as _, BorrowedFd};
 use std::os::unix::ffi::OsStrExt as _;
@@ -15,6 +14,7 @@ use nix::errno::Errno;
 use nix::sys::signal::{SigSet, Signal, kill};
 use nix::unistd::Pid;
 
+use crate::c_string_array::null_terminated_pointers;
 use crate::macos::pinned_process::PinnedProcess;
 use crate::posix::null_device::NULL_DEVICE_PATH;
 use crate::posix::process::id::system_process_id;
@@ -102,16 +102,6 @@ pub(crate) fn check_spawn_status(status: c_int) -> io::Result<()> {
     } else {
         Err(io::Error::from_raw_os_error(status))
     }
-}
-
-/// Pointers to `strings`, followed by the `NULL` a spawn's arrays end with; valid as long as
-/// `strings` lives unchanged.
-pub(crate) fn null_terminated(strings: &[CString]) -> Vec<*mut c_char> {
-    strings
-        .iter()
-        .map(|string| string.as_ptr().cast_mut())
-        .chain(std::iter::once(std::ptr::null_mut()))
-        .collect()
 }
 
 /// Where one standard stream of a child [`spawn_session_leader`] starts reads or writes.
@@ -218,8 +208,8 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
         POSIX_SPAWN_SETSID | libc::POSIX_SPAWN_SETSIGDEF | libc::POSIX_SPAWN_CLOEXEC_DEFAULT,
     )?;
 
-    let argument_pointers = null_terminated(&arguments);
-    let environment_pointers = null_terminated(&environment);
+    let argument_pointers = null_terminated_pointers(&arguments);
+    let environment_pointers = null_terminated_pointers(&environment);
     let mut pid: libc::pid_t = 0;
     // SAFETY: the path and both arrays are NUL- and NULL-terminated and outlive the call, and the
     // file actions and the attributes were set up above. `posix_spawn`, never `posix_spawnp`,

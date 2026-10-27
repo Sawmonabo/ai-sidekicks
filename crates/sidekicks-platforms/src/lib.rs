@@ -60,6 +60,7 @@
 mod atomic_write;
 mod base_environment;
 mod bash_start;
+mod c_string_array;
 mod caller_process;
 mod child_command;
 mod child_tree;
@@ -128,6 +129,7 @@ pub use atomic_write::{
 };
 pub use base_environment::{BaseEnvironmentSource, base_environment_source};
 pub use bash_start::{BashStart, BashStartInput, start_bash};
+pub use c_string_array::null_terminated_pointers;
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
 #[cfg(unix)]

@@ -15,9 +15,10 @@ use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
+use crate::c_string_array::null_terminated_pointers;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
 use crate::macos::pinned_process::pin_running_process;
-use crate::macos::posix_spawn::{SpawnAttributes, check_spawn_status, null_terminated};
+use crate::macos::posix_spawn::{SpawnAttributes, check_spawn_status};
 use crate::own_root::OwnRootError;
 use crate::posix::process::id::system_process_id;
 
@@ -200,8 +201,8 @@ impl OwnRootStart {
         attributes.set_flags(libc::POSIX_SPAWN_SETEXEC)?;
         // SAFETY: the attributes were set up above and live across the call.
         check_spawn_status(unsafe { (calls.disclaim)(attributes.as_mut_ptr(), 1) })?;
-        let argument_pointers = null_terminated(&arguments);
-        let environment_pointers = null_terminated(&environment);
+        let argument_pointers = null_terminated_pointers(&arguments);
+        let environment_pointers = null_terminated_pointers(&environment);
         Ok(Self {
             attributes,
             program,
