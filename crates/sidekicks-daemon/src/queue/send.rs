@@ -18,6 +18,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::KeyHold;
 use crate::queue::admission::QueueAdmission;
@@ -33,7 +34,6 @@ use crate::queue::refusals::{
 use crate::queue::run_lifecycle::QueueRunLifecycle;
 use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
-    read_session_state_through,
 };
 use crate::session::changes::refuse_unchangeable_session;
 use crate::session::not_found::session_not_found;

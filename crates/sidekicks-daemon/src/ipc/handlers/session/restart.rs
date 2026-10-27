@@ -13,9 +13,10 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::{SessionRestart, SessionState, SessionTargetRequest};
+use sidekicks_contracts::session::methods::{SessionRestart, SessionTargetRequest};
 
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -25,8 +26,7 @@ use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use crate::queue::error::QueueError;
-use crate::queue::store::read_session_state_through;
-use crate::session::changes::session_already_closed;
+use crate::session::changes::refuse_unchangeable_session;
 use crate::session::not_found::session_not_found;
 
 /// The provider a session ran on, and its last binding rebuilt as the params of a resume.
@@ -89,10 +89,8 @@ async fn restart(
 ) -> Result<EmptyPayload, HandlerError> {
     let _hold = transition_lock.acquire(session_id).await;
     // The queue's opening reads the same state under the same lock.
-    if read_session_state_through::<QueueError>(pool, session_id).await?
-        == Some(SessionState::Closed)
-    {
-        return Err(session_already_closed(&session_id).into());
+    if let Some(state) = read_session_state_through::<QueueError>(pool, session_id).await? {
+        refuse_unchangeable_session(&session_id, state)?;
     }
     let Some(target) = read_target(session_id).await? else {
         return Err(session_not_found(&session_id).into());
@@ -347,12 +345,28 @@ mod tests {
         );
     }
 
-    // A restart asked for while a close holds the session's transition lock reads the session
-    // closed once the lock is let go, and is refused `session.alreadyClosed` before its driver is
-    // called. Killed by the handler no longer reading the session's state: the driver, which
-    // expects no restart, is then called.
+    // A restart asked for while a close or a purge mark holds the session's transition lock reads
+    // the session's state once the lock is let go, and is refused before its driver is called:
+    // `session.alreadyClosed` for a closed session, `session.changeRefused` for one being deleted.
+    // Killed by the handler no longer reading the session's state: the driver, which expects no
+    // restart, is then called.
+    #[rstest]
+    #[case::closed(
+        SessionState::Closed,
+        RefusalCode::SessionAlreadyClosed,
+        json!({ "sessionId": SESSION })
+    )]
+    #[case::being_deleted(
+        SessionState::PurgeRequested,
+        RefusalCode::SessionChangeRefused,
+        json!({ "sessionId": SESSION, "state": SessionState::PurgeRequested })
+    )]
     #[tokio::test]
-    async fn a_restart_waiting_out_a_close_is_refused_as_closed() {
+    async fn a_restart_waiting_out_a_close_or_a_purge_mark_is_refused(
+        #[case] state: SessionState,
+        #[case] code: RefusalCode,
+        #[case] fields: Value,
+    ) {
         let session_id = SessionId::new(SESSION).expect("the id is a UUID");
         let database = created_database();
         insert_session_row(&database.reader(), SESSION, None, None);
@@ -365,14 +379,14 @@ mod tests {
         let (answer, ()) = tokio::join!(
             restart(&registry, &read_target, &pool, &transition_lock, session_id,),
             async {
-                // The restart is waiting on the lock: the close writes its state, then lets go.
+                // The restart is waiting on the lock: the change writes its state, then lets go.
                 database
                     .reader()
                     .execute(
                         "UPDATE sessions SET state = ?1 WHERE id = ?2",
-                        [<&'static str>::from(SessionState::Closed), SESSION],
+                        [<&'static str>::from(state), SESSION],
                     )
-                    .expect("the close stores the closed state");
+                    .expect("the change stores the session's state");
                 drop(close_hold);
             },
         );
@@ -381,10 +395,11 @@ mod tests {
             Err(HandlerError::Refused(refusal)) => refusal,
             other => panic!("expected a refusal, got {:?}", other.err()),
         };
-        assert_eq!(refusal.code, RefusalCode::SessionAlreadyClosed);
+        assert_eq!(refusal.code, code, "{state:?}");
         assert_eq!(
             Value::Object(refusal.detail.expect("the refusal carries fields")),
-            json!({ "sessionId": SESSION })
+            fields,
+            "{state:?}"
         );
     }
 }

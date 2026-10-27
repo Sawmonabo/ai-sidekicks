@@ -70,7 +70,7 @@ pub(crate) type CommitRead = Box<dyn FnMut(&Connection) -> rusqlite::Result<()> 
 /// it through a `Weak`: an `Arc` would keep the writer open once every other handle dropped.
 pub(crate) type WriteFailureListener = Box<dyn Fn(&(dyn Error + 'static)) + Send + Sync>;
 
-/// What every call of [`DatabaseWriter::close`] answers: the number of writes the close left
+/// What every call of `DatabaseWriter::close` answers: the number of writes the close left
 /// unfinished, or why the connection or its thread did not end cleanly.
 pub(crate) type CloseOutcome =
     Result<usize, Arc<CleanupFailures<WriterCloseError, ThreadJoinError>>>;
@@ -247,7 +247,7 @@ impl Future for PendingWrite {
 }
 
 /// The daemon's one way to write its database. Open it with [`DatabaseWriter::open`]; share it as
-/// an `Arc`. Dropping every handle without a close closes it as [`DatabaseWriter::close`] does
+/// an `Arc`. Dropping every handle without a close closes it as `DatabaseWriter::close` does
 /// with no bound.
 pub struct DatabaseWriter {
     messages: mpsc::UnboundedSender<QueueMessage>,

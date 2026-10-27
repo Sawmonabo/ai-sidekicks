@@ -27,6 +27,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
@@ -45,7 +46,6 @@ use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
     RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
 };
-use crate::queue::store::read_session_state_through;
 use crate::session::console_state::read_session_mode;
 use crate::session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
@@ -157,6 +157,12 @@ pub(crate) enum ProviderSessionError {
     /// The session closed, so no process opens for it.
     #[error("session {session_id} is closed")]
     Closed {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// The session is being deleted, so no process opens for it.
+    #[error("session {session_id} is being deleted")]
+    BeingDeleted {
         /// The session.
         session_id: SessionId,
     },
@@ -274,13 +280,17 @@ impl ProviderSessions {
     /// is moved first, through its driver, so the record never names a level the provider refused;
     /// a store that fails then moves it back and fails. A process not open yet opens at the stored
     /// level. Fails as the driver's move fails, with nothing changed.
-    #[expect(dead_code, reason = "the session controls' level move")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the session controls' level move")
+    )]
     pub(crate) async fn change_level(
         &self,
         session_id: SessionId,
         level: PermissionLevel,
     ) -> Result<(), ProviderSessionError> {
         let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
         let stored = self
             .deps
             .pool
@@ -329,7 +339,7 @@ impl ProviderSessions {
 
     /// Opens the session's provider session for `run_id`, its first admitted run, when this process
     /// has not opened it: resumed from the session's newest conversation where it has one, else
-    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] for
+    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
     /// a closed session, with nothing spawned, with [`ProviderSessionError::ResumeRefused`] for a
     /// resume the provider refused, and as the composition, the driver or a binding's write fails,
     /// with no binding left for a create that failed.
@@ -341,11 +351,7 @@ impl ProviderSessions {
         let hold = self.deps.transition_lock.acquire(session_id).await;
         // Read under the lock, so a close that ran first has written `session.closed`, and before
         // the opened entry, which that event's listener drops only later.
-        let state =
-            read_session_state_through::<ProviderSessionError>(&self.deps.pool, session_id).await?;
-        if state == Some(SessionState::Closed) {
-            return Err(ProviderSessionError::Closed { session_id });
-        }
+        self.refuse_ended(session_id).await?;
         if self.lock_opened().contains_key(&session_id) {
             return Ok(());
         }
@@ -366,7 +372,23 @@ impl ProviderSessions {
         session_id: SessionId,
     ) -> Result<RuntimeBindingId, ProviderSessionError> {
         let hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
         self.bind_run(&hold, run_id).await
+    }
+
+    // Refuses, under the session's hold, a session that takes no process, binding or level: a
+    // closed one, or one being deleted.
+    async fn refuse_ended(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
+        match read_session_state_through::<ProviderSessionError>(&self.deps.pool, session_id)
+            .await?
+        {
+            Some(SessionState::Closed) => Err(ProviderSessionError::Closed { session_id }),
+            Some(SessionState::PurgeRequested) => {
+                Err(ProviderSessionError::BeingDeleted { session_id })
+            }
+            Some(SessionState::Provisioning | SessionState::Active | SessionState::Archived)
+            | None => Ok(()),
+        }
     }
 
     /// Forgets a closed session's provider session, whose process its close ended.

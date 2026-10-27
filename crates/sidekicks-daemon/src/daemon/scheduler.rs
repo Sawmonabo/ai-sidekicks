@@ -87,7 +87,7 @@ pub(crate) struct ScheduledJobHandle {
 }
 
 /// The daemon's one scheduler and its wake signal: jobs run one at a time in the order they fall
-/// due, and a job scheduled after [`Scheduler::stop`] is refused.
+/// due, and a job scheduled after `Scheduler::stop` is refused.
 pub struct Scheduler {
     shared: Arc<SchedulerShared>,
     task: Mutex<Option<JoinHandle<()>>>,

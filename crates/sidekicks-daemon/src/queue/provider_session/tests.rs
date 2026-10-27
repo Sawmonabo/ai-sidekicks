@@ -9,7 +9,9 @@ use futures::FutureExt as _;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -307,4 +309,66 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
         0,
         "no process comes up for the closed session"
     );
+}
+
+// A closed session and one being deleted take no process, no run binding and no level change:
+// each is refused under the session's hold and no process comes up. Killed by any of the three
+// paths no longer reading the session's state.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
+    for state in [SessionState::Closed, SessionState::PurgeRequested] {
+        let resumes = Arc::new(AtomicUsize::new(0));
+        let opening = Opening::new(
+            Box::new({
+                let resumes = Arc::clone(&resumes);
+                move || {
+                    resumes.fetch_add(1, Ordering::SeqCst);
+                }
+            }),
+            Box::new(|| {}),
+        )
+        .await;
+        let session_id = opening.session_id;
+        let run_id = opening.run_id;
+        opening
+            .database
+            .reader()
+            .execute(
+                "UPDATE sessions SET state = ?1 WHERE id = ?2",
+                [<&'static str>::from(state), session_id.text().as_str()],
+            )
+            .expect("the session's state is stored");
+        let refused = |answer: &ProviderSessionError| match state {
+            SessionState::Closed => {
+                matches!(answer, ProviderSessionError::Closed { session_id: refused } if *refused == session_id)
+            }
+            SessionState::PurgeRequested => {
+                matches!(answer, ProviderSessionError::BeingDeleted { session_id: refused } if *refused == session_id)
+            }
+            SessionState::Provisioning | SessionState::Active | SessionState::Archived => false,
+        };
+        let opened = opening.sessions.open(session_id, run_id).await;
+        assert!(
+            opened.as_ref().is_err_and(refused),
+            "the open is refused for the {state:?} session: {opened:?}"
+        );
+        let bound = opening.sessions.open_run_binding(run_id, session_id).await;
+        assert!(
+            bound.as_ref().is_err_and(refused),
+            "the binding is refused for the {state:?} session: {bound:?}"
+        );
+        let changed = opening
+            .sessions
+            .change_level(session_id, PermissionLevel::Readonly)
+            .await;
+        assert!(
+            changed.as_ref().is_err_and(refused),
+            "the level change is refused for the {state:?} session: {changed:?}"
+        );
+        assert_eq!(
+            resumes.load(Ordering::SeqCst),
+            0,
+            "no process comes up for the {state:?} session"
+        );
+    }
 }

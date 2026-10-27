@@ -26,14 +26,12 @@ use sidekicks_contracts::run::queue::{
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
@@ -429,8 +427,6 @@ pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|
     )
 });
 
-const SELECT_SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = ?";
-
 /// The statement that inserts `item` as `queued`; refused when its key was already spent.
 pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement {
     let payload =
@@ -602,21 +598,6 @@ pub(crate) fn take_over_interrupted_statement(
     }
 }
 
-/// The session's state as it reads through `pool` now, or `None` for a session the daemon has no
-/// row for. Fails as [`QueueItemReader::read_session_state`] does, and as the pool does.
-pub(crate) async fn read_session_state_through<Failure>(
-    pool: &DatabaseReadPool,
-    session_id: SessionId,
-) -> Result<Option<SessionState>, Failure>
-where
-    Failure: From<DatabaseReadError> + From<rusqlite::Error> + Send + 'static,
-{
-    pool.read(ReadLength::Short, move |reader| -> Result<_, Failure> {
-        Ok(QueueItemReader::new(reader).read_session_state(&session_id)?)
-    })
-    .await
-}
-
 /// Reads queue rows on the daemon's read-only connection. A stored value that does not read as its
 /// type fails the read with `rusqlite::Error::FromSqlConversionFailure`, keeping why.
 pub(crate) struct QueueItemReader<'reader> {
@@ -710,19 +691,6 @@ impl<'reader> QueueItemReader<'reader> {
                     run_id: text_column(row, 0, |text| RunId::new(&text))?,
                     state: text_column(row, 1, closed_word)?,
                 })
-            })
-            .optional()
-    }
-
-    /// The session's state, or `None` for a session the daemon has no row for.
-    pub(crate) fn read_session_state(
-        &self,
-        session_id: &SessionId,
-    ) -> rusqlite::Result<Option<SessionState>> {
-        self.reader
-            .prepare_cached(SELECT_SESSION_STATE_SQL)?
-            .query_row([session_id.text().as_str()], |row| {
-                text_column(row, 0, closed_word)
             })
             .optional()
     }

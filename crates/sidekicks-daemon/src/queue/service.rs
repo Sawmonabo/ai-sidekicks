@@ -32,6 +32,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::admission::memory_gate::MemoryGate;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
@@ -61,7 +62,6 @@ use crate::queue::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 use crate::queue::store::summary::summary_of;
 use crate::queue::store::{
     QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
-    read_session_state_through,
 };
 use crate::session::changes::refuse_unchangeable_session;
 use crate::session::run::engine::RunEngine;

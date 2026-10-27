@@ -216,6 +216,7 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                     | ProviderSessionError::ResumeRefused { .. }
                     | ProviderSessionError::NotResumable(_)
                     | ProviderSessionError::Closed { .. }
+                    | ProviderSessionError::BeingDeleted { .. }
                     | ProviderSessionError::CreateLeftBinding { .. }
                     | ProviderSessionError::BindingGone { .. }
                     | ProviderSessionError::Cursor(_)

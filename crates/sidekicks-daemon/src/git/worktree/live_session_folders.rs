@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use notify::{RecommendedWatcher, Watcher};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -27,7 +27,8 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{closed_word, text_column};
+use crate::database::schema::session_directory::read_session_state;
+use crate::database::stored_column::text_column;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::file::real_location::resolve_real_path;
 use crate::git::process::GitRunner;
@@ -58,8 +59,6 @@ const SYNCING_EVENT_TYPES: [SessionEventType; 8] = [
     SessionEventType::WorkspaceArchived,
     SessionEventType::SessionSweptToCheckout,
 ];
-
-const SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = ?";
 
 const SESSIONS_IN_STATE_SQL: &str = "SELECT id FROM sessions WHERE state = ? ORDER BY id";
 
@@ -350,12 +349,7 @@ fn read_live_folder(
     connection: &Connection,
     session_id: &SessionId,
 ) -> Result<Option<LiveFolder>, LiveFolderError> {
-    let state: Option<SessionState> = connection
-        .prepare_cached(SESSION_STATE_SQL)?
-        .query_row([session_id.text().as_str()], |row| {
-            text_column(row, 0, closed_word)
-        })
-        .optional()?;
+    let state = read_session_state(connection, session_id)?;
     if state != Some(SessionState::Active) {
         return Ok(None);
     }

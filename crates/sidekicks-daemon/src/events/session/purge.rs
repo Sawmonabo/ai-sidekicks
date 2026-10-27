@@ -49,6 +49,7 @@ use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
 use crate::artifacts::payload_store::PayloadStore;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state;
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::events::log_service::{EventAppendError, EventLogAppendOptions, EventLogService};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
@@ -59,7 +60,7 @@ use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 use crate::events::session::purge::rows::{
     MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
     mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
-    read_session_state, session_deletion_statements,
+    session_deletion_statements,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
@@ -373,7 +374,7 @@ impl SessionPurge {
                     .deps
                     .reads
                     .read(ReadLength::Short, move |connection| {
-                        read_session_state(connection, session_id).map_err(|error| {
+                        read_session_state(connection, &session_id).map_err(|error| {
                             SessionPurgeError::Read(PurgeReadError::Database(error))
                         })
                     })
