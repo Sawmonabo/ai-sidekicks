@@ -46,7 +46,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
 };
 use sidekicks_std::text_cut::cut_to_code_points;
 use tokio_util::sync::CancellationToken;
@@ -80,11 +80,18 @@ const SERVICE_PROCESS_TYPE: &str = "service";
 // service's, takes the version the pass is given.
 const APP_VERSION_ANNOTATION: &str = "_version";
 
+// What a crash pass counts its work in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CrashReportWorkUnit {
+    // Bytes of the crash dump a report was built from.
+    DumpBytes,
+}
+
 // A build's processor time: under 2 s per 64 MiB of dump.
-const CRASH_REPORT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+const CRASH_REPORT_BUDGET: JobBudget<CrashReportWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_secs(2),
     per: 64 * 1024 * 1024,
-    unit: WorkUnit::DumpBytes,
+    unit: CrashReportWorkUnit::DumpBytes,
 }]);
 
 // The hex digits of a hashed id a report keeps.
@@ -162,7 +169,7 @@ async fn run_crash_report_pass(
     deps: &CrashReportDeps,
     stop: &CancellationToken,
     meter: &ProcessorMeter,
-) -> MeteredJobOutcome {
+) -> MeteredJobOutcome<CrashReportWorkUnit> {
     let pass = build_crash_reports(deps, stop, meter).await?;
     if let Some(failures) = &pass.removal_failures {
         tracing::warn!(
@@ -178,7 +185,10 @@ async fn run_crash_report_pass(
         failed = pass.failed,
         "the crash dumps were built into reports"
     );
-    Ok(Some(JobWorkload::of(WorkUnit::DumpBytes, pass.dump_bytes)))
+    Ok(Some(JobWorkload::of(
+        CrashReportWorkUnit::DumpBytes,
+        pass.dump_bytes,
+    )))
 }
 
 /// One pass over the crash dumps folder, as the module's doc says, its blocking work charged to

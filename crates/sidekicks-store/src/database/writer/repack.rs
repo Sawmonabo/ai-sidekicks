@@ -21,13 +21,14 @@ use rusqlite::Connection;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, metered_job,
 };
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::wal_truncation::WriteAheadLogTruncation;
+use crate::database::writer::jobs::StoreWorkUnit;
 use crate::database::writer::thread::checkpoint;
 use crate::database::writer::{DatabaseWriter, MaintenanceError, is_interrupt};
 
@@ -170,7 +171,7 @@ pub struct RepackJobDeps {
     /// The count of live runs; one going live cancels the repack.
     pub live_runs: watch::Receiver<u32>,
     /// The processor budget each repack is metered against.
-    pub budget: JobBudget,
+    pub budget: JobBudget<StoreWorkUnit>,
 }
 
 /// The repack job a purge schedules, metered against its deps' budget: skipped with one
@@ -190,7 +191,7 @@ async fn run_repack(
     deps: Arc<RepackJobDeps>,
     stop: CancellationToken,
     meter: ProcessorMeter,
-) -> MeteredJobOutcome {
+) -> MeteredJobOutcome<StoreWorkUnit> {
     if !has_room_to_repack(&deps, &meter).await {
         return Ok(None);
     }
@@ -229,7 +230,10 @@ async fn run_repack(
                 "the database was repacked"
             );
             let store_bytes = u64::try_from(report.before.size_bytes()).unwrap_or(0);
-            Ok(Some(JobWorkload::of(WorkUnit::StoreBytes, store_bytes)))
+            Ok(Some(JobWorkload::of(
+                StoreWorkUnit::StoreBytes,
+                store_bytes,
+            )))
         }
         Err(MaintenanceError::Failed(failure)) => {
             tracing::warn!(

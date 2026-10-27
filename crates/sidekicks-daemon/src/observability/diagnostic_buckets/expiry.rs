@@ -29,7 +29,7 @@ use sidekicks_provider::service_log::{
 use sidekicks_std::missing_entry::{MissingEntry, is_gone};
 use sidekicks_std::scheduler::ScheduledJobOutcome;
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
 };
 use sidekicks_store::data_folder::service_log_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -48,23 +48,34 @@ pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours
 
 const DAY: Duration = Duration::from_hours(24);
 
+// What an expiry pass counts its work in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticExpiryWorkUnit {
+    // Entries the expiry examined.
+    EntriesExamined,
+    // Files the expiry deleted.
+    FilesDeleted,
+    // Rows a provider's own diagnostic store deleted for the expiry.
+    RowsDeleted,
+}
+
 // A pass's processor time: under 1 ms per entry examined, 5 ms per file deleted and 20 µs per row
 // a provider's own diagnostic store deleted.
-const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget = JobBudget::new(&[
+const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget<DiagnosticExpiryWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(1),
         per: 1,
-        unit: WorkUnit::EntriesExamined,
+        unit: DiagnosticExpiryWorkUnit::EntriesExamined,
     },
     BudgetTerm {
         figure: Duration::from_millis(5),
         per: 1,
-        unit: WorkUnit::FilesDeleted,
+        unit: DiagnosticExpiryWorkUnit::FilesDeleted,
     },
     BudgetTerm {
         figure: Duration::from_micros(20),
         per: 1,
-        unit: WorkUnit::RowsDeleted,
+        unit: DiagnosticExpiryWorkUnit::RowsDeleted,
     },
 ]);
 
@@ -124,7 +135,10 @@ pub(crate) fn diagnostic_expiry_job(
 
 // One pass: every deletion runs on one blocking thread, metered, and only the cut of a running
 // provider service's log runs after it.
-async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> MeteredJobOutcome {
+async fn run_expiry(
+    deps: Arc<DiagnosticExpiryDeps>,
+    meter: ProcessorMeter,
+) -> MeteredJobOutcome<DiagnosticExpiryWorkUnit> {
     let days = deps
         .configuration
         .current()
@@ -227,9 +241,9 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
             );
         }
     }
-    let mut workload = JobWorkload::of(WorkUnit::EntriesExamined, count.examined);
-    workload.add(WorkUnit::FilesDeleted, count.deleted);
-    workload.add(WorkUnit::RowsDeleted, count.rows_deleted);
+    let mut workload = JobWorkload::of(DiagnosticExpiryWorkUnit::EntriesExamined, count.examined);
+    workload.add(DiagnosticExpiryWorkUnit::FilesDeleted, count.deleted);
+    workload.add(DiagnosticExpiryWorkUnit::RowsDeleted, count.rows_deleted);
     Ok(Some(workload))
 }
 

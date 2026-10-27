@@ -1,10 +1,12 @@
 //! A job's processor budget and its meter. Each job registers a figure per unit of the work a run
-//! reports, and a run is measured on its own threads only, never the whole process: each poll of
-//! its async work, each blocking closure and read from entry to exit, and the writer thread's time
-//! around the job's own statements, which comes back in the thread's answer. A run over its budget
-//! is written to the service log as a warning, one within it as a line of its own.
+//! reports, in units the job declares, and a run is measured on its own threads only, never the
+//! whole process: each poll of its async work, each blocking closure and read from entry to exit,
+//! and the time of the caller's thread that runs the job's own statements, which comes back in that
+//! thread's answer. A run over its budget is written to the service log as a warning, one within it
+//! as a line of its own.
 
 use std::error::Error;
+use std::fmt::Debug;
 use std::future::Future;
 use std::io;
 use std::mem;
@@ -22,48 +24,28 @@ use tokio_util::sync::CancellationToken;
 use crate::mutex_lock::lock;
 use crate::scheduler::ScheduledJobOutcome;
 
-/// What a job's work is counted in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum WorkUnit {
-    /// Bytes of the store a run copied or repacked.
-    StoreBytes,
-    /// Bytes of write-ahead log a checkpoint moved into the store.
-    CheckpointedLogBytes,
-    /// Entries an expiry examined.
-    EntriesExamined,
-    /// Files an expiry deleted.
-    FilesDeleted,
-    /// Artifacts the ingest reaper or the orphan sweep examined.
-    ArtifactsExamined,
-    /// Bytes of the crash dump a report was built from.
-    DumpBytes,
-    /// Rows a provider's own diagnostic store deleted for an expiry.
-    RowsDeleted,
-    /// Runs of the job, one each, for the fixed work every run does.
-    Runs,
-}
-
-/// One term of a budget: `figure` of processor time per `per` units of `unit`.
+/// One term of a budget: `figure` of processor time per `per` units of `unit`, one of the units
+/// the job declares.
 #[derive(Clone, Copy, Debug)]
-pub struct BudgetTerm {
+pub struct BudgetTerm<Unit> {
     /// The processor time allowed per `per` units.
     pub figure: Duration,
     /// The units the figure covers.
     pub per: u64,
     /// What the units count.
-    pub unit: WorkUnit,
+    pub unit: Unit,
 }
 
 /// A job's processor budget: a run may spend the sum of its terms over the work it reports.
 #[derive(Clone, Copy, Debug)]
-pub struct JobBudget {
-    terms: &'static [BudgetTerm],
+pub struct JobBudget<Unit: 'static> {
+    terms: &'static [BudgetTerm<Unit>],
 }
 
-impl JobBudget {
+impl<Unit: Copy + Eq> JobBudget<Unit> {
     /// The budget summing `terms`; a term covering no units fails the build, since every budget is
     /// a constant.
-    pub const fn new(terms: &'static [BudgetTerm]) -> Self {
+    pub const fn new(terms: &'static [BudgetTerm<Unit>]) -> Self {
         let mut index = 0;
         while index < terms.len() {
             assert!(
@@ -76,7 +58,7 @@ impl JobBudget {
     }
 
     /// The processor time a run that did `workload` may spend.
-    pub(crate) fn allowance(self, workload: &JobWorkload) -> Duration {
+    pub(crate) fn allowance(self, workload: &JobWorkload<Unit>) -> Duration {
         let nanoseconds: u128 = self
             .terms
             .iter()
@@ -90,25 +72,25 @@ impl JobBudget {
 }
 
 /// What one run did, in its budget's units; a unit not reported counts none.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct JobWorkload {
-    counts: Vec<(WorkUnit, u64)>,
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JobWorkload<Unit> {
+    counts: Vec<(Unit, u64)>,
 }
 
-impl JobWorkload {
+impl<Unit: Copy + Eq> JobWorkload<Unit> {
     /// The workload of `count` units of `unit`.
-    pub fn of(unit: WorkUnit, count: u64) -> Self {
+    pub fn of(unit: Unit, count: u64) -> Self {
         Self {
             counts: vec![(unit, count)],
         }
     }
 
     /// Adds `count` units of `unit`.
-    pub fn add(&mut self, unit: WorkUnit, count: u64) {
+    pub fn add(&mut self, unit: Unit, count: u64) {
         self.counts.push((unit, count));
     }
 
-    fn count(&self, unit: WorkUnit) -> u64 {
+    fn count(&self, unit: Unit) -> u64 {
         self.counts
             .iter()
             .filter(|(counted, _)| *counted == unit)
@@ -152,7 +134,7 @@ pub struct SpentTime {
     pub readings: u64,
 }
 
-/// What the writer's thread answers for the job's work it ran: the work's report, and its own
+/// What the caller's thread answers for the job's work it ran: the work's report, and its own
 /// processor time around the job's statements.
 #[derive(Debug)]
 pub struct Measured<Report> {
@@ -211,21 +193,22 @@ impl ProcessorMeter {
 
 /// What a metered run ends with: the work it did in its budget's units, `None` when it did none,
 /// as a run its condition skipped.
-pub type MeteredJobOutcome = Result<Option<JobWorkload>, Box<dyn Error + Send + Sync>>;
+pub type MeteredJobOutcome<Unit> = Result<Option<JobWorkload<Unit>>, Box<dyn Error + Send + Sync>>;
 
 /// A job's work as a metered job takes it: given the scheduler's stop and the run's meter, which
-/// its blocking work and the writer's answers add to.
-pub(crate) type MeteredRun = Box<
-    dyn FnMut(CancellationToken, ProcessorMeter) -> BoxFuture<'static, MeteredJobOutcome> + Send,
+/// its blocking work and the answers of the caller's threads add to.
+pub(crate) type MeteredRun<Unit> = Box<
+    dyn FnMut(CancellationToken, ProcessorMeter) -> BoxFuture<'static, MeteredJobOutcome<Unit>>
+        + Send,
 >;
 
 /// The job the scheduler runs for `run` under `budget`: each run is metered on its own threads,
 /// each poll of its future measured on the thread that polls it, and its time is written to the
 /// service log beside its budget, as a warning when it went over; a run over its budget is not
 /// stopped.
-pub fn metered_job(
-    budget: JobBudget,
-    mut run: MeteredRun,
+pub fn metered_job<Unit: Copy + Eq + Debug + Send + Sync + 'static>(
+    budget: JobBudget<Unit>,
+    mut run: MeteredRun<Unit>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     move |stop| {
         let meter = ProcessorMeter::default();
@@ -245,13 +228,13 @@ pub fn metered_job(
 
 // A run's future, each poll measured on the thread that runs it: one poll runs one task on one
 // thread, so the difference is that task's processor time alone.
-struct MeteredPolls {
-    future: BoxFuture<'static, MeteredJobOutcome>,
+struct MeteredPolls<Unit> {
+    future: BoxFuture<'static, MeteredJobOutcome<Unit>>,
     meter: ProcessorMeter,
 }
 
-impl Future for MeteredPolls {
-    type Output = MeteredJobOutcome;
+impl<Unit> Future for MeteredPolls<Unit> {
+    type Output = MeteredJobOutcome<Unit>;
 
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         let mut time = ThreadProcessorTime::default();
@@ -262,9 +245,9 @@ impl Future for MeteredPolls {
 }
 
 // Writes a run's processor time beside its budget for `workload`.
-fn log_processor_time(
-    budget: JobBudget,
-    workload: &JobWorkload,
+fn log_processor_time<Unit: Copy + Eq + Debug>(
+    budget: JobBudget<Unit>,
+    workload: &JobWorkload<Unit>,
     spent: Result<SpentTime, io::Error>,
 ) {
     let allowed = budget.allowance(workload);
@@ -296,33 +279,40 @@ mod tests {
     use std::hint::black_box;
     use std::time::Duration;
 
-    use super::{BudgetTerm, JobBudget, JobWorkload, ProcessorMeter, WorkUnit};
+    use super::{BudgetTerm, JobBudget, JobWorkload, ProcessorMeter};
 
     const MIB: u64 = 1024 * 1024;
+
+    // Two units a test budget counts in.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum TestUnit {
+        Bytes,
+        LogBytes,
+    }
 
     // A budget sums each term over the units the run reports, a unit not reported counting none.
     // Killed by a term read against the wrong unit and by a figure not scaled by its count.
     #[test]
     fn a_budget_sums_each_term_over_its_own_unit() {
-        const TERMS: &[BudgetTerm] = &[
+        const TERMS: &[BudgetTerm<TestUnit>] = &[
             BudgetTerm {
                 figure: Duration::from_secs(1),
                 per: 256 * MIB,
-                unit: WorkUnit::StoreBytes,
+                unit: TestUnit::Bytes,
             },
             BudgetTerm {
                 figure: Duration::from_millis(250),
                 per: 64 * MIB,
-                unit: WorkUnit::CheckpointedLogBytes,
+                unit: TestUnit::LogBytes,
             },
         ];
         let budget = JobBudget::new(TERMS);
         assert_eq!(
-            budget.allowance(&JobWorkload::of(WorkUnit::StoreBytes, 512 * MIB)),
+            budget.allowance(&JobWorkload::of(TestUnit::Bytes, 512 * MIB)),
             Duration::from_secs(2)
         );
         assert_eq!(
-            budget.allowance(&JobWorkload::of(WorkUnit::CheckpointedLogBytes, 32 * MIB)),
+            budget.allowance(&JobWorkload::of(TestUnit::LogBytes, 32 * MIB)),
             Duration::from_millis(125)
         );
     }

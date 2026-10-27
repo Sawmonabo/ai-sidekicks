@@ -7,7 +7,7 @@ use std::time::Duration;
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
-use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, WorkUnit};
+use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget};
 use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
@@ -15,16 +15,17 @@ use super::{RepackEnd, RepackJobDeps, read_pages, repack, repack_job};
 use crate::database::connection::writer_open::open_database;
 use crate::database::schema::schema_parts;
 use crate::database::wal_truncation::WriteAheadLogTruncation;
+use crate::database::writer::jobs::StoreWorkUnit;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 const WAIT: Duration = Duration::from_secs(10);
 
 // A budget the tests' repacks are metered against; no test reads what it allows.
-const TEST_REPACK_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+const TEST_REPACK_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_secs(1),
     per: 256 * 1024 * 1024,
-    unit: WorkUnit::StoreBytes,
+    unit: StoreWorkUnit::StoreBytes,
 }]);
 
 // A store holding free pages and live rows, the later half of a filler table deleted, so a `VACUUM`

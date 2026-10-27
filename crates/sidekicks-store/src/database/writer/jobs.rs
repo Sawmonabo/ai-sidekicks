@@ -1,6 +1,6 @@
 //! The writer's scheduled maintenance: the passive WAL checkpoint every five minutes, and the
 //! daily optimize a long-lived connection runs to keep the query planner's statistics current.
-//! Each run is metered against its processor budget.
+//! Each run is metered against its processor budget, in the units the store's jobs count.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -8,22 +8,31 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_std::scheduler::ScheduledJobOutcome;
-use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, Measured, WorkUnit, metered_job,
-};
+use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, JobWorkload, Measured, metered_job};
 use tokio_util::sync::CancellationToken;
 
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::writer::{DatabaseWriter, MaintenanceError};
 
+/// What the store's jobs count their work in, the writer's maintenance and the copies of the store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreWorkUnit {
+    /// Bytes of the store a run copied or repacked.
+    StoreBytes,
+    /// Bytes of write-ahead log a checkpoint moved into the store.
+    CheckpointedLogBytes,
+    /// Runs of the job, one each, for the fixed work every run does.
+    Runs,
+}
+
 /// How often the passive WAL checkpoint job runs on the scheduler.
 pub const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);
 
 /// The passive checkpoint's processor budget: 250 ms per 64 MiB of log it moves into the store.
-const PASSIVE_CHECKPOINT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+const PASSIVE_CHECKPOINT_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_millis(250),
     per: 64 * 1024 * 1024,
-    unit: WorkUnit::CheckpointedLogBytes,
+    unit: StoreWorkUnit::CheckpointedLogBytes,
 }]);
 
 /// How often the writer runs `PRAGMA optimize`: once a day, as SQLite advises for a long-lived
@@ -35,10 +44,10 @@ pub const OPTIMIZE_INTERVAL: Duration = Duration::from_hours(24);
 /// SQLite's own comment on that limit says "the worst case run-time for PRAGMA optimize on a 100MB
 /// database will usually be less than 100 milliseconds on a RaspberryPI-4 class machine". The
 /// daemon sets no connection `analysis_limit`, since one below the optimize's would replace it.
-const OPTIMIZE_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+const OPTIMIZE_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_millis(100),
     per: 1,
-    unit: WorkUnit::Runs,
+    unit: StoreWorkUnit::Runs,
 }]);
 
 impl DatabaseWriter {
@@ -76,7 +85,7 @@ impl DatabaseWriter {
                                 "the passive WAL checkpoint ran"
                             );
                             Ok(Some(JobWorkload::of(
-                                WorkUnit::CheckpointedLogBytes,
+                                StoreWorkUnit::CheckpointedLogBytes,
                                 report.checkpointed_bytes(),
                             )))
                         }
@@ -114,7 +123,7 @@ impl DatabaseWriter {
                         optimized = writer.optimize() => optimized?,
                     };
                     meter.add(optimized.processor_time);
-                    Ok(Some(JobWorkload::of(WorkUnit::Runs, 1)))
+                    Ok(Some(JobWorkload::of(StoreWorkUnit::Runs, 1)))
                 }
                 .boxed()
             }),

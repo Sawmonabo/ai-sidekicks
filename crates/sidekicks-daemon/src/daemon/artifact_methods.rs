@@ -20,7 +20,7 @@ use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{WallClock, volume_free_bytes};
 use sidekicks_std::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
 };
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
@@ -43,19 +43,28 @@ pub(crate) const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 // enough that a stream is ended within minutes of its six-hour lifetime.
 const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
 
+// What a reaper pass counts its work in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IngestReaperWorkUnit {
+    // Artifacts the ingest reaper or the orphan sweep examined.
+    ArtifactsExamined,
+    // Passes, one each, for the fixed work every pass does.
+    Runs,
+}
+
 // A reaper pass's processor budget, the reap's and the orphan sweep's work together: 20 µs per
 // artifact examined, and 5 ms for the work every pass does whatever it finds, its two listings
 // and its statements.
-const INGEST_REAPER_BUDGET: JobBudget = JobBudget::new(&[
+const INGEST_REAPER_BUDGET: JobBudget<IngestReaperWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_micros(20),
         per: 1,
-        unit: WorkUnit::ArtifactsExamined,
+        unit: IngestReaperWorkUnit::ArtifactsExamined,
     },
     BudgetTerm {
         figure: Duration::from_millis(5),
         per: 1,
-        unit: WorkUnit::Runs,
+        unit: IngestReaperWorkUnit::Runs,
     },
 ]);
 
@@ -141,7 +150,7 @@ async fn run_reaper_pass(
     payloads: &PayloadStore,
     reads: &DatabaseReadPool,
     meter: &ProcessorMeter,
-) -> MeteredJobOutcome {
+) -> MeteredJobOutcome<IngestReaperWorkUnit> {
     let reaped = ingest.reap(meter).await;
     let swept = payloads.sweep_orphans(reads, meter).await;
     let examined = match (reaped, swept) {
@@ -157,8 +166,8 @@ async fn run_reaper_pass(
             return Err(reap_failure.into());
         }
     };
-    let mut workload = JobWorkload::of(WorkUnit::Runs, 1);
-    workload.add(WorkUnit::ArtifactsExamined, examined);
+    let mut workload = JobWorkload::of(IngestReaperWorkUnit::Runs, 1);
+    workload.add(IngestReaperWorkUnit::ArtifactsExamined, examined);
     Ok(Some(workload))
 }
 
