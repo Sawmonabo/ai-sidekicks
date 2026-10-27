@@ -1,6 +1,7 @@
-//! The caller's side of a helper mode's child: started on the spawner's thread, armed to end with
-//! the caller and ended if its handle drops, its standard input held for its life so that closing
-//! it stops the mode, and its error output's tail kept for its failure.
+//! The caller's side of a helper mode's child: started on the spawner's thread, prepared as every
+//! child of the caller is (on Linux armed to end with it) and ended if its handle drops, its
+//! standard input held for its life so that closing it stops the mode, and its error output's tail
+//! kept for its failure.
 
 use std::io;
 use std::process::{ExitStatus, Stdio};
@@ -35,9 +36,10 @@ pub enum HelperModeChildError {
     Wait(io::Error),
 }
 
-/// Starts `command`, the calling program, started again in a helper mode, on `spawner`'s thread,
-/// armed to end with the caller and killed if the returned handle drops. Fails with the spawn's
-/// error, or with the spawner's when its thread has ended.
+/// Starts `command`, a run of the calling program in a helper mode, on `spawner`'s thread, prepared
+/// as [`prepare_child_command`] prepares a child (on Linux armed to end with the caller) and killed
+/// if the returned handle drops. Fails with the spawn's error, or with the spawner's when its
+/// thread has ended.
 pub async fn start_helper_mode_child(spawner: &Spawner, mut command: Command) -> io::Result<Child> {
     command.kill_on_drop(true);
     prepare_child_command(&mut command, std::process::id());

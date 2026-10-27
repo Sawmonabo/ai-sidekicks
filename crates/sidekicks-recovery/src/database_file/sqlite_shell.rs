@@ -410,7 +410,8 @@ impl SqliteShell {
         command
     }
 
-    // Starts `command` on the spawner's thread, armed to end with the daemon and ended if dropped.
+    // Starts `command` on the spawner's thread, prepared as every child of the daemon is and ended
+    // if dropped.
     async fn start(
         &self,
         command: Command,

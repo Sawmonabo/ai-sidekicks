@@ -96,8 +96,8 @@ fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> Cod
     .shared()
 }
 
-/// One Codex service on an account home the daemon manages: a child that ends with the daemon,
-/// killed when this handle drops, with the tail of what it printed kept for its exit.
+/// One Codex service on an account home the daemon manages: a child of the daemon, prepared as
+/// every one is, killed when this handle drops, with the tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
     // The end asked last; a kill is never replaced by a stop.
@@ -137,9 +137,9 @@ impl ManagedCodexService {
     }
 }
 
-/// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, armed to
-/// end with the daemon, its standard input closed and both outputs kept in one tail. Fails with
-/// the spawn's error, or the spawner's when its thread has ended.
+/// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, prepared
+/// as every child of the daemon is, its standard input closed and both outputs kept in one tail.
+/// Fails with the spawn's error, or the spawner's when its thread has ended.
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
     launch: CodexProcessLaunch,

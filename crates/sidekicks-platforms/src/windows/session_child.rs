@@ -2,7 +2,7 @@
 //! a child in a job of its own that ends with the daemon.
 
 use std::io;
-use std::process::{ExitStatus, Stdio};
+use std::process::Stdio;
 
 use process_wrap::tokio::ChildWrapper;
 use tokio::process::{ChildStdout, Command};
@@ -10,11 +10,10 @@ use tokio::process::{ChildStdout, Command};
 use crate::session_child::SessionCommand;
 use crate::windows::child_command::wrap_child_command;
 
-/// A started session child: its output, an end for its whole tree, and its wait. Dropped before
-/// its wait answered, it kills the child alone.
+/// A started session child: its output and an end for its whole tree. Dropped, it closes the
+/// child's job, which ends the whole tree.
 pub struct SessionChild {
-    /// The child's standard output, read until every process holding it has ended.
-    pub output: ChildStdout,
+    output: ChildStdout,
     child: Box<dyn ChildWrapper>,
 }
 
@@ -46,15 +45,18 @@ pub fn start_session_child(command: &SessionCommand, daemon_pid: u32) -> io::Res
 }
 
 impl SessionChild {
-    /// Ends the child's whole job, the child and what it started with it, the child ended or not.
-    /// Fails with the system's error from the end.
-    pub fn end_group(&mut self) -> io::Result<()> {
-        self.child.start_kill()
+    /// The child's standard output, read until every process holding it has ended.
+    pub fn output_mut(&mut self) -> &mut ChildStdout {
+        &mut self.output
     }
 
-    /// Waits for the child's exit and answers how it ended. Fails with the system's error from the
-    /// wait.
-    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.child.wait().await
+    /// Ends the child's whole job, the child and what it started with it, the child ended or not.
+    /// Fails with the system's error from the end.
+    #[expect(
+        clippy::unused_async,
+        reason = "the macOS and Linux arms await their group's kill on a blocking thread"
+    )]
+    pub async fn end_group(&mut self) -> io::Result<()> {
+        self.child.start_kill()
     }
 }

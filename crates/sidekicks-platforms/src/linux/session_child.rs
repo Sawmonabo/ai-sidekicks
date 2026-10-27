@@ -2,21 +2,20 @@
 //! before its program runs.
 
 use std::io;
-use std::process::{ExitStatus, Stdio};
+use std::process::Stdio;
 
 use nix::sys::signal::Signal;
 use nix::unistd::setsid;
 use tokio::process::{Child, ChildStdout, Command};
 
 use crate::posix::child_command::prepare_child_command;
-use crate::posix::process::group::signal_group_once;
+use crate::posix::process::group::signal_group;
 use crate::session_child::SessionCommand;
 
-/// A started session child: its output, an end for its whole group, and its wait. Dropped before
-/// its wait answered, it kills the child alone, and the runtime reaps it.
+/// A started session child: its output and an end for its whole group. Dropped, it kills the
+/// child alone, and the runtime reaps it.
 pub struct SessionChild {
-    /// The child's standard output, read until every process holding it has ended.
-    pub output: ChildStdout,
+    output: ChildStdout,
     child: Child,
 }
 
@@ -60,20 +59,22 @@ pub fn start_session_child(command: &SessionCommand, daemon_pid: u32) -> io::Res
 }
 
 impl SessionChild {
-    /// Kills every process of the child's session's group with one signal, the child and what it
-    /// started with it, the child ended or not; a group already gone, or a child already reaped,
-    /// is no failure. Fails with the system's error when the kill is refused.
-    pub fn end_group(&mut self) -> io::Result<()> {
-        // Unreaped, the child keeps its id, so its group's id names no other group.
-        match self.child.id() {
-            Some(id) => signal_group_once(id, Signal::SIGKILL).map(drop),
-            None => Ok(()),
-        }
+    /// The child's standard output, read until every process holding it has ended.
+    pub fn output_mut(&mut self) -> &mut ChildStdout {
+        &mut self.output
     }
 
-    /// Waits for the child's exit and reaps it, and answers how it ended, again at a later call.
-    /// Fails with the system's error from the wait.
-    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
-        self.child.wait().await
+    /// Kills every process of the child's session's group, the child and what it started with it,
+    /// the child ended or not, on a blocking thread; a group already ended is no failure. Must be
+    /// called within the runtime. Fails with the system's error when the kill is refused.
+    pub async fn end_group(&mut self) -> io::Result<()> {
+        // Unreaped until the drop, the child keeps its id, so its group's id names no other group.
+        let Some(id) = self.child.id() else {
+            return Ok(());
+        };
+        tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
+            .await
+            .map_err(io::Error::other)?
+            .map(drop)
     }
 }

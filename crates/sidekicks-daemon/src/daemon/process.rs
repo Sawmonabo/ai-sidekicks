@@ -267,8 +267,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) work_stop: CancellationToken,
     /// Where the daemon is in its own life.
     pub(crate) process_state: Arc<ProcessStateTracker>,
-    /// The thread every child starts on, kept for the daemon's life: a child armed to end with
-    /// the daemon ends once the thread that started it has.
+    /// The thread every child starts on, kept for the daemon's life: on Linux a child armed to end
+    /// with the daemon ends once the thread that started it has.
     spawner: Spawner,
     /// What the services the start builds take.
     service_inputs: Option<ServiceInputs>,

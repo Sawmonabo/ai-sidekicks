@@ -22,10 +22,11 @@ const DEFAULT_PATH_EXTENSIONS: [&str; 4] = [".COM", ".EXE", ".BAT", ".CMD"];
 /// Each path where `command` names an executable file, in the order a shell tries them, read from
 /// `environment`, the child's own: a command the system reads as a path is joined onto
 /// `working_folder`; a bare one is searched along the environment's `PATH`, a relative entry
-/// yielding a relative path, every entry under one of `skipped_folders` passed over (the WSL server
-/// passes the Windows drive mounts it read, so its search stays inside the distribution; every
-/// other caller passes none). No file is examined until the iterator is advanced, and each step
-/// reads the file system, so it runs on the daemon's spawner thread or in `spawn_blocking`.
+/// joined onto `working_folder` as `execvp` resolves it from the child's own folder (an empty
+/// folder leaving it relative), every entry under one of `skipped_folders` passed over (the WSL
+/// server passes the Windows drive mounts it read, so its search stays inside the distribution;
+/// every other caller passes none). No file is examined until the iterator is advanced, and each
+/// step reads the file system, so it runs on the daemon's spawner thread or in `spawn_blocking`.
 pub fn find_executables<'a>(
     command: &'a str,
     environment: &'a [(String, String)],
@@ -94,7 +95,7 @@ fn find_executables_with_rules<'a>(
             .unwrap_or_default()
             .split(rules.search_path_separator())
             .filter(|entry| !entry.is_empty())
-            .map(Path::new)
+            .map(|entry| working_folder.join(entry))
             .filter(|entry| {
                 !skipped_folders
                     .iter()
@@ -213,5 +214,17 @@ mod tests {
         let first = find_executables("tool", &environment, root.path(), &skipped).next();
 
         assert_eq!(first, Some(own.join("tool")));
+    }
+
+    // Kills: checking a relative entry from the test's own folder, where no `tool` sits.
+    #[test]
+    fn find_executables_joins_a_relative_entry_onto_the_working_folder() {
+        let root = tempfile::tempdir().expect("the temporary folder is made");
+        write_program(&root.path().join("node_modules/.bin/tool"), 0o755);
+        let environment = vec![("PATH".to_owned(), "node_modules/.bin".to_owned())];
+
+        let first = find_executables("tool", &environment, root.path(), &[]).next();
+
+        assert_eq!(first, Some(root.path().join("node_modules/.bin/tool")));
     }
 }

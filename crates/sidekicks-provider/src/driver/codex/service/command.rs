@@ -68,10 +68,11 @@ pub(crate) enum CodexCommandError {
     NotText(#[source] std::string::FromUtf8Error),
 }
 
-/// Runs a short Codex command to its end on `spawner`'s thread, armed to end with the daemon, and
-/// answers its standard output; its input is closed and its error output discarded. Fails with
-/// [`CodexCommandError`] when it cannot start, prints past 16 MiB, outlives `deadline` (both of
-/// which kill it), exits with a failure code or a signal, or prints anything but UTF-8 text.
+/// Runs a short Codex command to its end on `spawner`'s thread, prepared as every child of the
+/// daemon is, and answers its standard output; its input is closed and its error output discarded.
+/// Fails with [`CodexCommandError`] when it cannot start, prints past 16 MiB, outlives `deadline`
+/// (both of which kill it), exits with a failure code or a signal, or prints anything but UTF-8
+/// text.
 pub(crate) async fn run_codex_command(
     spawner: &Spawner,
     launch: CodexProcessLaunch,

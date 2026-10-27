@@ -26,7 +26,8 @@ interprocess.workspace = true
 keepawake.workspace = true
 keyring-core.workspace = true
 polling.workspace = true
-process-wrap = { workspace = true, features = ["creation-flags"] }
+process-wrap.workspace = true
+process-wrap.features = ["creation-flags", "job-object", "kill-on-drop", "process-group", "tracing"]
 regex.workspace = true
 secrecy.workspace = true
 serde.workspace = true

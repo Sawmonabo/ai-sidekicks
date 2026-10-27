@@ -288,8 +288,8 @@ pub use posix::entry_identity::{entry_identity, open_file_identity};
 pub use posix::error_codes::is_illegal_byte_sequence;
 #[cfg(unix)]
 pub use posix::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
-    is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(unix)]
 pub use posix::file_facts::{entry_changed_at, file_facts};
@@ -322,8 +322,6 @@ pub use posix::run_folder::{
 };
 #[cfg(unix)]
 pub use posix::shell_folder_start::shell_folder_start;
-#[cfg(target_os = "linux")]
-pub use posix::shell_start::arm_parent_death;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::shell_start::{
     DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD, DOES_POSIX_SHELL_LACK_BUILTIN,
@@ -467,8 +465,8 @@ pub use windows::entry_identity::{entry_identity, open_file_identity};
 pub use windows::error_codes::is_illegal_byte_sequence;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
-    is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::{entry_changed_at, file_facts};

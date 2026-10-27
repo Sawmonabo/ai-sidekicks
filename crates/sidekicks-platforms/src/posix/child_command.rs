@@ -14,7 +14,7 @@ use std::process::Stdio;
 #[cfg(target_os = "linux")]
 use nix::sys::prctl::set_thp_disable;
 use nix::sys::signal::Signal;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(target_os = "linux")]
 use nix::unistd::setsid;
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop, ProcessGroup};
 use tokio::process::Command;
@@ -28,6 +28,8 @@ use crate::macos::posix_spawn::{end_spawned_child, reap_ended_child};
 use crate::pin_child_process;
 #[cfg(target_os = "linux")]
 use crate::posix::shell_start::arm_parent_death;
+#[cfg(test)]
+use crate::session_child::SessionCommand;
 
 /// Whether a process is asked to stop by a signal it can answer, as every process here is.
 pub const CAN_SIGNAL_A_STOP: bool = true;
@@ -88,10 +90,10 @@ pub fn wrap_group_child_command(mut command: Command, daemon_pid: u32) -> Comman
 /// leads a session of its own, so neither a terminal's hangup nor a signal to the daemon's group
 /// reaches it, and its whole group can be killed; it arms no parent-death signal, and on Linux
 /// clears the huge-page switch the daemon set for itself. On macOS it starts through
-/// `posix_spawn`, as [`prepare_child_command`] says why, and its exit reaps it once its end is
-/// seen. Runs on the daemon's spawner thread. Fails with the system's error from the start, a
-/// refused session among them, or from the pin, which kills and reaps the child first, leaving it
-/// unreaped only where the kill is refused.
+/// `posix_spawn`, for the reason [`prepare_child_command`] gives, and its exit reaps it once its
+/// end is seen. Runs on the daemon's spawner thread. Fails with the system's error from the start,
+/// a refused session among them, or from the pin, which kills the child first and reaps it, on a
+/// blocking thread where a runtime is current, leaving it unreaped only where the kill is refused.
 #[cfg(target_os = "macos")]
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let id = spawn_lasting_child_process(&command)?;
@@ -171,21 +173,131 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     }
 }
 
-/// Prepares `command` so that, before its program runs, the child leads a session of its own and,
-/// on Linux, clears the huge-page switch the daemon set for itself; the child's start fails with
-/// the system's error when either is refused. The fork this needs is Linux's lasting start's, and
-/// on macOS only a test's.
-#[cfg(any(target_os = "linux", test))]
+/// Prepares `command` so that, before its program runs, the child leads a session of its own and
+/// clears the huge-page switch the daemon set for itself; the child's start fails with the
+/// system's error when either is refused.
+#[cfg(target_os = "linux")]
 pub(crate) fn prepare_lasting_child_command(command: &mut Command) {
-    // SAFETY: the closure runs in the forked child before the exec and makes only `setsid` and,
-    // on Linux, `prctl`, which are async-signal-safe and allocate nothing.
+    // SAFETY: the closure runs in the forked child before the exec and makes only `setsid` and
+    // `prctl`, which are async-signal-safe and allocate nothing.
     unsafe {
         command.pre_exec(|| {
             setsid()?;
-            #[cfg(target_os = "linux")]
             set_thp_disable(false)?;
             Ok(())
         });
+    }
+}
+
+/// A test's own child, its standard input and output pipes the test holds, started with no fork on
+/// macOS, where a fork in the multi-threaded test program can abort the child.
+#[cfg(test)]
+pub(crate) struct StandInChild {
+    /// The child's id.
+    pub(crate) id: u32,
+    /// Its standard input, which it reads until the test drops this.
+    pub(crate) input: Option<io::PipeWriter>,
+    /// Its standard output.
+    pub(crate) output: io::PipeReader,
+    process: StandInProcess,
+}
+
+// How a stand-in child is reaped: through std's handle, or, for one `posix_spawn` started, by its
+// id.
+#[cfg(test)]
+enum StandInProcess {
+    Child(std::process::Child),
+    #[cfg(target_os = "macos")]
+    Spawned,
+}
+
+#[cfg(test)]
+impl StandInChild {
+    /// Starts `command` leading a session of its own, its standard error the null device: on macOS
+    /// through `posix_spawn`, on Linux through `Command` prepared by
+    /// [`prepare_lasting_child_command`]. Fails with the pipes' error or with the start's.
+    pub(crate) fn start_session_leader(command: &SessionCommand) -> io::Result<Self> {
+        let (input_reader, input) = io::pipe()?;
+        let (output, output_writer) = io::pipe()?;
+        #[cfg(target_os = "macos")]
+        let (id, process) = {
+            use std::os::fd::AsFd as _;
+
+            use crate::macos::posix_spawn::{
+                SessionLeaderSpawn, SpawnStream, spawn_session_leader,
+            };
+            use crate::macos::session_child::inherited_environment;
+
+            let id = spawn_session_leader(&SessionLeaderSpawn {
+                program: &command.program,
+                argument_zero: &command.argument_zero,
+                arguments: &command.arguments,
+                environment: inherited_environment(&command.added_environment),
+                working_folder: &command.working_folder,
+                streams: [
+                    SpawnStream::Descriptor(input_reader.as_fd()),
+                    SpawnStream::Descriptor(output_writer.as_fd()),
+                    SpawnStream::NullDevice,
+                ],
+            })?;
+            (id, StandInProcess::Spawned)
+        };
+        #[cfg(target_os = "linux")]
+        let (id, process) = {
+            let mut child_command = Command::new(&command.program);
+            child_command
+                .arg0(&command.argument_zero)
+                .args(&command.arguments)
+                .envs(command.added_environment.iter().cloned())
+                .current_dir(&command.working_folder)
+                .stdin(Stdio::from(input_reader))
+                .stdout(Stdio::from(output_writer))
+                .stderr(Stdio::null());
+            prepare_lasting_child_command(&mut child_command);
+            let child = child_command.as_std_mut().spawn()?;
+            (child.id(), StandInProcess::Child(child))
+        };
+        Ok(Self {
+            id,
+            input: Some(input),
+            output,
+            process,
+        })
+    }
+
+    /// Starts `command` leading a process group of its own in the test's session, its standard
+    /// error the null device, through `Command`, which on macOS starts it through `posix_spawn`.
+    /// Fails with the pipes' error or with the start's.
+    pub(crate) fn start_group_leader(command: &SessionCommand) -> io::Result<Self> {
+        use std::os::unix::process::CommandExt as _;
+
+        let (input_reader, input) = io::pipe()?;
+        let (output, output_writer) = io::pipe()?;
+        let child = std::process::Command::new(&command.program)
+            .arg0(&command.argument_zero)
+            .args(&command.arguments)
+            .envs(command.added_environment.iter().cloned())
+            .current_dir(&command.working_folder)
+            .stdin(input_reader)
+            .stdout(output_writer)
+            .stderr(std::process::Stdio::null())
+            .process_group(0)
+            .spawn()?;
+        Ok(Self {
+            id: child.id(),
+            input: Some(input),
+            output,
+            process: StandInProcess::Child(child),
+        })
+    }
+
+    /// Waits for the child's exit and reaps it. Fails with the system's error from the wait.
+    pub(crate) fn wait(&mut self) -> io::Result<ExitStatus> {
+        match &mut self.process {
+            StandInProcess::Child(child) => child.wait(),
+            #[cfg(target_os = "macos")]
+            StandInProcess::Spawned => crate::macos::posix_spawn::reap_spawned_child(self.id),
+        }
     }
 }
 

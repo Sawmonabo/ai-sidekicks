@@ -65,12 +65,6 @@ pub fn is_held_file_error(error: &io::Error) -> bool {
         || error.raw_os_error() == Some(WSAEACCES)
 }
 
-/// Whether `error`, from ending a process's job, says nothing was left to end: never, since ending
-/// a job whose processes all ended succeeds.
-pub fn is_no_such_process(_error: &io::Error) -> bool {
-    false
-}
-
 /// The error's system code as Windows types it, which std holds as an `i32`; `None` when the
 /// error carries no system code.
 pub(crate) fn win32_code(error: &io::Error) -> Option<u32> {

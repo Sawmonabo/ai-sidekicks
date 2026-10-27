@@ -4,26 +4,21 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::{AsFd as _, OwnedFd};
-use std::process::ExitStatus;
 
 use nix::sys::signal::Signal;
 use tokio::net::unix::pipe::Receiver;
 
-use crate::macos::pinned_process::pin_running_process;
 use crate::macos::posix_spawn::{
-    SessionLeaderSpawn, SpawnStream, end_spawned_child, reap_ended_child, reap_spawned_child,
-    spawn_session_leader,
+    SessionLeaderSpawn, SpawnStream, end_spawned_child, spawn_session_leader,
 };
-use crate::posix::process::group::signal_group_once;
+use crate::posix::process::group::signal_group;
 use crate::session_child::SessionCommand;
 
-/// A started session child: its output, an end for its whole group, and its wait. Dropped before
-/// its wait answered, it kills the child alone and reaps it.
+/// A started session child: its output and an end for its whole group. Dropped, it kills the
+/// child alone and reaps it, the reap on a blocking thread when a runtime is current.
 pub struct SessionChild {
-    /// The child's standard output, read until every process holding it has ended.
-    pub output: Receiver,
+    output: Receiver,
     id: u32,
-    status: Option<ExitStatus>,
 }
 
 /// Starts `command` as a child leading a session of its own, through `posix_spawn`, which runs no
@@ -48,48 +43,32 @@ pub fn start_session_child(command: &SessionCommand, _daemon_pid: u32) -> io::Re
     })?;
     // The child holds its own copy, so the output ends once it and what it started have ended.
     drop(writer);
-    Ok(SessionChild {
-        output,
-        id,
-        status: None,
-    })
+    Ok(SessionChild { output, id })
 }
 
 impl SessionChild {
-    /// Kills every process of the child's session's group with one signal, the child and what it
-    /// started with it, the child ended or not; a group already gone, or a child already reaped,
-    /// is no failure. Fails with the system's error when the kill is refused, `EPERM` among them
-    /// for a group whose members have all exited but are not yet reaped.
-    pub fn end_group(&mut self) -> io::Result<()> {
-        if self.status.is_some() {
-            return Ok(());
-        }
-        // Unreaped, the child keeps its id, so its group's id names no other group.
-        signal_group_once(self.id, Signal::SIGKILL).map(drop)
+    /// The child's standard output, read until every process holding it has ended.
+    pub fn output_mut(&mut self) -> &mut Receiver {
+        &mut self.output
     }
 
-    /// Waits for the child's exit and reaps it, with no thread held while it runs, and answers how
-    /// it ended, again at a later call. Must be called within the runtime. Fails with the system's
-    /// error from the wait or the reap.
-    pub async fn wait(&mut self) -> io::Result<ExitStatus> {
-        if let Some(status) = self.status {
-            return Ok(status);
-        }
-        let status = match pin_running_process(self.id)? {
-            Some(process) => reap_ended_child(&process).await?,
-            // Ended already, so the reap answers at once.
-            None => reap_spawned_child(self.id)?,
-        };
-        self.status = Some(status);
-        Ok(status)
+    /// Kills every process of the child's session's group, the child and what it started with it,
+    /// the child ended or not, on a blocking thread, the kill sent again until no member is left;
+    /// a group already ended is no failure. Must be called within the runtime. Fails as the group
+    /// kill does: with `EPERM` when members refuse it, or `TimedOut` naming those it leaves.
+    pub async fn end_group(&mut self) -> io::Result<()> {
+        // Unreaped until the drop, the child keeps its id, so its group's id names no other group.
+        let id = self.id;
+        tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
+            .await
+            .map_err(io::Error::other)?
+            .map(drop)
     }
 }
 
 impl Drop for SessionChild {
     fn drop(&mut self) {
-        if self.status.is_none()
-            && let Err(error) = end_spawned_child(self.id)
-        {
+        if let Err(error) = end_spawned_child(self.id) {
             tracing::warn!(
                 error = &error as &(dyn std::error::Error + 'static),
                 "the session child could not be killed and reaped"
@@ -98,8 +77,8 @@ impl Drop for SessionChild {
     }
 }
 
-// The daemon's own environment as `NAME=VALUE` entries, each of `added` set over it.
-fn inherited_environment(added: &[(String, String)]) -> Vec<OsString> {
+/// The daemon's own environment as `NAME=VALUE` entries, each of `added` set over it.
+pub(crate) fn inherited_environment(added: &[(String, String)]) -> Vec<OsString> {
     let inherited = std::env::vars_os().filter(|(name, _)| {
         !added
             .iter()

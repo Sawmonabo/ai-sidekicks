@@ -115,7 +115,7 @@ objc2-service-management.version = "0.3.2"
 objc2-service-management.default-features = false
 objc2-service-management.features = ["SMAppService", "objc2", "objc2-foundation", "std"]
 polling = "3.8"
-process-wrap = { version = "10.0.1", features = ["tokio1"] }
+process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1"] }
 rustix-openpty = "0.2.0"
 # Ends the command line as a Ctrl-C does once it has flushed: SIGINT's default action put back and
 # raised. `tokio::signal` holds the wait, and has no call that ends the process by a signal.

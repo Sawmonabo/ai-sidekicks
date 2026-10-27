@@ -2,8 +2,9 @@
 //!
 //! - It starts on the daemon's spawner thread, leading a process group of its own so a stop
 //!   reaches what it started too, prepared as every child of the daemon is, in the environment a
-//!   conversation's commands get with the server's own values laid over it, its program found
-//!   along that environment's `PATH` when it is no absolute path.
+//!   conversation's commands get with the server's own values laid over it, its program joined
+//!   onto its folder when it is a relative path and found along that environment's `PATH` when it
+//!   is a bare name.
 //! - Its error output goes to the service log line by line and into the bounded tail its exit
 //!   carries, so a server that dies at its start says why.
 //! - It closes as the protocol asks: its input closed, 2 s, `SIGTERM` to its group, 2 s, then a
@@ -147,15 +148,13 @@ impl McpServerConnection {
     }
 }
 
-/// The server's environment: a conversation command's, with every value starting with `()` left
-/// out, as a shell exports a function, then the server's own values over it.
 // The server's program as an absolute path, so the start sets `PATH` and still runs through the
-// system's spawn rather than a fork: as configured when it is one, else the first absolute file a
-// shell's search finds for it along `environment`'s `PATH`, a path joined onto the server's folder
-// or the daemon's; a relative `PATH` entry is passed over, since it would name the daemon's folder.
-// Reads the file system, so it runs on the spawner's thread. Fails with `NotFound` when no search
-// finds it, `InvalidInput` for a program that is not text, and with the read of the daemon's
-// folder.
+// system's spawn rather than a fork: as configured when it is one; else, when it holds a separator,
+// joined onto the server's folder; else the first executable file along `environment`'s `PATH`, a
+// relative entry joined onto the server's folder as `execvp` resolves it. The server's folder is
+// joined onto the daemon's own when it is relative or missing. Reads the file system, so it runs on
+// the spawner's thread. Fails with `NotFound` when no search finds it, `InvalidInput` for a program
+// that is not text, and with the read of the daemon's folder.
 fn find_server_program(
     server: &McpStdioServer,
     environment: &[(String, String)],
@@ -169,13 +168,13 @@ fn find_server_program(
             "the tool server's program is not text",
         )
     })?;
-    let daemon_folder = std::env::current_dir()?;
     let folder = match &server.working_folder {
-        Some(working_folder) => daemon_folder.join(working_folder),
-        None => daemon_folder,
+        Some(working_folder) if working_folder.is_absolute() => working_folder.clone(),
+        Some(working_folder) => std::env::current_dir()?.join(working_folder),
+        None => std::env::current_dir()?,
     };
     find_executables(name, environment, &folder, &[])
-        .find(|candidate| candidate.is_absolute())
+        .next()
         .ok_or_else(|| {
             io::Error::new(
                 io::ErrorKind::NotFound,
@@ -184,6 +183,8 @@ fn find_server_program(
         })
 }
 
+/// The server's environment: a conversation command's, with every value starting with `()` left
+/// out, as a shell exports a function, then the server's own values over it.
 fn compose_server_environment(
     request: &ProviderEnvironmentRequest<'_>,
     server_environment: &[(String, String)],

@@ -2,6 +2,7 @@
 //! when dropped; the start of a child leading a session of its own through it, which runs no fork
 //! handler in the child, and that child's reap, since no runtime reaps a child it did not spawn.
 
+use std::error::Error;
 use std::ffi::{CString, OsStr, OsString, c_int, c_short};
 use std::io;
 use std::os::fd::{AsRawFd as _, BorrowedFd};
@@ -246,20 +247,28 @@ pub(crate) fn reap_spawned_child(id: u32) -> io::Result<ExitStatus> {
 }
 
 /// Waits with no thread for the end of `process`, a child this process spawned, then reaps it on
-/// a blocking thread, where the reap answers at once, and answers how it ended. Must be called
-/// within the runtime. Fails with the system's error from the wait or the reap.
+/// a blocking thread, where the reap answers at once, and answers how it ended; where the wait for
+/// its end cannot be set up, the blocking reap waits for the exit itself, so no child is left a
+/// zombie. Must be called within the runtime. Fails with the system's error from the reap.
 pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<ExitStatus> {
-    process.wait_for_end().await?;
     let id = process.id();
+    if let Err(error) = process.wait_for_end().await {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "a spawned child's end could not be watched, so its reap waits for it"
+        );
+    }
     tokio::task::spawn_blocking(move || reap_spawned_child(id))
         .await
         .map_err(io::Error::other)?
 }
 
-/// Kills the child `id` this process spawned, it alone, and reaps it, so nothing runs on that no
-/// one answers for and nothing is left a zombie; a child already ended is reaped all the same.
-/// Blocking only until the killed child's exit. Fails with the system's error from the kill, which
-/// leaves the child unreaped rather than wait on one still running, or the reap.
+/// Kills the child `id` this process spawned, it alone, on this thread, and reaps it, so nothing
+/// runs on that no one answers for and nothing is left a zombie; a child already ended is reaped
+/// all the same. The reap, which waits for the killed child's exit, runs on a blocking thread when
+/// a runtime is current, logging its failure, else on this thread. Fails with the system's error
+/// from the kill, which leaves the child unreaped rather than wait on one still running, or from
+/// a reap on this thread.
 pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {
     // Unreaped, the child keeps its id, so the kill by id reaches no other process.
     let pid = Pid::from_raw(system_process_id(id)?.get());
@@ -268,7 +277,20 @@ pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {
         Ok(()) | Err(Errno::ESRCH) => {}
         Err(errno) => return Err(io::Error::from(errno)),
     }
-    reap_spawned_child(id).map(drop)
+    match tokio::runtime::Handle::try_current() {
+        Ok(runtime) => {
+            drop(runtime.spawn_blocking(move || {
+                if let Err(error) = reap_spawned_child(id) {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "a killed child could not be reaped"
+                    );
+                }
+            }));
+            Ok(())
+        }
+        Err(_no_runtime) => reap_spawned_child(id).map(drop),
+    }
 }
 
 /// `text` as a C string; `InvalidInput` when it holds a NUL.

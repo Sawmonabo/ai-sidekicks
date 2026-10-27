@@ -194,7 +194,7 @@ async fn run_capture(
         () = stop.cancelled() => {
             CaptureOutcome::Failed("was ended, since the start is stopping".to_owned())
         }
-        read = tokio::time::timeout(deadline, read_capture(&mut child.output, &markers)) => {
+        read = tokio::time::timeout(deadline, read_capture(child.output_mut(), &markers)) => {
             read.unwrap_or_else(|_| {
                 CaptureOutcome::Failed(format!(
                     "did not finish within {} ms",
@@ -208,7 +208,7 @@ async fn run_capture(
     // the group alone, so an agent a profile started keeps running, and the child's drop ends
     // only a shell still printing.
     if let CaptureOutcome::Failed(_) = &outcome
-        && let Err(error) = child.end_group()
+        && let Err(error) = child.end_group().await
     {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),

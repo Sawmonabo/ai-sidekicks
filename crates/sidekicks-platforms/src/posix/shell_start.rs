@@ -74,7 +74,7 @@ pub const DOES_POSIX_SHELL_LACK_BUILTIN: bool = cfg!(target_os = "linux");
 /// a `Command`'s `pre_exec` calls it. Fails with `ESRCH` when the daemon is no longer the parent,
 /// and with the system's error when a call is refused.
 #[cfg(target_os = "linux")]
-pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
+pub(crate) fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => io::Error::from(DAEMON_GONE_ERRNO),
         #[cfg(target_os = "linux")]

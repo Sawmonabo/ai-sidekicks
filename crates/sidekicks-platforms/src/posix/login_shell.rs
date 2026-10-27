@@ -17,8 +17,8 @@ pub fn login_shell() -> io::Result<Option<PathBuf>> {
     Ok(read_account()?.1)
 }
 
-/// Starts `command`'s program `shell` as a login shell the way `login` does: its name, the first
-/// word it reads of its own command line, is the shell's file name after a `-`. A shell that takes
+/// Names `command`'s program `shell` as `login` names a login shell: its name, the first word it
+/// reads of its own command line, is the shell's file name after a `-`. A shell that takes
 /// no login switch beside others, as csh and tcsh, reads a login only this way.
 pub fn name_as_login_shell(command: &mut SessionCommand, shell: &Path) {
     let mut name = OsString::from("-");
