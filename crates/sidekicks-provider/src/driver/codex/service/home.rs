@@ -49,7 +49,8 @@ pub(crate) struct CodexServiceHome {
 /// who may stop it. A session's recovery and a conversation's purge read it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceKind {
-    /// The daemon's own child, which ends with the daemon and carries no hook switch: on an
+    /// The daemon's own child, prepared as every child of the daemon is, which the daemon's stop
+    /// ends and which carries no hook switch: on an
     /// account home, and on the person's own folder while terminal reach is off, then on a socket
     /// of its own so no terminal joins it (an inference: off means no terminal joins anything of
     /// the daemon's).

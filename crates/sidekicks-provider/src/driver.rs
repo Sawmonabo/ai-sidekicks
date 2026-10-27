@@ -402,7 +402,8 @@ impl ReportedVersionReading {
 }
 
 /// The one table of providers: each provider's registration, in the order the providers are listed
-/// and their drivers registered, which the daemon's start builds the registry from once.
+/// and their drivers registered, which the daemon's start builds the registry from once, and the
+/// test registry in test builds.
 pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
     ProviderRegistration {
         descriptor: &claude::DESCRIPTOR,
