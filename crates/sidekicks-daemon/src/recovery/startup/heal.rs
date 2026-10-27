@@ -9,13 +9,12 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 
 use super::{PassFailure, PassTally, StartupRecovery, events_count};
+use crate::events::projection::ProjectionFailure;
 use crate::recovery::database_file::aside_copy::{
     DatabaseFilesAside, copy_database_files_aside, find_aside_copy_of_session,
     record_session_in_aside_copy,
 };
-use crate::recovery::projection_rebuild::{
-    ProjectionFailure, ProjectionRebuildError, ProjectionRebuildRequest,
-};
+use crate::recovery::projection_rebuild::{ProjectionRebuildError, ProjectionRebuildRequest};
 
 /// The copy aside one pass took, so it copies the store's files once however many sessions it
 /// heals.

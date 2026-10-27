@@ -51,7 +51,7 @@ use crate::session::not_found::session_not_found;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::child_run::stamp_child_run_summaries;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
-use crate::transcript::rejoin::{RowReads, RowScope};
+use crate::transcript::rejoin::RowReads;
 use crate::transcript::run_facts::TranscriptRunFactsReader;
 
 /// Why a transcript read failed.
@@ -205,7 +205,6 @@ where
         let candidates = match before_position {
             Some(before) if before <= after_position => Vec::new(),
             before_position => rows_of.rows_after(
-                RowScope::Session,
                 after_position,
                 before_position.map(|before| before + 1),
                 count_bound(limit + 1),
@@ -337,12 +336,7 @@ where
         let later = if later_limit == 0 {
             Vec::new()
         } else {
-            rows_of.rows_after(
-                RowScope::Session,
-                anchor_position,
-                None,
-                count_bound(later_limit),
-            )?
+            rows_of.rows_after(anchor_position, None, count_bound(later_limit))?
         };
         let stretch: Vec<EventEnvelope> = earlier
             .iter()

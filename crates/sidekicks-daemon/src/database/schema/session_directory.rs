@@ -5,16 +5,20 @@
 //! review notes, a project's groups, the links, tags and computed related lists, the create and
 //! convert requests a retry resumes from, and the console state the spawn path reads.
 
+use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::repo::mount::ExecutionMode;
 use sidekicks_contracts::review_note::{ReviewNoteScope, ReviewNoteSide};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::convert::SessionConvertSkipReason;
 use sidekicks_contracts::session::directory::SessionActivity;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::links::SessionLinkKind;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
+use crate::database::stored_column::{closed_word, text_column};
 
 /// A converted file's outcome once its copy lands, as the `session_convert_files.outcome` column
 /// holds it; every other outcome the column holds is the [`SessionConvertSkipReason`] it was not
@@ -243,4 +247,64 @@ CREATE INDEX idx_session_related_score ON session_related(session_id, score DESC
 CREATE INDEX idx_session_related_related ON session_related(related_session_id);
 "
     )
+}
+
+/// When every test session was made and last active.
+#[cfg(any(test, feature = "test-support"))]
+const TEST_SESSION_ROW_AT: &str = "2026-10-18T09:00:00.000Z";
+
+/// Stores the session `session_id`, an active chat named `name` running in `place` (the place's
+/// wire JSON), each `None` left unset, as the directory stores one, for other tables' tests.
+#[cfg(any(test, feature = "test-support"))]
+pub fn insert_session_row(
+    connection: &rusqlite::Connection,
+    session_id: &str,
+    name: Option<&str>,
+    place: Option<&str>,
+) {
+    // Cached, so a test storing many sessions compiles the statement and its triggers once.
+    connection
+        .prepare_cached(
+            "INSERT INTO sessions (id, shape, state, name, place, created_at, updated_at, \
+             last_activity_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?6)",
+        )
+        .expect("the test's insert prepares")
+        .execute(rusqlite::params![
+            session_id,
+            <&'static str>::from(SessionShape::Chat),
+            <&'static str>::from(SessionState::Active),
+            name,
+            place,
+            TEST_SESSION_ROW_AT
+        ])
+        .expect("the test stores a session");
+}
+
+const SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = ?";
+
+/// A session's state from its directory row, or `None` for a session with no row.
+pub(crate) fn read_session_state(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Option<SessionState>> {
+    reader
+        .prepare_cached(SESSION_STATE_SQL)?
+        .query_row([session_id.text().as_str()], |row| {
+            text_column(row, 0, closed_word)
+        })
+        .optional()
+}
+
+/// [`read_session_state`] as one short read on `pool`.
+pub(crate) async fn read_session_state_through<Failure>(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<Option<SessionState>, Failure>
+where
+    Failure: From<DatabaseReadError> + From<rusqlite::Error> + Send + 'static,
+{
+    pool.read(ReadLength::Short, move |reader| -> Result<_, Failure> {
+        Ok(read_session_state(reader, &session_id)?)
+    })
+    .await
 }

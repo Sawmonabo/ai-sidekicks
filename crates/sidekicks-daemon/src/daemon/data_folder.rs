@@ -7,6 +7,9 @@ use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
 // The agent memory folder's name in the data folder.
 const AGENT_MEMORY_FOLDER_NAME: &str = "agent-memory";
 
+// The folder in the data folder that holds the service log files.
+const SERVICE_LOG_FOLDER_NAME: &str = "logs";
+
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub(crate) fn data_folder(home: &Path) -> PathBuf {
     home.join(DAEMON_DATA_FOLDER_NAME)
@@ -16,4 +19,9 @@ pub(crate) fn data_folder(home: &Path) -> PathBuf {
 /// memory kept across projects.
 pub(crate) fn agent_memory_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(AGENT_MEMORY_FOLDER_NAME)
+}
+
+/// The folder in `data_folder` that holds the service log files.
+pub(crate) fn service_log_folder(data_folder: &Path) -> PathBuf {
+    data_folder.join(SERVICE_LOG_FOLDER_NAME)
 }

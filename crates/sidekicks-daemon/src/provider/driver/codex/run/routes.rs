@@ -3,7 +3,7 @@
 //! alone was asked to run at, until the run ends.
 
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -11,6 +11,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 
 /// The binding a run's deliveries go on, the agent whose run it is, and the bound on the steps
@@ -114,6 +115,6 @@ impl CodexRunRoutes {
     }
 
     fn lock(&self) -> MutexGuard<'_, Routes> {
-        self.routes.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.routes)
     }
 }

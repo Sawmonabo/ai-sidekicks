@@ -3,7 +3,6 @@
 //! scripts, a service of the daemon's own kind published as up and holding a connection on a
 //! `ScriptedService`, its frames and asks routed as a dialed one's are.
 
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -14,7 +13,10 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_platforms::{ProgramStart, Spawner, bind_socket_listener};
+use sidekicks_platforms::{
+    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
+    bind_socket_listener, write_stand_in_program,
+};
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::WebSocketStream;
@@ -43,11 +45,15 @@ use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
-use crate::queue::delivery::ProviderProcessIdentity;
+
+/// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
+/// runs none, so a terminal service starts, and is answered, with no hooks.
+const TEST_DISPATCHES_HOOK_MODE: bool = false;
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -130,6 +136,7 @@ pub(crate) fn test_codex_service_dependencies(
         logs_folder: folder.join("logs"),
         additional_config_overrides: Vec::new(),
         startup_timeout: Duration::from_secs(5),
+        dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,
         events,
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
@@ -271,7 +278,9 @@ impl CodexServiceEvents for UnheardEvents {
 /// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
 /// write is refused, so a start that writes trust fails.
 pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
-    let hooks = match read_terminal_service_hooks().expect("the daemon's hooks read") {
+    let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
+        .expect("the daemon's hooks read")
+    {
         TerminalServiceHooks::Daemon(hooks) => vec![
             listed_hook("preToolUse", &hooks.pre_tool_use),
             listed_hook("postToolUse", &hooks.post_tool_use),
@@ -332,13 +341,29 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
         .dropped("the test dropped the connection");
 }
 
-/// A listener at `socket`, or `None` where the system binds no local socket for a test.
+/// Writes in `folder` a Codex command that prints nothing and exits 1 at every call, which the
+/// search path finds as `codex`, and answers its path. Panics where it cannot be written.
+pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
+    write_stand_in_program(
+        folder,
+        "codex",
+        &StandInProgram {
+            answers_by_first_argument: Vec::new(),
+            otherwise: StandInAnswer {
+                standard_output: String::new(),
+                exit_code: 1,
+                argument_record: None,
+            },
+        },
+    )
+    .expect("the failing Codex command is written")
+}
+
+/// A listener at `socket`, or `None` where the system binds no local socket listener. Panics
+/// where a bind the system offers fails.
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
-    match bind_socket_listener(socket) {
-        Ok(listener) => Some(listener),
-        Err(error) if error.kind() == io::ErrorKind::Unsupported => None,
-        Err(error) => panic!("the test's socket does not listen: {error}"),
-    }
+    CAN_BIND_A_SOCKET_LISTENER
+        .then(|| bind_socket_listener(socket).expect("the test's socket listens"))
 }
 
 /// The next request the daemon sent on `socket`, its notifications skipped.

@@ -1,6 +1,5 @@
 //! A live session's close and the daemon's stop, through the driver.
 
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,7 +12,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
-use crate::database::writer::test_file::TestDatabase;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
@@ -34,17 +32,15 @@ use crate::provider::driver::codex::session::test_session::{
 };
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
 use crate::provider::driver::session_control::CloseSessionParams;
-use crate::provider::driver::test_registry::{
-    TestRunPorts, new_run_id, new_session_id, terminal_events, test_driver_services,
-};
-use crate::session::run::epochs::ExecutionEpochs;
+use crate::provider::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
+use crate::provider::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
 
-// Real time under a timeout, since the run engine writes the run's end through the database
-// writer. Killed by dropping the interrupt from `close_session` and by sending it after the
-// let-go: Codex would run the turn on unsubscribed.
+// Real time under a timeout, the close waiting on the service's answers. Killed by dropping the
+// interrupt from `close_session` and by sending it after the let-go: Codex would run the turn on
+// unsubscribed.
 #[tokio::test]
 async fn a_close_interrupts_the_live_turn_and_ends_its_run_before_letting_the_conversation_go() {
     close_live_turn(true).await;
@@ -59,14 +55,15 @@ async fn a_close_whose_interrupt_codex_never_answers_ends_its_run_as_closed_past
 }
 
 // Closes a session whose run is on a live turn, Codex answering the close's interrupt when
-// `is_interrupt_answered`, and checks the run ended as closed before the conversation went.
+// `is_interrupt_answered`, and checks the run's turn was ended as closed, once, before the
+// conversation went.
 async fn close_live_turn(is_interrupt_answered: bool) {
     let LiveCodexSession {
         driver,
         session_id,
         run_id,
         mut scripted,
-        database,
+        engine,
         ..
     } = LiveCodexSession::start(&[]).await;
 
@@ -85,8 +82,8 @@ async fn close_live_turn(is_interrupt_answered: bool) {
             sent = scripted.script.next_sent() => {
                 if sent["method"] == "thread/unsubscribe" {
                     assert_eq!(
-                        terminal_events(&database, run_id),
-                        [("agent.run.interrupted".to_owned(), Some(true))],
+                        engine.turn_ends(),
+                        [EngineCall::EndTurnOnClose(run_id)],
                         "the run ended as closed before its conversation was let go"
                     );
                 }
@@ -99,10 +96,7 @@ async fn close_live_turn(is_interrupt_answered: bool) {
     }
 
     assert_interrupted_before_let_go(&methods, TEST_TURN);
-    assert_eq!(
-        terminal_events(&database, run_id),
-        [("agent.run.interrupted".to_owned(), Some(true))]
-    );
+    assert_eq!(engine.turn_ends(), [EngineCall::EndTurnOnClose(run_id)]);
 }
 
 // Real time under a timeout, as above. Killed by dropping the interrupt from `close_session` and
@@ -332,8 +326,7 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         return;
     };
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let database = TestDatabase::new();
-    let driver = driver_holding(&scripted, folder.path(), &database).await;
+    let driver = driver_holding(&scripted, folder.path());
     let served = tokio::spawn(serve_unended_copy(
         listener,
         read_only_profile(folder.path()),
@@ -358,18 +351,9 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
 }
 
 // The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
-// session running in `folder`'s `work`, its runs on an engine over `database`.
-async fn driver_holding(
-    scripted: &ScriptedCodexService,
-    folder: &Path,
-    database: &TestDatabase,
-) -> CodexDriver {
-    let run_ports = TestRunPorts::open(
-        database,
-        folder,
-        ExecutionEpochs::new(NonZeroUsize::new(8).expect("the cap is not zero")),
-    )
-    .await;
+// session running in `folder`'s `work`, its runs on a recording engine.
+fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
+    let engine = Arc::new(RecordingRunEngine::default());
     let mut services = test_driver_services();
     services
         .ports
@@ -381,7 +365,8 @@ async fn driver_holding(
         folder.join("session-token"),
     ));
     let ports = &services.ports;
-    run_ports.register_on(ports);
+    assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
+    assert!(ports.inbound_dispatch.register(engine as _).is_ok());
     let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
     assert!(
         ports

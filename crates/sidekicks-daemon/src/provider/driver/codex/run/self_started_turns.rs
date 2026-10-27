@@ -8,17 +8,15 @@
 //! start waits for its end.
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::value::RawValue;
-use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
-use crate::provider::driver::codex::run::start::read_codex_step_bound;
 use crate::provider::driver::codex::run::start::record::{
     CodexRunCallDependencies, route_accepted_turn,
 };
@@ -32,22 +30,17 @@ use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::connection::read_codex_object;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::provider::driver::run_control::{DaemonTurnBinding, DaemonTurnBindingResolver};
-use crate::session::run::engine::RunEngine;
-use crate::session::run::start_request::DaemonTurnStartRequest;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::run::start_request::DaemonTurnStartRequest;
 
 const TURN_STARTED_METHOD: &str = "turn/started";
-
-/// The binding the run of a turn Codex started opened, and the session's step bound as it opened.
-type OpenedBinding = (DaemonTurnBinding, Option<SafeInt<1>>);
 
 /// What opening the run of a turn Codex started acts through beside the record's own.
 pub(crate) struct CodexSelfStartedTurnDependencies {
     /// The run engine, which opens the session's own run.
-    pub(crate) engine: Arc<RunEngine>,
+    pub(crate) engine: Arc<dyn RunHost>,
     /// Opens the run's binding.
     pub(crate) daemon_turn_bindings: Arc<dyn DaemonTurnBindingResolver>,
-    /// The read pool the session's step bound is read from.
-    pub(crate) reads: Arc<DatabaseReadPool>,
 }
 
 /// The members of a `turn/started` the open reads.
@@ -110,9 +103,8 @@ async fn open_run(
     turn_id: &str,
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let session_id = record.session_id;
-    let opened_binding: Arc<Mutex<Option<OpenedBinding>>> = Arc::new(Mutex::new(None));
+    let opened_binding: Arc<Mutex<Option<DaemonTurnBinding>>> = Arc::new(Mutex::new(None));
     let resolver = Arc::clone(&dependencies.daemon_turn_bindings);
-    let reads = Arc::clone(&dependencies.reads);
     let binding_slot = Arc::clone(&opened_binding);
     let connection = record.service.connection()?;
     let thread_id = record.thread_id.clone();
@@ -128,15 +120,12 @@ async fn open_run(
             is_apart: false,
             start_turn: Box::new(move |run_id| {
                 let resolver = Arc::clone(&resolver);
-                let reads = Arc::clone(&reads);
                 let binding_slot = Arc::clone(&binding_slot);
                 async move {
                     let binding = resolver
                         .open_daemon_turn_binding(run_id, session_id)
                         .await?;
-                    let step_bound = read_codex_step_bound(&reads, session_id).await?;
-                    *binding_slot.lock().unwrap_or_else(PoisonError::into_inner) =
-                        Some((binding, step_bound));
+                    *lock(&binding_slot) = Some(binding);
                     Ok(())
                 }
                 .boxed()
@@ -158,9 +147,7 @@ async fn open_run(
             }),
         })
         .await?;
-    let (binding, step_bound) = opened_binding
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+    let binding = lock(&opened_binding)
         .take()
         .ok_or_else(|| CodexError::Transport {
             detail: format!(
@@ -174,7 +161,7 @@ async fn open_run(
             session_id,
             binding_id: binding.binding_id.clone(),
             agent_id: binding.agent_id,
-            step_bound,
+            step_bound: binding.step_bound,
         },
     );
     let adoption = runs.adoptions.adopt(record, binding.binding_id.clone());

@@ -370,6 +370,7 @@ mod tests {
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::provider::driver::PROVIDERS;
     use crate::provider::driver::test_registry::bind_run_to_first_provider;
+    use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // Killed by reading the run's own binding alone, which finds none for a subagent, by climbing
@@ -377,7 +378,7 @@ mod tests {
     // process of its own.
     #[test]
     fn a_provider_subagent_runs_on_the_provider_of_the_nearest_parent_with_a_binding() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let connection = database.opener()().expect("the test creates its database");
         let session_id = test_session_id();
         let new_run = |parent: Option<&RunId>, reached_by: Option<&str>| {

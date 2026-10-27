@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::io;
 use std::marker::PhantomData;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, Watcher};
@@ -40,6 +40,7 @@ use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::session::working_folder::{WorkingFolderReadError, read_working_folder};
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 
@@ -490,7 +491,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
 
 impl WatcherShared {
     fn lock_state(&self) -> MutexGuard<'_, WatcherState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     // Lets one hold on `folder` go; the last closes the folder and gives its watches back.

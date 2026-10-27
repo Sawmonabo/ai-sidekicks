@@ -35,14 +35,15 @@ use crate::interventions::service::{InterventionService, InterventionServiceDeps
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::plans::service::PlansService;
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::process_identity::ProviderProcessIds;
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::pty::console::CONSOLE_MODE;
 use crate::questions::service::QuestionsService;
 use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::ProviderProcessIds;
 use crate::queue::provider_session::{
     ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
 };
@@ -52,6 +53,7 @@ use crate::session::changes::SessionChanges;
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::draft_store::SessionDraftStore;
 use crate::session::links::service::SessionLinkService;
+use crate::session::plan_holds::PlanHolds;
 use crate::session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::{RunEngine, RunEngineDeps};
@@ -96,6 +98,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) machine: LocalMachine,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Every provider's background work, which the permission check refuses.
+    pub(crate) background_work: Arc<BackgroundWorkForms>,
     /// The workflow actions' rules.
     pub(crate) authorizer: Arc<Authorizer>,
     /// The daemon's data folder.
@@ -106,6 +110,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) git: GitRunner,
     /// The session list's feed.
     pub(crate) list_feed: Arc<SessionListFeed>,
+    /// The plan store's holds, the same the list feed was built over, which ending a run reads.
+    pub(crate) plan_holds: Arc<dyn PlanHolds>,
     /// The artifact store's payloads, which a chat's versions are stored into.
     pub(crate) payloads: Arc<PayloadStore>,
     /// The artifact store's publisher, which a plan's record is stored through.
@@ -221,11 +227,13 @@ pub(crate) fn build_session_services(
         memory_gate,
         machine,
         shell_lines,
+        background_work,
         authorizer,
         data_folder,
         working_folders,
         git,
         list_feed,
+        plan_holds,
         payloads,
         publisher,
         spool_folder,
@@ -253,6 +261,7 @@ pub(crate) fn build_session_services(
         providers: Arc::clone(&providers),
         machine,
         shell_lines,
+        background_work,
         postures: Arc::clone(&execution_postures),
         authorizer,
         data_folder,
@@ -263,12 +272,16 @@ pub(crate) fn build_session_services(
     let mut built_approvals = None;
     let engine = Arc::new_cyclic(|engine: &Weak<RunEngine>| {
         let approvals = build_approvals(engine.clone(), &approval_start);
-        let mut built = RunEngine::new(RunEngineDeps {
-            pool: Arc::clone(&reads),
-            event_log: Arc::clone(&event_log),
-            execution_postures,
-            providers: Arc::clone(&providers),
-        });
+        let mut built = RunEngine::new(
+            RunEngineDeps {
+                pool: Arc::clone(&reads),
+                event_log: Arc::clone(&event_log),
+                execution_postures,
+                providers: Arc::clone(&providers),
+                plan_holds,
+            },
+            engine.clone(),
+        );
         built.register_setup_gate(Arc::clone(&approvals.run_end) as Arc<dyn RunSetupGate>);
         built_approvals = Some(approvals);
         built
@@ -284,6 +297,11 @@ pub(crate) fn build_session_services(
         Arc::clone(&runtime_bindings),
         Arc::clone(&epochs),
     ));
+    let changes = Arc::new(SessionChanges::new(
+        Arc::clone(&reads),
+        Arc::clone(&event_log),
+        Arc::clone(&providers),
+    ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -291,6 +309,7 @@ pub(crate) fn build_session_services(
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
+        transition_lock: Arc::clone(changes.transition_lock()),
     }));
     let signals = Arc::new(QueueChangeSignals::new());
     let queue = RunQueue::new(RunQueueDeps {
@@ -335,11 +354,6 @@ pub(crate) fn build_session_services(
     let related_ranking = Arc::new(SessionRelatedRanking::new(
         Arc::clone(&reads),
         Arc::clone(&writer),
-    ));
-    let changes = Arc::new(SessionChanges::new(
-        Arc::clone(&reads),
-        Arc::clone(&event_log),
-        Arc::clone(&providers),
     ));
     let chat_versions = Arc::new(ChatFileVersions::new(
         Arc::clone(&appender),

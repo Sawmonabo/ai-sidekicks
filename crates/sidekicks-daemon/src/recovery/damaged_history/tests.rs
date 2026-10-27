@@ -131,8 +131,8 @@ enum Target {
     Unreadable,
 }
 
-// Killed by the two refusal reasons swapped, and by a delete that leaves a purged session's damage
-// in the recovery state.
+// Killed by the two refusal reasons swapped, by a delete that purges a session before refusing
+// it, and by a delete that answers done without purging.
 #[rstest]
 #[case::continue_a_healthy_session(
     Target::Healthy,
@@ -185,8 +185,17 @@ async fn a_recovery_action_fits_only_a_damaged_session(
         Err(failure) => panic!("the action failed: {failure}"),
     };
     assert_eq!(ended, expected);
-    if matches!(expected, ActionEnd::Done) {
-        assert_eq!(fixture.head(&session_id), None);
-        assert_eq!(fixture.status.read().sessions, Vec::new());
-    }
+    let purged = if !is_continue && matches!(expected, ActionEnd::Done) {
+        vec![session_id]
+    } else {
+        Vec::new()
+    };
+    assert_eq!(
+        *fixture
+            .purges
+            .session_ids
+            .lock()
+            .expect("no purge panics while it records"),
+        purged
+    );
 }

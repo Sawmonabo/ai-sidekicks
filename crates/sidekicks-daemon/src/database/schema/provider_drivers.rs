@@ -7,14 +7,23 @@
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_CONTRACT_VERSION_MAX_LEN;
 use sidekicks_contracts::provider::driver::tools::IdempotencyClass;
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::output_validation::{
     CLI_VERSION_RAW_MAX_LEN, CLI_VERSION_SEMVER_MAX_LEN, RESUME_HANDLE_MAX_LEN,
 };
 
-/// The provider drivers' tables and indexes.
-pub(super) fn provider_drivers_schema_sql() -> String {
+/// The worktrees' list and the provider drivers' own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::git::worktree::schema::schema_parts().with_part(SchemaPart::new(
+        "provider_drivers",
+        provider_drivers_schema_sql(),
+    ))
+}
+
+// The provider drivers' tables and indexes.
+fn provider_drivers_schema_sql() -> String {
     let capability_flags = sql_list_of_every::<DriverCapabilityFlag>();
     let idempotency_classes = sql_list_of_every::<IdempotencyClass>();
     let contract_version_check = format!(

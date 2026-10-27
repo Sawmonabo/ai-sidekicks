@@ -13,7 +13,7 @@ use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
-use crate::queue::delivery::TEST_PROVIDER_PROCESS;
+use crate::provider::process_identity::TEST_PROVIDER_PROCESS;
 use crate::queue::store::RecordedQueueItemState;
 
 /// How the session's lead runs stand when one of them ends with a message waiting.

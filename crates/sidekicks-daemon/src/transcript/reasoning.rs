@@ -233,7 +233,8 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::read_reasoning;
-    use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
+    use crate::events::test_log::AT;
+    use crate::transcript::test_log::{TranscriptTestLog, wire_message};
 
     const THINKING: &str = "agent.thinking.updated";
 
@@ -245,7 +246,7 @@ mod tests {
                 json!(encode_event_cursor(position).expect("a test position is a cursor"));
         }
         let request = serde_json::from_value(request).expect("the test's request reads");
-        let page = read_reasoning(&log.reader(), &|_: &SessionId| None, &request)
+        let page = read_reasoning(&log.session_log.reader(), &|_: &SessionId| None, &request)
             .expect("the reasoning reads");
         wire_message(&page).0
     }
@@ -254,14 +255,18 @@ mod tests {
     // by its first piece, and by a row's entries named by another row.
     #[test]
     fn reasoning_entries_group_a_rows_consecutive_pieces_up_to_one_entry() {
-        let log = TranscriptTestLog::new();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+        let session_log = &log.session_log;
         let piece = "a".repeat(6_000);
-        let (_, row_id) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
-        let (second, _) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
-        let (third, _) = log.piece(THINKING, log.run_id, "m1", Some(0), &piece, AT);
-        let (other, other_row_id) = log.piece(THINKING, log.run_id, "m2", Some(0), "b", AT);
+        let (_, row_id) =
+            session_log.piece(THINKING, session_log.run_id, "m1", Some(0), &piece, AT);
+        let (second, _) =
+            session_log.piece(THINKING, session_log.run_id, "m1", Some(0), &piece, AT);
+        let (third, _) = session_log.piece(THINKING, session_log.run_id, "m1", Some(0), &piece, AT);
+        let (other, other_row_id) =
+            session_log.piece(THINKING, session_log.run_id, "m2", Some(0), "b", AT);
 
-        let page = read(&log, log.run_id, None);
+        let page = read(&log, session_log.run_id, None);
         let entries: Vec<(i64, String, usize)> = page["reasoningEntries"]
             .as_array()
             .expect("the page holds entries")
@@ -294,11 +299,14 @@ mod tests {
     // continuation at the end answering `unavailable`.
     #[test]
     fn reasoning_is_unavailable_only_on_a_first_read_of_a_run_with_none() {
-        let log = TranscriptTestLog::new();
-        let (head, _) = log.reply("m1", Some(0), "No reasoning here.");
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+        let (head, _) = log.session_log.reply("m1", Some(0), "No reasoning here.");
 
-        assert_eq!(read(&log, log.run_id, None)["availability"], "unavailable");
-        let at_end = read(&log, log.run_id, Some(head));
+        assert_eq!(
+            read(&log, log.session_log.run_id, None)["availability"],
+            "unavailable"
+        );
+        let at_end = read(&log, log.session_log.run_id, Some(head));
         assert_eq!(at_end["availability"], "available");
         assert_eq!(at_end["reasoningEntries"], json!([]));
         assert_eq!(at_end["hasMore"], false);

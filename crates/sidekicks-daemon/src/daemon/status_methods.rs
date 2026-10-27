@@ -133,7 +133,7 @@ fn internal(why: &'static str) -> HandlerError {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use jiff::Timestamp;
@@ -148,6 +148,7 @@ mod tests {
     use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
+    use crate::mutex_lock::lock;
     use crate::recovery::status::RecoveryStatusTracker;
 
     // Every process state the daemon is in at the call is the one the read reports, read at each
@@ -168,9 +169,7 @@ mod tests {
                     "processStartTime": "start",
                 }))
                 .expect("an identity reads"),
-                read_process_state: Arc::new(move || {
-                    *read_state.lock().unwrap_or_else(PoisonError::into_inner)
-                }),
+                read_process_state: Arc::new(move || *lock(&read_state)),
                 recovery: Arc::new(RecoveryStatusTracker::new()),
                 version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
                 transport_endpoint: serde_json::from_value(json!("/run/daemon.sock"))
@@ -197,7 +196,7 @@ mod tests {
             DaemonProcessState::Degraded,
             DaemonProcessState::Stopping,
         ] {
-            *state.lock().unwrap_or_else(PoisonError::into_inner) = expected;
+            *lock(&state) = expected;
             let Ok(Reply::Result(read)) = registry
                 .dispatch(
                     request(DaemonStatusRead::DESCRIPTOR.method, Some(&json!({}))),

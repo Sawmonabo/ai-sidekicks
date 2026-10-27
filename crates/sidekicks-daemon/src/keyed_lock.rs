@@ -16,11 +16,13 @@
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 
 use tokio::sync::{OwnedMutexGuard, oneshot};
 use tokio::task::JoinError;
+
+use crate::mutex_lock::lock;
 
 /// A per-key, first-come-first-served lock held across awaits; see the module doc.
 pub(crate) struct KeyedLock<Key> {
@@ -133,7 +135,7 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
 
     fn lock_queues(&self) -> std::sync::MutexGuard<'_, HashMap<Key, Arc<tokio::sync::Mutex<()>>>> {
         // The map holds no invariant a panicking holder could break.
-        self.queues.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.queues)
     }
 }
 

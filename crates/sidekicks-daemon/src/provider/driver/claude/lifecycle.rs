@@ -33,7 +33,6 @@ use crate::provider::driver::claude::delivery::requests::{
     ClaudeInboundRequests, ClaudeInboundRequestsDependencies,
 };
 use crate::provider::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
-use crate::provider::driver::claude::delivery::run_engine::{ClaudeRunEngine, RunEngineDelivery};
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
 use crate::provider::driver::claude::delivery::stream::{
     ClaudeDeliveryStream, ClaudeSessionStreams, ClaudeStreamDependencies,
@@ -72,7 +71,9 @@ use crate::provider::driver::claude::spawn::launch::installed_build::{
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::{DriverServices, ProviderAccountFolders};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::repository_reader::RepositoryReading;
+use crate::provider::port::run_host::RunHost;
 use crate::provider::spawn_environment::SessionEnvironment;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
@@ -140,6 +141,7 @@ impl ClaudeDriver {
                 execution_postures: Arc::clone(&services.execution_postures),
                 base_environment: Arc::clone(&services.base_environment),
                 reserved_names: Arc::clone(&services.reserved_names),
+                background_work: Arc::clone(&services.background_work),
                 data_folder: services.data_folder.clone(),
                 home_folder: services.home_folder.clone(),
                 processes: Arc::clone(&services.processes),
@@ -154,16 +156,17 @@ impl ClaudeDriver {
         }
     }
 
-    /// The driver with its session pieces composed over `engine` now, for a test that records
-    /// what reaches the run engine.
+    /// The driver with its session pieces composed over `engine` and its `dispatch` now, for a
+    /// test that records what reaches the run engine.
     #[cfg(test)]
     pub(crate) fn with_engine(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
-        engine: &Arc<dyn ClaudeRunEngine>,
+        engine: &Arc<dyn RunHost>,
+        dispatch: &Arc<dyn InboundDispatch>,
     ) -> Result<Self, DriverError> {
         let driver = Self::with_starts(services, starts);
-        let parts = driver.compose(engine)?;
+        let parts = driver.compose(engine, dispatch)?;
         drop(driver.parts.set(Arc::new(parts)));
         Ok(driver)
     }
@@ -177,11 +180,7 @@ impl ClaudeDriver {
         let ports = &self.sources.ports;
         let engine = ports.run_engine.require_port().map_err(internal)?;
         let dispatch = ports.inbound_dispatch.require_port().map_err(internal)?;
-        let delivery: Arc<dyn ClaudeRunEngine> = Arc::new(RunEngineDelivery::new(
-            Arc::clone(engine),
-            Arc::clone(dispatch),
-        ));
-        let composed = Arc::new(self.compose(&delivery)?);
+        let composed = Arc::new(self.compose(engine, dispatch)?);
         // Two first calls may both compose; the one set first is kept, and the other, which
         // started nothing, is dropped.
         Ok(self.parts.get_or_init(|| composed))
@@ -266,10 +265,11 @@ impl ClaudeDriver {
         self.process_environment(folders.zip(provider_account_id), &[], &[])
     }
 
-    // Every piece a session shares, wired over `engine`.
+    // Every piece a session shares, wired over `engine` and its `dispatch`.
     fn compose(
         &self,
-        engine: &Arc<dyn ClaudeRunEngine>,
+        engine: &Arc<dyn RunHost>,
+        dispatch: &Arc<dyn InboundDispatch>,
     ) -> Result<ClaudeSessionParts, DriverError> {
         let ports = &self.sources.ports;
         let bindings = Arc::clone(
@@ -287,7 +287,7 @@ impl ClaudeDriver {
         let helper_steers = Arc::new(Mutex::new(ClaudeHelperSteers::default()));
         let foreground_helpers = Arc::new(Mutex::new(ClaudeForegroundHelpers::default()));
         let dialogs = Arc::new(ClaudeProviderDialogs::new(ClaudeStreamDialogPorts::new(
-            Arc::clone(engine),
+            Arc::clone(dispatch),
             Arc::clone(&routes),
             Arc::clone(&streams),
         )));
@@ -296,7 +296,7 @@ impl ClaudeDriver {
         )));
         let requests = Arc::new(ClaudeInboundRequests::new(
             ClaudeInboundRequestsDependencies {
-                engine: Arc::clone(engine),
+                dispatch: Arc::clone(dispatch),
                 routes: Arc::clone(&routes),
                 permission_asks: Arc::clone(&ports.permission_asks),
                 questions: Arc::clone(&ports.questions),
@@ -314,6 +314,7 @@ impl ClaudeDriver {
         let message_taken = Arc::clone(&ports.message_taken);
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
+            dispatch: Arc::clone(dispatch),
             routes: Arc::clone(&routes),
             dialogs: Arc::clone(&dialogs),
             pauses: Arc::clone(&pauses),
@@ -344,6 +345,7 @@ impl ClaudeDriver {
             let restarts = ClaudeSessionRestarts::new(
                 Arc::clone(&routes),
                 Arc::clone(engine),
+                Arc::clone(dispatch),
                 establishment.clone(),
                 Arc::clone(ports),
             );
@@ -355,6 +357,7 @@ impl ClaudeDriver {
                 handshakes: Arc::clone(&handshakes),
                 prompts: Arc::clone(&prompts),
                 engine: Arc::clone(engine),
+                dispatch: Arc::clone(dispatch),
                 attachments: Arc::clone(&self.attachments),
                 bindings,
             };
@@ -407,6 +410,7 @@ impl ClaudeDriver {
                 },
                 cuts: Arc::clone(&cuts),
                 shell_lines: Arc::clone(&self.shell_lines),
+                background_work: Arc::clone(&self.sources.background_work),
                 tool_servers: Arc::clone(&ports.in_process_tool_servers),
                 processes: Arc::clone(&self.sources.processes),
                 restarts: Arc::clone(&restarts),

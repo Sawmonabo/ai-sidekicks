@@ -7,11 +7,12 @@
 //! it does after a refused `VACUUM`. A run going live while it repacks cancels it: the `VACUUM`
 //! checks the cancel every thousand instructions and the queue interrupts it, so it rolls back
 //! whether the cancel came before it began or while it ran, and the next purge's repack tries
-//! again. It is metered against the backup's budget, since a `VACUUM` copies the store.
+//! again. It is metered against the processor budget its caller hands in.
 
 use std::convert::Infallible;
 use std::error::Error;
-use std::path::PathBuf;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::FutureExt as _;
@@ -20,12 +21,10 @@ use rusqlite::Connection;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::artifacts::admission::VolumeFreeBytesReader;
 use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::backup::run::BACKUP_BUDGET;
 use crate::daemon::scheduler::ScheduledJobOutcome;
 use crate::daemon::scheduler::budget::{
-    JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+    JobBudget, JobWorkload, Measured, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
 };
 use crate::database::checkpoint::{CheckpointMode, CheckpointResult};
 use crate::database::writer::thread::checkpoint;
@@ -155,6 +154,9 @@ fn read_pages(connection: &Connection) -> rusqlite::Result<DatabasePages> {
     })
 }
 
+/// Reads the free bytes on the volume holding a folder; the daemon's is the platform's.
+pub(crate) type VolumeFreeBytesReader = fn(&Path) -> io::Result<u64>;
+
 /// What the repack job reads and runs through.
 pub(crate) struct RepackJobDeps {
     /// The writer whose connection repacks.
@@ -167,9 +169,11 @@ pub(crate) struct RepackJobDeps {
     pub(crate) read_volume_free_bytes: VolumeFreeBytesReader,
     /// The count of live runs; one going live cancels the repack.
     pub(crate) live_runs: watch::Receiver<u32>,
+    /// The processor budget each repack is metered against.
+    pub(crate) budget: JobBudget,
 }
 
-/// The repack job a purge schedules, metered against [`BACKUP_BUDGET`]: skipped with one
+/// The repack job a purge schedules, metered against its deps' budget: skipped with one
 /// service-log line unless the volume has free room of at least twice the file; a refused
 /// `VACUUM`, and one a run going live or the scheduler's stop interrupted, is written to the
 /// service log and tried after the next purge. Fails only when the writer has ended or closed.
@@ -177,7 +181,7 @@ pub(crate) fn repack_job(
     deps: Arc<RepackJobDeps>,
 ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static {
     metered_job(
-        BACKUP_BUDGET,
+        deps.budget,
         Box::new(move |stop, meter| run_repack(Arc::clone(&deps), stop, meter).boxed()),
     )
 }
@@ -247,7 +251,7 @@ async fn has_room_to_repack(deps: &RepackJobDeps, meter: &ProcessorMeter) -> boo
         .run_blocking(move || {
             let file_bytes = std::fs::metadata(&database_path)?.len();
             let folder = database_path.parent().unwrap_or(&database_path);
-            Ok::<_, std::io::Error>((file_bytes, read_volume_free_bytes(folder)?))
+            Ok::<_, io::Error>((file_bytes, read_volume_free_bytes(folder)?))
         })
         .await;
     match figures {

@@ -21,9 +21,9 @@ use sidekicks_platforms::{
 
 use super::{
     ARG0_FLAG, CommandState, INNER_FLAG, SharedRecords, SharedState, WORDS_SEPARATOR,
-    end_as_command_ended, exec_failed, exited_record, follow_stops, lock_records, lock_state, note,
-    send_record,
+    end_as_command_ended, exec_failed, exited_record, follow_stops, note, send_record,
 };
+use crate::mutex_lock::lock;
 use crate::provider::command::channel::PartyRecord;
 use crate::provider::command::channel::party::PartyRequests;
 use crate::provider::command::waiting_checks::cheap_check_delay;
@@ -40,6 +40,10 @@ const FALLBACK_WINDOW: WindowSize = WindowSize {
 /// How many of the command's last output bytes the wrapper keeps for its last line: 1 KiB, more
 /// than the last line of a terminal's screen holds, which is where a prompt sits.
 const OUTPUT_TAIL_BYTES: usize = 1024;
+
+/// The most one read takes as bytes are copied either way between the provider's terminal and
+/// the command's: each piece is passed on at once, so the buffer stays small.
+const COPY_CHUNK_BYTES: usize = 4096;
 
 /// How long the output copier waits for more output, once the terminal's command exited, before it
 /// takes the output as ended: 10 ms, a wait short enough that no one sees it.
@@ -98,7 +102,7 @@ pub(super) fn run_in_terminal(
         Ok(terminal) => terminal,
         Err(error) => return exec_failed(&error),
     };
-    *lock_state(state) = CommandState::Running {
+    *lock(state) = CommandState::Running {
         group: terminal.pty.child().id(),
     };
     // The rest of `terminal`, its own handle on the program side among it, lives until the
@@ -145,7 +149,7 @@ pub(super) fn run_in_terminal(
         let (stopped, records, state) = (Arc::clone(&pty), Arc::clone(records), Arc::clone(state));
         follow_stops(requests, Arc::clone(&records), move || {
             // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
-            let state = lock_state(&state);
+            let state = lock(&state);
             if matches!(*state, CommandState::Running { .. }) {
                 end_terminal_session(&stopped)?;
                 send_record(&records, &PartyRecord::Stopped {});
@@ -153,7 +157,7 @@ pub(super) fn run_in_terminal(
             Ok(())
         });
     }
-    if lock_records(records).is_some() {
+    if lock(records).is_some() {
         report_terminal(
             Arc::clone(&pty),
             terminal.device,
@@ -163,10 +167,7 @@ pub(super) fn run_in_terminal(
     }
     // The command stays unreaped until its state reads reaped, so no stop reaches a reused id.
     let exited = wait_for_exit(pty.child().id(), None);
-    tail.0
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .has_command_exited = true;
+    lock(&tail.0).has_command_exited = true;
     // Set before the wake, so a copier woken from its wait reads the exit.
     if let Err(error) = output_watch.wake() {
         note(
@@ -174,7 +175,7 @@ pub(super) fn run_in_terminal(
             &format!("could not wake its output copier at its command's exit: {error}"),
         );
     }
-    let mut state = lock_state(state);
+    let mut state = lock(state);
     *state = CommandState::Reaped;
     let status = exited.and_then(|_| wait_for_terminal_command(&pty));
     // The output a command printed just before it exited is still on its way to the provider.
@@ -232,7 +233,7 @@ fn copy_input(master: &std::fs::File) {
         .name("command input".to_owned())
         .spawn(move || {
             let mut input = io::stdin().lock();
-            let mut buffer = [0_u8; 4096];
+            let mut buffer = [0_u8; COPY_CHUNK_BYTES];
             loop {
                 // The provider's terminal closing ends the input, as a read error does.
                 match input.read(&mut buffer) {
@@ -256,9 +257,8 @@ fn copy_input(master: &std::fs::File) {
 /// last bytes in `tail`, until, once the command exited, no output comes for `OUTPUT_QUIET`: the
 /// terminal's own handle keeps its program side open while the command's leader lives, so the end
 /// is read from the exit, not from a close the command's own redirections cause. It reads only
-/// once `output_watch` sees output, so the wake at the exit reaches
-/// it; the receiver hears once the output has ended, with the error that kept the copier from
-/// telling whether more was coming.
+/// once `output_watch` sees output, so the wake at the exit reaches it; the receiver hears once the
+/// output has ended, with the error that kept the copier from telling whether more was coming.
 fn copy_output(
     mut master: std::fs::File,
     output_watch: Arc<TerminalOutputWatch>,
@@ -269,14 +269,11 @@ fn copy_output(
         .name("command output".to_owned())
         .spawn(move || {
             let mut output = io::stdout().lock();
-            let mut buffer = [0_u8; 4096];
+            let mut buffer = [0_u8; COPY_CHUNK_BYTES];
             let (kept, piece_came) = &*tail;
             let mut copied = Ok(());
             loop {
-                let has_command_exited = kept
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .has_command_exited;
+                let has_command_exited = lock(kept).has_command_exited;
                 match output_watch.wait(has_command_exited.then_some(OUTPUT_QUIET)) {
                     Ok(true) => {}
                     // Woken by the exit, the copier reads the flag again.
@@ -304,7 +301,7 @@ fn copy_output(
                 {
                     break;
                 }
-                let mut kept = kept.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut kept = lock(kept);
                 kept.bytes.extend_from_slice(piece);
                 let excess = kept.bytes.len().saturating_sub(OUTPUT_TAIL_BYTES);
                 kept.bytes.drain(..excess);
@@ -338,14 +335,11 @@ fn report_terminal(
             let peer_failure_noted = Once::new();
             let mut last_report = None;
             let (kept, piece_came) = &*tail;
-            let mut armed_at = kept
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .last_output;
+            let mut armed_at = lock(kept).last_output;
             let mut checks_done = 0;
             loop {
                 let output_tail = {
-                    let tail = kept.lock().unwrap_or_else(PoisonError::into_inner);
+                    let tail = lock(kept);
                     if tail.last_output != armed_at {
                         armed_at = tail.last_output;
                         checks_done = 0;

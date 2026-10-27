@@ -421,7 +421,7 @@ mod tests {
         SEARCH_INDEX_OPTIONS, SearchIndexOpening, SearchIndexRebuildReason, build_search_index,
         make_index_at, open_search_index,
     };
-    use crate::database::schema::DAEMON_SCHEMA_SQL;
+    use crate::questions::schema::schema_parts;
     use crate::session::search::index::rows::IndexRowReader;
     use crate::session::search::index::schema::add_titled_session;
 
@@ -430,8 +430,8 @@ mod tests {
     fn database_with_one_session() -> (Connection, u64) {
         let connection = Connection::open_in_memory().expect("an in-memory database opens");
         connection
-            .execute_batch(&DAEMON_SCHEMA_SQL)
-            .expect("the daemon's schema runs");
+            .execute_batch(schema_parts().into_schema().sql())
+            .expect("the session's schema runs");
         let highest_id_given = add_titled_session(&connection, "session-1");
         assert!(
             highest_id_given > 0,

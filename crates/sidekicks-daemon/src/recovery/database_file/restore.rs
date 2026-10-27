@@ -29,12 +29,12 @@ use crate::daemon::backup::mirror::{
 };
 use crate::daemon::data_folder::data_folder;
 use crate::daemon::data_folder_lock::{DataFolderLock, DataFolderLockError};
-use crate::daemon::release_version::this_build_release_version;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
 };
-use crate::database::schema::DAEMON_SCHEMA_FINGERPRINT;
+use crate::database::schema::DatabaseSchema;
+use crate::database::sibling_path;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::error_description::describe_error;
 use crate::events::log_service::{
@@ -46,7 +46,7 @@ use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::missing_entry::MissingEntry as _;
 use crate::recovery::database_file::copy::copy_file_replacing;
 use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
-use crate::recovery::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX, sibling_path};
+use crate::recovery::database_file::{SHARED_MEMORY_SUFFIX, WRITE_AHEAD_LOG_SUFFIX};
 use crate::standard_error::write_error_line;
 
 /// The arguments the daemon's own program is started with to restore a backup; the backup's
@@ -154,14 +154,19 @@ pub(crate) enum RestoreError {
     Runtime(#[source] io::Error),
 }
 
-/// Runs the `database restore` mode on the argument after the mode's own: the backup's folder.
-/// Exits 0 once the restore is recorded, 1 with its step on standard error when it fails.
-pub fn run_database_restore(arguments: &[OsString]) -> ExitCode {
+/// Runs the `database restore` mode on the argument after the mode's own, the backup's folder,
+/// with `schema` the daemon's and `service_version` this build's. Exits 0 once the restore is
+/// recorded, 1 with its step on standard error when it fails.
+pub fn run_database_restore(
+    arguments: &[OsString],
+    schema: &DatabaseSchema,
+    service_version: &ReleaseVersion,
+) -> ExitCode {
     let [backup_folder] = arguments else {
         write_error_line("the restore is started with the backup's folder");
         return ExitCode::FAILURE;
     };
-    match restore_from_home(Path::new(backup_folder)) {
+    match restore_from_home(Path::new(backup_folder), schema, service_version) {
         Ok(()) => ExitCode::SUCCESS,
         Err(failure) => {
             write_error_line(&format!("the restore failed: {}", describe_error(&failure)));
@@ -170,26 +175,35 @@ pub fn run_database_restore(arguments: &[OsString]) -> ExitCode {
     }
 }
 
-// The mode's own start: this build's service version, the one each backup's manifest names for
-// its own, and the home folder, handed to the restore.
-fn restore_from_home(backup_folder: &Path) -> Result<(), RestoreError> {
-    let service_version = this_build_release_version();
+// The mode's own start: the home folder, handed to the restore with the daemon's schema and this
+// build's service version.
+fn restore_from_home(
+    backup_folder: &Path,
+    schema: &DatabaseSchema,
+    service_version: &ReleaseVersion,
+) -> Result<(), RestoreError> {
     let home = std::env::home_dir().ok_or(RestoreError::NoHome)?;
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .map_err(RestoreError::Runtime)?
-        .block_on(restore_backup(&home, backup_folder, &service_version))
+        .block_on(restore_backup(
+            &home,
+            backup_folder,
+            schema,
+            service_version,
+        ))
 }
 
 /// Restores the backup in `backup_folder` into the service of the home folder `home`, as the
-/// mode's doc says, `service_version` this build's. Fails with the step that failed; before
-/// anything is replaced with [`RestoreError::Lock`] while a service holds the data folder,
-/// [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
+/// mode's doc says, `schema` the daemon's and `service_version` this build's. Fails with the step
+/// that failed; before anything is replaced with [`RestoreError::Lock`] while a service holds the
+/// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
 /// [`RestoreError::Place`] for a kept place that cannot be written.
 pub(crate) async fn restore_backup(
     home: &Path,
     backup_folder: &Path,
+    schema: &DatabaseSchema,
     service_version: &ReleaseVersion,
 ) -> Result<(), RestoreError> {
     let data_folder = data_folder(home);
@@ -216,11 +230,11 @@ pub(crate) async fn restore_backup(
             path: backup_database.clone(),
             source,
         })?;
-    if backup_version != *DAEMON_SCHEMA_FINGERPRINT {
+    if backup_version != schema.fingerprint() {
         return Err(RestoreError::OtherBuild {
             backup_schema_version: backup_version,
             backup_service_version: manifest.service_version.as_str().to_owned(),
-            build_schema_version: *DAEMON_SCHEMA_FINGERPRINT,
+            build_schema_version: schema.fingerprint(),
             build_service_version: service_version.as_str().to_owned(),
         });
     }
@@ -241,6 +255,7 @@ pub(crate) async fn restore_backup(
     restore_mirror(&kept)?;
     record_restore(
         &store,
+        schema,
         SessionEvent::DaemonBackupRestored(DaemonBackupRestoredPayload {
             backup_id: manifest.backup_id,
             kept_distribution_parts: None,
@@ -390,13 +405,18 @@ fn restore_mirror(kept: &[KeptPlace]) -> Result<(), RestoreError> {
     Ok(())
 }
 
-// Appends `event` on the service's own session of the store at `store`, through the one writer,
-// and closes it.
-async fn record_restore(store: &Path, event: SessionEvent) -> Result<(), RestoreError> {
+// Appends `event` on the service's own session of the store at `store`, opened with `schema`,
+// through the one writer, and closes it.
+async fn record_restore(
+    store: &Path,
+    schema: &DatabaseSchema,
+    event: SessionEvent,
+) -> Result<(), RestoreError> {
     let opened = store.to_path_buf();
+    let opened_schema = schema.clone();
     let writer = Arc::new(
         DatabaseWriter::open(
-            move || open_database(&opened),
+            move || open_database(&opened, &opened_schema),
             DatabaseWriterOptions::default(),
         )
         .await
@@ -445,14 +465,14 @@ mod tests {
     use crate::database::connection::writer_open::{
         DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
     };
-    use crate::database::schema::DAEMON_SCHEMA_FINGERPRINT;
+    use crate::database::schema::{DatabaseSchema, schema_parts};
 
-    // A backup folder holding a store this build opened, its `user_version` set to `version`, its
-    // manifest naming `service_version`.
-    fn write_backup(backup: &Path, version: i32, service_version: &str) {
+    // A backup folder holding a store opened with `schema`, its `user_version` set to `version`,
+    // its manifest naming `service_version`.
+    fn write_backup(backup: &Path, schema: &DatabaseSchema, version: i32, service_version: &str) {
         fs::create_dir_all(backup).expect("the backup's folder is made");
-        let connection =
-            open_database(&backup.join(BACKUP_DATABASE_FILE_NAME)).expect("the store opens");
+        let connection = open_database(&backup.join(BACKUP_DATABASE_FILE_NAME), schema)
+            .expect("the store opens");
         connection
             .pragma_update(None, "user_version", version)
             .expect("the version is set");
@@ -499,14 +519,15 @@ mod tests {
         let data_folder = data_folder(&home);
         let backups = scratch.path().join("backups");
         let other_build = backups.join("other-build");
-        write_backup(&other_build, *DAEMON_SCHEMA_FINGERPRINT ^ 1, "9.9.9");
+        let schema = schema_parts().into_schema();
+        write_backup(&other_build, &schema, schema.fingerprint() ^ 1, "9.9.9");
         let this_build = backups.join("this-build");
-        write_backup(&this_build, *DAEMON_SCHEMA_FINGERPRINT, "1.2.3");
+        write_backup(&this_build, &schema, schema.fingerprint(), "1.2.3");
         let service_version = ReleaseVersion::new("1.2.3".to_owned()).expect("a version");
         fs::create_dir_all(backups.join("mirror/agent-memory")).expect("made");
         fs::write(backups.join("mirror/agent-memory/notes.md"), b"learned").expect("written");
 
-        let refused = restore_backup(&home, &other_build, &service_version).await;
+        let refused = restore_backup(&home, &other_build, &schema, &service_version).await;
         let Err(refusal @ RestoreError::OtherBuild { .. }) = refused else {
             panic!("a copy another build wrote is refused, not {refused:?}");
         };
@@ -514,8 +535,8 @@ mod tests {
         for named in [
             "9.9.9".to_owned(),
             "1.2.3".to_owned(),
-            (*DAEMON_SCHEMA_FINGERPRINT ^ 1).to_string(),
-            DAEMON_SCHEMA_FINGERPRINT.to_string(),
+            (schema.fingerprint() ^ 1).to_string(),
+            schema.fingerprint().to_string(),
         ] {
             assert!(message.contains(&named), "{message} names {named}");
         }
@@ -525,7 +546,7 @@ mod tests {
         fs::create_dir_all(&index).expect("the index folder is made");
         fs::write(index.join("segment"), b"rows of the store before").expect("written");
         let held = DataFolderLock::take(&data_folder).expect("the test holds the data folder");
-        let refused = restore_backup(&home, &this_build, &service_version).await;
+        let refused = restore_backup(&home, &this_build, &schema, &service_version).await;
         assert!(matches!(refused, Err(RestoreError::Lock(_))));
         drop(held);
         fs::write(home.join("blocked"), b"a file where a folder goes").expect("written");
@@ -533,7 +554,7 @@ mod tests {
             &backups,
             &json!([{ "name": "agent-memory", "source": "blocked/agent-memory" }]),
         );
-        let refused = restore_backup(&home, &this_build, &service_version).await;
+        let refused = restore_backup(&home, &this_build, &schema, &service_version).await;
         assert!(
             matches!(refused, Err(RestoreError::Place { .. })),
             "{refused:?}"
@@ -548,7 +569,7 @@ mod tests {
             &backups,
             &json!([{ "name": "agent-memory", "source": ".agent/agent-memory" }]),
         );
-        restore_backup(&home, &this_build, &service_version)
+        restore_backup(&home, &this_build, &schema, &service_version)
             .await
             .expect("the restore runs");
         assert!(!index.exists());

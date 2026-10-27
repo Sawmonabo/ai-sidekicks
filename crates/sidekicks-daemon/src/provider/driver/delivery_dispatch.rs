@@ -16,8 +16,8 @@ use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::session::run::inbound::rows::SessionScopedRow;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome, RunInboundDispatch};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 
 /// Where a delivery came from, as a refusal's diagnostic names it.
 pub(crate) struct DeliveryOrigin<'a> {
@@ -33,7 +33,7 @@ pub(crate) struct DeliveryOrigin<'a> {
 /// answers its outcome, or `None` once a refusal is logged as `DeliveryDispatchFailed` naming its
 /// origin, its kind and its session or binding.
 pub(crate) fn dispatch_delivery<'d>(
-    dispatch: &'d RunInboundDispatch,
+    dispatch: &'d dyn InboundDispatch,
     origin: DeliveryOrigin<'_>,
     delivery: InboundDelivery<'_>,
 ) -> impl Future<Output = Option<InboundOutcome>> + Send + 'd {
@@ -79,7 +79,7 @@ pub(crate) fn dispatch_delivery<'d>(
             Ok(outcome) => Some(outcome),
             Err(error) => {
                 let disposition_reason = bound_failure_detail(
-                    &describe_error(&error),
+                    &describe_error(&*error),
                     UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
                 );
                 emit_driver_diagnostic(&DriverDiagnosticRecord {

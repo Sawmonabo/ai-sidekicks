@@ -40,13 +40,15 @@ use crate::provider::driver::run_control::AnswerProviderChoiceResult;
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{
     append, insert_running_run, stored_run_state, test_engine,
 };
 use crate::session::run::pause::tests::unanswered;
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A run waiting on its switch-or-credits choice, the engine that moves it and the resolver.
@@ -159,7 +161,7 @@ const WAITING_ON_THE_CHOICE: ChoiceRun = ChoiceRun {
 };
 
 async fn fixture(driver: MockProviderDriver, setup: ChoiceRun) -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id: SessionId = test_session_id();

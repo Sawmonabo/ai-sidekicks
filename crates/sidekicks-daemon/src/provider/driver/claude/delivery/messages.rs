@@ -21,8 +21,7 @@ use crate::provider::driver::claude::delivery::patches::{
 };
 use crate::provider::driver::reorder_buffer::ReorderPairingRole;
 use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::rows::LateAppendableRow;
+use crate::provider::run::delivery::{DeliveryOperation, LateAppendableRow};
 use crate::transcript::whole_patch::WholePatchFile;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 

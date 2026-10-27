@@ -11,7 +11,8 @@ use crate::transcript::test_log::TranscriptTestLog;
 // Writes a reply row at `sequence` holding `body`, its payload stored as `payload`, past the
 // append path, as only damage leaves one.
 fn plant_row(log: &TranscriptTestLog, sequence: i64, payload: &str, body: &[u8]) {
-    log.writer
+    log.session_log
+        .writer
         .execute(
             "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
                category, type, payload, content_payload)
@@ -19,7 +20,7 @@ fn plant_row(log: &TranscriptTestLog, sequence: i64, payload: &str, body: &[u8])
                'agent.message.sent', ?4, ?5)",
             params![
                 mint_uuid_v7().to_string(),
-                log.session_id.text().as_str(),
+                log.session_log.session_id.text().as_str(),
                 sequence,
                 payload,
                 body
@@ -33,11 +34,11 @@ fn plant_row(log: &TranscriptTestLog, sequence: i64, payload: &str, body: &[u8])
 // no body.
 #[test]
 fn a_body_with_no_stated_length_is_refused() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     plant_row(&log, 0, "{}", b"a body with no stated length");
-    let reader = log.reader();
+    let reader = log.session_log.reader();
     let Err(rusqlite::Error::FromSqlConversionFailure(_, _, cause)) =
-        read_streamed_pieces(&reader, &log.session_id, &[0])
+        read_streamed_pieces(&reader, &log.session_log.session_id, &[0])
     else {
         panic!("the row is refused");
     };
@@ -54,12 +55,12 @@ fn a_body_with_no_stated_length_is_refused() {
 // sequence. Killed by answering SQLite's bare failure, which names no row.
 #[test]
 fn a_payload_that_is_no_json_is_named_as_damage() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     plant_row(&log, 0, "{\"contentLength\": 4}", b"good");
     plant_row(&log, 1, "{not json", b"damaged");
-    let reader = log.reader();
+    let reader = log.session_log.reader();
     let Err(rusqlite::Error::FromSqlConversionFailure(_, _, cause)) =
-        read_streamed_pieces(&reader, &log.session_id, &[0, 1])
+        read_streamed_pieces(&reader, &log.session_log.session_id, &[0, 1])
     else {
         panic!("the read is refused");
     };
@@ -67,5 +68,8 @@ fn a_payload_that_is_no_json_is_named_as_damage() {
         .downcast_ref::<MalformedStoredEventError>()
         .expect("the refusal names the damaged row");
     assert_eq!(malformed.sequence, 1);
-    assert_eq!(malformed.session_id, log.session_id.text().as_str());
+    assert_eq!(
+        malformed.session_id,
+        log.session_log.session_id.text().as_str()
+    );
 }

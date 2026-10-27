@@ -21,7 +21,7 @@ mod transition;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::future::{BoxFuture, join_all};
@@ -34,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::provider::driver::codex::service::asks::CodexServiceAsks;
 use crate::provider::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
@@ -69,9 +70,9 @@ use crate::provider::driver::codex::usage_limit_signal::CodexRateLimitObservatio
 use crate::provider::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
@@ -106,6 +107,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) additional_config_overrides: Vec<String>,
     /// How long a start or redial has to dial and complete its handshake.
     pub(crate) startup_timeout: Duration,
+    /// Whether the daemon's program runs the hook mode a hook command starts, so the terminal
+    /// service is started with the daemon's hooks.
+    pub(crate) dispatches_hook_mode: bool,
     /// The session's recovery, told of exits, recoveries, crash loops and planned restarts.
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.
@@ -710,39 +714,31 @@ impl CodexService {
     }
 
     fn lock_routing(&self) -> MutexGuard<'_, CodexServiceRouting> {
-        self.routing.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.routing)
     }
 
     pub(super) fn lock_threads(&self) -> MutexGuard<'_, CodexServiceThreads> {
-        self.threads.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.threads)
     }
 
     fn lock_live(&self) -> MutexGuard<'_, LiveService> {
-        self.live.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.live)
     }
 
     fn lock_physical_socket(&self) -> MutexGuard<'_, Option<PathBuf>> {
-        self.physical_socket
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.physical_socket)
     }
 
     fn lock_process_record_file(&self) -> MutexGuard<'_, Option<LastingServiceRecordFile>> {
-        self.process_record_file
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.process_record_file)
     }
 
     fn lock_lasting_log_file(&self) -> MutexGuard<'_, Option<PathBuf>> {
-        self.lasting_log_file
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.lasting_log_file)
     }
 
     fn lock_supervision(&self) -> MutexGuard<'_, Supervision> {
-        self.supervision
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.supervision)
     }
 
     fn send(&self, event: SupervisorEvent) {

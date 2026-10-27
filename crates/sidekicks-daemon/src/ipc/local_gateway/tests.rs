@@ -34,6 +34,7 @@ use tokio_util::sync::CancellationToken;
 use super::connection::serve_connection;
 use super::writer::Outbox;
 use super::{GatewayServices, SupervisionDisconnectReason, SupervisionHooks, next_transport_id};
+use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::ipc::call_fixtures::{
     NamedSubscribe, Nothing, SUBSCRIBE_METHOD, channel_feed, subscription_id,
 };
@@ -231,7 +232,9 @@ fn harness() -> Harness {
             .boxed()
         });
     let negotiator = ProtocolNegotiator::new(SESSION_TOKEN.to_owned(), admit_caller);
-    let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
+    let subscriptions = Subscriptions::new(Arc::new(DispatchDamageWatch(Arc::new(
+        DatabaseDamageWatch::new(),
+    ))));
     let admitted = Arc::new(Mutex::new(Vec::new()));
     let mut builder = MethodRegistryBuilder::new();
     negotiator

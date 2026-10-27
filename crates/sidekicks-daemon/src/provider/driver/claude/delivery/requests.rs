@@ -31,13 +31,13 @@ use crate::mutex_lock::lock;
 use crate::error_description::describe_error;
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::delivery::ask_action::read_claude_ask_action;
+use crate::provider::driver::claude::delivery::claude_delivery_origin;
 use crate::provider::driver::claude::delivery::dialogs::{
     ClaudeDialogSession, ClaudeProviderDialogs,
 };
 use crate::provider::driver::claude::delivery::reviewer::{
     ClaudeReviewerCapture, read_claude_hook_denial,
 };
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
 use crate::provider::driver::claude::event_normalizer::{
@@ -64,10 +64,12 @@ use crate::provider::driver::claude::session::transport::user_message::{
 };
 use crate::provider::driver::claude::spawn::settings::matches_claude_reviewed_removal_rule;
 use crate::provider::driver::contract::{DriverError, ProviderRequestAnswer};
+use crate::provider::driver::delivery_dispatch::dispatch_delivery;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::permission_ask::{
     PermissionAskPort, ProviderAnswerRule, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal, ProviderRuleNotKeptError,
@@ -79,8 +81,9 @@ use crate::provider::port::question::{
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::record_readers::read_non_empty_string;
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome,
+};
 
 use answers::{
     ClaudeAnswerRuleError, ClaudeAnswerRules, ClaudeAskAnswerError, ClaudeHeldAsk,
@@ -93,8 +96,8 @@ const CLAUDE_RULE_DECISION: &str = "rule";
 
 /// What the requests attribute, hand on and answer through.
 pub(crate) struct ClaudeInboundRequestsDependencies {
-    /// The run engine, which admits each ask on its run.
-    pub(crate) engine: Arc<dyn ClaudeRunEngine>,
+    /// The run engine's dispatch, which admits each ask on its run.
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
     /// The runs bound to each session.
     pub(crate) routes: Arc<ClaudeRunRoutes>,
     /// The approval pipeline's intake.
@@ -653,15 +656,9 @@ impl ClaudeInboundRequests {
                 }),
             },
         };
-        let outcome = self
-            .dependencies
-            .engine
-            .deliver(
-                session.stream.provider_account_id().cloned(),
-                Some(wire),
-                delivery,
-            )
-            .await;
+        let origin =
+            claude_delivery_origin(session.stream.provider_account_id().cloned(), Some(wire));
+        let outcome = dispatch_delivery(&*self.dependencies.dispatch, origin, delivery).await;
         let is_admitted = outcome == Some(InboundOutcome::AskAdmitted);
         let mut tables = self.lock();
         if is_admitted {

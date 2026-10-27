@@ -1,33 +1,30 @@
 //! A Codex session live in the composed driver: its record on a scripted service, its task the
-//! driver's own, one run on a live turn, and the run queue's intake recorded; and a driver on a
-//! Codex folder of a test's own, with a service of the test's listening there.
+//! driver's own, one run on a live turn, and the run engine's and the run queue's intake recorded;
+//! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
 mod caller_check;
 mod intake;
 mod sessions;
 mod terminal_reach;
 
-use std::num::NonZeroUsize;
 use std::path::Path;
 use std::sync::Arc;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
-use sidekicks_platforms::{LeftoverSweep, bind_socket_listener, replace_file_atomically};
-use tempfile::TempDir;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_platforms::bind_socket_listener;
 
 use super::CodexDriver;
 use super::intake::CodexSessionIntake;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, insert_lead};
-use crate::events::session::followers::SessionEventFollowers;
-use crate::mutex_lock::lock;
+use crate::database::schema::provider_drivers::schema_parts;
+use crate::database::writer::test_file::TestDatabase;
 use crate::provider::driver::DriverServices;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::notification_routing::CodexRoutedFrames;
@@ -35,6 +32,7 @@ use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::service::registry::home_socket_path;
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
+    write_failing_codex,
 };
 use crate::provider::driver::codex::session::inbound::codex_session_inbound;
 use crate::provider::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
@@ -42,17 +40,14 @@ use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::provider::driver::codex::transport::connection::scripted_service::ScriptedService;
-use crate::provider::driver::test_registry::new_session_id;
 use crate::provider::driver::test_registry::{
-    RecordedQueue, TestRunPorts, new_run_id, test_driver_services,
+    RecordedQueue, new_run_id, new_session_id, test_driver_services,
 };
 use crate::provider::port::question::QuestionPort;
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::run_host::test_host::RecordingRunEngine;
 use crate::provider::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
-use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::session::run::engine::tests::insert_running_run;
-use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";
@@ -68,9 +63,9 @@ pub(super) struct LiveCodexSession {
     pub(super) queue: Arc<RecordedQueue>,
     /// Where the questions card registers, which no test registers until it asks a question.
     pub(super) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
-    pub(super) database: TestDatabase,
-    pub(super) followers: Arc<SessionEventFollowers>,
-    _home: TempDir,
+    /// The run engine and its dispatch, which record each call the driver makes.
+    pub(super) engine: Arc<RecordingRunEngine>,
+    _database: TestDatabase,
 }
 
 impl LiveCodexSession {
@@ -101,28 +96,24 @@ impl LiveCodexSession {
     // first.
     async fn open(steers: Option<&[QueueItemId]>, released: &[Value], is_retriable: bool) -> Self {
         let scripted = start_scripted_codex_service();
-        let database = TestDatabase::new();
-        let home = tempfile::tempdir().expect("the test makes a home folder");
-        let run_ports = TestRunPorts::open(
-            &database,
-            home.path(),
-            ExecutionEpochs::new(NonZeroUsize::new(8).expect("the cap is not zero")),
-        )
-        .await;
-        let epochs = Arc::clone(&run_ports.epochs);
+        let database = TestDatabase::new(schema_parts());
+        let engine = Arc::new(RecordingRunEngine::default());
         let session_id = new_session_id();
-        let agent_id = insert_lead(&database, session_id, DESCRIPTOR.id);
+        let agent_id =
+            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
         let mut services = test_driver_services();
-        services.pool = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            RUN_ENGINE_STATEMENT_CAPACITY,
-        ));
         // The retry's fork points the run's binding at the conversation it moves onto.
         let bindings = Arc::new(open_store(&database).await);
         services.runtime_bindings = Arc::clone(&bindings) as _;
         let queue = Arc::new(RecordedQueue::default());
         let ports = &services.ports;
-        run_ports.register_on(ports);
+        assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
+        assert!(
+            ports
+                .inbound_dispatch
+                .register(Arc::clone(&engine) as _)
+                .is_ok()
+        );
         assert!(
             ports
                 .daemon_turn_bindings
@@ -137,7 +128,6 @@ impl LiveCodexSession {
         let parts = Arc::clone(driver.parts().expect("the driver composes"));
 
         let run_id = new_run_id();
-        insert_running_run(&database, session_id, run_id);
         let binding_id = bindings
             .create(binding_input(
                 RuntimeBindingSpawnConfig::default(),
@@ -146,16 +136,6 @@ impl LiveCodexSession {
             .await
             .expect("the binding is recorded")
             .id;
-        let opened = lock(&epochs).open_binding(
-            EpochBinding {
-                id: binding_id.clone(),
-                run_id,
-                provider_name: DESCRIPTOR.provider_id(),
-                provider_account_id: None,
-            },
-            RUN_START_POSITION,
-        );
-        assert!(opened.is_ok(), "the binding's epoch opens");
         parts.run_routes.bind_run_delivery(
             run_id,
             CodexRunBinding {
@@ -235,9 +215,8 @@ impl LiveCodexSession {
             scripted,
             queue,
             questions,
-            database,
-            followers: run_ports.log.followers,
-            _home: home,
+            engine,
+            _database: database,
         }
     }
 }
@@ -247,8 +226,9 @@ impl LiveCodexSession {
 const CODEX_FOLDER_NAME: &str = "codex-home";
 
 /// A driver whose person's own Codex folder is `codex-home` under `folder`, its Codex command a
-/// script that exits at once, so a service it launches never answers; with the services it was
-/// built on. `folder` sits under `/tmp`, so a socket's path in it fits the system's limit.
+/// stand-in that fails at once with nothing printed, so a service it launches never answers; with
+/// the services it was built on. `folder` is a `short_socket_folder`, so a socket's path in it
+/// fits the system's limit.
 pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServices) {
     let codex_home = folder.join(CODEX_FOLDER_NAME);
     let programs = folder.join("bin");
@@ -256,13 +236,7 @@ pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServi
         std::fs::create_dir_all(made).expect("a test folder is made");
     }
     // Found first on the search path as Codex's command.
-    replace_file_atomically(
-        &programs.join("codex"),
-        b"#!/bin/sh\nexit 1\n",
-        0o755,
-        LeftoverSweep::Unswept,
-    )
-    .expect("the command is written");
+    write_failing_codex(&programs);
     let mut services = test_driver_services();
     services.data_folder = folder.join("data");
     services.home_folder = folder.join("home");

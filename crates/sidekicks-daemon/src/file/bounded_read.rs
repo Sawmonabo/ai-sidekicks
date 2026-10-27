@@ -14,10 +14,12 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use tokio::sync::{Semaphore, oneshot};
+
+use crate::mutex_lock::lock;
 
 /// How long a bounded read may take before its caller is answered without it.
 pub(crate) const FILE_READ_CEILING: Duration = Duration::from_secs(10);
@@ -130,9 +132,7 @@ pub(crate) async fn run_on_own_thread<Output: Send + 'static>(
 }
 
 fn lock_abandoned_paths() -> MutexGuard<'static, Vec<PathBuf>> {
-    ABANDONED_PATHS
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
+    lock(&ABANDONED_PATHS)
 }
 
 #[cfg(not(test))]
@@ -160,6 +160,8 @@ mod stalled_reads {
     use std::path::{Path, PathBuf};
     use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
     use std::time::Duration;
+
+    use crate::mutex_lock::lock;
 
     /// How long a held read is waited for, so a test of a read that never answers takes moments.
     pub(super) const STALLED_READ_CEILING: Duration = Duration::from_millis(200);
@@ -230,7 +232,7 @@ mod stalled_reads {
     }
 
     fn lock_stalled() -> MutexGuard<'static, Vec<Stall>> {
-        STALLED.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&STALLED)
     }
 
     impl Drop for StalledReads {

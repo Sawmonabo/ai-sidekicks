@@ -2,9 +2,9 @@
 //! clears and writes them.
 
 use crate::approvals::projection::rebuild::ApprovalsProjection;
+use crate::events::projection::SessionProjection;
 use crate::plans::projection::PlansProjection;
 use crate::questions::projection::QuestionsProjection;
-use crate::recovery::projection_rebuild::SessionProjection;
 use crate::session::directory::projection::SessionDirectoryProjection;
 use crate::session::run::projection::RunsProjection;
 

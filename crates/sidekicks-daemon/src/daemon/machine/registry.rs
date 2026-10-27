@@ -126,6 +126,7 @@ mod tests {
     use super::{MACHINE_REGISTRY_STATEMENT_CAPACITY, MachineRegistry};
     use crate::daemon::machine::local::LocalMachine;
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::schema_parts;
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -173,7 +174,7 @@ mod tests {
         #[case] registered: Registered,
         #[case] is_resolved: bool,
     ) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let machine = LocalMachine {
             machine_id: machine_id(),
             owner_user_id: user_id(),
@@ -211,7 +212,7 @@ mod tests {
     // upsert that also sets `established_at`.
     #[tokio::test]
     async fn a_re_registration_keeps_its_first_time() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let owner = user_id();
         let registry = registry_of(
             &database,

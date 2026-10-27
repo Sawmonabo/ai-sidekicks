@@ -5,8 +5,9 @@ use std::path::Path;
 use std::time::Duration;
 
 use sidekicks_daemon::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_daemon::database::schema::session_directory::insert_session_row;
 use sidekicks_daemon::database::writer::test_file::TestDatabase;
-use sidekicks_daemon::session::directory::test_rows::insert_session_row;
+use sidekicks_daemon::remote::shared_ports::schema::schema_parts;
 use sidekicks_daemon::session::search::index::live::test_services::TestDaemonServices;
 use sidekicks_daemon::session::search::index::live::{LiveIndex, LiveIndexOptions};
 use sidekicks_platforms::{PinnedProcess, pin_child_process};
@@ -94,7 +95,7 @@ async fn pin_build_process(index_folder: &Path) -> PinnedProcess {
 // build dropped and killed with no wait is caught on Linux in practice and races on macOS.
 #[tokio::test]
 async fn a_close_during_a_build_settles_once_the_build_has_exited() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     store_titled_sessions(&database);
     let services = TestDaemonServices::open(&database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");

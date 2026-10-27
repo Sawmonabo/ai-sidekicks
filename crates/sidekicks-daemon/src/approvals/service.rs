@@ -665,7 +665,9 @@ impl ApprovalService {
 // record could not be kept, so the action it gates does not proceed.
 fn refusal_of_failed_write(failure: SessionEventAppendError) -> DomainError {
     match failure {
-        SessionEventAppendError::Append(EventAppendError::SessionWriteRefused(refusal)) => refusal,
+        SessionEventAppendError::Append(EventAppendError::SessionWriteRefused(refusal)) => {
+            refusal.into()
+        }
         other @ (SessionEventAppendError::Append(_) | SessionEventAppendError::OccurredAt(_)) => {
             approval_persistence_unavailable(other)
         }

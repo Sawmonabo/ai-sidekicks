@@ -1,7 +1,7 @@
 //! Applies the outbox to the search index. A run starts when the daemon's writes commit and
 //! applies batch after batch until the outbox holds nothing past what it read, so a settled message
 //! waits for no timer and no fuller batch. Runs never overlap: the live index's one task calls
-//! [`SearchIndexApplier::apply_waiting`] for each change of the writer's commit count, so a write
+//! `SearchIndexApplier::apply_waiting` for each change of the writer's commit count, so a write
 //! that commits during a run is read by the next. A row too long for one batch is applied inside
 //! the read that reads it, over several commits, so no batch holds much more than its text bound.
 

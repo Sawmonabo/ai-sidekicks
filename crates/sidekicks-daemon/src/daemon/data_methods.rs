@@ -151,11 +151,12 @@ fn erase_refusal(refusal: DataEraseRefusal) -> HandlerError {
             RefusalCode::DaemonDataEraseRunning,
         )
         .into(),
-        DataEraseRefusal::Keychain(refusal) => refusal
-            .into_domain_error(RefusalCode::DaemonDataStoreUnavailable, |cause| {
-                DaemonDataStoreUnavailableDetails { cause }
-            })
-            .into(),
+        DataEraseRefusal::Keychain(refusal) => DomainError::keychain_refused(
+            refusal,
+            RefusalCode::DaemonDataStoreUnavailable,
+            |cause| DaemonDataStoreUnavailableDetails { cause },
+        )
+        .into(),
     }
 }
 
@@ -211,7 +212,7 @@ mod tests {
     }
 
     async fn data_verbs() -> DataVerbs {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(crate::remote::shared_ports::schema::schema_parts());
         database.opener()().expect("the test creates its database");
         let data_folder = tempfile::tempdir().expect("the data folder is made");
         let data = data_folder.path().to_path_buf();

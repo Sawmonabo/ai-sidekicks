@@ -11,16 +11,18 @@
 //! each provider's own record of a block whole, which the event's body may hold only cut short, so
 //! an `Allow once` can hand it back.
 
-use std::sync::LazyLock;
-
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalState, RememberedScopeKind,
 };
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 
-/// The SQL of the approval tables and their indexes, run as part of the daemon schema's script.
-pub(crate) static APPROVAL_SCHEMA_SQL: LazyLock<String> = LazyLock::new(approval_schema_sql);
+/// The questions' list and the approval tables' own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::questions::schema::schema_parts()
+        .with_part(SchemaPart::new("approval", approval_schema_sql()))
+}
 
 fn approval_schema_sql() -> String {
     let categories = sql_list_of_every::<ApprovalCategory>();

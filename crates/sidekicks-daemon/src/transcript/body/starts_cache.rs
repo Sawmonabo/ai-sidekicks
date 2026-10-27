@@ -6,10 +6,12 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::mem::size_of;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::{BodyBlockCut, BodyBlockStart};
+
+use crate::mutex_lock::lock;
 
 /// The most starts, in bytes, the cache holds.
 const BLOCK_STARTS_CACHE_BYTES: usize = 8 * 1024 * 1024;
@@ -119,6 +121,6 @@ impl BlockCuts {
     }
 
     fn lock(&self) -> MutexGuard<'_, KeptBlockCuts> {
-        self.kept.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.kept)
     }
 }

@@ -10,7 +10,7 @@ use std::ffi::OsStr;
 use std::future::Future;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -29,6 +29,7 @@ use tracing::{debug, warn};
 use super::program::{ASKPASS_OWNER_VARIABLE, ASKPASS_SOCKET_VARIABLE};
 use crate::askpass_prompt::is_masked_prompt;
 use crate::ipc::domain_error::DomainError;
+use crate::mutex_lock::lock;
 use crate::random_hex::random_hex;
 
 // The bytes of an owner's id: random, so one owner's id never tells another's.
@@ -84,7 +85,7 @@ struct BrokerState {
 
 impl BrokerState {
     fn owners(&self) -> MutexGuard<'_, HashMap<String, RegisteredOwner>> {
-        self.owners.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.owners)
     }
 }
 
@@ -357,7 +358,7 @@ async fn wait_for_close(receiver: &mut (impl AsyncRead + Unpin)) {
 mod tests {
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use interprocess::local_socket::tokio::Stream;
@@ -371,6 +372,7 @@ mod tests {
     use super::{
         ASKPASS_OWNER_VARIABLE, AskpassBroker, AskpassOwner, AskpassRequest, REQUEST_MAX_BYTES,
     };
+    use crate::mutex_lock::lock;
 
     const WAIT: Duration = Duration::from_secs(10);
 
@@ -423,10 +425,7 @@ mod tests {
             let asked = Arc::clone(&asked);
             broker
                 .register(move |question| {
-                    asked
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push((question.prompt, question.is_masked));
+                    lock(&asked).push((question.prompt, question.is_masked));
                     async { AskpassAnswer::new("hunter2".to_owned()) }
                 })
                 .expect("the owner registers")
@@ -450,7 +449,7 @@ mod tests {
 
         assert_eq!(reply, b"hunter2\n");
         assert_eq!(
-            *asked.lock().unwrap_or_else(PoisonError::into_inner),
+            *lock(&asked),
             [("Password for 'https://github.com': ".to_owned(), true)]
         );
         assert_eq!(other_calls.load(Ordering::SeqCst), 0);

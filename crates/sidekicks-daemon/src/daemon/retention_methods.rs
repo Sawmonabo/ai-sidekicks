@@ -258,7 +258,7 @@ async fn purge_old_data(
     if deleted > 0 {
         if let Err(failure) = deps.scheduler.schedule(
             "repack",
-            JobCondition::NoTurnRunning,
+            JobCondition::WhileIdle,
             Duration::ZERO,
             repack_job(Arc::clone(&deps.repack)),
         ) {
@@ -368,13 +368,13 @@ mod tests {
     };
     use tempfile::TempDir;
 
-    use crate::artifacts::admission::VolumeFreeBytesReader;
+    use crate::daemon::backup::run::BACKUP_BUDGET;
     use crate::daemon::backup::run::tests::test_backups;
     use crate::daemon::scheduler::Scheduler;
     use crate::database::connection::read_pool::DatabaseReadPool;
     use crate::database::statement::{StatementBindings, WriteStatement};
     use crate::database::writer::DatabaseWriter;
-    use crate::database::writer::repack::{RepackJobDeps, repack_job};
+    use crate::database::writer::repack::{RepackJobDeps, VolumeFreeBytesReader, repack_job};
     use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
     use crate::events::log_service::tests::TestLog;
     use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
@@ -482,6 +482,7 @@ mod tests {
             database_path: database_path.to_path_buf(),
             read_volume_free_bytes,
             live_runs,
+            budget: BACKUP_BUDGET,
         })
     }
 

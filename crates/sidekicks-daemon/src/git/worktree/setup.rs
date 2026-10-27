@@ -19,7 +19,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, join_all};
@@ -45,6 +45,7 @@ use crate::error_description::describe_error;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
+use crate::mutex_lock::lock;
 use crate::settle_all::{SettleFailures, settle_all};
 use crate::workspace::folder::canonical_path::canonical_folder_path;
 use crate::workspace::trust_envelope::is_contained_within;
@@ -586,7 +587,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                     "A removed worktree's setup command could not be ended"
                 );
             }
-            lock_state(&state).ending.remove(&ending_id);
+            lock(&state).ending.remove(&ending_id);
         });
     }
 
@@ -627,7 +628,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
 impl<W: Watcher + Send + 'static> RunnerShared<W> {
     fn lock(&self) -> MutexGuard<'_, RunnerState> {
-        lock_state(&self.state)
+        lock(&self.state)
     }
 
     // Starts running the card's steps from `first_index`, each later step pending; the run ends
@@ -837,14 +838,10 @@ impl Drop for WorktreeSetupSubscription {
         let Some(state) = attached.state.upgrade() else {
             return;
         };
-        if let Some(card) = lock_state(&state).held_card(&attached.worktree_id, attached.card_id) {
+        if let Some(card) = lock(&state).held_card(&attached.worktree_id, attached.card_id) {
             card.listeners.remove(&attached.listener_id);
         }
     }
-}
-
-fn lock_state(state: &Mutex<RunnerState>) -> MutexGuard<'_, RunnerState> {
-    state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 fn not_found(worktree_id: WorktreeId) -> WorktreeSetupError {

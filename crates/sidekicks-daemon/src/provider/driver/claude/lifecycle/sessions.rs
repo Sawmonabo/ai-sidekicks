@@ -34,7 +34,7 @@ use crate::provider::driver::session_control::{
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
-use crate::provider::runtime_binding::resume::read_session_leg;
+use crate::provider::runtime_binding::store::RuntimeBinding;
 use crate::settle_all::settle_all;
 
 impl ClaudeDriver {
@@ -51,11 +51,12 @@ impl ClaudeDriver {
         &self,
         params: ResumeSessionParams,
     ) -> Result<DriverResumeResult, DriverError> {
-        Ok(self.parts()?.establishment.resume(params).await)
+        Ok(self.parts()?.establishment.resume(params).await.result)
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any
-    /// restart still waiting are dropped, it resumes, and the person is told it runs again.
+    /// restart still waiting are dropped, it resumes, and the person is told it runs again unless
+    /// a process already live answered it.
     pub(crate) async fn restart_session(
         &self,
         params: ResumeSessionParams,
@@ -63,11 +64,11 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let session_id = params.session_id;
         parts.restarts.clear_crash_window(session_id);
-        let result = parts.establishment.resume(params).await;
-        if matches!(result, DriverResumeResult::Resumed { .. }) {
+        let answer = parts.establishment.resume(params).await;
+        if answer.has_started_process {
             parts.restarts.report_restarted(session_id, true).await;
         }
-        Ok(result)
+        Ok(answer.result)
     }
 
     /// Moves the session onto a fork of its conversation; see the establishment's fork.
@@ -157,7 +158,7 @@ impl ClaudeDriver {
                                 DriverDiagnosticKind::ProcessReportFailed,
                                 session_id,
                                 "the run end of a closed session",
-                                &error,
+                                &*error,
                             );
                         }
                     }
@@ -211,7 +212,7 @@ impl ClaudeDriver {
         let rest_account = if live.is_some() {
             None
         } else {
-            let Some(leg) = read_session_leg(&self.sources.pool, params.session_id).await? else {
+            let Some(leg) = self.read_session_leg(params.session_id).await? else {
                 return Ok(None);
             };
             leg.spawn_config.provider_account_id
@@ -238,7 +239,7 @@ impl ClaudeDriver {
         let live = parts.and_then(|parts| parts.slots().live_session(session_id));
         let mut ended = parts.and_then(|parts| parts.restarts.ended_conversation(session_id));
         if live.is_none() && ended.is_none() {
-            let Some(leg) = read_session_leg(&self.sources.pool, session_id).await? else {
+            let Some(leg) = self.read_session_leg(session_id).await? else {
                 return Ok(());
             };
             let Some(handle) = leg.resume_handle else {
@@ -357,5 +358,20 @@ impl ClaudeDriver {
             .await?;
         let account = context.account_folders.zip(provider_account_id.as_ref());
         Ok(self.process_environment(account, &context.every_project_rows, &context.project_rows)?)
+    }
+
+    // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
+    async fn read_session_leg(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<RuntimeBinding>, DriverError> {
+        self.sources
+            .ports
+            .run_engine
+            .require_port()
+            .map_err(internal)?
+            .read_session_leg(session_id)
+            .await
+            .map_err(DriverError::Internal)
     }
 }

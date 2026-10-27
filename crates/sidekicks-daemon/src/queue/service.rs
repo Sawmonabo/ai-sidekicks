@@ -32,6 +32,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::admission::memory_gate::MemoryGate;
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::database::writer::DatabaseWriter;
 use crate::events::log_service::EventLogService;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
@@ -41,13 +42,13 @@ use crate::ipc::handlers::driver::resolution::read_session_driver;
 use crate::keyed_lock::KeyHold;
 use crate::provider::driver::ports::ProcessGoneListener;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::process_identity::ProviderProcessIds;
 use crate::queue::admission::{
     QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings,
 };
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::delivery::{
-    InterruptedRunContinuation, OpeningMessages, ProviderProcessIds, QueueDelivery,
-    QueueDeliveryDeps, QueueWithdrawal,
+    InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps, QueueWithdrawal,
 };
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
@@ -281,12 +282,7 @@ impl RunQueue {
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
-        let state = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(QueueItemReader::new(reader).read_session_state(&session_id)?)
-            })
-            .await?;
+        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
         }

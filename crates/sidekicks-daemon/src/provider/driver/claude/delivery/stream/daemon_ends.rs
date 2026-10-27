@@ -15,7 +15,6 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, ClaudeSessionStreams};
 use crate::provider::driver::claude::delivery::dialogs::ClaudeDialogPorts;
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::run_readings::{
     ClaudeEndedAs, ClaudeMessageKey, ClaudeStreamSession, ClaudeTurnEndDelivery,
 };
@@ -24,9 +23,10 @@ use crate::provider::driver::claude::run::routes::{ClaudeRunRoute, ClaudeRunRout
 use crate::provider::driver::claude::session::arrivals::{
     ClaudeOwnDelivery, ClaudeSessionArrival, deliver_in_session_order,
 };
-use crate::session::run::engine::turns::TurnOutcome;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::run::delivery::{InboundDelivery, InboundOutcome};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::provider::run::turn_end::TurnOutcome;
 
 /// A run whose end the daemon writes itself, and the turn end held back until that end is certain.
 #[derive(Debug)]
@@ -157,7 +157,7 @@ impl ClaudeStreamSession {
         };
         let interrupted = ClaudeTurnEndDelivery {
             end: ClaudeTurnEnd {
-                change: Some(RunStateChange::new(
+                change: Some(RunStateReport::new(
                     run_id,
                     RunStateEntry::Interrupted {
                         intended_close: None,
@@ -272,20 +272,20 @@ impl ClaudeDeliveryStream {
 /// The ports the session's dialogs deliver through, each delivery in its session's order; the
 /// daemon-end marks and settlements are the stream's.
 pub(crate) struct ClaudeStreamDialogPorts {
-    engine: Arc<dyn ClaudeRunEngine>,
+    dispatch: Arc<dyn InboundDispatch>,
     routes: Arc<ClaudeRunRoutes>,
     streams: Arc<ClaudeSessionStreams>,
 }
 
 impl ClaudeStreamDialogPorts {
-    /// Ports over the run engine, the runs' routes and every session's stream.
+    /// Ports over the run engine's dispatch, the runs' routes and every session's stream.
     pub(crate) fn new(
-        engine: Arc<dyn ClaudeRunEngine>,
+        dispatch: Arc<dyn InboundDispatch>,
         routes: Arc<ClaudeRunRoutes>,
         streams: Arc<ClaudeSessionStreams>,
     ) -> Self {
         Self {
-            engine,
+            dispatch,
             routes,
             streams,
         }
@@ -306,7 +306,7 @@ impl ClaudeDialogPorts for ClaudeStreamDialogPorts {
         session_id: SessionId,
         delivery: InboundDelivery<'static>,
     ) -> BoxFuture<'_, Option<InboundOutcome>> {
-        deliver_in_session_order(&*self.engine, &self.streams, session_id, delivery)
+        deliver_in_session_order(&*self.dispatch, &self.streams, session_id, delivery)
     }
 
     fn event_ids_for_messages(

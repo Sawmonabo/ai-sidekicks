@@ -22,7 +22,7 @@ use crate::database::statement::{
 };
 use crate::database::stored_column::{closed_word, safe_int_column, text_column};
 use crate::database::writer::DatabaseWriter;
-use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
+use crate::provider::port::session_advisor_store::SessionAdvisorStore;
 use crate::session::directory::lookups::write_while_session_exists;
 
 /// The row a session on a provider that offers an advisor is born with when the person picked its
@@ -90,6 +90,14 @@ fn advisor_statement(
     clippy::option_option,
     reason = "a session with no advisor of its own differs from one whose advisor is off"
 )]
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the session spawn-context resolver, which fills the spawn context's advisor and \
+                  step bound"
+    )
+)]
 pub(crate) fn read_session_advisor_model(
     reader: &Connection,
     session_id: &SessionId,
@@ -105,7 +113,7 @@ pub(crate) fn read_session_advisor_model(
         .optional()
 }
 
-impl ClaudeSessionAdvisorStore for DatabaseWriter {
+impl SessionAdvisorStore for DatabaseWriter {
     /// Keeps the resolved advisor while the session has a directory row, so a purged session gains
     /// no row; fails with `session.notFound` for one without.
     fn record_resolved(
@@ -189,10 +197,11 @@ mod tests {
     use super::{
         advisor_model_change_statement, read_session_advisor_model, session_mode_change_statement,
     };
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::provider::port::session_advisor_store::SessionAdvisorStore;
+    use crate::questions::schema::schema_parts;
 
     const AT: &str = "2026-10-23T12:00:00.000Z";
 
@@ -200,7 +209,7 @@ mod tests {
     // advisor that overwrites the one the person set off.
     #[tokio::test]
     async fn a_resolved_advisor_fills_only_an_advisor_no_one_set() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens");

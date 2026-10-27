@@ -4,7 +4,6 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
-use sidekicks_platforms::bind_socket_listener;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
@@ -12,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 use super::{TITLE_THREAD, TITLE_TURN};
 use crate::provider::driver::codex::lifecycle::CodexDriver;
 use crate::provider::driver::codex::lifecycle::naming::CODEX_NAMING_DEADLINE;
+use crate::provider::driver::codex::service::supervisor::test_service::bind_test_listener;
 use crate::provider::driver::codex::session::test_session::{TestCodexSession, turn_reply};
 use crate::provider::driver::session_control::NameSessionParams;
 use crate::provider::driver::test_registry::test_driver_services;
@@ -69,8 +69,9 @@ async fn serve_unended_title_turn(listener: Listener) -> Value {
 #[tokio::test(start_paused = true)]
 async fn a_live_pass_that_spends_the_deadline_leaves_the_one_shot_pass_no_time() {
     let session = TestCodexSession::start().await;
-    let listener = bind_socket_listener(session.scripted.service.socket_path())
-        .expect("the test's socket listens");
+    let Some(listener) = bind_test_listener(session.scripted.service.socket_path()) else {
+        return;
+    };
     let driver = CodexDriver::new(&test_driver_services());
     driver.views.show(&session.task.record);
     let served = tokio::spawn(serve_unended_title_turn(listener));

@@ -167,7 +167,7 @@ mod tests {
     use super::{RuleRow, revoked_payload, session_end_revocations};
     use crate::approvals::request_create::ApprovalResourceDescriptor;
     use crate::approvals::store::StoredApprovalRequest;
-    use crate::provider::port::permission_ask::ProviderAskActionKind;
+    use crate::policy::ask_rule::ProviderAskActionKind;
 
     const SESSION: &str = "0190a5a0-0000-7000-8000-000000000001";
 

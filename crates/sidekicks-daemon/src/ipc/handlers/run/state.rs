@@ -412,6 +412,7 @@ mod tests {
     use crate::ipc::registry::{Dispatch as _, DispatchError, EncodedFeed, MethodRegistry, Reply};
     use crate::ipc::stream::feed::CreditGate;
     use crate::provider::port::run_state_publisher::RunStatePublisher as _;
+    use crate::remote::shared_ports::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// Long enough for a frame that is coming to come, many windows over.
@@ -500,7 +501,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_hold_during_the_catch_up_goes_out_after_it_at_the_newest_position_read() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let holds = RunSafetyHolds::new();
         let session_id = test_session_id();
@@ -570,7 +571,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_stream_opened_during_a_held_turn_starts_with_the_hold() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let holds = RunSafetyHolds::new();
         let session_id = test_session_id();
@@ -610,7 +611,7 @@ mod tests {
         #[case] after_position: Option<i64>,
         #[case] refused_with: RefusalCode,
     ) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await.service;
         let holds = RunSafetyHolds::new();
         let session_id = test_session_id();

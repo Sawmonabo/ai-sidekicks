@@ -14,7 +14,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use rusqlite::types::{Type, Value};
@@ -46,6 +46,7 @@ use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::latest_value::LatestValueOutlet;
+use crate::mutex_lock::lock;
 use crate::session::directory::lookups::{
     SessionWriteError, session_exists, write_while_session_exists,
 };
@@ -489,9 +490,7 @@ impl SessionReviewNoteStore {
 
     fn lock_followers(&self) -> MutexGuard<'_, HashMap<SessionId, Vec<FollowerWake>>> {
         // The map holds no invariant a panicking holder could break.
-        self.followers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.followers)
     }
 }
 
@@ -723,18 +722,19 @@ mod tests {
         ReviewNoteId, SessionReviewNoteAddRequest, SessionReviewNoteDeleteRequest,
     };
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{
         REVIEW_NOTE_STORE_STATEMENT_CAPACITY, ReviewNoteFolderError, ReviewNoteFolders,
         SessionReviewNoteStore, WorkingFolderDetach,
     };
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::ipc::registry::HandlerError;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::questions::schema::schema_parts;
     use crate::session::review_note::diff_line::NotedLineReader;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A session that works in no repository's folder.
     struct NoWorkingFolder;
@@ -768,7 +768,7 @@ mod tests {
     #[case::a_note_of_a_session_that_is_gone(false)]
     #[tokio::test]
     async fn review_note_delete_answers_only_the_notes_it_discarded(#[case] is_live: bool) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the writer creates the file with the daemon's schema.
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await

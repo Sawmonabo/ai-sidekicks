@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,7 +7,7 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
-use sidekicks_platforms::{Spawner, connect_unix_domain_socket};
+use sidekicks_platforms::{Spawner, connect_unix_domain_socket, harness_test_name};
 use tokio::io::AsyncReadExt as _;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
@@ -24,15 +25,17 @@ use crate::provider::driver::codex::service::record::{
 };
 use crate::provider::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
-    test_codex_service_dependencies,
+    test_codex_service_dependencies, write_failing_codex,
 };
 use crate::provider::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::provider::driver::codex::session::errors::CodexError;
 
 /// The survivor's stand-in: this test program, which holds a connection to the test's socket open
 /// while it runs, so its end closes it.
-const SURVIVOR_STAND_IN: &str =
-    "provider::driver::codex::service::supervisor::start::tests::a_survivor_that_waits";
+const SURVIVOR_STAND_IN: &str = "a_survivor_that_waits";
+
+/// The root's stand-in: this test program, which starts the survivor and ends at once.
+const ROOT_STAND_IN: &str = "a_root_that_leaves_its_survivor";
 
 /// Where the survivor connects, passed in its environment.
 const SURVIVOR_SOCKET_NAME: &str = "SIDEKICKS_SURVIVOR_SOCKET";
@@ -53,19 +56,44 @@ async fn a_survivor_that_waits() {
     tokio::time::sleep(Duration::from_secs(60)).await;
 }
 
+// Skips unless the retire test started it. Leaves the survivor running past its own end, as a
+// root whose helper outlived it.
+#[tokio::test]
+#[ignore = "run only as the retire test's root"]
+async fn a_root_that_leaves_its_survivor() {
+    if std::env::var_os(SURVIVOR_SOCKET_NAME).is_none() {
+        return;
+    }
+    tokio::process::Command::new(std::env::current_exe().expect("the test program names itself"))
+        .args(stand_in_arguments(SURVIVOR_STAND_IN))
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("the survivor starts");
+}
+
+// The arguments that run this test program as the stand-in test `name` alone.
+fn stand_in_arguments(name: &str) -> Vec<String> {
+    vec![
+        "--exact".to_owned(),
+        harness_test_name(module_path!(), name),
+        "--include-ignored".to_owned(),
+    ]
+}
+
 // Starts a terminal service on `socket` as the home's own socket, under `folder`, whose Codex
-// program is `program`, and answers its start.
+// command fails at once, and answers its start.
 async fn start_terminal_service_on(
     folder: &Path,
     socket: &Path,
-    program: &str,
 ) -> Result<Result<StartedService, StartFailure>, tokio::time::error::Elapsed> {
     let codex_home = folder.join("home");
     std::fs::create_dir(&codex_home).expect("the home is made");
     let dependencies = test_codex_service_dependencies(
         folder,
         Arc::new(TestCodexProgram {
-            program: program.into(),
+            program: write_failing_codex(folder),
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
@@ -102,14 +130,9 @@ async fn a_former_service_its_record_no_longer_pins_leaves_no_tree_running() {
     let Some(listener) = bind_test_listener(&socket) else {
         return;
     };
-    let program = std::env::current_exe().expect("the test program names itself");
     let launch = CodexProcessLaunch {
-        program: "/bin/sh".into(),
-        arguments: vec![
-            "-c".to_owned(),
-            format!("\"$0\" --exact {SURVIVOR_STAND_IN} --include-ignored >/dev/null 2>&1 &"),
-            program.display().to_string(),
-        ],
+        program: std::env::current_exe().expect("the test program names itself"),
+        arguments: stand_in_arguments(ROOT_STAND_IN),
         environment: vec![(
             SURVIVOR_SOCKET_NAME.to_owned(),
             socket.display().to_string(),
@@ -188,7 +211,7 @@ async fn a_start_on_a_listener_that_refuses_it_reports_the_refusal_within_its_de
     };
     tokio::spawn(refuse_every_initialize(listener));
 
-    let started = start_terminal_service_on(folder.path(), &socket, "/usr/bin/false").await;
+    let started = start_terminal_service_on(folder.path(), &socket).await;
 
     let Ok(Err(failure)) = started else {
         panic!("the start did not fail within its deadline");
@@ -215,7 +238,7 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
         }
     });
 
-    let started = start_terminal_service_on(folder.path(), &socket, "/usr/bin/false").await;
+    let started = start_terminal_service_on(folder.path(), &socket).await;
 
     let Ok(Ok(started)) = started else {
         panic!("the start did not join the listener");

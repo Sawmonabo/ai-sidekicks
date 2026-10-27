@@ -7,13 +7,14 @@
 //! a build move retires stays up until it holds none.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::app_server_protocol::{
     ThreadResumeParams, ThreadUnsubscribeParams,
 };
@@ -114,7 +115,7 @@ pub(crate) struct CodexConversationRelease {
 
 impl CodexConversationRelease {
     fn lock(&self) -> MutexGuard<'_, ReleaseState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     /// Lets go of `thread_id` now, or once the commands it still runs have ended; until then its

@@ -25,8 +25,8 @@ use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
+use crate::database::schema::DatabaseSchema;
 use crate::database::schema::recovery::ProjectionCursorState;
-use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL};
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::recovery::database_file::aside_copy::database_file_name;
 use crate::recovery::database_file::check::SOUND_ROW;
@@ -41,6 +41,8 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 pub struct FreshFilePreparation<'a> {
     /// The daemon's SQLite shell.
     pub shell: &'a SqliteShell,
+    /// The schema the fresh file must hold, whose fingerprint it takes.
+    pub schema: &'a DatabaseSchema,
     /// The fresh file the recovery wrote.
     pub fresh_path: &'a Path,
     /// A copy of the newest backup's database beside the file, or `None` with none.
@@ -200,7 +202,7 @@ async fn take_richer_sessions_from_backup(
     stop: &CancellationToken,
 ) -> Result<u64, FreshFileError> {
     match read_backup_fingerprint(preparation, backup_copy_path, stop).await {
-        Ok(fingerprint) if fingerprint == i64::from(*DAEMON_SCHEMA_FINGERPRINT) => {}
+        Ok(fingerprint) if fingerprint == i64::from(preparation.schema.fingerprint()) => {}
         Ok(fingerprint) => {
             warn!(
                 fingerprint,
@@ -353,7 +355,8 @@ async fn refuse_schema_difference(
             SchemaRowKind::Lost => lost_tables.push(row.name),
         }
     }
-    let built = tokio::task::spawn_blocking(build_schema_objects)
+    let schema = preparation.schema.clone();
+    let built = tokio::task::spawn_blocking(move || build_schema_objects(&schema))
         .await
         .map_err(FreshFileError::Interrupted)?
         .map_err(FreshFileError::Schema)?;
@@ -372,11 +375,11 @@ async fn refuse_schema_difference(
     }
 }
 
-// This build's schema objects, built in a database in memory.
-fn build_schema_objects() -> rusqlite::Result<BTreeSet<SchemaObject>> {
-    let schema = Connection::open_in_memory()?;
-    schema.execute_batch(&DAEMON_SCHEMA_SQL)?;
-    let mut statement = schema.prepare(SELECT_SCHEMA_OBJECTS_SQL)?;
+// The objects of `schema`, built in a database in memory.
+fn build_schema_objects(schema: &DatabaseSchema) -> rusqlite::Result<BTreeSet<SchemaObject>> {
+    let built = Connection::open_in_memory()?;
+    built.execute_batch(schema.sql())?;
+    let mut statement = built.prepare(SELECT_SCHEMA_OBJECTS_SQL)?;
     statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect()
@@ -451,7 +454,7 @@ async fn drop_lost_tables_and_mark_stale(
     writeln!(
         script,
         "PRAGMA user_version = {};\nCOMMIT;",
-        *DAEMON_SCHEMA_FINGERPRINT
+        preparation.schema.fingerprint()
     )
     .expect("a String takes every write");
     let output = run_step(

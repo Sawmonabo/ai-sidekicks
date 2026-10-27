@@ -9,14 +9,15 @@
 
 use std::mem;
 use std::num::NonZeroUsize;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
 
 use lru::LruCache;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_search::index::HeldSearch;
 
+use crate::mutex_lock::lock;
 use crate::session::search::query::ParsedSearchQuery;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// One held search: the parsed query it answers, so a cursor sent with another query continues
 /// nothing, its view of the index behind the lock one page takes, and where the rowid floor log
@@ -34,7 +35,7 @@ impl SearchSnapshot {
     /// The view, locked for one page.
     pub(crate) fn lock_view(&self) -> MutexGuard<'_, HeldSearch> {
         // A page that panicked left the view as a read leaves it; the next page reads it again.
-        self.view.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.view)
     }
 }
 
@@ -151,7 +152,7 @@ impl SearchSnapshots {
 
     fn lock_held(&self) -> MutexGuard<'_, LruCache<String, HeldSnapshot>> {
         // The cache holds no invariant a panicking holder could break.
-        self.held.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held)
     }
 }
 

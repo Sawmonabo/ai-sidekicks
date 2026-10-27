@@ -7,34 +7,32 @@ use sidekicks_contracts::run::state::RunState;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::provider::run::delivery::{InboundOutcome, LateEventAbsorbReason};
 use crate::session::run::epochs::{DeliveryAttribution, EpochBinding};
-use crate::session::run::inbound::{AbsorbedDelivery, InboundOutcome, LateEventAbsorbReason};
+use crate::session::run::inbound::AbsorbedDelivery;
 
-impl LateEventAbsorbReason {
-    // The reason as the diagnostic's details name it.
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::BeforeCut => "beforeCut",
-            Self::RunEnded => "runEnded",
-            Self::RunResumed => "runResumed",
-        }
+// The reason as the diagnostic's details name it.
+fn reason_name(reason: LateEventAbsorbReason) -> &'static str {
+    match reason {
+        LateEventAbsorbReason::BeforeCut => "beforeCut",
+        LateEventAbsorbReason::RunEnded => "runEnded",
+        LateEventAbsorbReason::RunResumed => "runResumed",
     }
+}
 
-    // Why the delivery was disposed of, in the diagnostic's words.
-    fn sentence(self) -> &'static str {
-        match self {
-            Self::BeforeCut => {
-                "the delivery belongs to the execution before an undo's cut, so it is absorbed at \
-                 the epoch check and nothing is written"
-            }
-            Self::RunEnded => {
-                "the delivery's run had already ended, so its write was refused and nothing is \
-                 written"
-            }
-            Self::RunResumed => {
-                "the delivery reported a pause or a turn under way after a resume had already set \
-                 the run running, so its write was refused and nothing is written"
-            }
+// Why the delivery was disposed of, in the diagnostic's words.
+fn reason_sentence(reason: LateEventAbsorbReason) -> &'static str {
+    match reason {
+        LateEventAbsorbReason::BeforeCut => {
+            "the delivery belongs to the execution before an undo's cut, so it is absorbed at the \
+             epoch check and nothing is written"
+        }
+        LateEventAbsorbReason::RunEnded => {
+            "the delivery's run had already ended, so its write was refused and nothing is written"
+        }
+        LateEventAbsorbReason::RunResumed => {
+            "the delivery reported a pause or a turn under way after a resume had already set the \
+             run running, so its write was refused and nothing is written"
         }
     }
 }
@@ -52,7 +50,7 @@ pub(super) fn absorb(
     };
     let run_id = absorbed.run_id.unwrap_or(binding.run_id);
     let mut details = Map::new();
-    details.insert("reason".to_owned(), Value::from(reason.as_str()));
+    details.insert("reason".to_owned(), Value::from(reason_name(reason)));
     details.insert("deliveryKind".to_owned(), Value::from(absorbed.kind));
     details.insert("bindingId".to_owned(), Value::from(binding.id.as_str()));
     details.insert("runId".to_owned(), Value::from(run_id.text().as_str()));
@@ -75,7 +73,7 @@ pub(super) fn absorb(
         provider_account_id: binding.provider_account_id.clone(),
         kind: DriverDiagnosticKind::LateEventAbsorbed,
         raw_wire_type: None,
-        disposition_reason: reason.sentence().to_owned(),
+        disposition_reason: reason_sentence(reason).to_owned(),
         details,
     });
     InboundOutcome::Absorbed { reason }

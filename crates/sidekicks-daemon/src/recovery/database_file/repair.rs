@@ -36,6 +36,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
 use crate::cleanup_failures::CleanupFailures;
+use crate::database::schema::DatabaseSchema;
+use crate::database::sibling_path;
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::missing_entry::MissingEntry as _;
 use crate::recovery::database_file::aside_copy::{
@@ -49,7 +51,7 @@ use crate::recovery::database_file::fresh::{
 use crate::recovery::database_file::last_run::{LastRunError, record_clean_stop};
 use crate::recovery::database_file::newest_backup::find_newest_backup_database;
 use crate::recovery::database_file::sqlite_shell::{SqliteRecoveryError, SqliteShell};
-use crate::recovery::database_file::{sibling_path, store_folder};
+use crate::recovery::database_file::store_folder;
 
 // The fresh file a repair recovers into, beside the database file.
 const FRESH_FILE_SUFFIX: &str = ".recovered";
@@ -85,6 +87,8 @@ pub struct DatabaseFileRepairOptions<'a> {
     pub shell: &'a SqliteShell,
     /// The `database copy` mode every copy runs in.
     pub copier: &'a DatabaseFileCopier,
+    /// The schema the fresh file must hold.
+    pub schema: &'a DatabaseSchema,
     /// The time a new copy aside is named for.
     pub now: jiff::Timestamp,
 }
@@ -435,6 +439,7 @@ async fn prepare_with_newest_backup(
     prepare_fresh_file(
         &FreshFilePreparation {
             shell: options.shell,
+            schema: options.schema,
             fresh_path,
             backup_copy_path: is_backup_copied.then_some(backup_copy_path.as_path()),
         },
@@ -595,11 +600,13 @@ mod tests {
         prepare_database_file_repair,
     };
     use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+    use crate::database::schema::schema_parts;
+    use crate::database::sibling_path;
+    use crate::recovery::database_file::WRITE_AHEAD_LOG_SUFFIX;
     use crate::recovery::database_file::copy::DatabaseFileCopier;
     use crate::recovery::database_file::damage::{read_database_damage, record_database_damage};
     use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
     use crate::recovery::database_file::sqlite_shell::SqliteShell;
-    use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
 
     const DAMAGED_BYTES: &[u8] = b"the damaged file";
     const FRESH_BYTES: &[u8] = b"the recovered file";
@@ -663,6 +670,7 @@ mod tests {
             index_folder_path: &index_folder_path,
             shell: &shell,
             copier: &copier,
+            schema: &schema_parts().into_schema(),
             now: jiff::Timestamp::now(),
         })
         .await

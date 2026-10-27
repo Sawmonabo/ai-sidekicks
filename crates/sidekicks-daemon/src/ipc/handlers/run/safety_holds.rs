@@ -4,12 +4,13 @@
 //! stream's next read.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::watch;
 
+use crate::mutex_lock::lock;
 use crate::provider::port::run_state_publisher::RunStatePublisher;
 
 /// Each session's holds that are on, and the run state streams open on it, each with the holds
@@ -68,7 +69,7 @@ struct WaitingHolds {
 impl WaitingHolds {
     fn lock(&self) -> MutexGuard<'_, RunHolds> {
         // The list holds no invariant a panicking holder could break.
-        self.holds.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.holds)
     }
 
     fn add(&self, hold: RunSafetyBufferingUpdatedPayload) {
@@ -107,7 +108,7 @@ impl RunSafetyHolds {
 
     fn lock(&self) -> MutexGuard<'_, Sessions> {
         // The maps hold no invariant a panicking holder could break.
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.sessions)
     }
 
     /// How many streams follow `session_id`'s holds.

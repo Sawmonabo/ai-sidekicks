@@ -25,7 +25,7 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -45,6 +45,7 @@ use crate::database::stored_column::{StoredJsonFault, optional_text_column, text
 use crate::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 use crate::git::process::GIT_COMMAND_TIMEOUT;
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 use crate::processor_bound::map_with_processor_bound;
 use crate::settle_all::{SettleFailures, settle_all};
 use crate::workspace::event_emitter::WorkspaceEventEmitter;
@@ -659,7 +660,7 @@ impl RepoMountHealthReprobe {
 
     fn lock_mounts(&self) -> MutexGuard<'_, HashMap<RepoMountId, MountMemory>> {
         // Each critical section leaves the map whole, so a panicking holder breaks nothing.
-        self.mounts.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.mounts)
     }
 }
 

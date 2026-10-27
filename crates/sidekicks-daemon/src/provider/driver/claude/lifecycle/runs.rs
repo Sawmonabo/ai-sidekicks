@@ -5,10 +5,9 @@ use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
 use sidekicks_contracts::session::id::SessionId;
 
-use super::{ClaudeDriver, internal};
+use super::ClaudeDriver;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::compaction::compact_claude_context;
-use crate::provider::driver::claude::session::establishment::context::read_claude_step_bound;
 use crate::provider::driver::claude::session::ultracode::{
     apply_claude_ultracode, requested_claude_ultracode,
 };
@@ -29,20 +28,17 @@ impl ClaudeDriver {
     /// Starts one run's turn on the session's live process. A process started with another step
     /// bound than the session's is relaunched on its conversation first, and an Ultracode value
     /// the process does not hold is applied, both before the turn's text is written. Fails as the
-    /// bound cannot be read, the relaunch or the apply fails, and as the turn's start fails.
+    /// relaunch or the apply fails, and as the turn's start fails.
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let session_id = params.opening.session_id;
         if let Some(live) = parts.slots().live_session(session_id) {
-            let bound = read_claude_step_bound(&self.sources.pool, session_id)
-                .await
-                .map_err(internal)?;
             let started_bound = parts
                 .establishment
                 .streams
                 .get(session_id)
                 .map(|stream| stream.step_bound());
-            if started_bound.is_some_and(|started| started != bound) {
+            if started_bound.is_some_and(|started| started != params.step_bound) {
                 parts.restarts.relaunch_for_step_bound(&live).await?;
             }
         }

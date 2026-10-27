@@ -31,7 +31,7 @@ use crate::provider::driver::diagnostics::{
 use crate::provider::driver::run_control::RunToolBoundary;
 use crate::provider::driver::streamed_text::StreamedTextCompletion;
 use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::session::run::inbound::InboundDelivery;
+use crate::provider::run::delivery::InboundDelivery;
 
 /// The item echoing a tool output a client starts a turn with in place of a message.
 const CODEX_TOOL_OUTPUT_ITEM_TYPE: &str = "functionCallOutput";
@@ -174,7 +174,7 @@ impl CodexFrameDelivery {
                 provider_account_id: record.provider_account_id.clone(),
                 port: CodexDeliveryPort::StepCount,
                 session_id: Some(record.session_id),
-                error: Box::new(error),
+                error,
             }
             .report();
         }

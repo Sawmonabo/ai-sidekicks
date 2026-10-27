@@ -29,6 +29,7 @@ use crate::database::statement::{StatementBindings, WriteStatement, text_binding
 use crate::events::session::appender::SessionEventDraft;
 use crate::interventions::store::is_limit_interrupt_pending;
 use crate::mutex_lock::lock;
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::live::{CutGuard, StepInterruptGuard};
 use crate::session::run::engine::turns::{WriteWithResend, set_step_limit_reached};
 use crate::session::run::engine::{
@@ -37,7 +38,6 @@ use crate::session::run::engine::{
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::RunStateEntry;
 use crate::session::run::transitions::is_transition_allowed;
 
 // A token-limit stop's guard that the run never reached its limit before follows the version guard.
@@ -225,7 +225,7 @@ impl RunEngine {
                 // task logs an error; only a panic after the caller dropped is left to the panic
                 // hook.
                 if let Err(Err(error)) = sender.send(stopped) {
-                    log_unread_limit_stop_failure(&tracing::Span::current(), run_id, limit, error);
+                    log_unread_limit_stop_failure(&tracing::Span::current(), run_id, limit, &error);
                 }
             }
             .instrument(span),
@@ -626,7 +626,7 @@ impl Drop for LimitStopAnswer {
     fn drop(&mut self) {
         self.receiver.close();
         if let Ok(Err(error)) = self.receiver.try_recv() {
-            log_unread_limit_stop_failure(&self.span, self.run_id, self.limit, error);
+            log_unread_limit_stop_failure(&self.span, self.run_id, self.limit, &error);
         }
     }
 }
@@ -637,13 +637,13 @@ fn log_unread_limit_stop_failure(
     parent: &tracing::Span,
     run_id: RunId,
     limit: RunLimit,
-    error: RunEngineError,
+    error: &RunEngineError,
 ) {
     tracing::warn!(
         parent: parent,
         run_id = %run_id,
         limit = <&'static str>::from(limit),
-        error = &error as &(dyn Error + 'static),
+        error = error as &(dyn Error + 'static),
         "run_limit_stop_failed"
     );
 }

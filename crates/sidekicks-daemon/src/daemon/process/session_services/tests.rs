@@ -30,6 +30,7 @@ use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::appender::SessionEventAppender;
@@ -38,18 +39,22 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::watch::WorkingFolderWatcher;
+use crate::plans::store::StoredPlanHolds;
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::test_registry::registry_of_first_provider;
+use crate::provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 use crate::provider::runtime_binding::store::CreateRuntimeBindingInput;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, spawned_build};
-use crate::queue::delivery::{ProviderProcessIdentity, ProviderProcessIds};
 use crate::queue::provider_session::test_opening::test_opening_composer;
+use crate::remote::shared_ports::schema::schema_parts;
 use crate::session::directory::list_feed::SessionListFeed;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::session::plan_holds::PlanHolds;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::epochs::ExecutionEpochs;
 use crate::workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
@@ -81,7 +86,7 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     std::fs::create_dir(home.path().join("run")).expect("the test makes the run folder");
@@ -97,10 +102,12 @@ async fn fixture() -> Fixture {
         None,
         tokio::sync::watch::channel(0).1,
     ));
+    let plan_holds: Arc<dyn PlanHolds> = Arc::new(StoredPlanHolds);
     let list_feed = Arc::new(SessionListFeed::new(
         Arc::clone(&reads),
         &log.followers,
         Arc::clone(&scheduler),
+        &*plan_holds,
     ));
     let machine = LocalMachine {
         machine_id: MachineId::new(mint_uuid_v7().to_string()).expect("a machine id"),
@@ -177,11 +184,13 @@ async fn fixture() -> Fixture {
         )),
         machine,
         shell_lines: Arc::new(ShellLineReadingBound::new(1 << 20)),
+        background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         authorizer: Arc::new(Authorizer::load_built_in().expect("the built-in rules load")),
         data_folder: home.path().join("data"),
         working_folders: Arc::clone(&folder_watch),
         git,
         list_feed,
+        plan_holds,
         payloads,
         publisher,
         spool_folder,

@@ -11,6 +11,7 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::open_log;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::worktree::schema::schema_parts;
 use crate::workspace::repo::errors::RepoRefusal;
 use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
@@ -125,7 +126,7 @@ fn store_tree(
 // Kills: the tiers swapped, the recent bases out of order, and `held_by` naming a retired tree.
 #[tokio::test]
 async fn branches_list_default_then_recent_bases_then_newest_commit_with_their_holders() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let _log = open_log(&database, None).await;
     let scratch = tempfile::tempdir().expect("a scratch folder");
     let git = test_git_runner();

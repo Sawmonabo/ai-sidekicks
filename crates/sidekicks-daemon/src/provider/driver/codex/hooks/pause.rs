@@ -4,7 +4,7 @@
 //! denied, so the parked call never runs. The first call held is the pause taking effect.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -13,6 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::hooks::server::{
     CodexHookAnswer, CodexHookAnswerer, CodexHookEvent, CodexHookInput,
 };
@@ -242,7 +243,7 @@ impl CodexRunPauses {
     }
 
     fn lock(&self) -> MutexGuard<'_, PauseState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

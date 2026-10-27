@@ -14,13 +14,14 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 use crate::provider::port::question::{ProviderQuestion, WaitingQuestionOpening};
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::schema::QuestionState;
 use crate::questions::service::{
     HeldRequestAnswerer, QuestionError, QuestionsService, canceled_event,
 };
 use crate::questions::store::{open_waiting_question_statement, settle_question_statement};
 use crate::session::run::engine::RunEngineError;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 impl QuestionsService {
     /// Records `question`, its answer sent on by `answered_by`: open, as

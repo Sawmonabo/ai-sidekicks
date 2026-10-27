@@ -3,5 +3,6 @@
 pub(crate) mod console;
 pub(crate) mod control_lease;
 pub(crate) mod flow_control;
+pub(crate) mod input_lookup;
 pub(crate) mod orphan;
 pub(crate) mod shell;

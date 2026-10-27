@@ -86,7 +86,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Duration;
 
     use futures::FutureExt as _;
@@ -104,6 +104,7 @@ mod tests {
     use crate::ipc::registry::{
         Dispatch, DispatchError, HandlerContext, MethodRegistry, MethodRegistryBuilder, Reply,
     };
+    use crate::mutex_lock::lock;
     use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
     /// A method of another namespace sharing the flush's last segment.
@@ -146,9 +147,7 @@ mod tests {
             &LifecycleMethodsDeps {
                 flush: Arc::new(move |_caller| {
                     let (release, released) = oneshot::channel();
-                    held.lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(release);
+                    lock(&held).push(release);
                     async move {
                         released.await.expect("the test lets the flush go");
                         Ok(())
@@ -156,10 +155,7 @@ mod tests {
                     .boxed()
                 }),
                 accept_stop: Arc::new(move |intent| {
-                    counted
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(intent);
+                    lock(&counted).push(intent);
                 }),
             },
         )
@@ -197,13 +193,7 @@ mod tests {
     #[tokio::test]
     async fn stop_and_restart_accept_a_stop_after_their_reply_and_start_is_no_method() {
         let lifecycle = lifecycle();
-        let stops = || {
-            lifecycle
-                .stops
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone()
-        };
+        let stops = || lock(&lifecycle.stops).clone();
         let mut accepted = Vec::new();
         for (method, intent) in [
             (DaemonStop::DESCRIPTOR.method, DaemonStopIntent::Stop),
@@ -256,22 +246,12 @@ mod tests {
             .dispatch(request("session.flush", Some(&json!({}))), context(1))
             .await;
         assert_eq!(answer(session_flush), json!({ "name": "sess" }));
-        let release = lifecycle
-            .flushes
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        let release = lock(&lifecycle.flushes)
             .pop()
             .expect("the flush asked for its writes");
         release.send(()).expect("the flush still waits");
         assert_eq!(answer(flushed.await), json!({ "flushed": true }));
-        assert!(
-            lifecycle
-                .stops
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .is_empty(),
-            "a flush stops nothing"
-        );
+        assert!(lock(&lifecycle.stops).is_empty(), "a flush stops nothing");
     }
 
     // The flush waits only for the writes recorded before it: dispatched through the in-flight

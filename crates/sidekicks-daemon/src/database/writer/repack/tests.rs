@@ -11,18 +11,28 @@ use tokio::sync::{oneshot, watch};
 use tokio_util::sync::CancellationToken;
 
 use super::{RepackEnd, RepackJobDeps, read_pages, repack, repack_job};
+use crate::daemon::scheduler::budget::{BudgetTerm, JobBudget, WorkUnit};
 use crate::database::connection::writer_open::open_database;
+use crate::database::schema::schema_parts;
 use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 
 const WAIT: Duration = Duration::from_secs(10);
 
+// A budget the tests' repacks are metered against; no test reads what it allows.
+const TEST_REPACK_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+    figure: Duration::from_secs(1),
+    per: 256 * 1024 * 1024,
+    unit: WorkUnit::StoreBytes,
+}]);
+
 // A store holding free pages and live rows, the later half of a filler table deleted, so a `VACUUM`
 // copies thousands of instructions' worth of rows.
 fn store_with_free_pages() -> TestDatabase {
-    let database = TestDatabase::new();
-    let connection = open_database(&database.path()).expect("the store opens");
+    let database = TestDatabase::new(schema_parts());
+    let connection =
+        open_database(&database.path(), &schema_parts().into_schema()).expect("the store opens");
     connection
         .execute_batch(
             "CREATE TABLE filler (id INTEGER PRIMARY KEY, body BLOB);
@@ -56,6 +66,7 @@ fn repack_deps(
         database_path: database.path(),
         read_volume_free_bytes: |_| Ok(u64::MAX),
         live_runs,
+        budget: TEST_REPACK_BUDGET,
     })
 }
 
@@ -67,10 +78,11 @@ async fn a_refused_vacuum_ends_the_job_and_changes_nothing() {
     let free_before = freelist_count(&database);
     assert!(free_before > 0);
     let path = database.path();
+    let schema = schema_parts().into_schema();
     let writer = Arc::new(
         DatabaseWriter::open(
             move || {
-                let connection: Connection = open_database(&path)?;
+                let connection: Connection = open_database(&path, &schema)?;
                 connection
                     .pragma_update(None, "query_only", true)
                     .expect("the test makes the connection refuse writes");
@@ -165,7 +177,8 @@ fn a_cancel_after_the_first_check_stops_the_vacuum(
     #[case] is_cancel_point: fn(&AuthAction<'_>) -> bool,
 ) {
     let database = store_with_free_pages();
-    let connection = open_database(&database.path()).expect("the store opens");
+    let connection =
+        open_database(&database.path(), &schema_parts().into_schema()).expect("the store opens");
     let cancel = CancellationToken::new();
     let canceled = cancel.clone();
     connection

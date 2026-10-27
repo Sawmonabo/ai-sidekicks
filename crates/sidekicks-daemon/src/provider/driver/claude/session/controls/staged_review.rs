@@ -30,9 +30,8 @@ use crate::provider::driver::claude::spawn::launch::ClaudeLaunchError;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
 use crate::provider::driver::diagnostics::DriverDiagnosticKind;
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
 // How a review of the staged set ended: refused by the model, or with its report.
 enum ClaudeStagedReviewEnd {
@@ -135,9 +134,9 @@ impl ClaudeSessionControls {
         let session_id = live.session_id;
         let ended = self.run_staged_review(live, &stop.stop).await;
         let change = match ended {
-            Ok(ClaudeStagedReviewEnd::Refused(cause)) => Some(RunStateChange {
+            Ok(ClaudeStagedReviewEnd::Refused(cause)) => Some(RunStateReport {
                 failure_category: Some(RunFailureCategory::Refused),
-                ..RunStateChange::new(
+                ..RunStateReport::new(
                     run.run_id,
                     RunStateEntry::Failed {
                         intended_close: None,
@@ -153,7 +152,7 @@ impl ClaudeSessionControls {
             }) => {
                 self.deliver_report(live, &run, text, provider_message_id)
                     .await;
-                Some(RunStateChange::new(
+                Some(RunStateReport::new(
                     run.run_id,
                     RunStateEntry::Completed {
                         intended_close: None,
@@ -162,7 +161,7 @@ impl ClaudeSessionControls {
             }
             Err(_) if stop.stop.is_cancelled() => (!stop.is_end_written.load(Ordering::Acquire))
                 .then(|| {
-                    RunStateChange::new(
+                    RunStateReport::new(
                         run.run_id,
                         RunStateEntry::Interrupted {
                             intended_close: None,
@@ -177,9 +176,9 @@ impl ClaudeSessionControls {
                     "the staged review",
                     &error,
                 );
-                Some(RunStateChange {
+                Some(RunStateReport {
                     failure_category: Some(RunFailureCategory::ProviderFailure),
-                    ..RunStateChange::new(
+                    ..RunStateReport::new(
                         run.run_id,
                         RunStateEntry::Failed {
                             intended_close: None,

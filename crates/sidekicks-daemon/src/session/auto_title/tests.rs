@@ -17,6 +17,7 @@ use tokio::sync::Notify;
 
 use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::{
@@ -29,9 +30,9 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
 use crate::provider::driver::test_registry::test_driver_services;
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+use crate::questions::schema::schema_parts;
 use crate::session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -52,7 +53,7 @@ struct Harness {
 
 /// The self-naming on a fresh database whose one provider's driver `build` makes.
 async fn harness(build: fn(&DriverServices) -> Arc<dyn ProviderDriver>) -> Harness {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     // Opening the writer creates the file with the daemon's schema.
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await

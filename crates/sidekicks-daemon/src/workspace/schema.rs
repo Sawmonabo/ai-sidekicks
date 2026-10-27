@@ -8,6 +8,7 @@ use sidekicks_contracts::project::ProjectState;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState, VcsType, WorkspaceState};
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 
 /// Where a project's clone stands while the project is `cloning`: git running, failed with git's
@@ -42,6 +43,12 @@ pub(crate) enum MountOrigin {
 /// The workspace part of the daemon's schema: projects, then the repository mounts that name them,
 /// then the workspaces bound to those mounts, in foreign-key order.
 pub(crate) static WORKSPACE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workspace_schema_sql);
+
+/// The store's list and the workspace part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::database::schema::schema_parts()
+        .with_part(SchemaPart::new("workspace", WORKSPACE_SCHEMA_SQL.as_str()))
+}
 
 fn workspace_schema_sql() -> String {
     let project_states = sql_list_of_every::<ProjectState>();

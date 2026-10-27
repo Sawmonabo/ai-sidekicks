@@ -8,7 +8,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MACHINE_SETTINGS_FILE_PATH_SEGMENTS, MachineSettings, MachineSettingsChange,
@@ -21,6 +21,7 @@ use tokio::sync::watch;
 
 use crate::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
+use crate::mutex_lock::lock;
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
 // credentials.
@@ -194,9 +195,7 @@ impl MachineSettingsFile {
 
     fn lock_listeners(&self) -> std::sync::MutexGuard<'_, Listeners> {
         // A panic while the list was held leaves a list still whole.
-        self.listeners
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.listeners)
     }
 }
 

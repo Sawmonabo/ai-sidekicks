@@ -5,8 +5,7 @@ use std::io;
 
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-// How many bytes one read of the error output takes.
-const ERROR_OUTPUT_READ_BYTES: usize = 8 * 1024;
+use crate::process_exit::OUTPUT_CHUNK_BYTES;
 
 /// The last `kept_bytes` of `stream`, read to its end, decoded lossily once, starting on a whole
 /// character and trimmed of white space at either end. Fails with the read's error.
@@ -15,7 +14,7 @@ pub(crate) async fn read_error_output_tail(
     kept_bytes: usize,
 ) -> io::Result<String> {
     let mut kept = Vec::new();
-    let mut chunk = [0_u8; ERROR_OUTPUT_READ_BYTES];
+    let mut chunk = [0_u8; OUTPUT_CHUNK_BYTES];
     loop {
         let read = stream.read(&mut chunk).await?;
         if read == 0 {

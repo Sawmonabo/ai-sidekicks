@@ -19,7 +19,8 @@ use crate::interventions::service::InterventionService;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::session::run::pause::{ContinuedMessages, RunPauseControl};
+use crate::provider::port::run_pause::ContinuedMessages;
+use crate::session::run::pause::RunPauseControl;
 use crate::session::run::provider_choice::{ProviderChoiceAnswerOrigin, ProviderChoiceResolver};
 
 /// What the run control methods act through.

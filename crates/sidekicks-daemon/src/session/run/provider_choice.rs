@@ -8,7 +8,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -38,11 +38,13 @@ use crate::events::session::appender::{
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{DriverError, ProviderDriver};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::pause::run_control_response;
 use crate::session::run::read::{
@@ -50,8 +52,7 @@ use crate::session::run::read::{
 };
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
-    refused_statement_index,
+    RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
 };
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
@@ -252,7 +253,8 @@ pub(crate) struct ProviderChoiceResolver {
     providers: Arc<ProviderRegistry>,
     run_lock: KeyedLock<RunId>,
     // Each run's answer the provider got with no reply back, until its settle; never locked
-    // across an await.
+    // across an await. No holder panics while it changes the map, so a poisoned lock still guards
+    // a whole map.
     held_answers: Mutex<HashMap<RunId, HeldAnswer>>,
 }
 
@@ -524,9 +526,7 @@ impl ProviderChoiceResolver {
             Err(unanswered @ DriverError::Unanswered(_)) => {
                 // The first answer held stays held: the provider may have taken it, and its word
                 // settles whichever it took.
-                lock_held(&self.held_answers)
-                    .entry(run_id)
-                    .or_insert(answer);
+                lock(&self.held_answers).entry(run_id).or_insert(answer);
                 Err(ProviderChoiceError::Driver(unanswered))
             }
             Err(failed) => Err(ProviderChoiceError::Driver(failed)),
@@ -535,7 +535,7 @@ impl ProviderChoiceResolver {
 
     // The answer held on `run_id`, taken out.
     fn take_held(&self, run_id: RunId) -> Option<HeldAnswer> {
-        lock_held(&self.held_answers).remove(&run_id)
+        lock(&self.held_answers).remove(&run_id)
     }
 
     // Writes the settlement `held` carries.
@@ -591,14 +591,6 @@ impl ProviderChoiceResolver {
             Err(other) => Err(other.into()),
         }
     }
-}
-
-// The held answers. No holder awaits or panics while it changes the map, so a poisoned lock still
-// guards a whole map.
-fn lock_held(
-    held_answers: &Mutex<HashMap<RunId, HeldAnswer>>,
-) -> MutexGuard<'_, HashMap<RunId, HeldAnswer>> {
-    held_answers.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// The settle of one choice a run's end let go: the guard that no settlement followed its request

@@ -6,5 +6,3 @@ pub(crate) mod lookups;
 pub(crate) mod projection;
 pub(crate) mod row;
 pub(crate) mod run_activity;
-#[cfg(any(test, feature = "test-support"))]
-pub mod test_rows;

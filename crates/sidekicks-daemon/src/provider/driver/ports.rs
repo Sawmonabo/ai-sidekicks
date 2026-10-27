@@ -17,19 +17,19 @@ use crate::provider::driver::SessionSpawnContextResolver;
 use crate::provider::driver::run_control::DaemonTurnBindingResolver;
 use crate::provider::driver::session_control::DriverResumeResult;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::permission_ask::PermissionAskPort;
 use crate::provider::port::plan::PlanPort;
 use crate::provider::port::question::QuestionPort;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::repository_reader::RepositoryReader;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::provider::port::session_advisor_store::ClaudeSessionAdvisorStore;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::provider::port::session_advisor_store::SessionAdvisorStore;
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::provider::port::tool_server_route::ToolServerRoute;
 use crate::provider::port::usage_sink::UsageSink;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::pause::{ContinuedMessages, RunPauseControl};
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub(crate) trait MessageTakenListener: Send + Sync {
@@ -97,9 +97,9 @@ pub(crate) struct DriverPorts {
     /// provider runs on.
     pub(crate) spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// The run engine.
-    pub(crate) run_engine: Arc<PortRegistration<Arc<RunEngine>>>,
+    pub(crate) run_engine: Arc<PortRegistration<Arc<dyn RunHost>>>,
     /// The run engine's dispatch of what a provider delivers.
-    pub(crate) inbound_dispatch: Arc<PortRegistration<Arc<RunInboundDispatch>>>,
+    pub(crate) inbound_dispatch: Arc<PortRegistration<Arc<dyn InboundDispatch>>>,
     /// The run queue's opening of the binding a turn the daemon starts on a session runs on.
     pub(crate) daemon_turn_bindings: Arc<PortRegistration<Arc<dyn DaemonTurnBindingResolver>>>,
     /// The daemon's reads of the repository a working folder belongs to.
@@ -125,7 +125,7 @@ pub(crate) struct DriverPorts {
     /// The approval pipeline's intake of reviewer blocks, and its release of held presses.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The record of the advisor Claude Code resolved for a session no one picked one for.
-    pub(crate) session_advisors: Arc<PortRegistration<Arc<dyn ClaudeSessionAdvisorStore>>>,
+    pub(crate) session_advisors: Arc<PortRegistration<Arc<dyn SessionAdvisorStore>>>,
     /// The rules in force on each session.
     pub(crate) session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     /// The places the daemon runs sessions in, which each session's inbox address is composed for.
@@ -137,7 +137,7 @@ pub(crate) struct DriverPorts {
     /// The one callback-tool dispatcher, which each spawn's callback tools are bound through.
     pub(crate) callback_tool_host: Arc<PortRegistration<Arc<CallbackToolHost>>>,
     /// The pause and continue of runs.
-    pub(crate) run_pauses: Arc<PortRegistration<Arc<RunPauseControl>>>,
+    pub(crate) run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the run queue holds them.
     pub(crate) continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
 }

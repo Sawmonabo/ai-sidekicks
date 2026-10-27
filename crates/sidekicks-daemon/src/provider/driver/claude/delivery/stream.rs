@@ -38,7 +38,6 @@ use crate::provider::driver::claude::delivery::messages::{
     read_claude_user_rows,
 };
 use crate::provider::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::run_readings::{
     ClaudeMessageKey, ClaudeRowDelivery, ClaudeStreamSession,
 };
@@ -63,14 +62,16 @@ use crate::provider::driver::claude::spent_retries_signal::classify_claude_spent
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::run_host::RunHost;
 use crate::provider::port::usage_sink::UsageSink;
 use crate::provider::record_readers::read_non_empty_string;
+use crate::provider::run::delivery::{
+    DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker,
+};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::provider::thread_frame_router::ThreadFrameRoute;
-use crate::session::run::engine::RunMarker;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
 use daemon_ends::ClaudeStreamDialogPorts;
 
@@ -80,8 +81,10 @@ pub(crate) type ClaudeMessageTaken = Arc<dyn Fn(SessionId, &str, RunId) + Send +
 
 /// What the stream delivers through and reads each session's state from.
 pub(crate) struct ClaudeStreamDependencies {
-    /// The run engine.
-    pub(crate) engine: Arc<dyn ClaudeRunEngine>,
+    /// The run engine, which opens, counts and ends each turn.
+    pub(crate) engine: Arc<dyn RunHost>,
+    /// The run engine's dispatch, which takes each delivery.
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
     /// The runs bound to each session.
     pub(crate) routes: Arc<ClaudeRunRoutes>,
     /// The choices Claude Code holds a run on.
@@ -337,7 +340,7 @@ impl ClaudeDeliveryStream {
                 .record_settled_output_speed(session.session_id, settled.run_id, settled.state)
                 .await
         {
-            report_engine_failure(session, "the settled output speed", &error);
+            report_engine_failure(session, "the settled output speed", &*error);
         }
         for emission in routed.helper_lifecycle {
             self.deliver_helper_lifecycle(session, turn_at_read.lead.clone(), emission)
@@ -430,9 +433,9 @@ impl ClaudeDeliveryStream {
         self.open_turn(session, &lead).await;
         if self.dependencies.dialogs.observe_turn_frame(lead.run_id) {
             // An answer no write or check settled reached Claude Code, which runs the turn again.
-            let running = RunStateChange {
+            let running = RunStateReport {
                 expected_state: Some(RunState::WaitingForInput),
-                ..RunStateChange::new(
+                ..RunStateReport::new(
                     lead.run_id,
                     RunStateEntry::Running {
                         execution_posture: None,
@@ -724,7 +727,7 @@ impl ClaudeDeliveryStream {
         self.send_pieces(session, &lead.binding_id, pieces).await;
         self.admit_rows(session, rows, "assistant").await;
         if counts_step && let Err(error) = self.dependencies.engine.count_step(lead.run_id).await {
-            report_engine_failure(session, "a step", &error);
+            report_engine_failure(session, "a step", &*error);
         }
     }
 

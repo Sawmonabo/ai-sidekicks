@@ -41,8 +41,9 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 
 use crate::approvals::refusals::{reviewer_denial_not_found, reviewer_denial_not_overridable};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::{closed_word, text_column};
+use crate::database::stored_column::text_column;
 use crate::events::log_service::EventAppendError;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
@@ -91,8 +92,6 @@ static SELECT_BLOCKED_CALL_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
 const INSERT_DENIAL_SQL: &str = "INSERT INTO reviewer_denials
     (denial_id, session_id, provider_denial)
   VALUES (@denial_id, @session_id, @provider_denial)";
-
-const SELECT_SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = @session_id";
 
 // The block under the session: the run and the overridable flag its event carries, and the
 // provider's own record of it.
@@ -257,10 +256,10 @@ impl From<DenialOverrideError> for HandlerError {
     /// driver's error as a driver error answers; the rest are faults in the daemon.
     fn from(error: DenialOverrideError) -> Self {
         match error {
-            DenialOverrideError::Refused(refusal)
-            | DenialOverrideError::Append(SessionEventAppendError::Append(
+            DenialOverrideError::Refused(refusal) => Self::Refused(refusal),
+            DenialOverrideError::Append(SessionEventAppendError::Append(
                 EventAppendError::SessionWriteRefused(refusal),
-            )) => Self::Refused(refusal),
+            )) => Self::Refused(refusal.into()),
             DenialOverrideError::Driver(driver) => driver.into(),
             fault @ (DenialOverrideError::Read(_)
             | DenialOverrideError::Pool(_)
@@ -692,13 +691,7 @@ fn read_press(
 ) -> Result<PressRead, DenialOverrideError> {
     let session_text = session_id.text();
     let denial_text = denial_id.text();
-    let session_state = reader
-        .prepare_cached(SELECT_SESSION_STATE_SQL)?
-        .query_row(
-            named_params! { "@session_id": session_text.as_str() },
-            |row| text_column(row, 0, closed_word::<SessionState>),
-        )
-        .optional()?;
+    let session_state = read_session_state(reader, &session_id)?;
     let key = named_params! {
         "@session_id": session_text.as_str(),
         "@denial_id": denial_text.as_str(),

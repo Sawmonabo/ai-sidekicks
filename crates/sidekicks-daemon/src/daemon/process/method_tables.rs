@@ -5,6 +5,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use sidekicks_contracts::session::id::SessionId;
+
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
 use crate::daemon::config_methods::{ConfigMethodsDeps, register_config_methods};
@@ -14,9 +16,11 @@ use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_
 use crate::daemon::machine::settings::methods::{
     MachineSettingsMethodsDeps, register_machine_settings_methods,
 };
+use crate::daemon::process::damage_gate::{DamageReportGate, DispatchDamageWatch};
 use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
+use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::log_service::EventLogService;
 use crate::git::worktree::branch_list::BranchListReader;
 use crate::git::worktree::watch::WorkingFolderWatcher;
@@ -39,15 +43,16 @@ use crate::ipc::handlers::session::read::register_session_read;
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::{RestartTargetReader, register_session_restart};
 use crate::ipc::handlers::session::tags::register_session_tags;
-use crate::ipc::handlers::terminal::{ShellInputLookup, register_terminal_write};
+use crate::ipc::handlers::terminal::register_terminal_write;
 use crate::ipc::handlers::transcript::register_transcript_reads;
 use crate::ipc::in_flight_mutations::InFlightMutations;
 use crate::ipc::protocol_negotiation::ProtocolNegotiator;
 use crate::ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
+use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::pty::input_lookup::ShellInputLookup;
 use crate::questions::service::QuestionsService;
 use crate::recovery::damaged_history::DamagedHistory;
-use crate::recovery::database_file::damage::{DamageReportGate, DatabaseDamageWatch};
 use crate::recovery::status::RecoveryStatusTracker;
 use crate::recovery::write_gate::RecoveryWriteGate;
 use crate::session::addresses::SessionInboxAddresses;
@@ -90,6 +95,10 @@ pub(crate) struct MethodTableServices {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Reads where a session's restart lands.
     pub(crate) restart_targets: RestartTargetReader,
+    /// The read pool a session's restart reads the session's state through.
+    pub(crate) restart_state_pool: Arc<DatabaseReadPool>,
+    /// The session-wide transition lock a session's restart runs under.
+    pub(crate) session_transition_lock: Arc<KeyedLock<SessionId>>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
     /// Each session's live safety holds.
@@ -169,7 +178,13 @@ pub(crate) fn register_method_tables(
     register_session_draft_update(builder, services.drafts)?;
     register_session_tags(builder, services.tags)?;
     register_session_links(builder, services.links, services.related_ranking)?;
-    register_session_restart(builder, services.providers, services.restart_targets)?;
+    register_session_restart(
+        builder,
+        services.providers,
+        services.restart_targets,
+        services.restart_state_pool,
+        services.session_transition_lock,
+    )?;
     register_session_recovery_methods(builder, services.damaged_history)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
@@ -195,7 +210,7 @@ pub(crate) fn gate_chain(
     negotiator: &Arc<ProtocolNegotiator>,
     registry: &Arc<MethodRegistry>,
     status: Arc<RecoveryStatusTracker>,
-    damage: Arc<DatabaseDamageWatch>,
+    damage: DispatchDamageWatch,
     idle_memory: &Arc<IdleMemoryCollect>,
 ) -> GateChain {
     let damage_reports: Arc<dyn Dispatch> = Arc::new(DamageReportGate::new(

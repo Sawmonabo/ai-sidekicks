@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use futures::future::{BoxFuture, try_join_all};
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -17,6 +17,7 @@ use sidekicks_contracts::wire::list::BoundedVec;
 
 use crate::events::session::append_lock::SessionAppendHold;
 use crate::file::real_location::resolve_real_path;
+use crate::mutex_lock::lock;
 use crate::session::run::setup_gates::{
     RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
@@ -197,9 +198,7 @@ impl ExecutionPostureService {
 
     // The map holds whole entries only, so a panic elsewhere leaves nothing half written.
     fn resolved_postures(&self) -> MutexGuard<'_, HashMap<RunId, ExecutionPosture>> {
-        self.resolved_by_run
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.resolved_by_run)
     }
 }
 

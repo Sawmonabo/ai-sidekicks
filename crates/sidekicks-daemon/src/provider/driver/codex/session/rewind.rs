@@ -291,7 +291,7 @@ fn degraded(fallback_action: &str) -> RewindConversationResult {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex, PoisonError};
+    use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
     use serde_json::json;
@@ -299,6 +299,7 @@ mod tests {
     use tokio_util::task::TaskTracker;
 
     use super::CodexConversationRewind;
+    use crate::mutex_lock::lock;
     use crate::provider::driver::codex::run::routes::CodexRunBinding;
     use crate::provider::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
     use crate::provider::driver::codex::run::start::record::CodexTurnRequest;
@@ -364,10 +365,7 @@ mod tests {
                         Some("turn/start") => script.answer(&sent, &turn_reply("turn-9")),
                         method => panic!("the service was not asked {method:?}"),
                     }
-                    asked
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .push(method);
+                    lock(&asked).push(method);
                 }
             }
         });
@@ -439,7 +437,7 @@ mod tests {
         );
         started.expect("the run's turn starts once the revert is done");
         assert_eq!(
-            *asked.lock().unwrap_or_else(PoisonError::into_inner),
+            *lock(&asked),
             [
                 Some("thread/revert".to_owned()),
                 Some("turn/start".to_owned())

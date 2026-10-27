@@ -7,6 +7,7 @@
 //! a session when a run's provider does not run it at the fast output level it carried.
 
 mod ending;
+mod host;
 mod limits;
 mod live;
 mod running_wait;
@@ -23,10 +24,7 @@ use std::sync::{Arc, Mutex, Weak};
 
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::events::{
     AgentRunProviderInitializedPayload, AgentRunWorkerShuttingDownPayload, TurnEndOrigin,
 };
@@ -54,12 +52,15 @@ use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::run::delivery::RunMarker;
+use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
+use crate::session::plan_holds::PlanHolds;
 use crate::session::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError};
 use crate::session::run::daemon_turn::DaemonTurnQueueError;
 use crate::session::run::engine::live::{
     ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun,
 };
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnEnd, TurnOutcome, WriteWithResend};
+use crate::session::run::engine::turns::{TurnEnd, WriteWithResend};
 use crate::session::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::session::run::refusals::{RunRefusal, ended_run_refusal};
@@ -79,9 +80,10 @@ use crate::settle_all::{SettleFailures, settle_all};
 /// turn and every open turn, its provider, whether it ended since a version, its interventions with
 /// no outcome and one session's ended runs still holding one, the two agent reads, and the run
 /// end's reads of its held questions open or waiting for it (`UNSETTLED_HELD_OF_RUN_SQL`), its
-/// plans still holding a request (`HELD_PLANS_OF_RUN_SQL`) and its open choices (the newest
-/// request of each dialog and whether it was settled since).
-pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 19 + RUN_AGENT_STATEMENT_CAPACITY;
+/// plans still holding a request (its plan holds' read) and its open choices (the newest
+/// request of each dialog and whether it was settled since), and a driver's read of a session's
+/// stored leg (the session's runs and their bindings).
+pub(crate) const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -100,66 +102,6 @@ pub(crate) enum InterruptRoute {
     Driver,
     /// The run has ended.
     Ended,
-}
-
-/// A marker a provider reports on a live run, which changes no state; the engine reads the run's
-/// session and version when it records it. A turn's start is no marker: [`RunEngine::start_turn`]
-/// numbers it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum RunMarker {
-    /// The provider process reported its start for the run (`agent.run.providerInitialized`).
-    ProviderInitialized {
-        /// The run.
-        run_id: RunId,
-        /// The provider.
-        provider: ProviderId,
-        /// The model it runs, where it named one.
-        model: Option<FreeFormText<PROVIDER_WIRE_TOKEN_MAX_LEN>>,
-    },
-    /// The provider said its worker is shutting down mid-run (`agent.run.workerShuttingDown`).
-    WorkerShuttingDown {
-        /// The run.
-        run_id: RunId,
-        /// The provider's reason, where it sent one.
-        reason: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
-    },
-}
-
-impl RunMarker {
-    /// The run the marker is on.
-    pub(crate) fn run_id(&self) -> RunId {
-        match self {
-            Self::ProviderInitialized { run_id, .. } | Self::WorkerShuttingDown { run_id, .. } => {
-                *run_id
-            }
-        }
-    }
-
-    fn into_event(self, run: &RunRead) -> SessionEvent {
-        let session_id = run.session_id;
-        let run_version = safe_run_version(run.version);
-        match self {
-            Self::ProviderInitialized {
-                run_id,
-                provider,
-                model,
-            } => SessionEvent::AgentRunProviderInitialized(AgentRunProviderInitializedPayload {
-                session_id,
-                run_id,
-                run_version,
-                provider,
-                model,
-            }),
-            Self::WorkerShuttingDown { run_id, reason } => {
-                SessionEvent::AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload {
-                    session_id,
-                    run_id,
-                    run_version,
-                    reason,
-                })
-            }
-        }
-    }
 }
 
 /// Why the run engine did not do what it was asked; what each step wrote before the failure is
@@ -300,6 +242,8 @@ pub(crate) struct RunEngineDeps {
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
     /// The registered drivers: a provider's fixed facts and its driver, by the provider's id.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// The plans a run's end reopens as it lets their held requests go.
+    pub(crate) plan_holds: Arc<dyn PlanHolds>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -326,6 +270,7 @@ pub(crate) struct RunEngine {
     gates: RunSetupGates,
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
+    plan_holds: Arc<dyn PlanHolds>,
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
@@ -343,16 +288,21 @@ pub(crate) struct RunEngine {
     // Where a test holds a restart's settle of a run between its facts' read and its write.
     #[cfg(test)]
     restart_facts_pause: PausePoint,
+    // The engine's own allocation, which a call a driver makes through its port takes to hand a
+    // limit's stop to a task of its own.
+    this: Weak<RunEngine>,
 }
 
 impl RunEngine {
-    /// An engine over `deps`, the posture gate registered as its first setup gate.
-    pub(crate) fn new(deps: RunEngineDeps) -> Self {
+    /// An engine over `deps`, built inside the allocation `this` points to, the posture gate
+    /// registered as its first setup gate.
+    pub(crate) fn new(deps: RunEngineDeps, this: Weak<RunEngine>) -> Self {
         let RunEngineDeps {
             pool,
             event_log,
             execution_postures,
             providers,
+            plan_holds,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -367,6 +317,7 @@ impl RunEngine {
             gates,
             execution_postures,
             providers,
+            plan_holds,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
@@ -376,7 +327,15 @@ impl RunEngine {
             resume_read_pause: PausePoint::default(),
             #[cfg(test)]
             restart_facts_pause: PausePoint::default(),
+            this,
         }
+    }
+
+    // The engine's own allocation, which outlives every call made on it.
+    fn shared(&self) -> Arc<Self> {
+        self.this
+            .upgrade()
+            .expect("the engine lives in its allocation while a call runs on it")
     }
 
     /// Where a test holds a resume's read of its run, once the run is held as being resumed.
@@ -644,7 +603,7 @@ impl RunEngine {
                 Ok(LiveAppend {
                     draft: SessionEventDraft::of_session(
                         run.session_id,
-                        &marker.clone().into_event(run),
+                        &run_marker_event(marker.clone(), run),
                     )?,
                     preceding_events: Vec::new(),
                     statements: Vec::new(),
@@ -799,4 +758,32 @@ fn settled(
             SettleFailures::One(failure) => failure,
             many @ SettleFailures::Many { .. } => RunEngineError::Several(Box::new(many)),
         })
+}
+
+// The event a provider's marker on a live run is recorded as, at the session and version `run`
+// read.
+fn run_marker_event(marker: RunMarker, run: &RunRead) -> SessionEvent {
+    let session_id = run.session_id;
+    let run_version = safe_run_version(run.version);
+    match marker {
+        RunMarker::ProviderInitialized {
+            run_id,
+            provider,
+            model,
+        } => SessionEvent::AgentRunProviderInitialized(AgentRunProviderInitializedPayload {
+            session_id,
+            run_id,
+            run_version,
+            provider,
+            model,
+        }),
+        RunMarker::WorkerShuttingDown { run_id, reason } => {
+            SessionEvent::AgentRunWorkerShuttingDown(AgentRunWorkerShuttingDownPayload {
+                session_id,
+                run_id,
+                run_version,
+                reason,
+            })
+        }
+    }
 }

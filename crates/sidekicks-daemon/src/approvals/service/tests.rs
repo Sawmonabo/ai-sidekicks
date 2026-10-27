@@ -22,6 +22,7 @@ use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::recovery::SessionRebuildingDetails;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -41,10 +42,12 @@ use crate::approvals::run_blocking::ApprovalRunHolds;
 use crate::approvals::store::{APPROVAL_REQUEST_READER_STATEMENT_CAPACITY, StoredApprovalRequest};
 use crate::daemon::scheduler::Scheduler;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    SessionAppendRefusal,
 };
 use crate::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
@@ -56,7 +59,6 @@ use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 use crate::ipc::domain_error::DomainError;
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{stored_run_state, test_engine};
 use crate::session::run::projection::insert_queued_run_statement;
@@ -141,7 +143,7 @@ impl ApprovalFixture {
     }
 
     async fn build(is_engine_reached: bool) -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(crate::approvals::schema::schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
                 .await
@@ -159,21 +161,25 @@ impl ApprovalFixture {
             )),
             followers: Arc::new(SessionEventFollowers::default()),
             projection_statements: None,
-            refuse_session_write: Some(Box::new(move |_session_id, event_type| {
-                let is_answer =
-                    event_type == "approval.approved" || event_type == "approval.rejected";
-                let is_rule = event_type == "approval.rule.remembered";
-                if (is_answer && refusing.load(Ordering::SeqCst))
-                    || (is_rule && refusing_rules.load(Ordering::SeqCst))
-                {
-                    Err(DomainError::new(
-                        "rebuilding",
-                        RefusalCode::SessionRebuilding,
-                    ))
-                } else {
-                    Ok(())
-                }
-            })),
+            refuse_session_write: Some(Box::new(
+                move |session_id: &SessionId, event_type: &str| {
+                    let is_answer =
+                        event_type == "approval.approved" || event_type == "approval.rejected";
+                    let is_rule = event_type == "approval.rule.remembered";
+                    if (is_answer && refusing.load(Ordering::SeqCst))
+                        || (is_rule && refusing_rules.load(Ordering::SeqCst))
+                    {
+                        Err(SessionAppendRefusal::Rebuilding {
+                            message: "rebuilding".to_owned(),
+                            details: SessionRebuildingDetails {
+                                session_id: *session_id,
+                            },
+                        })
+                    } else {
+                        Ok(())
+                    }
+                },
+            )),
             read_damaged_from_sequence: None,
         }));
         let events = Arc::new(SessionEventAppender::new(

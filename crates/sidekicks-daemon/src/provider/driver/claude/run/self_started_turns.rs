@@ -116,11 +116,11 @@ fn report(live: &LiveClaudeSession, what: &str, cause: &str) {
 mod tests {
     use serde_json::{Value, json};
 
-    use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
     use crate::provider::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::session::run::state_change::RunStateEntry;
+    use crate::provider::port::run_host::test_host::EngineCall;
+    use crate::provider::run::state_entry::RunStateEntry;
 
     fn turn() -> [Value; 3] {
         [
@@ -165,20 +165,28 @@ mod tests {
         }
         settle().await;
 
+        let run_id = session
+            .engine
+            .first_daemon_turn_run()
+            .expect("the turn's run opens");
         let calls = session.engine.calls();
-        let Some(EngineCall::StartDaemonTurn(run_id)) = calls.first().cloned() else {
-            unreachable!("the turn's run opens before anything else")
-        };
+        assert_eq!(
+            calls.first(),
+            Some(&EngineCall::StartDaemonTurn(run_id)),
+            "the turn's run opens before anything else"
+        );
         assert!(calls.contains(&EngineCall::CountStep(run_id)));
-        let deliveries = session.engine.deliveries();
         assert!(
-            deliveries
+            session
+                .engine
+                .deliveries()
                 .iter()
                 .all(|delivery| delivery.binding_id == Some(binding_id("daemon-turn")))
         );
-        let moves: Vec<_> = deliveries
+        let moves: Vec<_> = session
+            .engine
+            .run_moves()
             .into_iter()
-            .filter_map(|delivery| delivery.change)
             .map(|change| (change.run_id, change.entry))
             .collect();
         assert_eq!(

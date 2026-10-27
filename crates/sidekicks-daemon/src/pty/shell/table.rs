@@ -40,13 +40,13 @@ use tokio::runtime::Handle;
 use tokio::sync::watch;
 
 use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::terminal::ShellInputLookup;
 use crate::ipc::registry::{HandlerError, TransportId};
 use crate::ipc::stream::latest_value::LatestValueOutlet;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::pty::control_lease::{
     LeaseBroadcast, LeaseReading, ShellConnection, ShellControlLease, ShellLeaseCaller,
 };
+use crate::pty::input_lookup::ShellInputLookup;
 use crate::pty::orphan::guard::OrphanGuard;
 use crate::pty::shell::integration::injection::ShellStartupFolders;
 use crate::pty::shell::list::ShellListFollowers;

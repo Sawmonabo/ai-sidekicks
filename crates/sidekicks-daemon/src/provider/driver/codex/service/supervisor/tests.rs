@@ -8,11 +8,14 @@ use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::bind_socket_listener;
+use sidekicks_platforms::short_socket_folder;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::test_service::{TestCodexProgram, UnheardEvents, test_codex_service_dependencies};
+use super::test_service::{
+    TestCodexProgram, UnheardEvents, bind_test_listener, test_codex_service_dependencies,
+    write_failing_codex,
+};
 use super::{
     CodexService, CodexServiceSocket, CodexWindowsSandboxReadiness, read_windows_sandbox_readiness,
 };
@@ -131,13 +134,10 @@ async fn is_checked(loaded_reads: &mut mpsc::UnboundedReceiver<()>, wait: Durati
 // or a `thread/closed` with no session held, or by checking while a session is still held.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_it() {
-    // Under `/tmp`, so the socket's path fits the system's limit.
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let socket = folder.path().join("s.sock");
-    let listener = match bind_socket_listener(&socket) {
-        Ok(listener) => listener,
-        Err(error) if error.kind() == std::io::ErrorKind::Unsupported => return,
-        Err(error) => panic!("the test's socket does not listen: {error}"),
+    let Some(listener) = bind_test_listener(&socket) else {
+        return;
     };
     let (loaded_sender, mut loaded_reads) = mpsc::unbounded_channel();
     let (notices, notices_received) = mpsc::unbounded_channel();
@@ -160,7 +160,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
         test_codex_service_dependencies(
             folder.path(),
             Arc::new(TestCodexProgram {
-                program: "/usr/bin/false".into(),
+                program: write_failing_codex(folder.path()),
                 environment: Vec::new(),
             }),
             Arc::new(UnheardEvents),

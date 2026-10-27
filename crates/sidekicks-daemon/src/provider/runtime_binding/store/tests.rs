@@ -14,6 +14,7 @@ use super::{
     RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
     RuntimeBindingStore, read_binding,
 };
+use crate::database::schema::provider_drivers::schema_parts;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::provider::driver::session_control::{
     SessionToolServer, SubagentDefinition, SubagentPolicy,
@@ -41,7 +42,7 @@ async fn create(
 
 #[tokio::test]
 async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
     let predecessor = create(
         &store,
@@ -81,7 +82,7 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
 
 #[tokio::test]
 async fn an_update_records_the_left_conversation_in_its_own_write() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
     let binding = create(&store, RuntimeBindingSpawnConfig::default()).await;
     let left = LeftConversation {
@@ -134,7 +135,7 @@ const STORED_MARKER: &str = "stored-marker-text";
 #[case::recovery_data_not_an_object("runtime_metadata = json_quote('{marker}')")]
 #[tokio::test]
 async fn a_stored_column_that_does_not_read_fails_the_read_without_its_value(#[case] change: &str) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
     let binding = create(&store, RuntimeBindingSpawnConfig::default()).await;
     let connection = database.reader();
@@ -167,7 +168,7 @@ async fn a_stored_column_that_does_not_read_fails_the_read_without_its_value(#[c
 
 #[tokio::test]
 async fn a_binding_with_helpers_and_tool_servers_reads_back_as_recorded() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
     let helper = SubagentDefinition {
         name: "reviewer".to_owned(),

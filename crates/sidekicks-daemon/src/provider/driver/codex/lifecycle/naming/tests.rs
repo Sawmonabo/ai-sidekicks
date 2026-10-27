@@ -1,7 +1,5 @@
-#[cfg(unix)]
 mod one_shot;
 mod rest;
-#[cfg(unix)]
 mod spent_deadline;
 
 use rstest::rstest;

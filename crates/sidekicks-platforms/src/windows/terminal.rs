@@ -79,6 +79,11 @@ pub const DOES_PAUSED_READ_HOLD_INPUT: bool = true;
 /// reads: yes on Windows.
 pub const DOES_CONSOLE_COUNT_WAITING_INPUT: bool = true;
 
+/// Whether a background process that ignores its hangup keeps a terminal open past its session
+/// leader's exit: no on Windows, which has no session leader and no hangup.
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_TERMINAL_OUTLIVE_ITS_LEADER: bool = false;
+
 /// Sends a POSIX signal, which Windows has none of: always fails with `Unsupported`.
 pub fn send_signal(_pid: u32, _signal: TerminalSignal) -> io::Result<()> {
     Err(io::Error::new(

@@ -119,10 +119,13 @@ pub(crate) fn compose_daemon_hook_commands(
 }
 
 /// The hooks the daemon starts the terminal service with: none while its program dispatches no
-/// hook mode, else the hooks that run that program as it started, read from where it runs now.
-/// Fails when the system cannot name the program or its hook commands cannot be written.
-pub(crate) fn read_terminal_service_hooks() -> Result<TerminalServiceHooks, HookCommandError> {
-    if !CodexServiceKind::Terminal.runs_daemon_hooks() {
+/// hook mode, as `dispatches_hook_mode` says, else the hooks that run that program as it started,
+/// read from where it runs now. Fails when the system cannot name the program or its hook commands
+/// cannot be written.
+pub(crate) fn read_terminal_service_hooks(
+    dispatches_hook_mode: bool,
+) -> Result<TerminalServiceHooks, HookCommandError> {
+    if !CodexServiceKind::Terminal.runs_daemon_hooks(dispatches_hook_mode) {
         return Ok(TerminalServiceHooks::NoHooks);
     }
     match read_running_program_path().map_err(HookCommandError::ProgramUnread)? {

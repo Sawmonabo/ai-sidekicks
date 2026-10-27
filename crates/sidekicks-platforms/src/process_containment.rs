@@ -36,6 +36,11 @@ pub fn take_in_orphans() -> io::Result<()> {
     Ok(())
 }
 
+/// Whether [`take_in_orphans`] makes this process a child subreaper: on Linux only, since no
+/// other system offers one.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_TAKE_IN_ORPHANS: bool = cfg!(target_os = "linux");
+
 /// The folder the daemon works in for its whole life, set at its start before any child or
 /// terminal host starts, so a child that inherits it holds no folder a person may remove: `/` on
 /// macOS and Linux, the system folder on Windows.

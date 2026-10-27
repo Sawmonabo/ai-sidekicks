@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::ffi::OsString;
 use std::io::{self, ErrorKind};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use hpke::aead::ChaCha20Poly1305;
 use hpke::kdf::HkdfSha256;
@@ -24,6 +24,7 @@ use sidekicks_platforms::{
 use zeroize::Zeroizing;
 
 use crate::ipc::caller_process::contract::CallerProcessReader;
+use crate::mutex_lock::lock;
 
 pub(crate) mod party;
 pub(crate) mod records;
@@ -449,7 +450,7 @@ impl CommandChannel {
     ) -> io::Result<()> {
         let plaintext = Zeroizing::new(serde_json::to_vec(request).map_err(io::Error::other)?);
         let (public_key, sequence) = {
-            let mut parties = self.parties.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut parties = lock(&self.parties);
             let admitted = parties.get_mut(&party).ok_or_else(|| {
                 io::Error::new(ErrorKind::NotFound, "no such party on the command channel")
             })?;
@@ -470,10 +471,7 @@ impl CommandChannel {
     /// did not read are removed; a later record from its id is admitted afresh. A request that
     /// cannot be removed is logged.
     pub(crate) async fn forget_party(&self, party: PartyId) {
-        self.parties
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .remove(&party);
+        lock(&self.parties).remove(&party);
         let requests = self.folder.join(REQUESTS_FOLDER);
         let removed =
             tokio::task::spawn_blocking(move || remove_party_requests(&requests, party)).await;
@@ -492,9 +490,7 @@ impl CommandChannel {
     /// The process of the admitted `party`, pinned at its admission; `None` for a party not
     /// admitted.
     pub(crate) fn party_process(&self, party: PartyId) -> Option<PinnedProcess> {
-        self.parties
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.parties)
             .get(&party)
             .map(|admitted| admitted.process.clone())
     }
@@ -520,11 +516,7 @@ impl CommandChannel {
         sequence: u64,
         sealed: &[u8],
     ) -> io::Result<Option<ReceivedRecord>> {
-        let is_admitted = self
-            .parties
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .contains_key(&party);
+        let is_admitted = lock(&self.parties).contains_key(&party);
         if !is_admitted {
             let admitted = match self.admit(party).await? {
                 Admission::Admitted(admitted) => admitted,
@@ -540,13 +532,9 @@ impl CommandChannel {
                     return Ok(None);
                 }
             };
-            self.parties
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .entry(party)
-                .or_insert(admitted);
+            lock(&self.parties).entry(party).or_insert(admitted);
         }
-        let mut parties = self.parties.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut parties = lock(&self.parties);
         // A party forgotten meanwhile has ended, so its record is dropped.
         let Some(admitted) = parties.get_mut(&party) else {
             return Ok(None);
@@ -640,10 +628,7 @@ impl CommandChannel {
             if parent.id() <= 1 {
                 return Ok(Admission::Refused(Some(public_key)));
             }
-            let admitted_ancestor = self
-                .parties
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
+            let admitted_ancestor = lock(&self.parties)
                 .get(&parent.id())
                 .map(|ancestor| ancestor.is_wrapper);
             match admitted_ancestor {

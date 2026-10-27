@@ -28,7 +28,7 @@ use crate::provider::driver::streamed_text::{
     StreamedText, StreamedTextCompletion, StreamedTextPiece,
 };
 use crate::provider::lenient_json::{lenient_object, read_lenient};
-use crate::session::run::inbound::rows::LateAppendableRow;
+use crate::provider::run::delivery::LateAppendableRow;
 
 /// The run a streamed block's rows belong to.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

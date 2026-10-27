@@ -1,7 +1,7 @@
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
@@ -18,8 +18,9 @@ use super::{
 use crate::artifacts::payload_store::{ContentHash, PayloadStore};
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::mutex_lock::lock;
 use crate::transcript::test_log::TranscriptTestLog;
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
@@ -47,14 +48,15 @@ async fn store_file(
         .await
         .expect("the bytes are stored");
     let manifest_id = "0192f0c1-7a3b-7c00-8000-000000000001".to_owned();
-    log.writer
+    log.session_log
+        .writer
         .execute(
             "INSERT INTO artifact_manifests (id, session_id, artifact_type, content_hash, \
              size_bytes, metadata, created_at) VALUES (?1, ?2, 'file', ?3, ?4, ?5, \
              '2026-10-21T09:00:00.000Z')",
             params![
                 manifest_id,
-                log.session_id.text().as_str(),
+                log.session_log.session_id.text().as_str(),
                 content_hash.as_str(),
                 i64::try_from(bytes.len()).expect("a small file"),
                 serde_json::json!({ "fileName": file_name }).to_string(),
@@ -75,7 +77,7 @@ fn plant_secrets(log: &TranscriptTestLog, homes: &Path) -> String {
         serde_json::json!({ "accessToken": credential, "privateKey": key }).to_string(),
     )
     .expect("the credential is written");
-    let data_folder = log.database.path();
+    let data_folder = log.session_log.database.path();
     let data_folder = data_folder
         .parent()
         .expect("the store sits in its data folder");
@@ -89,30 +91,38 @@ fn plant_secrets(log: &TranscriptTestLog, homes: &Path) -> String {
 }
 
 fn seed_rows(log: &TranscriptTestLog, home: &str) {
-    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
-    log.writer
+    insert_session_row(
+        &log.session_log.writer,
+        log.session_log.session_id.text().as_str(),
+        None,
+        None,
+    );
+    log.session_log
+        .writer
         .execute(
             "INSERT INTO queue_items (id, session_id, state, payload, position, created_at, \
              updated_at) VALUES ('queued-1', ?1, 'canceled', ?2, 0, '2026-10-21T09:00:00.000Z', \
              '2026-10-21T09:00:00.000Z')",
             params![
-                log.session_id.text().as_str(),
+                log.session_log.session_id.text().as_str(),
                 serde_json::json!({ "text": "a message canceled before it was sent" }).to_string(),
             ],
         )
         .expect("the queue item is written");
-    log.writer
+    log.session_log
+        .writer
         .execute(
             "INSERT INTO interventions (id, target_run_id, type, state, payload, \
              expected_run_version, client_idempotency_key, created_at) VALUES ('stop-1', ?1, \
              'interrupt', 'rejected', ?2, 0, 'key-1', '2026-10-21T09:00:00.000Z')",
             params![
-                log.run_id.text().as_str(),
+                log.session_log.run_id.text().as_str(),
                 serde_json::json!({ "reason": "a refused interrupt's own words" }).to_string(),
             ],
         )
         .expect("the intervention is written");
-    log.writer
+    log.session_log
+        .writer
         .execute(
             "INSERT INTO provider_accounts (account_id, provider, display_label, \
              display_label_folded, credential_home_path, billing_mode, observed_account_plan, \
@@ -139,9 +149,9 @@ async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> 
 // column read or the account's home copied, and by a second export let start.
 #[tokio::test]
 async fn an_export_holds_every_part_decoded_and_no_credential() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
     let long_body = "\u{e9}".repeat(1_500);
-    log.reply("m1", Some(0), &long_body);
+    log.session_log.reply("m1", Some(0), &long_body);
     let homes = tempfile::tempdir().expect("the homes folder is made");
     let home = plant_secrets(&log, homes.path());
     seed_rows(&log, &home);
@@ -159,7 +169,7 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
     .await;
     let exports = DataExports::new(DataExportDeps {
         reads: Arc::new(DatabaseReadPool::new(
-            log.database.path(),
+            log.session_log.database.path(),
             ARTIFACT_STATEMENT_CAPACITY,
         )),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -185,11 +195,10 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
         Err(DataExportStartRefusal::DestinationExists)
     ));
 
-    let session_lines = fs::read_to_string(
-        destination
-            .join("sessions")
-            .join(format!("{}.jsonl", log.session_id.text().as_str())),
-    )
+    let session_lines = fs::read_to_string(destination.join("sessions").join(format!(
+        "{}.jsonl",
+        log.session_log.session_id.text().as_str()
+    )))
     .expect("the session's file reads");
     let lines: Vec<serde_json::Value> = session_lines
         .lines()
@@ -208,7 +217,7 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
         fs::read(
             destination
                 .join("files")
-                .join(log.session_id.text().as_str())
+                .join(log.session_log.session_id.text().as_str())
                 .join(&manifest_id)
                 .join("notes.txt")
         )
@@ -245,7 +254,7 @@ async fn an_export_holds_every_part_decoded_and_no_credential() {
 fn exports_of(log: &TranscriptTestLog, store_folder: &Path) -> DataExports {
     DataExports::new(DataExportDeps {
         reads: Arc::new(DatabaseReadPool::new(
-            log.database.path(),
+            log.session_log.database.path(),
             ARTIFACT_STATEMENT_CAPACITY,
         )),
         read_damaged_from_sequence: Arc::new(|_: &SessionId| None),
@@ -268,11 +277,10 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
         matches!(ended, DataExportProgress::Completed { .. }),
         "{ended:?}"
     );
-    fs::read_to_string(
-        destination
-            .join("sessions")
-            .join(format!("{}.jsonl", log.session_id.text().as_str())),
-    )
+    fs::read_to_string(destination.join("sessions").join(format!(
+        "{}.jsonl",
+        log.session_log.session_id.text().as_str()
+    )))
     .expect("the session's file reads")
     .lines()
     .map(str::to_owned)
@@ -286,8 +294,13 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
 // and by the first piece's length taken for the whole.
 #[tokio::test]
 async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
-    let log = TranscriptTestLog::new();
-    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    insert_session_row(
+        &log.session_log.writer,
+        log.session_log.session_id.text().as_str(),
+        None,
+        None,
+    );
     let pattern = "a \"quoted\" \\ path\nwith a tab\t, a bell \u{7}, caf\u{e9} and \u{1f980}; ";
     let length =
         usize::try_from(HYDRATED_PAGE_TEXT_BYTES).expect("a page fits memory") + 300 * 1024;
@@ -300,7 +313,7 @@ async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
         &body[first_cut..second_cut],
         &body[second_cut..],
     ] {
-        log.reply("m1", Some(0), piece);
+        log.session_log.reply("m1", Some(0), piece);
     }
 
     let lines = export_session_lines(&log).await;
@@ -332,19 +345,25 @@ async fn an_export_of_long_replies_stays_within_64_mib() {
         Err(error) if error.kind() == ErrorKind::Unsupported => return,
         Err(error) => panic!("the footprint read failed: {error}"),
     };
-    let log = TranscriptTestLog::new();
-    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    insert_session_row(
+        &log.session_log.writer,
+        log.session_log.session_id.text().as_str(),
+        None,
+        None,
+    );
     let reply_bytes = usize::try_from(2 * MEBIBYTE).expect("2 MiB fits memory");
     for index in 0..64 {
         let letter = char::from(b'a' + u8::try_from(index % 26).expect("a letter's index"));
-        log.reply(
+        log.session_log.reply(
             &format!("m{index}"),
             None,
             &letter.to_string().repeat(reply_bytes),
         );
     }
     for _ in 0..36 {
-        log.reply("m64", Some(0), &"z".repeat(reply_bytes));
+        log.session_log
+            .reply("m64", Some(0), &"z".repeat(reply_bytes));
     }
 
     let folder = tempfile::tempdir().expect("the test's folder is made");
@@ -397,10 +416,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
     })
     .await;
     assert!(panicked.is_err_and(|failure| failure.is_panic()));
-    assert_eq!(
-        jobs.lock().unwrap_or_else(PoisonError::into_inner).running,
-        None
-    );
+    assert_eq!(lock(&jobs).running, None);
     assert!(
         matches!(*ended.borrow(), DataExportProgress::Failed { .. }),
         "{:?}",
@@ -413,8 +429,13 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
 // refused as an existing folder. Killed by a failure that leaves the folder behind.
 #[tokio::test]
 async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
-    let log = TranscriptTestLog::new();
-    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    insert_session_row(
+        &log.session_log.writer,
+        log.session_log.session_id.text().as_str(),
+        None,
+        None,
+    );
     let store_folder = tempfile::tempdir().expect("the store folder is made");
     let payloads =
         PayloadStore::new(store_folder.path().join("objects")).expect("the payload store opens");

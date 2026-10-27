@@ -18,7 +18,6 @@ use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::driver::claude::attachments::{
     ClaudeAttachmentError, compose_claude_attachment_blocks,
 };
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::delivery::stream::ClaudeSessionStreams;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::provider::driver::claude::intervention::interrupt_claude_turn;
@@ -43,7 +42,9 @@ use crate::provider::driver::claude::spawn::legs::assert_claude_spawn_bound_real
 use crate::provider::driver::contract::{DriverError, StartRunParams};
 use crate::provider::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
 use crate::provider::outbound_text::{OutboundText, OutboundTextOrigin};
-use crate::session::run::start_request::DaemonTurnStartRequest;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::run::start_request::DaemonTurnStartRequest;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
 /// files a person's message carries, written to the session's own process under the message id a
@@ -89,8 +90,11 @@ pub(crate) struct ClaudeRunStart {
     pub(crate) handshakes: Arc<ClaudeHandshakeRegister>,
     /// The messages written and not yet reported taken.
     pub(crate) prompts: Arc<Mutex<ClaudeSentPrompts>>,
-    /// The run engine, which starts a turn the daemon starts itself.
-    pub(crate) engine: Arc<dyn ClaudeRunEngine>,
+    /// The run engine, which starts a turn the daemon starts itself and ends the runs a closed
+    /// session held.
+    pub(crate) engine: Arc<dyn RunHost>,
+    /// The run engine's dispatch, which takes what the session's controls deliver.
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
     /// Resolves a message's files.
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
     /// Opens the binding of a turn the daemon starts itself.
@@ -239,7 +243,7 @@ impl ClaudeRunStart {
         self.engine
             .start_daemon_turn(request)
             .await
-            .map_err(|error| DriverError::Internal(Box::new(error)))
+            .map_err(DriverError::Internal)
     }
 
     // The engine's start of a daemon turn under its new run: the run's binding opened, then the
@@ -497,6 +501,7 @@ mod tests {
             output_speed_for_turn: None,
             execution_posture: None,
             output_schema: None,
+            step_bound: None,
         }
     }
 

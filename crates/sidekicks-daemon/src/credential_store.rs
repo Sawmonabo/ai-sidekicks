@@ -20,12 +20,8 @@ use std::error::Error;
 
 use futures::future::BoxFuture;
 use secrecy::{ExposeSecret, SecretString};
-use serde::Serialize;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use subtle::ConstantTimeEq as _;
-
-use crate::ipc::domain_error::DomainError;
 
 /// One keychain service's items, each addressed by an account name. Every call fails with
 /// [`KeychainRefusal`] when the keychain is locked, missing or silent; the operating system's
@@ -134,23 +130,11 @@ impl KeychainRefusal {
         &self.reason
     }
 
-    /// The caller's own refusal `code`, with the details `details` builds from the cause, this
-    /// refusal's text and the keychain's failure underneath.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the workflow secret handlers, the steps that resolve a secret and the erase \
-                      answer a refused keychain with it"
-        )
-    )]
-    pub(crate) fn into_domain_error<Details: Serialize>(
+    /// Why the keychain could not be used and the keychain's failure underneath, which a caller
+    /// turns into its own refusal beside this refusal's text.
+    pub(crate) fn into_cause_and_failure(
         self,
-        code: RefusalCode,
-        details: impl FnOnce(KeychainRefusalCause) -> Details,
-    ) -> DomainError {
-        DomainError::new(self.to_string(), code)
-            .with_detail(details(self.cause))
-            .with_optional_source(self.failure)
+    ) -> (KeychainRefusalCause, Option<Box<dyn Error + Send + Sync>>) {
+        (self.cause, self.failure)
     }
 }

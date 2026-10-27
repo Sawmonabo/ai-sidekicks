@@ -9,19 +9,20 @@ use crate::events::log_service::tests::open_log;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::driver::run_control::DriverRunRefusal;
-use crate::queue::error::QueueError;
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
 };
 use crate::session::run::start_request::RunStartRequest;
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Killed by recording a driver's refused start as a provider failure, which drops the refusal's
-// model and sentence, or by missing the refusal behind the queue's error that carries it.
+// model and sentence, or by reading only the driver's error and missing the refusal it carries.
 #[tokio::test]
 async fn a_start_the_driver_refused_fails_the_run_as_the_daemons_refusal() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     database
@@ -39,7 +40,7 @@ async fn a_start_the_driver_refused_fails_the_run_as_the_daemons_refusal() {
             model: FreeFormText::new("claude-opus-4-7".to_owned()).expect("the model fits"),
             sentence: "screen.png is too large".to_owned(),
         };
-        let error = QueueError::Driver(DriverError::RunRefused(refusal));
+        let error = DriverError::RunRefused(refusal);
         async move { Err(Box::new(error) as Box<dyn std::error::Error + Send + Sync>) }.boxed()
     };
 
@@ -81,7 +82,7 @@ async fn a_start_the_driver_refused_fails_the_run_as_the_daemons_refusal() {
 // start's `running` write lands.
 #[tokio::test]
 async fn a_provider_report_during_a_start_waits_for_its_running_write() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");

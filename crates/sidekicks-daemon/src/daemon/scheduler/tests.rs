@@ -5,16 +5,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
-use sidekicks_contracts::run::state::RunState;
 use sidekicks_platforms::{WallClock, WallClockWait};
 use tokio::sync::{Notify, oneshot, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::{JobCondition, ScheduleError, ScheduledJobOutcome, Scheduler};
-use crate::database::writer::test_file::{TestDatabase, test_run_id};
 use crate::mutex_lock::lock;
-use crate::session::run::live_count::tests::{commit_run_state, counted_log};
 
 // Far longer than any periodic look would wait between two looks.
 const IDLE_SPAN: Duration = Duration::from_secs(600);
@@ -237,22 +234,19 @@ async fn a_refused_rearm_is_told_to_its_job_and_later_jobs_still_run() {
     scheduler.stop().await.expect("the task ends");
 }
 
-// A job that may run only while no run is live is parked while one is, and the task goes on
-// running other jobs; it runs once the last live run ends. Killed by the condition ignored, by a
-// parked job holding the task, and by a count change that does not wake the task.
+// A job that may run only while the busy count is zero is parked while it is above zero, and the
+// task goes on running other jobs; it runs once the count falls to zero. Killed by the condition
+// ignored, by a parked job holding the task, and by a count change that does not wake the task.
 #[tokio::test(start_paused = true)]
-async fn a_job_waiting_for_no_live_run_holds_no_other_job_and_runs_when_runs_end() {
-    let database = TestDatabase::new();
-    let (log, live_runs) = counted_log(&database).await;
-    let run_id = test_run_id();
-    commit_run_state(&log.writer, run_id, RunState::Running).await;
-    let scheduler = Scheduler::start(TestWallClock::new(), None, live_runs);
+async fn a_job_waiting_for_idle_holds_no_other_job_and_runs_when_the_count_falls_to_zero() {
+    let (busy, busy_count) = watch::channel(1);
+    let scheduler = Scheduler::start(TestWallClock::new(), None, busy_count);
     let quiet_count = Arc::new(AtomicUsize::new(0));
     let (quiet_ran, quiet_job_ran) = oneshot::channel();
     let _quiet = scheduler
         .schedule(
             "quiet test job",
-            JobCondition::NoTurnRunning,
+            JobCondition::WhileIdle,
             Duration::ZERO,
             reporting_job(quiet_ran, &quiet_count),
         )
@@ -274,38 +268,39 @@ async fn a_job_waiting_for_no_live_run_holds_no_other_job_and_runs_when_runs_end
     tokio::time::sleep(IDLE_SPAN).await;
     assert_eq!(quiet_count.load(Ordering::Relaxed), 0);
 
-    commit_run_state(&log.writer, run_id, RunState::Completed).await;
+    busy.send_replace(0);
     tokio::time::timeout(RUN_BOUND, quiet_job_ran)
         .await
-        .expect("the parked job runs once no run is live")
+        .expect("the parked job runs once the count is zero")
         .expect("the job reports its run");
     assert_eq!(quiet_count.load(Ordering::Relaxed), 1);
     scheduler.stop().await.expect("the task ends");
 }
 
-// A run that goes live while an earlier job of the same drain runs parks the job after it, which
-// runs once the run ends. Killed by the count read once per drain, which runs it beside the turn.
+// A count that rises while an earlier job of the same drain runs parks the job after it, which
+// runs once the count falls to zero. Killed by the count read once per drain, which runs it beside
+// the busy work.
 #[tokio::test(start_paused = true)]
-async fn a_run_going_live_mid_drain_parks_the_jobs_after_it() {
-    let database = TestDatabase::new();
-    let (log, live_runs) = counted_log(&database).await;
-    let scheduler = Scheduler::start(TestWallClock::new(), None, live_runs);
-    let run_id = test_run_id();
-    let (turn_started, turn_job_ran) = oneshot::channel();
-    let writer = Arc::clone(&log.writer);
-    let mut turn_started = Some(turn_started);
-    let _turn = scheduler
+async fn a_count_rising_mid_drain_parks_the_jobs_after_it() {
+    let (busy, busy_count) = watch::channel(0);
+    let busy = Arc::new(busy);
+    let scheduler = Scheduler::start(TestWallClock::new(), None, busy_count);
+    let (busy_started, busy_job_ran) = oneshot::channel();
+    let raised = Arc::clone(&busy);
+    let mut busy_started = Some(busy_started);
+    let _busy = scheduler
         .schedule(
-            "turn test job",
+            "busy test job",
             JobCondition::Always,
             Duration::ZERO,
             move |_| {
-                let writer = Arc::clone(&writer);
-                let turn_started = turn_started.take();
+                raised.send_replace(1);
+                let busy_started = busy_started.take();
                 Box::pin(async move {
-                    commit_run_state(&writer, run_id, RunState::Running).await;
-                    if let Some(turn_started) = turn_started {
-                        turn_started.send(()).expect("the test waits for the turn");
+                    if let Some(busy_started) = busy_started {
+                        busy_started
+                            .send(())
+                            .expect("the test waits for the busy job");
                     }
                     Ok(())
                 })
@@ -316,46 +311,45 @@ async fn a_run_going_live_mid_drain_parks_the_jobs_after_it() {
     let (quiet_ran, quiet_job_ran) = oneshot::channel();
     let _quiet = scheduler
         .schedule(
-            "repack test job",
-            JobCondition::NoTurnRunning,
+            "quiet test job",
+            JobCondition::WhileIdle,
             Duration::ZERO,
             reporting_job(quiet_ran, &quiet_count),
         )
         .expect("the job is scheduled");
 
-    // Unbounded: tokio's paused clock would jump to the bound while the commit waits on the
-    // writer's thread.
-    turn_job_ran.await.expect("the turn's job reports its run");
+    tokio::time::timeout(RUN_BOUND, busy_job_ran)
+        .await
+        .expect("the busy job runs")
+        .expect("the busy job reports its run");
     tokio::time::sleep(IDLE_SPAN).await;
     assert_eq!(quiet_count.load(Ordering::Relaxed), 0);
 
-    commit_run_state(&log.writer, run_id, RunState::Completed).await;
+    busy.send_replace(0);
     tokio::time::timeout(RUN_BOUND, quiet_job_ran)
         .await
-        .expect("the parked job runs once the turn ends")
+        .expect("the parked job runs once the count is zero")
         .expect("the job reports its run");
     scheduler.stop().await.expect("the task ends");
 }
 
-// A job bounded 25 hours ahead on the wall clock runs once that clock reaches the bound though a
-// run is still live, and not before, however long tokio's clock, which stops in sleep, runs on.
-// Killed by the bound missing, so the job waits forever, by a bound read as no wait at all, and
-// by a bound kept on tokio's clock.
+// A job bounded 25 hours ahead on the wall clock runs once that clock reaches the bound though the
+// busy count is still above zero, and not before, however long tokio's clock, which stops in
+// sleep, runs on. Killed by the bound missing, so the job waits forever, by a bound read as no wait
+// at all, and by a bound kept on tokio's clock.
 #[tokio::test(start_paused = true)]
-async fn a_bounded_job_runs_at_its_wall_clock_bound_with_a_run_still_live() {
+async fn a_bounded_job_runs_at_its_wall_clock_bound_while_still_busy() {
     const BOUND: Duration = Duration::from_hours(25);
     let wall_clock = TestWallClock::new();
-    let database = TestDatabase::new();
-    let (log, live_runs) = counted_log(&database).await;
-    commit_run_state(&log.writer, test_run_id(), RunState::Starting).await;
-    let scheduler = Scheduler::start(wall_clock.clone(), None, live_runs.clone());
+    let (_busy, busy_count) = watch::channel(1);
+    let scheduler = Scheduler::start(wall_clock.clone(), None, busy_count.clone());
     let started_at = wall_clock.now();
     let run_count = Arc::new(AtomicUsize::new(0));
     let (ran, job_ran) = oneshot::channel();
     let _bounded = scheduler
         .schedule(
             "bounded test job",
-            JobCondition::NoTurnRunningUntil(started_at + BOUND),
+            JobCondition::WhileIdleUntil(started_at + BOUND),
             Duration::ZERO,
             reporting_job(ran, &run_count),
         )
@@ -369,6 +363,6 @@ async fn a_bounded_job_runs_at_its_wall_clock_bound_with_a_run_still_live() {
         .await
         .expect("the job runs at its bound")
         .expect("the job reports its run");
-    assert_eq!(*live_runs.borrow(), 1);
+    assert_eq!(*busy_count.borrow(), 1);
     scheduler.stop().await.expect("the task ends");
 }

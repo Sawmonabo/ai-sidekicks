@@ -26,7 +26,6 @@ use sidekicks_contracts::run::queue::{
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -428,8 +427,6 @@ pub(crate) static SELECT_WAITING_FOR_RUN_SQL: LazyLock<String> = LazyLock::new(|
     )
 });
 
-const SELECT_SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = ?";
-
 /// The statement that inserts `item` as `queued`; refused when its key was already spent.
 pub(crate) fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement {
     let payload =
@@ -694,19 +691,6 @@ impl<'reader> QueueItemReader<'reader> {
                     run_id: text_column(row, 0, |text| RunId::new(&text))?,
                     state: text_column(row, 1, closed_word)?,
                 })
-            })
-            .optional()
-    }
-
-    /// The session's state, or `None` for a session the daemon has no row for.
-    pub(crate) fn read_session_state(
-        &self,
-        session_id: &SessionId,
-    ) -> rusqlite::Result<Option<SessionState>> {
-        self.reader
-            .prepare_cached(SELECT_SESSION_STATE_SQL)?
-            .query_row([session_id.text().as_str()], |row| {
-                text_column(row, 0, closed_word)
             })
             .optional()
     }

@@ -8,6 +8,10 @@ use std::error::Error;
 use serde::Serialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::keychain::KeychainRefusalCause;
+
+use crate::credential_store::KeychainRefusal;
+use crate::events::log_service::SessionAppendRefusal;
 
 /// A handler's refusal with its wire form; its `Display` is the message a person reads.
 #[derive(Debug, thiserror::Error)]
@@ -41,6 +45,28 @@ impl DomainError {
         Self::new(message, RefusalCode::SessionNotFound).with_detail(details)
     }
 
+    /// The caller's own refusal `code` for a keychain that could not be used, with the details
+    /// `details` builds from its cause, the keychain refusal's text and its failure underneath.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the workflow secret handlers, the steps that resolve a secret and the erase \
+                      answer a refused keychain with it"
+        )
+    )]
+    pub(crate) fn keychain_refused<Details: Serialize>(
+        refusal: KeychainRefusal,
+        code: RefusalCode,
+        details: impl FnOnce(KeychainRefusalCause) -> Details,
+    ) -> Self {
+        let message = refusal.to_string();
+        let (cause, failure) = refusal.into_cause_and_failure();
+        Self::new(message, code)
+            .with_detail(details(cause))
+            .with_optional_source(failure)
+    }
+
     /// The same refusal carrying `details`, sent as the reply's `data.fields` once sanitized.
     pub(crate) fn with_detail(self, details: impl Serialize) -> Self {
         Self {
@@ -62,6 +88,21 @@ impl DomainError {
         match source {
             Some(source) => self.with_source(source),
             None => self,
+        }
+    }
+}
+
+impl From<SessionAppendRefusal> for DomainError {
+    /// A session's refusal of an append, answered with its reason's code, its message and its
+    /// details as the fields.
+    fn from(refusal: SessionAppendRefusal) -> Self {
+        match refusal {
+            SessionAppendRefusal::Rebuilding { message, details } => {
+                Self::new(message, RefusalCode::SessionRebuilding).with_detail(details)
+            }
+            SessionAppendRefusal::HistoryDamaged { message, details } => {
+                Self::new(message, RefusalCode::SessionHistoryDamaged).with_detail(details)
+            }
         }
     }
 }

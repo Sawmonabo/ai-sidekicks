@@ -517,13 +517,6 @@ impl TurnSnapshotService {
     /// transaction, all or none, so a refusal deletes none and the prune is retried. A dangling
     /// symref under the prefix, which the daemon never writes, is not listed and so not deleted.
     /// Never fails; answers `Skipped` with `GitDirAbsent`, `GitDirUnusable` or `RefDeleteFailed`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "a run's deletion and a session's purge prune snapshot refs through it"
-        )
-    )]
     pub(crate) async fn prune_run_refs(
         &self,
         place: Option<&Place>,

@@ -15,10 +15,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::database::statement::{StatementBindings, WriteStatement};
-use crate::plans::store::{end_hold_statement, insert_plan_statement, settle_verdict_statement};
-use crate::recovery::projection_rebuild::{
+use crate::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
+use crate::plans::store::{end_hold_statement, insert_plan_statement, settle_verdict_statement};
 
 const CLEAR_PLANS_SQL: &str = "DELETE FROM plans WHERE session_id = ?";
 

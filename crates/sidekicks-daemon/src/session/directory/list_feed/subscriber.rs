@@ -3,7 +3,7 @@
 //! changed, read from the shared list at send time so a slow reader ends on the newest entry.
 
 use std::collections::{HashSet, VecDeque};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
@@ -15,6 +15,7 @@ use tokio::sync::Notify;
 
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{Feed, SendGate};
+use crate::mutex_lock::lock;
 use crate::session::directory::list_feed::{SessionListFeed, SessionListNotCurrent, SharedList};
 
 // The opening list's entries one page is cut from at most, so a page never clones the whole list.
@@ -87,7 +88,7 @@ impl SubscriberChanges {
 
     fn lock(&self) -> MutexGuard<'_, WaitingChanges> {
         // The sets hold no invariant a panicking holder could break.
-        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.waiting)
     }
 }
 

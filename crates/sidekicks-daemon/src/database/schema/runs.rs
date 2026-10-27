@@ -1,23 +1,26 @@
 //! The runs' part of the daemon's schema. `runs` is a projection written in the same write as each
-//! run event that moves it, so it always equals a rebuild from the log. The admission queue, the
-//! interventions and the command receipts are truth their own writes keep: what waits to be
-//! delivered, the saved answer a retried request returns, and the two-phase record that keeps a
-//! command from running twice across a restart.
+//! run event that moves it, so it always equals a rebuild from the log. The admission queue and the
+//! interventions are truth their own writes keep: what waits to be delivered, and the saved answer
+//! a retried request returns.
 
 use sidekicks_contracts::run::intervention::{InterventionState, InterventionType};
 use sidekicks_contracts::run::queue::{QueueItemNotDeliveredKind, QueueItemState};
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
 
-use crate::command_receipts::{CommandAcceptance, CommandOutcome};
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
-use crate::mcp::client::tasks::McpTaskGeneration;
-use crate::mcp::client::tasks::recorder::MCP_TASK_ID_MAX_LENGTH;
 use crate::provider::driver::run_control::InterruptPendingChoice;
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 
-/// The runs' tables and indexes.
-pub(super) fn runs_schema_sql() -> String {
+/// The search index's list and the runs' own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::session::search::index::schema::schema_parts()
+        .with_part(SchemaPart::new("runs", runs_schema_sql()))
+}
+
+// The runs' tables and indexes.
+fn runs_schema_sql() -> String {
     let queue_states = sql_list_of_every::<QueueItemState>();
     let queued = <&'static str>::from(QueueItemState::Queued);
     let not_delivered = <&'static str>::from(QueueItemState::NotDelivered);
@@ -30,19 +33,13 @@ pub(super) fn runs_schema_sql() -> String {
     let unresolved_intervention_states = sql_list_of(
         [InterventionState::Requested, InterventionState::Accepted].map(<&'static str>::from),
     );
-    let receipt_statuses = format!(
-        "{}, {}",
-        sql_list_of_every::<CommandAcceptance>(),
-        sql_list_of_every::<CommandOutcome>()
-    );
-    let task_generations = sql_list_of_every::<McpTaskGeneration>();
     let reached_by = sql_list_of_every::<ChildRunProvenance>();
     let run_states = sql_list_of_every::<RunState>();
     let terminal_states = &*RUN_TERMINAL_STATES_SQL;
     format!(
         "
 -- ---------------------------------------------------------------------------
--- The admission queue, interventions and command receipts.
+-- The admission queue and interventions.
 -- ---------------------------------------------------------------------------
 -- A queued item's body, a person's send or an orchestration-authored prompt, rides payload as
 -- plain text. Every column the drain selects on is its own column.
@@ -134,37 +131,6 @@ CREATE INDEX idx_interventions_unreleased ON interventions(target_run_id)
   WHERE unreleased_choice IS NOT NULL;
 CREATE INDEX idx_interventions_state ON interventions(state)
   WHERE state IN ({unresolved_intervention_states});
-
-CREATE TABLE command_receipts (
-  id                   TEXT PRIMARY KEY,
-  command_id           TEXT NOT NULL UNIQUE,      -- the client-supplied idempotency key
-  run_id               TEXT,
-  status               TEXT NOT NULL CHECK(status IN ({receipt_statuses})),
-  -- The two-phase commit: started_at is set once by the claim's compare-and-set, completed_at by
-  -- the terminal write. Claimed and not completed is in flight.
-  started_at           TEXT,
-  completed_at         TEXT,
-  -- The receiver-generated task id from a task-augmented call's acceptance, the one handle the
-  -- call is resumed by after a restart. NULL until the acceptance is stored, so a crash before it
-  -- leaves the call halted, never run again. Untrusted peer output, bounded in code points.
-  mcp_task_id          TEXT
-                       CHECK(mcp_task_id IS NULL OR (length(mcp_task_id) > 0
-                         AND length(mcp_task_id) <= {MCP_TASK_ID_MAX_LENGTH}
-                         AND instr(mcp_task_id, char(0)) = 0)),
-  -- The task's protocol generation, set exactly when mcp_task_id is and in the same statement,
-  -- since a task is resumed by its generation.
-  mcp_task_generation  TEXT CHECK(mcp_task_generation IN ({task_generations})),
-  -- 1 once a task-augmented call's result has reached the conversation, so a result that arrives
-  -- after a restart is delivered once.
-  delivered            INTEGER NOT NULL DEFAULT 0 CHECK(delivered IN (0, 1)),
-  created_at           TEXT NOT NULL,
-  CHECK((mcp_task_generation IS NULL) = (mcp_task_id IS NULL))
-) STRICT;
-
-CREATE INDEX idx_command_receipts_run ON command_receipts(run_id) WHERE run_id IS NOT NULL;
--- The in-flight receipts the restart's sweep reads.
-CREATE INDEX idx_command_receipts_inflight ON command_receipts(run_id)
-  WHERE started_at IS NOT NULL AND completed_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- Run state: one row per run, the read every run write guards against.

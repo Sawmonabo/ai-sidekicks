@@ -126,8 +126,8 @@ impl ClaudeSessionUnavailableReason {
     }
 }
 
-/// Which state holds a session's slot when a create or resume is refused; each refuses, since a
-/// second process would orphan the first.
+/// Which state holds a session's slot when a create or resume is refused, since a second process
+/// would orphan the first; a resume waits out a bring-up or close in flight instead.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionSlotState {
     /// A create or resume is in flight.

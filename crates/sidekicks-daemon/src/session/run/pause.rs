@@ -9,6 +9,7 @@
 use std::error::Error;
 use std::sync::{Arc, OnceLock};
 
+use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::control::{
@@ -16,7 +17,6 @@ use sidekicks_contracts::run::control::{
 };
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -27,18 +27,19 @@ use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, resolve_live_
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
-    FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages, WaitingMessage,
+    FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
 };
+use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError, RunPauses};
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::{RunEngine, RunEngineError, RunResumeError};
 use crate::session::run::read::{
     RunRead, RunStateReader, read_run_provider, read_run_through, safe_run_version,
 };
 use crate::session::run::refusals::{RunRefusal, require_expected_version};
 use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
+    RunStateChange, RunStateChangeCompanions, RunStateChangeError,
 };
 
 #[cfg(test)]
@@ -46,76 +47,6 @@ pub(crate) mod tests;
 
 // The version guard is the one companion of a pause's or a resume's move.
 const VERSION_GUARD_COMPANION_INDEX: usize = 0;
-
-/// A failure the waiting-message queue reports, kept whole.
-pub(crate) type ContinuedMessagesError = Box<dyn Error + Send + Sync>;
-
-/// The messages waiting for a paused run that its resume delivers: read once the resume is sure to
-/// go, taken once the driver continued the run with them, given back when it did not, and kept
-/// when the driver sent them and no answer came. Each call runs under the queue's own lock on the
-/// session, which the driver's call itself never holds: the read marks the messages as the
-/// resume's, so a change to them meanwhile finds them taken.
-pub(crate) trait ContinuedMessages: Send + Sync {
-    /// Takes the queue's own per-session lock on `session_id`, which every hand and take-back of a
-    /// session's waiting messages runs under.
-    fn hold_session(&self, session_id: SessionId) -> BoxFuture<'_, KeyHold<'_, SessionId>>;
-
-    /// The messages waiting for `run_id`, in send order, each marked as the resume's to a provider
-    /// that takes messages as `handing` says. Called under `hold`.
-    fn read(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        handing: MessageHanding,
-    ) -> BoxFuture<'_, Result<Vec<WaitingMessage>, ContinuedMessagesError>>;
-
-    /// Marks the messages read for `run_id` as delivered with its resume. Called under `hold`.
-    fn admit(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
-
-    /// Gives the messages read for `run_id` back to wait for its next turn. Called under `hold`.
-    fn release(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
-
-    /// Keeps the messages read for `run_id`, which a resume sent with no answer back: no later
-    /// resume reads them until the provider's own record says whether it took them, so none is
-    /// sent twice. Called under `hold`.
-    fn keep(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId);
-
-    /// The ids of the messages resumes of `run_id` kept, unsettled. Called under `hold`.
-    fn kept(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId) -> Vec<QueueItemId>;
-
-    /// The ids of the messages resumes of `run_id` kept, unsettled, that no live provider process
-    /// still holds for a turn of its own, so the provider's record of each is final. Called under
-    /// `hold`.
-    fn kept_unheld(&self, hold: &KeyHold<'_, SessionId>, run_id: RunId) -> Vec<QueueItemId>;
-
-    /// Settles each of `settled` that resumes of `run_id` kept: one of `taken` delivered with the
-    /// run, every other one given back to go once more under its own id. Called under `hold`.
-    fn settle_kept(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        settled: &[QueueItemId],
-        taken: &[QueueItemId],
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
-
-    /// Ends each of `message_ids` that resumes of `run_id` kept not delivered, the provider's
-    /// record of it unreadable, so the person decides whether to send it again. Called under
-    /// `hold`.
-    fn fail_kept(
-        &self,
-        hold: &KeyHold<'_, SessionId>,
-        run_id: RunId,
-        message_ids: &[QueueItemId],
-    ) -> BoxFuture<'_, Result<(), ContinuedMessagesError>>;
-}
 
 /// Why a pause or a resume did not finish; each refusal left the run exactly as it was.
 #[derive(Debug, thiserror::Error)]
@@ -657,5 +588,19 @@ pub(crate) fn run_control_response(run_id: RunId, run: &RunRead) -> AgentRunCont
         run_id,
         new_state: run.state,
         run_version: safe_run_version(run.version),
+    }
+}
+
+impl RunPauses for RunPauseControl {
+    fn settle_kept_as_taken<'pauses>(
+        &'pauses self,
+        session_id: SessionId,
+        run_id: RunId,
+        continued: &'pauses dyn ContinuedMessages,
+    ) -> BoxFuture<'pauses, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            Ok(RunPauseControl::settle_kept_as_taken(self, session_id, run_id, continued).await?)
+        }
+        .boxed()
     }
 }

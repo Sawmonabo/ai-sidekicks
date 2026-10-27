@@ -10,16 +10,16 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use super::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
+    SessionAppendRefusal,
 };
 use crate::events::session::followers::SessionEventFollowers;
-use crate::ipc::domain_error::DomainError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::test_driver_services;
-use crate::session::directory::test_rows::insert_session_row;
 
 /// Bounds a change the test expects to answer, so one that waits forever fails the test.
 const CHANGE_WAIT: Duration = Duration::from_secs(10);
@@ -90,7 +90,7 @@ async fn a_change_is_decided_on_the_facts_that_landed(
     #[case] expected_named: Option<bool>,
     #[case] expected_renames: &[(Option<&str>, Option<&str>, &str)],
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(crate::questions::schema::schema_parts());
     // Opening the writer creates the file with the daemon's schema.
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -123,7 +123,7 @@ async fn a_change_is_decided_on_the_facts_that_landed(
                         .execute(sql, [session_id.text().as_str()])
                         .expect("the raced write lands");
                 }
-                Ok::<(), DomainError>(())
+                Ok::<(), SessionAppendRefusal>(())
             },
         )),
         read_damaged_from_sequence: None,

@@ -25,6 +25,7 @@ use sidekicks_contracts::workflow::run::status::{
 use sidekicks_contracts::workflow::run::trigger::WorkflowRunMode;
 use sidekicks_contracts::workflow::secret::WorkflowSecretScope;
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::{sql_list_of, sql_list_of_every};
 use crate::workflow::runs::record::GOING_RUN_STATUSES_SQL;
 
@@ -32,6 +33,13 @@ use crate::workflow::runs::record::GOING_RUN_STATUSES_SQL;
 /// answers, the form drafts, the steps, the triggers, the webhook tokens, the node state, the
 /// secrets' records and the builder drafts, in foreign-key order.
 pub(crate) static WORKFLOW_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workflow_schema_sql);
+
+/// The workspaces' list, whose run execution contexts a run's deletion clears, and the workflow
+/// part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::git::worktree::schema::schema_parts()
+        .with_part(SchemaPart::new("workflow", WORKFLOW_SCHEMA_SQL.as_str()))
+}
 
 fn workflow_schema_sql() -> String {
     let permission_levels = sql_list_of_every::<PermissionLevel>();
@@ -233,7 +241,7 @@ CREATE TABLE workflow_gate_resolutions (
   approval_category          TEXT
                              CHECK(approval_category IS NULL
                                OR approval_category IN ({approval_categories})),
-  approval_request_id        TEXT NOT NULL REFERENCES approval_requests(id),
+  approval_request_id        TEXT NOT NULL,
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ({approval_decisions})),
   device_id                  TEXT NOT NULL,          -- the answering device

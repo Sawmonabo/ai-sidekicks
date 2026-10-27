@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sidekicks_platforms::CAN_LINK_A_SOCKET;
+use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
 
 use super::stand_in::{last_launch_arguments, stand_in_services, this_daemon};
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
@@ -10,10 +10,10 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 // The stand-in refuses every config write, so a trust write fails the start.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_terminal_service_with_no_hook_mode_launches_and_trusts_no_hook() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let services = stand_in_services(folder.path(), |program| Arc::new(program));
     let daemon = this_daemon(&services);
     let service = daemon.service_for(None).await.expect("the home resolves");

@@ -7,11 +7,12 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
 
+use crate::mutex_lock::lock;
 use crate::provider::hand_over::brief::projection::{
     BriefBudgetPolicy, BriefProjection, BriefRendering,
 };
@@ -127,7 +128,7 @@ impl BriefDeliveryCoordinator {
     /// one on every call for that session. The caller asserts the session is fresh, which this
     /// coordinator cannot check.
     pub(crate) fn establish_target(&self, provider_session_id: &str) -> EstablishedBriefTarget {
-        let mut records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut records = lock(&self.records);
         records
             .targets
             .entry(provider_session_id.to_owned())
@@ -138,7 +139,7 @@ impl BriefDeliveryCoordinator {
     /// Forgets a target whose provider session ended: its handle stops delivering and its record is
     /// dropped. A delivery in flight still settles for its callers.
     pub(crate) fn release_target(&self, provider_session_id: &str) {
-        let mut records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut records = lock(&self.records);
         records.targets.remove(provider_session_id);
         records.deliveries.remove(provider_session_id);
     }
@@ -154,7 +155,7 @@ impl BriefDeliveryCoordinator {
     ) -> Result<Arc<BriefDeliverySettlement>, UnownedBriefTargetError> {
         let provider_session_id = target.provider_session_id();
         let delivery = {
-            let mut records = self.records.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut records = lock(&self.records);
             let is_owned = records
                 .targets
                 .get(provider_session_id)
@@ -222,6 +223,7 @@ mod tests {
     use futures::FutureExt as _;
     use futures::future::BoxFuture;
     use sidekicks_contracts::run::id::RunId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{
         BriefDeliveryCoordinator, BriefDeliveryDisposition, BriefSendError, BriefTargetGateway,
@@ -230,7 +232,6 @@ mod tests {
     use crate::database::writer::test_file::test_session_id;
     use crate::provider::hand_over::brief::projection::{BriefBudgetPolicy, BriefProjection};
     use crate::provider::hand_over::canonical_transcript::CanonicalTranscriptProjection;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// A target whose every send fails after counting it.
     struct FailingGateway {

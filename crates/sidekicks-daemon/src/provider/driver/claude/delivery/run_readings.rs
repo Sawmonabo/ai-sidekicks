@@ -29,11 +29,11 @@ use crate::provider::driver::claude::delivery::turn_end::ClaudeTurnEnd;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::session::state::CLAUDE_THREAD_FRAME_ROUTER_CONFIG;
 use crate::provider::driver::reorder_buffer::{NormalizedEventReorderBuffer, ReorderBufferedEvent};
+use crate::provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, LateAppendableRow,
+};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 use crate::transcript::whole_patch::stored_patch_files_body;
 
 /// The id of an event a row was written as.
@@ -304,7 +304,7 @@ pub(crate) enum ClaudeEndedAs {
 impl ClaudeEndedAs {
     /// How `change` leaves its run; a turn end that moves no run leaves it paused, as only a turn
     /// Claude Code started on a paused run moves none.
-    pub(crate) fn of(change: Option<&RunStateChange>) -> Self {
+    pub(crate) fn of(change: Option<&RunStateReport>) -> Self {
         match change.map(|change| &change.entry) {
             None | Some(RunStateEntry::Paused | RunStateEntry::Pausing) => Self::Paused,
             Some(RunStateEntry::Interrupted { .. }) => Self::Interrupted,

@@ -7,7 +7,7 @@
 //! once.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEventReadError;
@@ -19,6 +19,7 @@ use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::events::session::followers::CommittedEvent;
+use crate::mutex_lock::lock;
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
     RuntimeBindingStoreError, read_binding,
@@ -231,12 +232,8 @@ impl RunBindingCursors {
     }
 
     fn lock_sessions(&self) -> MutexGuard<'_, HashMap<SessionId, SessionCursors>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.sessions)
     }
-}
-
-fn lock(epochs: &Mutex<ExecutionEpochs>) -> MutexGuard<'_, ExecutionEpochs> {
-    epochs.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // The cursor's view of a stored binding.
@@ -280,6 +277,7 @@ mod tests {
     use sidekicks_contracts::run::id::RunId;
     use sidekicks_contracts::run::state::RunState;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::integer::SafeInt;
 
     use super::{RUN_BINDING_CURSORS_STATEMENT_CAPACITY, RunBindingCursors};
@@ -290,9 +288,9 @@ mod tests {
         CreateRuntimeBindingInput, RuntimeBindingSpawnConfig,
     };
     use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+    use crate::questions::schema::schema_parts;
     use crate::session::run::engine::tests::insert_running_run;
     use crate::session::run::epochs::ExecutionEpochs;
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     struct Harness {
         database: TestDatabase,
@@ -303,7 +301,7 @@ mod tests {
 
     impl Harness {
         async fn new() -> Self {
-            let database = TestDatabase::new();
+            let database = TestDatabase::new(schema_parts());
             let store = open_store(&database).await;
             let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
                 NonZeroUsize::new(8).expect("the cap is not zero"),

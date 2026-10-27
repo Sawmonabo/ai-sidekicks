@@ -39,8 +39,8 @@ use crate::provider::driver::codex::transport::socket::CodexSocketWait;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::spawned_version::SpawnedProviderVersionReading;
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// How long the daemon's own service has to stop before it is killed, as long as the daemon
 /// gives every child at its own stop.

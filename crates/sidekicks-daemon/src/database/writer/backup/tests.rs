@@ -18,6 +18,7 @@ use super::{
 };
 use crate::database::checkpoint::CheckpointMode;
 use crate::database::connection::writer_open::open_database;
+use crate::database::schema::schema_parts;
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::messages::{MeasuredCheckpointAnswer, ThreadRequest, WriteJob};
 use crate::database::writer::test_file::TestDatabase;
@@ -40,8 +41,8 @@ fn write_statement(sql: &str) -> WriteStatement {
 
 // A database of about 600 pages, so a copy takes several steps.
 fn filled_database() -> TestDatabase {
-    let database = TestDatabase::new();
-    open_database(&database.path())
+    let database = TestDatabase::new(schema_parts());
+    open_database(&database.path(), &schema_parts().into_schema())
         .expect("the store opens")
         .execute_batch(
             "CREATE TABLE filler (id INTEGER PRIMARY KEY, body BLOB);
@@ -64,7 +65,8 @@ fn start_copy(
     let (answer, answered) = std_mpsc::channel();
     let runtime = Handle::current();
     tokio::task::spawn_blocking(move || {
-        let connection = open_database(&source).expect("the writer's connection opens");
+        let connection = open_database(&source, &schema_parts().into_schema())
+            .expect("the writer's connection opens");
         let order = CopyOrder {
             destination: &destination,
             cancel: &cancel,

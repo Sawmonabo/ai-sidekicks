@@ -8,9 +8,11 @@ use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
@@ -28,13 +30,14 @@ use crate::provider::driver::claude::session::transport::declarations::{
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::provider::driver::contract::SpawnedVersionBindingCarriers;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.
@@ -102,6 +105,18 @@ pub(crate) struct ClaudeSpawnBinding {
     pub(crate) output_schema_digest: Option<String>,
 }
 
+/// What a process was asked to start with where it runs something else: the callback tools before
+/// the host trims them to the ones it offers, and the Settings rows before the session's own advisor
+/// and style override them. A relaunch asks for these again, and a resume that finds the process
+/// up compares its own request against them.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ClaudeRequestedSpawn {
+    /// The callback tools requested.
+    pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
+    /// The Settings values the app stored for the provider.
+    pub(crate) row_values: ProviderRowValues,
+}
+
 /// The usage base a session's counts are measured from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeUsageEstablishment {
@@ -162,16 +177,22 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// What the process was started with, for a later run's check.
     pub(crate) spawn_binding: ClaudeSpawnBinding,
+    /// What the process was asked to start with where it runs something else, which a rewind's
+    /// fork inherits.
+    pub(crate) requested_spawn: ClaudeRequestedSpawn,
     /// The legs the process was started with; a rewind starts its fork from these, since
     /// deriving them again would guess, and a guess without the posture runs unsandboxed.
     pub(crate) spawn_bound_legs: ClaudeSpawnBoundLegs,
     /// What the process's `initialize` reply declared.
     pub(crate) initialize: ClaudeInitializeDeclaration,
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the Claude driver, whose `/output-style` and \
-                  `/advisor` answers and rewind read it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start registers the Claude driver, whose `/output-style` and \
+                      `/advisor` answers and rewind read it"
+        )
     )]
     pub(crate) command_choices: ClaudeHeldCommandChoices,
     /// The account the process was admitted against, captured when it came up, since the
@@ -179,6 +200,11 @@ pub(crate) struct LiveClaudeSession {
     pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
+    /// The build that runs the process, which a resume that found it already up answers.
+    pub(crate) spawned_version: SpawnedVersionBindingCarriers,
+    /// The binding the resume that brought the process up answered, which a resume that finds it
+    /// already up answers again; `None` for a create's or a fork's, whose binding the daemon holds.
+    pub(crate) resumed_binding_id: Option<RuntimeBindingId>,
     /// The process's identity in the daemon's spawn count, removed from the process registry at
     /// its exit.
     pub(crate) process_identity: ProviderProcessIdentity,

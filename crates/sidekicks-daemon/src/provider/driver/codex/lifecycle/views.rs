@@ -6,13 +6,14 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::commands::CodexCommandSource;
 use crate::provider::driver::codex::service::supervisor::CodexService;
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
@@ -134,6 +135,6 @@ impl CodexSessionViews {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, CodexSessionView>> {
-        self.views.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.views)
     }
 }

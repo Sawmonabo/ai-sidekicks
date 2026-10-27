@@ -14,7 +14,7 @@
 //! when its caller stops waiting leaves the queue and never reaches the store; one that lands after
 //! its caller stopped waiting is logged.
 
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -25,6 +25,7 @@ use sidekicks_platforms::{CredentialStore, CredentialStoreError, SecretStoreOffe
 use crate::credential_store::seal::SecretSeal;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::keyed_lock::KeyedLock;
+use crate::mutex_lock::lock;
 
 /// How long one keychain call may take, its waits and an unlock prompt included.
 pub(crate) const KEYCHAIN_CALL_TIMEOUT: Duration = Duration::from_secs(30);
@@ -209,7 +210,7 @@ impl OsCredentialStore {
 
     // The open store, opened now when no call has opened it yet.
     fn opened_store(&self) -> Result<CredentialStore, CredentialStoreError> {
-        let mut opened = self.opened.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut opened = lock(&self.opened);
         if let Some(credentials) = opened.as_ref() {
             return Ok(credentials.clone());
         }

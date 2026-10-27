@@ -6,11 +6,10 @@
 //! `question.asked` event, read from there when an answer is checked, and a secret answer is never
 //! written anywhere.
 
-use std::sync::LazyLock;
-
 use serde::Deserialize;
 use strum::{IntoStaticStr, VariantArray};
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 
 /// Where a question record stands, as the `questions.state` column holds it: waiting for its run
@@ -30,8 +29,11 @@ pub(crate) enum QuestionState {
     Canceled,
 }
 
-/// The SQL of the question tables and their indexes, run as part of the daemon schema's script.
-pub(crate) static QUESTION_SCHEMA_SQL: LazyLock<String> = LazyLock::new(question_schema_sql);
+/// The runs' list and the question tables' own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::database::schema::runs::schema_parts()
+        .with_part(SchemaPart::new("questions", question_schema_sql()))
+}
 
 fn question_schema_sql() -> String {
     let states = sql_list_of_every::<QuestionState>();

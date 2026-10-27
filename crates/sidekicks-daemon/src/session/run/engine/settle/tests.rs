@@ -17,6 +17,7 @@ use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
 use crate::mutex_lock::lock;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::tests::{
     STEP_BOUND, append, provider_end, run_version, stored_events, stored_run_state, test_engine,
     token_limit, turn, turn_started_at,
@@ -130,7 +131,7 @@ fn interrupted_at(session_id: SessionId, run_id: RunId, version: u64) -> Session
 // log holds after a restart, `stepLimit`.
 #[tokio::test]
 async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -156,13 +157,14 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
     let seeded = stored_events(&database, &run_id);
 
     // The cut is planted directly, for a step interrupt accepted at 2, before the run's end at 3.
-    let mut live = lock(&engine.live);
-    let cut = live.new_cut(RunLimit::StepLimit);
-    live.cut_turns
-        .entry((run_id, turn_one))
-        .or_default()
-        .push(cut);
-    drop(live);
+    {
+        let mut live = lock(&engine.live);
+        let cut = live.new_cut(RunLimit::StepLimit);
+        live.cut_turns
+            .entry((run_id, turn_one))
+            .or_default()
+            .push(cut);
+    }
     let ended_since = engine
         .end_run_for_interrupt(
             run_id,

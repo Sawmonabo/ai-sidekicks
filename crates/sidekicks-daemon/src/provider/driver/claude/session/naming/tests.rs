@@ -28,7 +28,6 @@ use crate::provider::driver::claude::spawn::launch::one_turn::{
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
 use crate::provider::driver::session_control::NameSessionParams;
 use crate::provider::driver::test_registry::new_session_id;
-use crate::provider::runtime_binding::test_store::record_session_leg;
 
 /// What a naming pass at rest never starts.
 const ONLY_THE_ONE_TURN: &str = "a naming pass at rest starts only its one turn";
@@ -110,13 +109,7 @@ async fn a_naming_pass_whose_one_turn_never_answers_ends_with_none_at_its_deadli
     let driver = ClaudeDriver::with_starts(&fixture.services, Arc::clone(&one_turn) as _);
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    record_session_leg(
-        &fixture.database,
-        session_id,
-        account,
-        "stored-conversation",
-    )
-    .await;
+    fixture.record_session_leg(session_id, account, "stored-conversation");
     let cancel = CancellationToken::new();
     let params = NameSessionParams {
         session_id,

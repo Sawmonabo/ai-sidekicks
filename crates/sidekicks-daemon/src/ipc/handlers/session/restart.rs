@@ -15,13 +15,18 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionRestart, SessionTargetRequest};
 
+use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
+use crate::keyed_lock::KeyedLock;
 use crate::provider::driver::capabilities::DriverCapabilityFlag;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use crate::queue::error::QueueError;
+use crate::session::changes::refuse_unchangeable_session;
 use crate::session::not_found::session_not_found;
 
 /// The provider a session ran on, and its last binding rebuilt as the params of a resume.
@@ -40,21 +45,37 @@ pub(crate) type RestartTargetReader = Arc<
         + Sync,
 >;
 
-/// Registers `session.restart`. A session with no restart target is refused `session.notFound`,
-/// a provider no driver answers `provider.notFound`, a driver that cannot resume
-/// `provider.capability.unsupported` (the driver never called), a resume the provider refused for
-/// its sign-in `provider.account.notAuthenticated`, and any other resume it could not make
-/// `provider.unavailable`. Fails the start when the method is already registered.
+/// Registers `session.restart`, each restart run under the session's `transition_lock`, so none
+/// brings a process up while a close is ending the session or after it: a session that reads
+/// closed through `pool` under the lock is refused `session.alreadyClosed`, the driver never
+/// called. A session with no restart target is refused `session.notFound`, a provider no driver answers `provider.notFound`, a driver that
+/// cannot resume `provider.capability.unsupported` (the driver never called), a resume the
+/// provider refused for its sign-in `provider.account.notAuthenticated`, and any other resume it
+/// could not make `provider.unavailable`. Fails the start when the method is already registered.
 pub(crate) fn register_session_restart(
     registry: &mut MethodRegistryBuilder,
     providers: Arc<ProviderRegistry>,
     read_target: RestartTargetReader,
+    pool: Arc<DatabaseReadPool>,
+    transition_lock: Arc<KeyedLock<SessionId>>,
 ) -> Result<(), RegistrationError> {
     registry.register::<SessionRestart, _>(
         move |request: SessionTargetRequest, _context: HandlerContext| {
             let providers = Arc::clone(&providers);
             let read_target = Arc::clone(&read_target);
-            async move { restart(&providers, &read_target, request.session_id).await }.boxed()
+            let pool = Arc::clone(&pool);
+            let transition_lock = Arc::clone(&transition_lock);
+            async move {
+                restart(
+                    &providers,
+                    &read_target,
+                    &pool,
+                    &transition_lock,
+                    request.session_id,
+                )
+                .await
+            }
+            .boxed()
         },
     )
 }
@@ -62,8 +83,15 @@ pub(crate) fn register_session_restart(
 async fn restart(
     providers: &ProviderRegistry,
     read_target: &RestartTargetReader,
+    pool: &DatabaseReadPool,
+    transition_lock: &KeyedLock<SessionId>,
     session_id: SessionId,
 ) -> Result<EmptyPayload, HandlerError> {
+    let _hold = transition_lock.acquire(session_id).await;
+    // The queue's opening reads the same state under the same lock.
+    if let Some(state) = read_session_state_through::<QueueError>(pool, session_id).await? {
+        refuse_unchangeable_session(&session_id, state)?;
+    }
     let Some(target) = read_target(session_id).await? else {
         return Err(session_not_found(&session_id).into());
     };
@@ -113,11 +141,17 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::controls::methods::SessionMode;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::session::methods::SessionState;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{RestartTargetReader, SessionRestartTarget, restart};
+    use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::schema_parts;
+    use crate::database::schema::session_directory::insert_session_row;
+    use crate::database::writer::test_file::TestDatabase;
     use crate::ipc::registry::HandlerError;
+    use crate::keyed_lock::KeyedLock;
     use crate::provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
@@ -128,6 +162,9 @@ mod tests {
     use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
 
     const SESSION: &str = "0b7f3c1e-9a52-4d6b-8e21-5f4c7d9a1b30";
+
+    /// The statements the test's read pool prepares.
+    const READ_STATEMENT_CAPACITY: usize = 4;
 
     /// What a case sets up before its one call.
     #[derive(Clone, Copy, Debug)]
@@ -189,6 +226,13 @@ mod tests {
                 .expect("the provider is registered");
         }
         registry
+    }
+
+    /// A database file created with the store's tables, no session in it.
+    fn created_database() -> TestDatabase {
+        let database = TestDatabase::new(schema_parts());
+        drop(database.opener()().expect("the test creates its database"));
+        database
     }
 
     /// A reader answering every session with a target on the table's first provider, or with none.
@@ -260,26 +304,13 @@ mod tests {
         #[case] fields: Value,
     ) {
         let session_id = SessionId::new(SESSION).expect("the id is a UUID");
-        let refusal = match setup {
-            Setup::UnknownSession => {
-                match restart(&providers(None, false), &targets(false), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
-            }
-            Setup::NoProvider => {
-                match restart(&providers(None, true), &targets(true), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
-            }
-            Setup::NoResume => {
-                let registry = providers(Some(|_| Arc::new(MockProviderDriver::new())), false);
-                match restart(&registry, &targets(true), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
-            }
+        let (registry, has_target) = match setup {
+            Setup::UnknownSession => (providers(None, false), false),
+            Setup::NoProvider => (providers(None, true), true),
+            Setup::NoResume => (
+                providers(Some(|_| Arc::new(MockProviderDriver::new())), false),
+                true,
+            ),
             Setup::ResumeFailed(condition) => {
                 let build: BuildDriver = match condition {
                     RecoveryCondition::RecoveryNeeded => {
@@ -289,17 +320,86 @@ mod tests {
                         |_| failing_driver(RecoveryCondition::ReauthRequired)
                     }
                 };
-                match restart(&providers(Some(build), true), &targets(true), session_id).await {
-                    Err(HandlerError::Refused(refusal)) => refusal,
-                    other => panic!("expected a refusal, got {:?}", other.err()),
-                }
+                (providers(Some(build), true), true)
             }
+        };
+        let database = created_database();
+        let pool = DatabaseReadPool::new(database.path(), READ_STATEMENT_CAPACITY);
+        let refusal = match restart(
+            &registry,
+            &targets(has_target),
+            &pool,
+            &KeyedLock::new(),
+            session_id,
+        )
+        .await
+        {
+            Err(HandlerError::Refused(refusal)) => refusal,
+            other => panic!("expected a refusal, got {:?}", other.err()),
         };
         assert_eq!(refusal.code, code, "{setup:?}");
         assert_eq!(
             Value::Object(refusal.detail.expect("the refusal carries fields")),
             fields,
             "{setup:?}"
+        );
+    }
+
+    // A restart asked for while a close or a purge mark holds the session's transition lock reads
+    // the session's state once the lock is let go, and is refused before its driver is called:
+    // `session.alreadyClosed` for a closed session, `session.changeRefused` for one being deleted.
+    // Killed by the handler no longer reading the session's state: the driver, which expects no
+    // restart, is then called.
+    #[rstest]
+    #[case::closed(
+        SessionState::Closed,
+        RefusalCode::SessionAlreadyClosed,
+        json!({ "sessionId": SESSION })
+    )]
+    #[case::being_deleted(
+        SessionState::PurgeRequested,
+        RefusalCode::SessionChangeRefused,
+        json!({ "sessionId": SESSION, "state": SessionState::PurgeRequested })
+    )]
+    #[tokio::test]
+    async fn a_restart_waiting_out_a_close_or_a_purge_mark_is_refused(
+        #[case] state: SessionState,
+        #[case] code: RefusalCode,
+        #[case] fields: Value,
+    ) {
+        let session_id = SessionId::new(SESSION).expect("the id is a UUID");
+        let database = created_database();
+        insert_session_row(&database.reader(), SESSION, None, None);
+        let registry = providers(Some(|_| Arc::new(MockProviderDriver::new())), true);
+        let pool = DatabaseReadPool::new(database.path(), READ_STATEMENT_CAPACITY);
+        let read_target = targets(true);
+        let transition_lock = KeyedLock::new();
+        let close_hold = transition_lock.acquire(session_id).await;
+
+        let (answer, ()) = tokio::join!(
+            restart(&registry, &read_target, &pool, &transition_lock, session_id,),
+            async {
+                // The restart is waiting on the lock: the change writes its state, then lets go.
+                database
+                    .reader()
+                    .execute(
+                        "UPDATE sessions SET state = ?1 WHERE id = ?2",
+                        [<&'static str>::from(state), SESSION],
+                    )
+                    .expect("the change stores the session's state");
+                drop(close_hold);
+            },
+        );
+
+        let refusal = match answer {
+            Err(HandlerError::Refused(refusal)) => refusal,
+            other => panic!("expected a refusal, got {:?}", other.err()),
+        };
+        assert_eq!(refusal.code, code, "{state:?}");
+        assert_eq!(
+            Value::Object(refusal.detail.expect("the refusal carries fields")),
+            fields,
+            "{state:?}"
         );
     }
 }

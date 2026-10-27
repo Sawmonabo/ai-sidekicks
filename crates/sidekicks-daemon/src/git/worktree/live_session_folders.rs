@@ -13,12 +13,12 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use notify::{RecommendedWatcher, Watcher};
-use rusqlite::{Connection, OptionalExtension};
+use rusqlite::Connection;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -27,7 +27,8 @@ use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::stored_column::{closed_word, text_column};
+use crate::database::schema::session_directory::read_session_state;
+use crate::database::stored_column::text_column;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::file::real_location::resolve_real_path;
 use crate::git::process::GitRunner;
@@ -37,6 +38,7 @@ use crate::git::worktree::watch::{
 };
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::is_gone;
+use crate::mutex_lock::lock;
 use crate::session::review_note::diff_line::NotedLineReader;
 use crate::session::review_note::store::{
     ReviewNoteFolderError, ReviewNoteFolders, WorkingFolderDetach,
@@ -57,8 +59,6 @@ const SYNCING_EVENT_TYPES: [SessionEventType; 8] = [
     SessionEventType::WorkspaceArchived,
     SessionEventType::SessionSweptToCheckout,
 ];
-
-const SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = ?";
 
 const SESSIONS_IN_STATE_SQL: &str = "SELECT id FROM sessions WHERE state = ? ORDER BY id";
 
@@ -160,10 +160,7 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
             }
             Ok(())
         });
-        *self
-            .attachment
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(attachment);
+        *lock(&self.attachment) = Some(attachment);
         let live = self
             .deps
             .reads
@@ -178,11 +175,7 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
     /// Stops following the log, waits for the syncs under way, then lets every hold go.
     pub(crate) async fn stop(&self) {
         self.stopping.cancel();
-        let attachment = self
-            .attachment
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let attachment = lock(&self.attachment).take();
         drop(attachment);
         self.syncs.close();
         self.syncs.wait().await;
@@ -282,14 +275,12 @@ impl<W: Watcher + Send + 'static> LiveSessionFolders<W> {
 
     fn lock_held(&self) -> MutexGuard<'_, HashMap<SessionId, HeldFolder>> {
         // The map holds no invariant a panicking holder could break.
-        self.held_by_session
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.held_by_session)
     }
 
     fn lock_due(&self) -> MutexGuard<'_, HashSet<SessionId>> {
         // The set holds no invariant a panicking holder could break.
-        self.due.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.due)
     }
 }
 
@@ -358,12 +349,7 @@ fn read_live_folder(
     connection: &Connection,
     session_id: &SessionId,
 ) -> Result<Option<LiveFolder>, LiveFolderError> {
-    let state: Option<SessionState> = connection
-        .prepare_cached(SESSION_STATE_SQL)?
-        .query_row([session_id.text().as_str()], |row| {
-            text_column(row, 0, closed_word)
-        })
-        .optional()?;
+    let state = read_session_state(connection, session_id)?;
     if state != Some(SessionState::Active) {
         return Ok(None);
     }

@@ -1,6 +1,6 @@
 //! The `sidekicks-command-wrapper` mode a provider runs every shell command through. A line that is
-//! no agent's command (a hook, a status line, a tool server's start) is run at once as
-//! `/bin/sh -c <line>` and nothing else. An agent's command is told to the daemon over the
+//! no agent's command (a hook, a status line, a tool server's start) is run at once by the POSIX
+//! shell, `sh -c <line>`, and nothing else. An agent's command is told to the daemon over the
 //! conversation's channel, started in a process group of its own (an agent's line by the shell the
 //! provider wrote it for), its stop signals passed on to that group and its end told and taken as
 //! the wrapper's own; one the provider starts with a terminal runs in a terminal the wrapper opens,
@@ -13,16 +13,17 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, ExitStatus};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use sidekicks_platforms::{
-    TerminalSignal, end_as_child_ended, end_by_stop_signal, exec_command, name_program,
-    pass_on_stop_signals, read_child_exit, read_descriptor_path, run_foreground_job,
+    POSIX_SHELL, TerminalSignal, end_as_child_ended, end_by_stop_signal, exec_command,
+    name_program, pass_on_stop_signals, read_child_exit, read_descriptor_path, run_foreground_job,
     signal_command_group, start_in_own_group, stop_signal_number, take_in_orphans, wait_for_exit,
 };
 
+use crate::mutex_lock::lock;
 use crate::provider::command::channel::party::{
     ChannelParty, PartyRecords, PartyRequests, PartyStart, RequestError, own_arguments,
 };
@@ -40,10 +41,6 @@ pub(crate) const COMMAND_PROVIDER_VARIABLE: &str = "SIDEKICKS_COMMAND_PROVIDER";
 
 /// How long the wrapper waits for the daemon's `go` before it runs the command uncovered.
 const GO_WAIT: Duration = Duration::from_secs(10);
-
-/// The shell a line runs with where no other is named: a hook's, and an agent's line whose
-/// provider named no usable shell.
-const FALLBACK_SHELL: &str = "/bin/sh";
 
 /// The variables the wrapper and its terminal add, which the command never sees: the party's
 /// secret descriptor, and the two `alacritty_terminal` sets on the program it starts.
@@ -161,7 +158,7 @@ pub(crate) fn run_command_wrapper_with(
                 });
             match agent_command {
                 None => exec_failed(&exec_command(&mut shell_line(
-                    Path::new(FALLBACK_SHELL),
+                    Path::new(POSIX_SHELL),
                     &line,
                 ))),
                 Some((shell_variable, command)) => {
@@ -186,7 +183,7 @@ pub(crate) fn run_command_wrapper_with(
 }
 
 /// The shell `variable` names by its absolute path, which the provider wrote an agent's line for;
-/// `/bin/sh`, said on standard error, where it names none.
+/// the POSIX shell, said on standard error, where it names none.
 fn named_shell(variable: &str) -> PathBuf {
     match std::env::var_os(variable).map(PathBuf::from) {
         Some(shell) if shell.is_absolute() && shell.is_file() => shell,
@@ -194,10 +191,10 @@ fn named_shell(variable: &str) -> PathBuf {
             let named =
                 named.map_or_else(|| "nothing".to_owned(), |named| named.display().to_string());
             write_error_line(&format!(
-                "sidekicks-command-wrapper runs the command with {FALLBACK_SHELL}, \
+                "sidekicks-command-wrapper runs the command with {POSIX_SHELL}, \
                  since {variable} names {named}, no shell's absolute path"
             ));
-            PathBuf::from(FALLBACK_SHELL)
+            PathBuf::from(POSIX_SHELL)
         }
     }
 }
@@ -274,14 +271,10 @@ fn join_channel(process_arguments: &[OsString]) -> (SharedRecords, Option<PartyR
     (records, requests)
 }
 
-fn lock_records(records: &Mutex<Option<PartyRecords>>) -> MutexGuard<'_, Option<PartyRecords>> {
-    records.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 /// Sends `record`; a failure is said on standard error, since the command runs on whether or not
 /// the daemon hears of it.
 fn send_record(records: &Mutex<Option<PartyRecords>>, record: &PartyRecord) {
-    if let Some(records) = lock_records(records).as_mut()
+    if let Some(records) = lock(records).as_mut()
         && let Err(error) = records.send(record)
     {
         write_error_line(&format!(
@@ -293,7 +286,7 @@ fn send_record(records: &Mutex<Option<PartyRecords>>, record: &PartyRecord) {
 /// Tells the daemon what the wrapper could not do while its command runs on as it is: a record
 /// when it joined its channel, else a line on standard error.
 fn note(records: &Mutex<Option<PartyRecords>>, message: &str) {
-    let mut records = lock_records(records);
+    let mut records = lock(records);
     let sent = records.as_mut().map(|records| {
         records.send(&PartyRecord::Warning {
             message: format!("the command wrapper {message}"),
@@ -338,15 +331,11 @@ enum CommandState {
 
 type SharedState = Arc<Mutex<CommandState>>;
 
-fn lock_state(state: &Mutex<CommandState>) -> MutexGuard<'_, CommandState> {
-    state.lock().unwrap_or_else(PoisonError::into_inner)
-}
-
 /// Hands each stop signal the wrapper receives to its command's process group from now on: before
 /// the command starts, the signal's end is told and taken as the wrapper's own.
 fn pass_signals_to_group(state: &SharedState, records: &SharedRecords) {
     let (state, signaled_records) = (Arc::clone(state), Arc::clone(records));
-    let started = pass_on_stop_signals(move |signal| match *lock_state(&state) {
+    let started = pass_on_stop_signals(move |signal| match *lock(&state) {
         CommandState::NotStarted => {
             send_record(
                 &signaled_records,
@@ -440,7 +429,7 @@ fn run_child(
 ) -> ExitCode {
     start_in_own_group(&mut command);
     let mut child = {
-        let mut state = lock_state(state);
+        let mut state = lock(state);
         match command.spawn() {
             Ok(child) => {
                 *state = CommandState::Running { group: child.id() };
@@ -453,7 +442,7 @@ fn run_child(
         let (state, records) = (Arc::clone(state), Arc::clone(records));
         follow_stops(requests, Arc::clone(&records), move || {
             // Held until `Stopped` is sent, so the wait's `Exited` comes after it.
-            let state = lock_state(&state);
+            let state = lock(&state);
             if let CommandState::Running { group } = *state {
                 signal_command_group(group, TerminalSignal::Kill)?;
                 send_record(&records, &PartyRecord::Stopped {});
@@ -463,7 +452,7 @@ fn run_child(
     }
     // The child stays unreaped until its state reads reaped, so no stop reaches a reused id.
     let exited = wait_for_exit(child.id(), None);
-    let mut state = lock_state(state);
+    let mut state = lock(state);
     *state = CommandState::Reaped;
     let waited = exited.and_then(|_| child.wait());
     match waited {

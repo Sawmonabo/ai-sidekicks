@@ -20,7 +20,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
-    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId,
+    AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -33,10 +33,12 @@ use tempfile::TempDir;
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
 use crate::admission::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
+use crate::keyed_lock::KeyedLock;
 use crate::mutex_lock::lock;
 use crate::pause_point::PausePoint;
 use crate::provider::driver::PROVIDERS;
@@ -48,9 +50,10 @@ use crate::provider::driver::run_control::{
 };
 use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use crate::provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
+use crate::questions::schema::schema_parts;
 use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::{ProcessStandIn, ProviderProcessIds};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::test_opening::{
     record_first_provider_capabilities, test_opening_composer,
@@ -60,7 +63,6 @@ use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
     insert_queue_item_statement,
 };
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::binding_cursors::RunBindingCursors;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
 use crate::session::run::epochs::ExecutionEpochs;
@@ -220,7 +222,7 @@ struct Fixture {
 }
 
 async fn fixture(driver: MockProviderDriver) -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -272,6 +274,7 @@ fn queue_over(
         binding_cursors,
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),
+        transition_lock: Arc::new(KeyedLock::new()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
@@ -387,6 +390,14 @@ impl Fixture {
     /// Sends a message to the session's lead as a person does and answers its id. Fails as the
     /// queue refuses the send.
     async fn send(&self) -> Result<QueueItemId, QueueError> {
+        self.send_picking(None).await
+    }
+
+    /// [`Fixture::send`] with the skills `skills` picks.
+    async fn send_picking(
+        &self,
+        skills: Option<Vec<QueuedSkillPick>>,
+    ) -> Result<QueueItemId, QueueError> {
         let key = client_key();
         self.queue
             .create(
@@ -397,7 +408,7 @@ impl Fixture {
                     client_idempotency_key: key.clone(),
                     content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
                     attachments: None,
-                    skills: None,
+                    skills,
                     replaces_queue_item_id: None,
                     answers_question_id: None,
                     output_speed_for_turn: None,

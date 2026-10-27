@@ -1,8 +1,8 @@
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -27,6 +27,8 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
+use crate::mutex_lock::lock;
+use crate::remote::shared_ports::schema::schema_parts;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.
@@ -97,7 +99,7 @@ fn backup_folders(folder: &Path) -> Vec<PathBuf> {
 // backup's folder or the mirror's made with the default mode.
 #[tokio::test]
 async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
@@ -197,7 +199,7 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
 // copy dropped at the stop, which ends the run while the thread may still step into its folder.
 #[tokio::test]
 async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
@@ -258,7 +260,7 @@ async fn a_stopped_run_waits_for_its_copy_and_leaves_no_folder() {
 // which skips with the switch off and loses the press.
 #[tokio::test]
 async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = TempDir::new().expect("a scratch folder");
     let backups_folder = data_folder(home.path()).join("backups");
@@ -275,10 +277,7 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
         tokio::sync::watch::channel(0).1,
     );
     // The daily run's turn, as its job takes it: no run was queued, so requests join this one.
-    *backups
-        .pending
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = Some(BackupTrigger::Daily);
+    *lock(&backups.pending) = Some(BackupTrigger::Daily);
     backups
         .request(&scheduler, BackupTrigger::Now)
         .expect("the press joins the daily run");
@@ -293,11 +292,5 @@ async fn a_back_up_now_that_joins_a_daily_run_makes_it_copy() {
         .expect("the run is recorded");
 
     assert_eq!(backup_folders(&backups_folder).len(), 1);
-    assert!(
-        backups
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_none()
-    );
+    assert!(lock(&backups.pending).is_none());
 }

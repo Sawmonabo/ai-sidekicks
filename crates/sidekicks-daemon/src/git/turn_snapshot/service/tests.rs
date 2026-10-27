@@ -19,6 +19,7 @@ use crate::git::process::{
 use crate::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
 use crate::git::turn_snapshot::refs::build_run_snapshot_ref_prefix;
 use crate::git::turn_snapshot::retention::RunContextKey;
+use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::test_rows::{RunContextRow, insert_worktree_rows};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -90,7 +91,7 @@ async fn one_state_gives_one_id_and_a_turn_is_captured_once() {
     tokio::fs::write(repository.join("notes.txt"), "a note\n")
         .await
         .expect("the untracked file is written");
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let service = service_reading(git.clone(), &database, root.path());
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     let turn = |turn_ordinal| TurnSnapshotCaptureInput {
@@ -176,7 +177,7 @@ async fn a_run_prune_deletes_every_ref_under_its_prefix_and_nothing_else(
         &["symbolic-ref", &planted_ref, "refs/heads/kept"],
     )
     .await;
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     // Opening the writer creates the file with the daemon's schema.
     let _writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await

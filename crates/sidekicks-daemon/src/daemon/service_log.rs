@@ -21,7 +21,7 @@ use std::collections::HashSet;
 use std::error::Error;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use flexi_logger::writers::{ArcFileLogWriter, FileLogWriter, FileLogWriterHandle};
 use flexi_logger::{Cleanup, Criterion, FileSpec, FlexiLoggerError, Naming};
@@ -33,8 +33,8 @@ use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::{SubscriberInitExt, TryInitError};
 
-// The folder in the data folder that holds the service log files.
-const SERVICE_LOG_FOLDER_NAME: &str = "logs";
+use crate::daemon::data_folder::service_log_folder;
+use crate::mutex_lock::lock;
 
 /// The folder in the data folder that holds the service's crash reports, one file per crash.
 pub(crate) const CRASH_REPORTS_FOLDER_NAME: &str = "crash-reports";
@@ -205,11 +205,6 @@ where
     }
 }
 
-/// The folder in `data_folder` that holds the service log files.
-pub(crate) fn service_log_folder(data_folder: &Path) -> PathBuf {
-    data_folder.join(SERVICE_LOG_FOLDER_NAME)
-}
-
 /// Whether `file_name` names a service log file, `service-<time begun>.log` with or without its
 /// `.restart-NNNN`: the only files in `logs/` the diagnostic-log expiry deletes.
 pub(crate) fn is_service_log_file_name(file_name: &str) -> bool {
@@ -320,10 +315,6 @@ struct FileSide {
     byte_count: u64,
     // Whether a turn, write or flush failed and was told, and no line has landed since.
     is_failing: bool,
-}
-
-fn lock<Side>(side: &Mutex<Side>) -> MutexGuard<'_, Side> {
-    side.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl ServiceLogSides {
@@ -536,8 +527,9 @@ mod tests {
 
     use super::{
         FILE_FAILED_NOTICE, STANDARD_ERROR_GONE_NOTICE, ServiceLogFiles, is_service_log_file_name,
-        open_service_log, service_log_folder,
+        open_service_log,
     };
+    use crate::daemon::data_folder::service_log_folder;
 
     // Each run of failed writes to the file, two in a row, says so once on standard error, and the
     // next line lands in the file again: on a line of its own after a write that failed halfway,

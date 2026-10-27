@@ -41,17 +41,17 @@ use crate::keyed_lock::{KeyHold, KeyedLock};
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
+use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut, stored_run_state};
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::session::run::pause::tests::unanswered;
-use crate::session::run::pause::{
-    ContinuedMessages, ContinuedMessagesError, RunPauseControl, RunPauseError,
-};
+use crate::session::run::pause::{RunPauseControl, RunPauseError};
 use crate::session::run::provider_choice::{
     PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceResolver,
 };
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Records an `accepted` interrupt of the harness's run at `limit`, accepted at version 1, as

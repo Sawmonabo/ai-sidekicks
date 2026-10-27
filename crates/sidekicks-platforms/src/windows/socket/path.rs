@@ -29,6 +29,14 @@ pub fn check_socket_path(path: &Path) -> Result<(), SocketPathRefused> {
     Ok(())
 }
 
+/// A new folder, removed with everything in it when dropped, short enough that a socket a few
+/// folders deep inside it stays under the system's limit: in the person's temporary folder, whose
+/// path leaves room. Fails with the folder's making error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn short_socket_folder() -> io::Result<tempfile::TempDir> {
+    tempfile::tempdir()
+}
+
 /// What stands at the daemon's socket path: always [`SocketPathEntry::Socket`], since the path
 /// names a pipe, which holds no file, so the connect alone tells a served name from a free one.
 /// Never fails.

@@ -40,17 +40,18 @@ use crate::provider::port::question::{
     WaitingQuestionOpening,
 };
 use crate::provider::port::registration::{PortRegistration, PortRegistrationError};
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
     insert_question_statement, read_question, read_unsettled_among, settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
 use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
 /// whether its run has an interrupt recorded, and which held questions are still open.

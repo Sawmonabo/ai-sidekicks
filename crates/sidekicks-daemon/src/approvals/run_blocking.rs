@@ -32,12 +32,13 @@ use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use crate::events::session::pending::PendingSessions;
 use crate::keyed_lock::KeyedLock;
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::setup_gates::{
     RunSetupContext, RunSetupGate, RunSetupGateError, RunTerminalContext,
 };
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::state_change::RunStateChange;
 
 /// Why a run's hold was not reconciled; the run keeps the state it had.
 #[derive(Debug, thiserror::Error)]

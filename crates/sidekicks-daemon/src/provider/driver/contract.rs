@@ -40,6 +40,7 @@ use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
 use crate::ipc::domain_error::DomainError;
@@ -113,6 +114,10 @@ pub(crate) enum DriverError {
     /// The answer reached the provider, which could not keep the rule it made.
     #[error(transparent)]
     RuleNotKept(#[from] ProviderRuleNotKeptError),
+    /// A skill pick the provider's own list does not name in its folder; the run queue refuses
+    /// the send for it.
+    #[error("the provider does not list skill {} in {}", .0.name.as_str(), .0.folder_path.as_str())]
+    SkillNotListed(QueuedSkillPick),
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
@@ -131,9 +136,9 @@ impl From<DriverError> for HandlerError {
     /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
     /// command that names no runnable build as [`ExecutableUnresolvable::into_refusal`] says; a
     /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
-    /// agent, the axis and the value; a steer whose turn ended, a refused run start or a rule the
-    /// provider could not keep, reaching a handler, is a fault in the daemon, as is the driver's
-    /// own failure.
+    /// agent, the axis and the value; a steer whose turn ended, a refused run start, a rule the
+    /// provider could not keep or a skill pick it does not list, reaching a handler, is a fault in
+    /// the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
             DriverError::Refused(refusal)
@@ -174,6 +179,7 @@ impl From<DriverError> for HandlerError {
             DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
             DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
             DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
+            error @ DriverError::SkillNotListed(_) => Self::Internal(Box::new(error)),
             DriverError::Internal(fault) => Self::Internal(fault),
         }
     }
@@ -304,8 +310,8 @@ pub(crate) trait ProviderDriver: Send + Sync {
     /// The skills `picks` names as the provider loads them for `session_id`, in the order picked,
     /// read on `provider_account_id`'s account (as [`starts_process`](Self::starts_process) takes
     /// it) where no live process serves the session; a provider that takes a pick as its text
-    /// answers each by its name and folder. Fails with `skill.pathRefused` for a pick the
-    /// provider's own list does not name in that folder.
+    /// answers each by its name and folder. Fails with [`DriverError::SkillNotListed`] for a pick
+    /// the provider's own list does not name in that folder.
     fn resolve_skill_picks(
         &self,
         session_id: SessionId,
@@ -627,6 +633,9 @@ pub(crate) struct StartRunParams {
     /// A JSON Schema this turn's final output must meet (gated on `structuredOutput`), for a
     /// provider that binds it per turn.
     pub(crate) output_schema: Option<Map<String, Value>>,
+    /// The session's own bound on the steps one turn may take, read as the run starts; `None`
+    /// where the person set none.
+    pub(crate) step_bound: Option<SafeInt<1>>,
 }
 
 /// The message a run the queue admitted opens with, and where it runs: the session, the binding

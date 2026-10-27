@@ -5,7 +5,7 @@
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::future::join_all;
 use sidekicks_contracts::run::id::RunId;
@@ -19,6 +19,7 @@ use crate::bounded_wait::wait_within;
 use crate::database::connection::read_pool::ReadLength;
 use crate::ipc::handlers::driver::resolution::read_run_driver;
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::run_control::{
     WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
@@ -38,7 +39,8 @@ pub(super) struct WithdrawJob {
     candidates: Vec<QueueItemRecord>,
     /// Cancelled once the caller stops waiting.
     deadline: CancellationToken,
-    /// Set when the withdraws start, under its lock, which the caller reads as it cancels.
+    /// Set when the withdraws start, under its lock, which the caller reads as it cancels. A plain
+    /// boolean no holder leaves half-written, so a poisoned lock still holds a whole flag.
     has_started: Arc<Mutex<bool>>,
     /// Where the withdrawals go; dropped unsent when the deadline passed first.
     reply: oneshot::Sender<WithdrawReply>,
@@ -54,11 +56,6 @@ pub(super) struct LateWithdraw {
     hand_number: u64,
     /// Whether the provider had taken it.
     is_delivered: bool,
-}
-
-// Locks `flag`; it holds a plain boolean, which no holder leaves half-written.
-fn lock_flag(flag: &Mutex<bool>) -> MutexGuard<'_, bool> {
-    flag.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 impl QueueDelivery {
@@ -167,7 +164,7 @@ impl QueueDelivery {
             answered.ok()
         } else {
             let is_started = {
-                let is_started = lock_flag(&has_started);
+                let is_started = lock(&has_started);
                 deadline.cancel();
                 *is_started
             };
@@ -200,7 +197,7 @@ impl QueueDelivery {
             reply,
         } = job;
         {
-            let mut is_started = lock_flag(&has_started);
+            let mut is_started = lock(&has_started);
             if deadline.is_cancelled() {
                 return;
             }

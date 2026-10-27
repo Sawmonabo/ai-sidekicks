@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::pin::pin;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -16,6 +16,7 @@ use crate::bounded_wait::wait_within;
 use crate::ipc::registry::{
     Dispatch, DispatchError, HandlerContext, MethodRegistry, Reply, Request,
 };
+use crate::mutex_lock::lock;
 
 /// A recorded mutating call's place: ids rise in the order the gate records calls, so a call
 /// recorded earlier has a smaller id.
@@ -150,10 +151,6 @@ fn record(calls: Arc<Mutex<RecordedCalls>>) -> RecordedCall {
         id,
         completion,
     }
-}
-
-fn lock(calls: &Mutex<RecordedCalls>) -> MutexGuard<'_, RecordedCalls> {
-    calls.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 #[cfg(test)]

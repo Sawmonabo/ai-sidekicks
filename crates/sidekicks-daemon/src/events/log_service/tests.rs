@@ -123,7 +123,7 @@ fn patch_bearing_completion(
 // completion's stored parts published as events of their own.
 #[tokio::test]
 async fn every_committed_event_is_published_in_commit_order_though_its_caller_left() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
     let (release, writes_held_until) = oneshot::channel();
     let TestLog {
         writer,
@@ -190,7 +190,7 @@ async fn every_committed_event_is_published_in_commit_order_though_its_caller_le
 
 #[tokio::test]
 async fn a_session_changes_only_once_its_event_can_be_read() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
     let (release, writes_held_until) = oneshot::channel();
     let TestLog {
         writer,
@@ -251,7 +251,7 @@ async fn a_session_changes_only_once_its_event_can_be_read() {
 
 #[tokio::test]
 async fn an_append_under_a_hold_goes_without_the_lock_and_only_on_the_held_session() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
     let TestLog {
         writer, service, ..
     } = open_log(&database, None).await;
@@ -295,7 +295,7 @@ async fn an_append_under_a_hold_goes_without_the_lock_and_only_on_the_held_sessi
 // store a summary on a `finished` ending that every later strict read of the row refuses.
 #[tokio::test]
 async fn a_command_ending_is_stored_with_a_summary_only_when_it_failed() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(crate::database::schema::schema_parts());
     let TestLog {
         writer, service, ..
     } = open_log(&database, None).await;

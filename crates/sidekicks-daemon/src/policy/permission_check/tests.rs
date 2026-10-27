@@ -3,7 +3,7 @@
 //! tests.
 
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use rstest::rstest;
@@ -30,14 +30,16 @@ use crate::daemon::machine::registry::{MACHINE_REGISTRY_STATEMENT_CAPACITY, Mach
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::DatabaseWriter;
 use crate::events::session::appender::SessionEventAppender;
+use crate::mutex_lock::lock;
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use crate::policy::authorizer::Authorizer;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::session_control::RevokeRuleParams;
 use crate::provider::port::permission_ask::{
-    ProviderAnswerRule, ProviderAskAction, ProviderAskActionKind, ProviderAskRule,
-    ProviderPermissionAsk,
+    ProviderAnswerRule, ProviderAskAction, ProviderPermissionAsk,
 };
 
 /// The bound the tests read shell lines under.
@@ -98,10 +100,7 @@ pub(crate) fn test_permission_check(
         Arc::clone(events),
         machine_id.clone(),
         Box::new(move |params| {
-            recorded
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .push(params);
+            lock(&recorded).push(params);
             async { Ok(()) }.boxed()
         }),
         Arc::clone(&shell_lines),
@@ -118,6 +117,7 @@ pub(crate) fn test_permission_check(
         approvals: Arc::clone(approvals),
         rules: Arc::clone(&rules),
         shell_lines: Arc::clone(&shell_lines),
+        background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         postures: Arc::clone(&postures),
         machine: Arc::new(MachineRegistry::new(
             Arc::new(DatabaseReadPool::new(
@@ -175,10 +175,7 @@ impl CheckFixture {
 
     /// Every rule the rules handed a provider to take out of force, oldest first.
     pub(crate) fn provider_rule_calls(&self) -> Vec<RevokeRuleParams> {
-        self.provider_rule_calls
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.provider_rule_calls).clone()
     }
 
     /// The provider's ask on the fixture's run for `action`, which keeps session and project rules.

@@ -1,49 +1,41 @@
 //! The plan record over the artifact test store: a plan's one write, its place in the artifact
-//! list, each way a held request ends with no verdict, and the rows a rebuild writes.
+//! list, and each way a held request ends with no verdict.
 
 use std::sync::Arc;
 
 use rstest::rstest;
-use rusqlite::Connection;
-use rusqlite::types::Value as SqlValue;
 use serde_json::{Value, json};
 use sidekicks_contracts::artifacts::operations::ArtifactListEntry;
-use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId, PlanKeptPayload, PlanState};
+use sidekicks_contracts::plan::{PlanHoldEndedReason, PlanId, PlanState};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::instant::WireInstant;
 use tempfile::TempDir;
 
 use super::PlansService;
 use crate::artifacts::list::list_artifacts;
 use crate::artifacts::test_store::ArtifactTestStore;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::events::session::appender::{SessionEventDraft, SessionEventLinkage};
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::plans::projection::PlansProjection;
-use crate::plans::store::settle_verdict_statement;
+use crate::database::schema::session_directory::insert_session_row;
+use crate::plans::store::StoredPlanHolds;
 use crate::provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
-use crate::recovery::projection_rebuild::{
-    PROJECTION_REBUILD_STATEMENT_CAPACITY, ProjectionRebuildRequest, ProjectionRebuildService,
-};
-use crate::session::directory::test_rows::insert_session_row;
-use crate::session::run::engine::tests::test_engine;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
-use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::session::directory::run_activity::session_activity_sql;
+use crate::session::plan_holds::PlanHolds as _;
+use crate::session::run::engine::tests::test_engine_with;
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const PLAN_TEXT: &str = "# Ship the importer\n\n1. Read `src/import.rs`\n2. Write the tests\n";
 
 /// The test store and the plans service over it.
-struct Fixture {
-    store: ArtifactTestStore,
-    plans: PlansService,
+pub(crate) struct Fixture {
+    /// The artifact test store the plans are written to.
+    pub(crate) store: ArtifactTestStore,
+    /// The plans service over the store.
+    pub(crate) plans: PlansService,
 }
 
 impl Fixture {
-    async fn new() -> Self {
+    /// Opens a fresh test store and the plans service over it.
+    pub(crate) async fn new() -> Self {
         let store = ArtifactTestStore::open().await;
         let plans = PlansService::new(
             Arc::new(store.publisher()),
@@ -54,7 +46,7 @@ impl Fixture {
     }
 
     /// Takes the test's plan, holding its request when `holds_request`.
-    async fn take(&self, holds_request: bool) -> PlanId {
+    pub(crate) async fn take(&self, holds_request: bool) -> PlanId {
         self.plans
             .take_plan(ProviderPlan {
                 session_id: self.store.session_id,
@@ -92,10 +84,11 @@ impl Fixture {
 
 // A plan is kept as a `summary` artifact naming it, and `artifact.published` and the
 // `plan.proposed` that names the artifact land in one write, the artifact first. The list shows it
-// as a plan with its first heading and `waiting`, then `open` once its hold ends; a manifest of the
-// same plan in the session it was handed off to lists there as accepted. Killed by appending
-// `plan.proposed` before or without its artifact, by a missing artifact id, by dropping the join
-// on the plan, and by dropping the fresh-session rule.
+// as a plan with its first heading and `waiting`, its session's activity reading waiting, then
+// `open` once its hold ends, the activity back to its running run's; a manifest of the same plan in
+// the session it was handed off to lists there as accepted. Killed by appending `plan.proposed`
+// before or without its artifact, by a missing artifact id, by dropping the join on the plan, by
+// dropping the fresh-session rule, and by a waiting-plan condition that never holds.
 #[tokio::test]
 async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
     let fixture = Fixture::new().await;
@@ -149,6 +142,16 @@ async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
         plan_word(listed(&fixture.store, fixture.store.session_id).await),
         vec![(title.clone(), PlanState::Waiting)]
     );
+    let activity_sql = format!(
+        "SELECT {}",
+        session_activity_sql("?1", "'idle'", &StoredPlanHolds.waiting_plan_sql("?1"))
+    );
+    let activity = || {
+        fixture
+            .store
+            .read_rows(&activity_sql, fixture.store.session_id.text().as_str())
+    };
+    assert_eq!(activity(), ["waiting"]);
 
     fixture
         .plans
@@ -163,6 +166,7 @@ async fn a_plan_is_its_artifact_then_its_record_and_lists_with_its_word() {
         plan_word(listed(&fixture.store, fixture.store.session_id).await),
         vec![(title.clone(), PlanState::Open)]
     );
+    assert_eq!(activity(), ["running"]);
 
     let fresh_session = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID");
     let reader = fixture.store.database.reader();
@@ -275,10 +279,12 @@ async fn a_lost_hold_reopens_a_holding_plan_once_and_leaves_a_codex_plan(
                     process_exit: None,
                 }
             };
-            test_engine(
+            test_engine_with(
                 &fixture.store.database,
                 Arc::clone(&fixture.store.event_log),
                 home.path(),
+                Arc::new(StoredPlanHolds),
+                Vec::new(),
             )
             .transition(
                 RunStateChange::new(fixture.store.run_id, entry),
@@ -295,100 +301,4 @@ async fn a_lost_hold_reopens_a_holding_plan_once_and_leaves_a_codex_plan(
     assert_eq!(ended[0]["reason"], reason);
     assert_eq!(fixture.state(holding), "open");
     assert_eq!(fixture.state(codex), "waiting");
-}
-
-fn plan_rows(connection: &Connection) -> Vec<Vec<SqlValue>> {
-    let mut statement = connection
-        .prepare("SELECT * FROM plans ORDER BY id")
-        .expect("the read prepares");
-    let columns = statement.column_count();
-    statement
-        .query_map([], |row| {
-            (0..columns)
-                .map(|index| row.get::<_, SqlValue>(index))
-                .collect::<rusqlite::Result<Vec<_>>>()
-        })
-        .expect("the rows read")
-        .collect::<rusqlite::Result<Vec<_>>>()
-        .expect("every row reads")
-}
-
-// The rows a rebuild writes from the log are the rows the live writes wrote: a plan proposed and
-// left waiting, one kept with its device and instant, and one whose hold ended. Killed by a fold
-// arm that drops an event or writes another column than its live write.
-#[tokio::test]
-async fn a_rebuild_writes_the_plan_rows_the_live_writes_wrote() {
-    let fixture = Fixture::new().await;
-    fixture.take(false).await;
-    let kept = fixture.take(true).await;
-    let lost = fixture.take(true).await;
-    let device_id = DeviceId::new("device-1".to_owned()).expect("a device id");
-    let kept_at = WireInstant::try_from("2026-10-21T05:00:00.000Z".to_owned())
-        .expect("the test's instant reads");
-    // The verdict's write as the plan's verdict call makes it.
-    fixture
-        .store
-        .appender
-        .append(
-            SessionEventDraft::of_session(
-                fixture.store.session_id,
-                &SessionEvent::PlanKept(PlanKeptPayload {
-                    plan_id: kept,
-                    session_id: fixture.store.session_id,
-                    device_id: device_id.clone(),
-                }),
-            )
-            .expect("the verdict drafts"),
-            SessionEventLinkage {
-                occurred_at: Some(kept_at.clone()),
-                transactional_prelude: vec![settle_verdict_statement(
-                    &kept,
-                    PlanState::Open,
-                    None,
-                    &device_id,
-                    &kept_at,
-                )],
-                ..SessionEventLinkage::default()
-            },
-        )
-        .await
-        .expect("the verdict is written");
-    fixture
-        .plans
-        .end_plan_hold(ProviderPlanHoldEnd {
-            session_id: fixture.store.session_id,
-            plan_id: lost,
-            reason: PlanHoldEndedReason::Interrupted,
-        })
-        .await
-        .expect("the hold ends");
-    let reader = fixture.store.database.reader();
-    let live = plan_rows(&reader);
-
-    let pool = Arc::new(DatabaseReadPool::new(
-        fixture.store.database.path(),
-        PROJECTION_REBUILD_STATEMENT_CAPACITY + SESSION_SERVICE_STATEMENT_CAPACITY,
-    ));
-    let reads_whole: Arc<DamagedFromSequenceReader> =
-        Arc::new(|_session_id: &SessionId| -> Option<i64> { None });
-    ProjectionRebuildService::new(
-        Arc::clone(&pool),
-        Arc::clone(&fixture.store.writer),
-        Arc::new(SessionService::new(pool, reads_whole)),
-        Arc::new(DatabaseDamageWatch::new()),
-        vec![Box::new(PlansProjection)],
-    )
-    .rebuild(
-        ProjectionRebuildRequest {
-            session_id: fixture.store.session_id,
-            is_forced: true,
-            before_sequence: None,
-            stop: None,
-        },
-        None,
-    )
-    .await
-    .expect("the session's plans are rebuilt");
-
-    assert_eq!(plan_rows(&reader), live);
 }

@@ -5,7 +5,7 @@
 //! items again in their new order, a page at a time, at the session's newest cursor.
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{LazyLock, Mutex, MutexGuard};
 
 use rusqlite::{Connection, named_params};
 use sidekicks_contracts::agent::tree::ChildHandle;
@@ -24,6 +24,7 @@ use crate::database::stored_column::safe_int_column;
 use crate::events::session::read::{
     SessionEventReads, SessionLogReadError, readable_event_sql, session_read_bound,
 };
+use crate::mutex_lock::lock;
 use crate::queue::store::summary::summary_of;
 use crate::queue::store::{COLUMN_COUNT, COLUMNS, QUEUE_ORDER, QueueItemRecord, record_of};
 
@@ -197,7 +198,7 @@ impl QueueChangeSignals {
 
     // No code panics while it holds the table, so a poisoned lock still holds a whole one.
     fn lock(&self) -> MutexGuard<'_, QueueSignalTable> {
-        self.table.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.table)
     }
 }
 

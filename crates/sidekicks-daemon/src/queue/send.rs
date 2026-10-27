@@ -18,6 +18,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
 
 use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::KeyHold;
 use crate::queue::admission::QueueAdmission;
@@ -325,13 +326,7 @@ impl QueueSends {
 
     // The refusal of a session that no longer takes messages, by the state it reads now.
     async fn refuse_closed_session(&self, session_id: SessionId) -> QueueError {
-        let state = self
-            .deps
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(QueueItemReader::new(reader).read_session_state(&session_id)?)
-            })
-            .await;
+        let state = read_session_state_through::<QueueError>(&self.deps.pool, session_id).await;
         match state {
             Ok(Some(state)) => match refuse_unchangeable_session(&session_id, state) {
                 Err(refusal) => refusal.into(),

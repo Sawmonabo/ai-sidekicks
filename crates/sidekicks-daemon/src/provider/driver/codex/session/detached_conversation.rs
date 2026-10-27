@@ -5,12 +5,13 @@
 
 use std::error::Error;
 use std::future::Future;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::value::RawValue;
 use tokio::sync::mpsc;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::run::turn_interrupt::{
     CodexTurnInterrupt, interrupt_codex_turn,
 };
@@ -49,22 +50,14 @@ impl CodexDetachedFrames {
 impl CodexConnectionEvents for CodexDetachedFrames {
     // A pass that already ended has no use for a late frame.
     fn notification(&self, method: &str, params: Box<RawValue>) {
-        if let Some(frames) = self
-            .frames
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-        {
+        if let Some(frames) = lock(&self.frames).as_ref() {
             let _unread = frames.send((method.to_owned(), params));
         }
     }
 
     // A drop ends the pass's requests and its wait for the next frame.
     fn dropped(&self, _reason: &str) {
-        self.frames
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        lock(&self.frames).take();
     }
 
     // The throwaway conversation asks for nothing.

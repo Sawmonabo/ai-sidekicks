@@ -6,10 +6,12 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::Connection;
+use sidekicks_contracts::provider::id::ProviderId;
 
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::provider::driver::{PROVIDERS, ProviderDescriptor};
+use crate::provider::driver::ProviderDescriptor;
+use crate::provider::driver::registry::ProviderRegistry;
 
 const ACCOUNT_HOMES_SQL: &str =
     "SELECT account_id, provider, credential_home_path FROM provider_accounts";
@@ -63,37 +65,44 @@ fn query_account_homes(connection: &Connection) -> Result<Vec<AccountHome>, Acco
     Ok(homes)
 }
 
-/// The diagnostic folders `provider`'s descriptor names, under `home`.
-pub(crate) fn account_home_diagnostic_folders(provider: &str, home: &Path) -> Vec<PathBuf> {
-    descriptor_folders(provider, home, |descriptor| {
+/// The diagnostic folders `provider`'s descriptor in `providers` names, under `home`.
+pub(crate) fn account_home_diagnostic_folders(
+    providers: &ProviderRegistry,
+    provider: &str,
+    home: &Path,
+) -> Vec<PathBuf> {
+    descriptor_folders(providers, provider, home, |descriptor| {
         descriptor.account_home_diagnostic_folders
     })
     .map(|(_, folder)| folder)
     .collect()
 }
 
-/// The conversation folders `provider`'s descriptor names, each with its components, under `home`.
+/// The conversation folders `provider`'s descriptor in `providers` names, each with its
+/// components, under `home`.
 pub(crate) fn account_home_conversation_folders(
+    providers: &ProviderRegistry,
     provider: &str,
     home: &Path,
 ) -> Vec<(&'static [&'static str], PathBuf)> {
-    descriptor_folders(provider, home, |descriptor| {
+    descriptor_folders(providers, provider, home, |descriptor| {
         descriptor.account_home_conversation_folders
     })
     .collect()
 }
 
 // The folders `folders_of` reads from `provider`'s descriptor, each with its components, under
-// `home`.
+// `home`; an account whose provider no driver answers names none.
 fn descriptor_folders<'home>(
-    provider: &'home str,
+    providers: &ProviderRegistry,
+    provider: &str,
     home: &'home Path,
     folders_of: fn(&ProviderDescriptor) -> &'static [&'static [&'static str]],
 ) -> impl Iterator<Item = (&'static [&'static str], PathBuf)> + 'home {
-    PROVIDERS
-        .iter()
-        .filter(move |descriptor| descriptor.id == provider)
-        .flat_map(move |descriptor| folders_of(descriptor))
+    ProviderId::new(provider.to_owned())
+        .and_then(|provider| providers.descriptor(&provider).ok())
+        .into_iter()
+        .flat_map(folders_of)
         .map(move |components| {
             let folder = components
                 .iter()

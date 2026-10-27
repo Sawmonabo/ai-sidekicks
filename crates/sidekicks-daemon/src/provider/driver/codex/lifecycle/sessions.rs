@@ -212,7 +212,7 @@ impl CodexDriver {
             for run_id in runs {
                 if let Err(error) = parts.engine.end_turn_on_close(run_id).await {
                     tracing::warn!(
-                        error = &error as &(dyn std::error::Error + 'static),
+                        error = &*error as &(dyn std::error::Error + 'static),
                         %session_id,
                         %run_id,
                         "the run of a closed codex session could not be ended"

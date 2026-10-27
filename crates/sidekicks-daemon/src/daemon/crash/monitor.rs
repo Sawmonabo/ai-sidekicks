@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::atomic::AtomicBool;
 use std::sync::mpsc::{RecvTimeoutError, sync_channel};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -31,6 +31,7 @@ use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::data_folder::data_folder;
 use crate::error_description::describe_error;
 use crate::missing_entry::MissingEntry as _;
+use crate::mutex_lock::lock;
 use crate::standard_error::write_error_line;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
@@ -399,7 +400,7 @@ impl ServerHandler for DumpWriter {
                 return Err(io::Error::new(failure.failure.kind(), failure));
             }
         };
-        *self.writing.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.clone());
+        *lock(&self.writing) = Some(path.clone());
         Ok((file, path))
     }
 
@@ -414,11 +415,7 @@ impl ServerHandler for DumpWriter {
                 }
             }
             Err(failure) => {
-                let writing = self
-                    .writing
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take();
+                let writing = lock(&self.writing).take();
                 let removal_failures = writing
                     .into_iter()
                     .filter_map(|path| remove_leftover(&path));
@@ -438,7 +435,7 @@ impl ServerHandler for DumpWriter {
 
     fn on_message(&self, kind: u32, buffer: Vec<u8>) {
         if kind == PANIC_MESSAGE_KIND {
-            *self.panic.lock().unwrap_or_else(PoisonError::into_inner) = Some(buffer);
+            *lock(&self.panic) = Some(buffer);
         }
     }
 
@@ -463,11 +460,7 @@ impl DumpWriter {
             .file
             .sync_all()
             .and_then(|()| {
-                let panic = self
-                    .panic
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .take();
+                let panic = lock(&self.panic).take();
                 match panic {
                     Some(record) => {
                         replace_file_atomically(

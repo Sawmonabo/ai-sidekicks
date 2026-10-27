@@ -3,7 +3,7 @@
 //! newest value waits, so a slow reader costs at most one value and always ends on the newest.
 
 use std::future::Future;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -11,6 +11,7 @@ use tokio::sync::Notify;
 
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{Feed, SendGate};
+use crate::mutex_lock::lock;
 
 /// What waits between a source and its feed.
 struct WaitingValue<Emission> {
@@ -32,7 +33,7 @@ struct SourceValue<Emission> {
 
 impl<Emission> SourceValue<Emission> {
     fn lock(&self) -> MutexGuard<'_, WaitingValue<Emission>> {
-        self.waiting.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.waiting)
     }
 }
 

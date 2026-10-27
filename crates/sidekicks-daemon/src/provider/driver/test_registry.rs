@@ -1,23 +1,21 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, and a run bound to the first
-//! one; the run, session and message ids the drivers' tests mint, the run ends they read back,
-//! and the run queue's intake as a driver tells it.
+//! one; the run, session and message ids the drivers' tests mint, and the run queue's intake as a
+//! driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
-use serde_json::Value;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
-use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
@@ -26,11 +24,11 @@ use tokio::sync::Notify;
 
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::{TestLog, open_log};
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
 use crate::ipc::caller_process::provider_services::ProviderServiceProcesses;
 use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::command_search::ProviderCommandSearch;
@@ -42,16 +40,10 @@ use crate::provider::driver::ports::{
 };
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
-use crate::provider::port::run_state_publisher::RunStatePublisher;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::RuntimeBindingRebind;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::tests::test_engine;
-use crate::session::run::epochs::ExecutionEpochs;
-use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::transitions::RUN_TERMINAL_EVENT_TYPES_SQL;
 
 /// The statements a test's read pool caches.
 const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
@@ -126,6 +118,8 @@ pub(crate) fn test_driver_services() -> DriverServices {
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         runtime_bindings: Arc::new(NothingServed),
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
+        background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
+        dispatches_hook_mode: false,
         ports: Arc::new(DriverPorts::new()),
     }
 }
@@ -193,64 +187,6 @@ pub(crate) fn bind_run_to_first_provider(
     RuntimeBindingId::new(binding_id).expect("a minted UUID is a binding id")
 }
 
-/// The daemon's own run engine and inbound dispatch on a test's database, which a driver's tests
-/// register as the driver's ports, with the dispatch's epochs and the log the engine writes.
-pub(crate) struct TestRunPorts {
-    /// The engine, every run's folders under the home it was opened on.
-    pub(crate) engine: Arc<RunEngine>,
-    /// The dispatch over the engine.
-    pub(crate) dispatch: Arc<RunInboundDispatch>,
-    /// The dispatch's execution epochs.
-    pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
-    /// The event log the engine writes through.
-    pub(crate) log: TestLog,
-}
-
-impl TestRunPorts {
-    /// The engine and dispatch on `database`, every run's folders under `home`, the dispatch
-    /// reading its bindings' cursors from `epochs`; no run state stream reads its states.
-    pub(crate) async fn open(
-        database: &TestDatabase,
-        home: &Path,
-        epochs: ExecutionEpochs,
-    ) -> Self {
-        let log = open_log(database, None).await;
-        let engine = test_engine(database, Arc::clone(&log.service), home);
-        let epochs = Arc::new(Mutex::new(epochs));
-        let dispatch = Arc::new(RunInboundDispatch::new(
-            Arc::clone(&engine),
-            Arc::clone(&epochs),
-            Arc::new(UnreadRunStates),
-            Arc::clone(&log.service),
-        ));
-        Self {
-            engine,
-            dispatch,
-            epochs,
-            log,
-        }
-    }
-
-    /// Registers the engine and the dispatch as `ports`' run engine and inbound dispatch.
-    pub(crate) fn register_on(&self, ports: &DriverPorts) {
-        ports
-            .run_engine
-            .register(Arc::clone(&self.engine))
-            .expect("the run engine registers once");
-        ports
-            .inbound_dispatch
-            .register(Arc::clone(&self.dispatch))
-            .expect("the dispatch registers once");
-    }
-}
-
-/// A run-state stream no one reads.
-struct UnreadRunStates;
-
-impl RunStatePublisher for UnreadRunStates {
-    fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
-}
-
 /// A minted run id.
 pub(crate) fn new_run_id() -> RunId {
     RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")
@@ -264,30 +200,6 @@ pub(crate) fn new_session_id() -> SessionId {
 /// A minted id of a queued message.
 pub(crate) fn new_message_id() -> QueueItemId {
     QueueItemId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is a queue item id")
-}
-
-/// Each terminal event of `run_id` in `database`, in order, with whether its end was the daemon's
-/// intended close.
-pub(crate) fn terminal_events(
-    database: &TestDatabase,
-    run_id: RunId,
-) -> Vec<(String, Option<bool>)> {
-    database
-        .reader()
-        .prepare(&format!(
-            "SELECT type, payload FROM session_events WHERE run_id = ?1 AND type IN ({}) \
-             ORDER BY sequence",
-            *RUN_TERMINAL_EVENT_TYPES_SQL
-        ))
-        .expect("the test reads the run's events")
-        .query_map([run_id.text().as_str()], |row| {
-            let payload: String = row.get(1)?;
-            let payload: Value = serde_json::from_str(&payload).expect("a stored payload is JSON");
-            Ok((row.get(0)?, payload["intendedClose"].as_bool()))
-        })
-        .expect("the run's events read")
-        .collect::<Result<_, _>>()
-        .expect("each event reads")
 }
 
 /// What the run queue's intake was told, telling a waiter at each.

@@ -1,5 +1,6 @@
 //! The database: its schema, SQLite connections, the one writer and its batches, statements,
-//! checkpoints, reads scoped to every session or one, and reading stored columns as typed values.
+//! checkpoints, reads scoped to every session or one, reading stored columns as typed values, and
+//! the paths of the files SQLite keeps beside the database file.
 
 pub(crate) mod checkpoint;
 pub mod connection;
@@ -9,3 +10,13 @@ pub(crate) mod sql_list;
 pub(crate) mod statement;
 pub(crate) mod stored_column;
 pub mod writer;
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+
+/// `database_path` with `suffix` added to its file name: `daemon.db` becomes `daemon.db-wal`.
+pub(crate) fn sibling_path(database_path: &Path, suffix: &str) -> PathBuf {
+    let mut path = OsString::from(database_path.as_os_str());
+    path.push(suffix);
+    PathBuf::from(path)
+}

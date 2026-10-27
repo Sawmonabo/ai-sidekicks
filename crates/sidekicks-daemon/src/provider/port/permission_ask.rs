@@ -7,29 +7,23 @@ use std::path::PathBuf;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sidekicks_contracts::approval::{ApprovalRequestId, RememberedRuleSense, RememberedScopeKind};
+use sidekicks_contracts::approval::{ApprovalRequestId, RememberedScopeKind};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use strum::{EnumDiscriminants, IntoStaticStr};
+
+use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 
 /// What the held call would do, read by the driver from its provider's own ask: run a command,
 /// send input to the running command the ask's tool call names, change files, read one file or
 /// folder, reach a host, or call a tool none of those covers. Its kind without the subject, as a
 /// standing rule names it, is [`ProviderAskActionKind`], spelled as the approval store writes it;
 /// the store keeps the whole action as JSON tagged by its `kind`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, EnumDiscriminants)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
     rename_all_fields = "camelCase",
     deny_unknown_fields
-)]
-#[strum_discriminants(
-    name(ProviderAskActionKind),
-    doc = "The kind of action a held call would take, without its subject, as a standing rule \
-           names it.",
-    derive(IntoStaticStr, Hash),
-    strum(serialize_all = "camelCase")
 )]
 pub(crate) enum ProviderAskAction {
     /// Run a command.
@@ -62,6 +56,20 @@ pub(crate) enum ProviderAskAction {
         /// The tool's name.
         tool_name: String,
     },
+}
+
+impl From<&ProviderAskAction> for ProviderAskActionKind {
+    /// The kind of action `action` would take, as a standing rule names it.
+    fn from(action: &ProviderAskAction) -> Self {
+        match action {
+            ProviderAskAction::Command { .. } => Self::Command,
+            ProviderAskAction::CommandInput { .. } => Self::CommandInput,
+            ProviderAskAction::FileChange { .. } => Self::FileChange,
+            ProviderAskAction::FileRead { .. } => Self::FileRead,
+            ProviderAskAction::Network { .. } => Self::Network,
+            ProviderAskAction::Tool { .. } => Self::Tool,
+        }
+    }
 }
 
 impl ProviderAskAction {
@@ -137,22 +145,6 @@ pub(crate) struct ProviderPermissionAskWithdrawal {
     pub(crate) session_id: SessionId,
     /// The provider's own request id.
     pub(crate) request_id: String,
-}
-
-/// A standing rule the provider keeps: an allow made on an approval or a host's block made on a
-/// network decline, for the session or in the project's own rule file. `subject` is the words the
-/// card named, of the kind of action the ask was: a command's program and first subcommand, a
-/// file's path, a host, or a tool's name.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ProviderAskRule {
-    /// The rule's reach.
-    pub(crate) kind: RememberedScopeKind,
-    /// Whether it allows or blocks.
-    pub(crate) sense: RememberedRuleSense,
-    /// The kind of action it covers.
-    pub(crate) action: ProviderAskActionKind,
-    /// The words the card named.
-    pub(crate) subject: String,
 }
 
 /// The rule an answer made, with the folders a project rule is written into: every live working

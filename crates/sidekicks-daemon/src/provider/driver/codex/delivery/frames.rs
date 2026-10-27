@@ -13,7 +13,7 @@ mod reviews;
 pub(crate) mod turns;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
@@ -24,6 +24,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::mutex_lock::lock;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
@@ -35,15 +36,16 @@ use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
 use crate::provider::driver::run_control::RunToolBoundary;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
+use crate::provider::port::run_host::RunHost;
 use crate::provider::port::running_command_publisher::RunningCommandPublisher;
 use crate::provider::record_readers::read_non_empty_string;
+use crate::provider::run::delivery::{InboundDelivery, InboundOutcome};
+use crate::provider::run::turn_end::ProviderTurnEnd;
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::engine::turns::ProviderTurnEnd;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome, RunInboundDispatch};
 
 /// What the rest of the Codex driver does for a frame, which the frame delivery cannot do itself.
 pub(crate) trait CodexFrameEffects: Send + Sync {
@@ -73,9 +75,9 @@ pub(crate) trait CodexFrameEffects: Send + Sync {
 /// What the frame delivery reads and acts through.
 pub(crate) struct CodexFrameDeliveryDependencies {
     /// The run engine, which opens each turn and counts its steps.
-    pub(crate) engine: Arc<RunEngine>,
+    pub(crate) engine: Arc<dyn RunHost>,
     /// The run engine's inbound dispatch, where every row and move goes.
-    pub(crate) dispatch: Arc<RunInboundDispatch>,
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
     /// The driver's run routes.
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// The approval service's intake of the reviewer's blocks.
@@ -287,9 +289,7 @@ impl CodexFrameDelivery {
     }
 
     pub(super) fn lock_diagnostics(&self) -> MutexGuard<'_, OnceReportedDiagnostics> {
-        self.diagnostics
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.diagnostics)
     }
 
     /// Hands one delivery to the run engine, reporting its failure; `None` when it failed.
@@ -306,7 +306,7 @@ impl CodexFrameDelivery {
         };
         // Boxed per delivery, so the engine's dispatch never sits inside every frame's future.
         Box::pin(dispatch_delivery(
-            &self.dependencies.dispatch,
+            &*self.dependencies.dispatch,
             origin,
             delivery,
         ))

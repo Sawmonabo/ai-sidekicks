@@ -3,10 +3,12 @@
 //! session's own thread, and every child thread a helper opened beneath it.
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::session::id::SessionId;
+
+use crate::mutex_lock::lock;
 
 /// A frame the service sent, held while a start or fork that may claim its thread is in flight.
 #[derive(Clone, Debug)]
@@ -122,7 +124,7 @@ impl CodexServiceThreads {
     /// took. It locks `threads` to open and to close, so it is never dropped under that lock.
     pub(crate) fn begin_claim(threads: &Arc<Mutex<Self>>) -> ThreadClaim {
         let report_unclaimed = {
-            let mut index = threads.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut index = lock(threads);
             index.claims_in_flight += 1;
             Arc::clone(&index.report_unclaimed)
         };
@@ -162,7 +164,7 @@ pub(crate) struct ThreadClaim {
 impl Drop for ThreadClaim {
     fn drop(&mut self) {
         let unclaimed: Vec<CodexHeldThreadFrame> = {
-            let mut index = self.threads.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut index = lock(&self.threads);
             index.claims_in_flight -= 1;
             if index.claims_in_flight > 0 {
                 return;

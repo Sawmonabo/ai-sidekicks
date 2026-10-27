@@ -33,8 +33,8 @@ use crate::provider::driver::claude::spawn::launch::one_turn::{
 };
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::runtime_binding::test_store::spawned_build;
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The build every scripted process reports.
 pub(crate) const SCRIPTED_BUILD_VERSION: &str = "2.1.0";
@@ -47,6 +47,8 @@ pub(crate) struct ScriptedStartRecord {
     pub(crate) listener: Arc<dyn ClaudeProcessListener>,
     /// The advisor it starts with.
     pub(crate) advisor: ClaudeSessionAdvisor,
+    /// The step bound it starts with.
+    pub(crate) step_bound: Option<u32>,
 }
 
 /// One one-turn process the driver asked for.
@@ -183,6 +185,7 @@ impl ClaudeProcessStarts for ScriptedStarts {
                     conversation: request.conversation,
                     listener: request.listener,
                     advisor: request.spawn.legs.advisor.clone(),
+                    step_bound: request.spawn.step_bound,
                 });
                 (
                     channel,

@@ -23,7 +23,7 @@ mod tests;
 mod withdraw;
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::run::id::RunId;
@@ -41,12 +41,14 @@ use crate::database::statement::WriteStatement;
 use crate::events::session::appender::SessionEventDraft;
 use crate::ipc::handlers::driver::resolution::{LiveRunDriverError, read_run_driver};
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::ProviderDriver;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     ApplyInterventionParams, InterruptPendingChoice, RunToolBoundary, SteerPayload,
 };
+use crate::provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 use crate::queue::delivery::chain::{ChainJob, SessionChain};
 use crate::queue::delivery::state::{DeliveryState, HandRoute, is_kept_by_process};
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
@@ -59,49 +61,6 @@ use crate::session::run::read::{RunRead, RunStateReader, read_run_through, safe_
 
 /// How long a change waits for a provider to give its handed messages back.
 pub(crate) const WITHDRAW_DEADLINE: Duration = Duration::from_secs(10);
-
-/// One provider process as the daemon started it: the operating system's id for it, which a later
-/// process may reuse, and the daemon-wide count of its spawn, which no later spawn repeats.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderProcessIdentity {
-    /// The operating system's process id.
-    pub(crate) process_id: u32,
-    /// The spawn's place in the daemon's one count of provider spawns.
-    pub(crate) spawn_sequence: u64,
-}
-
-/// The identity of each session's provider process.
-pub(crate) trait ProviderProcessIds: Send + Sync {
-    /// The identity of `session_id`'s provider process, or `None` while none runs.
-    fn process_identity(&self, session_id: &SessionId) -> Option<ProviderProcessIdentity>;
-}
-
-/// The provider process a test's session runs.
-#[cfg(test)]
-pub(crate) const TEST_PROVIDER_PROCESS: ProviderProcessIdentity = ProviderProcessIdentity {
-    process_id: 7,
-    spawn_sequence: 1,
-};
-
-/// A test's session's provider process, as the test sets it; none runs until it sets one.
-#[cfg(test)]
-#[derive(Default)]
-pub(crate) struct ProcessStandIn(Mutex<Option<ProviderProcessIdentity>>);
-
-#[cfg(test)]
-impl ProcessStandIn {
-    /// Makes `process` the session's provider process; `None` when none runs.
-    pub(crate) fn set(&self, process: Option<ProviderProcessIdentity>) {
-        *crate::mutex_lock::lock(&self.0) = process;
-    }
-}
-
-#[cfg(test)]
-impl ProviderProcessIds for ProcessStandIn {
-    fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
-        *crate::mutex_lock::lock(&self.0)
-    }
-}
 
 /// Which waiting messages open a run whose driver is being started.
 pub(crate) trait OpeningMessages: Send + Sync {
@@ -704,10 +663,7 @@ impl QueueDelivery {
     // The delivery's state. No holder awaits or panics while it changes the state, so a poisoned
     // lock still guards a whole state.
     fn lock_state(&self) -> MutexGuard<'_, DeliveryState> {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.shared.state)
     }
 
     fn forget_hand(&self, item_id: QueueItemId) {

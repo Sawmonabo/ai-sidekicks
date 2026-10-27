@@ -20,9 +20,9 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::provider::driver::codex::delivery::patches::read_codex_patch_files;
 use crate::provider::driver::reorder_buffer::{ReorderBufferedEvent, ReorderPairingRole};
 use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::delivery::DeliveryOperation;
+use crate::provider::run::delivery::LateAppendableRow;
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::text_cut::cut_to_code_points;
 use crate::transcript::whole_patch::{omitted_patches_of, stored_patch_files_body};
 

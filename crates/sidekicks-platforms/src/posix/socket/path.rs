@@ -42,12 +42,20 @@ pub fn read_socket_path_entry(path: &Path) -> io::Result<SocketPathEntry> {
     }
 }
 
+/// A new folder, removed with everything in it when dropped, short enough that a socket a few
+/// folders deep inside it stays under the system's limit: under `/tmp`, since macOS's own
+/// temporary folder takes half the limit. Fails with the folder's making error.
+#[cfg(any(test, feature = "test-support"))]
+pub fn short_socket_folder() -> io::Result<tempfile::TempDir> {
+    tempfile::tempdir_in("/tmp")
+}
+
 #[cfg(test)]
 mod tests {
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::UnixListener;
 
-    use super::{check_socket_path, read_socket_path_entry};
+    use super::{check_socket_path, read_socket_path_entry, short_socket_folder};
     use crate::socket::path::{SocketPathEntry, SocketPathRefused};
 
     // Written out rather than read from the struct, so a wrong measure of `sun_path` fails here.
@@ -55,8 +63,7 @@ mod tests {
 
     #[test]
     fn a_path_at_the_limit_binds_and_one_byte_more_is_too_long() {
-        // Under `/tmp`, so the scratch folder leaves room for a name before the limit.
-        let scratch = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        let scratch = short_socket_folder().expect("a scratch folder");
         let folder_bytes = scratch.path().as_os_str().as_bytes().len();
         let name_bytes = EXPECTED_LIMIT - folder_bytes - 1;
         let at_limit = scratch.path().join("s".repeat(name_bytes));
@@ -80,7 +87,7 @@ mod tests {
     // refused, which would remove it, and a dangling link as absent, which would fail every bind.
     #[test]
     fn only_a_socket_reads_as_a_socket_and_a_file_or_a_dangling_link_as_something_else() {
-        let scratch = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        let scratch = short_socket_folder().expect("a scratch folder");
         let socket = scratch.path().join("socket");
         let _listener = UnixListener::bind(&socket).expect("a listener binds");
         let file = scratch.path().join("file");

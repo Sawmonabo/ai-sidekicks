@@ -45,6 +45,7 @@ use tokio_util::task::TaskTracker;
 use crate::file::bounded_read::{read_within_ceiling, run_on_own_thread};
 use crate::file::real_location::resolve_real_path;
 use crate::missing_entry::is_missing_entry;
+use crate::mutex_lock::lock;
 
 mod ceiling;
 mod root_watchers;
@@ -54,7 +55,7 @@ mod walk;
 
 use ceiling::{CeilingMisses, CeilingRetryOutcome, log_watch_ceiling, retry_after_ceiling};
 use root_watchers::{RootWatchers, arms_each_folder};
-use walk::{WalkOutput, WalkRequest, arm_roots, lock, walk};
+use walk::{WalkOutput, WalkRequest, arm_roots, walk};
 
 /// How many of the system's events wait for the reader; past it the feed is marked lost and one
 /// rescan of every root replaces what was dropped, so a burst costs a walk, never memory.
@@ -176,6 +177,7 @@ impl EventHandler for ChangeFeed {
 /// One watch over a set of roots, read by its owner one notice at a time; dropping it ends the
 /// system's watch, any walk under way and any retry after the ceiling.
 pub(crate) struct FileWatch<W = RecommendedWatcher> {
+    // A watcher whose holder panicked is still whole, since each call on it stands alone.
     watcher: Arc<Mutex<RootWatchers<W>>>,
     roots: Vec<PathBuf>,
     // The roots on a network file system, polled rather than watched by the system.

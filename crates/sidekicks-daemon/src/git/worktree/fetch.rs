@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -45,6 +45,7 @@ use crate::git::process::{
     CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner, background_read,
     in_folder,
 };
+use crate::mutex_lock::lock;
 use crate::workspace::clone::progress::GitProgressReader;
 use crate::workspace::clone::streamed_git::run_streamed_git;
 
@@ -232,11 +233,7 @@ impl BackgroundFetch {
             }
         }
         self.shared.stop.cancel();
-        let lane = self
-            .lane
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let lane = lock(&self.lane).take();
         if let Some(lane) = lane
             && let Err(error) = lane.await
         {
@@ -267,7 +264,7 @@ impl BackgroundFetch {
 impl FetchShared {
     fn lock_state(&self) -> MutexGuard<'_, FetchState> {
         // The state holds no invariant a panicking holder could break.
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     // Puts `repo_mount_id` on the due queue, unless it is there already or the fetch has stopped.

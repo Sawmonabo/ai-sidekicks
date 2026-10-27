@@ -6,15 +6,17 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use tokio::time::Instant;
 
 use super::{ClaudeDeliveryStream, ClaudeSessionStream, bound};
+use crate::provider::driver::claude::delivery::claude_delivery_origin;
 use crate::provider::driver::claude::delivery::run_readings::{
     ClaudeMessageKey, ClaudeRowDelivery,
 };
 use crate::provider::driver::claude::delivery::streamed_blocks::ClaudeStreamedPiece;
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
+use crate::provider::driver::delivery_dispatch::dispatch_delivery;
 use crate::provider::driver::reorder_buffer::ReorderBufferedEvent;
-use crate::session::run::engine::RunMarker;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
+use crate::provider::run::delivery::{
+    InboundDelivery, InboundOutcome, LateAppendableRow, RunMarker,
+};
 
 impl ClaudeDeliveryStream {
     // Admits rows through the reorder buffer and sends what it releases.
@@ -123,9 +125,7 @@ impl ClaudeDeliveryStream {
         delivery: InboundDelivery<'_>,
         wire: Option<&str>,
     ) -> Option<InboundOutcome> {
-        self.dependencies
-            .engine
-            .deliver(session.provider_account_id.clone(), wire, delivery)
-            .await
+        let origin = claude_delivery_origin(session.provider_account_id.clone(), wire);
+        dispatch_delivery(&*self.dependencies.dispatch, origin, delivery).await
     }
 }

@@ -219,8 +219,8 @@ mod tests {
     use sidekicks_search::index::{IndexRowKind, SearchQuery};
 
     use super::HitLineReader;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::provider::driver::diagnostics::RecordedEvents;
-    use crate::session::directory::test_rows::insert_session_row;
     use crate::session::search::index::rows::{
         IndexRowReader, SourceRowRead, empty_index_batch_room,
     };
@@ -236,12 +236,17 @@ mod tests {
     #[case::encoding(RowDamage::Encoding)]
     #[case::encoding_byte(RowDamage::EncodingByte)]
     fn a_search_answers_past_a_hit_whose_row_was_damaged(#[case] damage: RowDamage) {
-        let log = TranscriptTestLog::new();
-        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+        insert_session_row(
+            &log.session_log.writer,
+            log.session_log.session_id.text().as_str(),
+            None,
+            None,
+        );
         let damaged_reply = format!("zebra {}", "words ".repeat(2 * PAGE_MAX_BYTES / 6));
-        let (damaged, _) = log.reply("m1", None, &damaged_reply);
-        log.reply("m2", None, "quokka");
-        let reader = log.reader();
+        let (damaged, _) = log.session_log.reply("m1", None, &damaged_reply);
+        log.session_log.reply("m2", None, "quokka");
+        let reader = log.session_log.reader();
         let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
         let keys: Vec<u64> = rows

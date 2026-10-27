@@ -222,6 +222,7 @@ mod tests {
     use tokio::time::timeout;
 
     use super::{DatabaseReadError, DatabaseReadPool, READ_POOL_SIZE, ReadLength};
+    use crate::database::schema::schema_parts;
     use crate::database::writer::test_file::TestDatabase;
 
     /// Bounds every wait the pool must answer, so a broken limit fails the test.
@@ -255,7 +256,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_read_whose_caller_left_keeps_its_place_and_the_close_waits_for_its_connection() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         drop(database.opener()().expect("the test creates its database"));
         let pool = Arc::new(DatabaseReadPool::new(database.path(), 1));
         let (started_sender, mut started) = tokio::sync::mpsc::unbounded_channel();

@@ -70,7 +70,7 @@ pub async fn unix_domain_listener_process(socket_path: &Path) -> io::Result<Opti
 
 #[cfg(all(test, unix))]
 mod tests {
-    use crate::{bind_socket_listener, pin_running_process};
+    use crate::{bind_socket_listener, pin_running_process, short_socket_folder};
 
     use super::unix_domain_listener_process;
 
@@ -78,8 +78,7 @@ mod tests {
     // by process id alone, or when a path with nothing listening on it reads as a listener.
     #[tokio::test]
     async fn the_listener_of_a_socket_path_is_read_as_its_pinned_process() {
-        // The socket path must fit the system's bound on socket paths.
-        let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder");
+        let folder = short_socket_folder().expect("a scratch folder");
         let socket = folder.path().join("listening.sock");
         let _listener = bind_socket_listener(&socket).expect("the listener binds");
 

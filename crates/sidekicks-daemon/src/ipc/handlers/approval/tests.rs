@@ -8,16 +8,17 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 
 use super::{APPROVAL_METHODS_STATEMENT_CAPACITY, list_approvals};
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::ipc::registry::HandlerError;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::remote::shared_ports::schema::schema_parts;
 
 // A list of a session with no row is refused `session.notFound`, and once its row is written the
 // same list answers its asks, none yet. Killed by dropping the existence read, which answers the
 // unknown session with an empty list.
 #[tokio::test]
 async fn a_list_of_an_unknown_session_is_refused() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let schema = database.opener()().expect("the test creates its database");
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),

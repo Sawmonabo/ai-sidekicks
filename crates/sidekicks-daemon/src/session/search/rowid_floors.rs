@@ -10,7 +10,7 @@
 
 use std::borrow::Cow;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use rusqlite::Connection;
 use rusqlite::types::Value;
@@ -18,6 +18,7 @@ use sidekicks_search::index::IndexRowKind;
 
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::stored_column::text_column;
+use crate::mutex_lock::lock;
 use crate::session::search::index::columns::{index_row_kind_of, source_rowid_of};
 
 const NEWEST_ENTRY_SQL: &str = "SELECT max(id) FROM session_search_rowid_floors";
@@ -163,9 +164,7 @@ impl FloorPositionsInFlight {
 
     fn lock_positions(&self) -> MutexGuard<'_, BTreeMap<i64, usize>> {
         // The counts hold no invariant a panicking holder could break.
-        self.positions
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.positions)
     }
 }
 

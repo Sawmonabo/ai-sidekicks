@@ -16,7 +16,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
@@ -39,6 +39,7 @@ use crate::ipc::registry::{
     Dispatch, DispatchError, HandlerContext, HandlerError, MethodRegistry, MethodRegistryBuilder,
     RegistrationError, Reply, Request, TransportId,
 };
+use crate::mutex_lock::lock;
 
 /// How a handshake's caller is admitted, read once per connection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -482,9 +483,7 @@ impl ProtocolNegotiator {
     }
 
     fn connections(&self) -> MutexGuard<'_, HashMap<TransportId, ConnectionNegotiation>> {
-        self.connections
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.connections)
     }
 }
 

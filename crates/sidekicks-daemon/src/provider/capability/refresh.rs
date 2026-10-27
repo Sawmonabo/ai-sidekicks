@@ -282,6 +282,7 @@ mod tests {
     use tokio::sync::Semaphore;
 
     use super::CapabilityRefresher;
+    use crate::database::schema::provider_drivers::schema_parts;
     use crate::database::writer::test_file::TestDatabase;
     use crate::provider::driver::capabilities::writer::test_capabilities_writer;
     use crate::provider::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
@@ -335,7 +336,7 @@ mod tests {
             descriptor: PROVIDERS[0],
             build: gated_driver,
         }];
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let (refresher, refreshing) = CapabilityRefresher::start(
             Arc::new(ProviderRegistry::register_from(&table, &services)),
             Arc::new(test_capabilities_writer(&database).await),

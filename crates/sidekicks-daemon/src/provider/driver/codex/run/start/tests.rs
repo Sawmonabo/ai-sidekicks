@@ -110,6 +110,10 @@ async fn a_turn_codex_starts_while_a_run_starts_is_that_runs_in_either_order() {
             record.delivery.self_started_turn_ids.is_empty(),
             "no run of the session's own opened (frame first: {is_frame_first})"
         );
+        assert!(
+            session.engine.first_daemon_turn_run().is_none(),
+            "the run engine started no run of the session's own (frame first: {is_frame_first})"
+        );
 
         let record = &mut session.task.record;
         record

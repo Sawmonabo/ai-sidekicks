@@ -163,7 +163,7 @@ pub(crate) fn manifest_write_failure(
 pub(crate) fn artifact_append_failure(failure: SessionEventAppendError) -> ArtifactError {
     match failure {
         SessionEventAppendError::Append(EventAppendError::SessionWriteRefused(refusal)) => {
-            refusal.into()
+            DomainError::from(refusal).into()
         }
         failure @ (SessionEventAppendError::Append(_) | SessionEventAppendError::OccurredAt(_)) => {
             failure.into()

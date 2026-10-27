@@ -5,7 +5,8 @@
 //! appended once on the session's binding at the time it ends, so a fork move changes nothing.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::error::Error;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -23,15 +24,16 @@ use tokio::time::Instant;
 
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::provider::command::channel::PartyId;
 use crate::provider::command::waiting_checks::WaitingState;
 use crate::provider::driver::contract::ProviderDriver;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandParams, RunningCommandPublisher,
     WriteCommandInputParams, command_act_unsupported,
 };
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, RunInboundDispatch};
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 
 mod feed;
 
@@ -66,7 +68,7 @@ pub(crate) trait CommandEndingAppender: Send + Sync {
     ) -> BoxFuture<'_, ()>;
 }
 
-impl CommandEndingAppender for RunInboundDispatch {
+impl<Dispatch: InboundDispatch + ?Sized> CommandEndingAppender for Dispatch {
     fn append(
         &self,
         binding_id: RuntimeBindingId,
@@ -84,7 +86,7 @@ impl CommandEndingAppender for RunInboundDispatch {
         async move {
             if let Err(error) = dispatched.await {
                 tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
+                    error = &*error as &(dyn Error + 'static),
                     "a command's ending was not appended"
                 );
             }
@@ -257,7 +259,7 @@ impl RunningCommandSets {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, SessionCommands>> {
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.sessions)
     }
 
     /// Follows `session_id`'s running commands: the feed sends the whole set at once, then after

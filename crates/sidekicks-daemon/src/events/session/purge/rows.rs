@@ -19,7 +19,7 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 use crate::artifacts::payload_store::{ContentHash, NotAContentHash};
 use crate::database::sql_list::sql_list_of;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
-use crate::database::stored_column::{closed_word, text_column};
+use crate::database::stored_column::text_column;
 use crate::git::turn_snapshot::retention::RunContextKey;
 use crate::session::groups::store::remove_empty_groups_of_session_project_statement;
 use crate::session::run::ids::SESSION_RUN_IDS_SQL;
@@ -111,8 +111,6 @@ static MARK_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-const SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = @sessionId";
-
 const SESSION_PLACE_SQL: &str = "SELECT place FROM sessions WHERE id = @sessionId";
 
 // Every run context of the session: its agent runs', those on its workspaces, and its workflow
@@ -185,7 +183,7 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
-// the gate answers naming it, and an artifact after the reference to its payload.
+// after the gate answers found through it, and an artifact after the reference to its payload.
 const DELETES_THROUGH_SESSION_ROW: [&str; 20] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
@@ -254,20 +252,6 @@ pub(super) fn mark_statement(session_id: SessionId, caller: PurgeCaller) -> Writ
         ]),
         expected_row_count: Some(1),
     }
-}
-
-/// The session's state, `None` when it has no row.
-pub(super) fn read_session_state(
-    connection: &Connection,
-    session_id: SessionId,
-) -> rusqlite::Result<Option<SessionState>> {
-    connection
-        .prepare_cached(SESSION_STATE_SQL)?
-        .query_row(
-            named_params! { "@sessionId": session_id.text().as_str() },
-            |row| text_column(row, 0, closed_word),
-        )
-        .optional()
 }
 
 /// What the purge's files and its receipt need, read once the session is marked. Fails when SQLite

@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_platforms::{
-    CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link, replace_socket_link,
+    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link,
+    replace_socket_link, short_socket_folder,
 };
 
 use super::stand_in::{
@@ -17,7 +18,7 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 
 // The services of one test in a folder whose socket paths fit the system's bound on them.
 fn folder_and_services() -> (tempfile::TempDir, StandInServices) {
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let services = stand_in_services(folder.path(), |program| Arc::new(program));
     (folder, services)
 }
@@ -27,7 +28,7 @@ fn folder_and_services() -> (tempfile::TempDir, StandInServices) {
 // the other running unended rather than draining it to its end and removing its record.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_cut_short_joins_the_socket_link_holder_and_drains_the_other() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
     let (_folder, services) = folder_and_services();
@@ -57,7 +58,7 @@ async fn a_restart_cut_short_joins_the_socket_link_holder_and_drains_the_other()
 // off it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_and_joins() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
     let (_folder, services) = folder_and_services();
@@ -89,7 +90,7 @@ async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_
 // and draining the former service.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_recorded_one() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
     let (_folder, services) = folder_and_services();
@@ -133,7 +134,7 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
 // every later start, so the folder's service never starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_start_launches() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
     let (_folder, services) = folder_and_services();
@@ -177,7 +178,7 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
 // terminals to one about to disconnect them, rather than launching beside it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_draining_service_is_never_where_the_link_is_pointed_back() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
     let (_folder, services) = folder_and_services();
@@ -219,7 +220,7 @@ async fn a_draining_service_is_never_where_the_link_is_pointed_back() {
 // at once, here services stopped mid-drain that never end by themselves.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_restart_finding_every_service_draining_launches_beside_them_at_once() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
     let (_folder, services) = folder_and_services();
@@ -257,10 +258,10 @@ async fn a_restart_finding_every_service_draining_launches_beside_them_at_once()
 // so never ends by itself.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
-    if !CAN_LINK_A_SOCKET {
+    if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let services = stand_in_services(folder.path(), |mut program| {
         program
             .environment

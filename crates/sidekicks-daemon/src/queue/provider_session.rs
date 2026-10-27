@@ -2,13 +2,15 @@
 //! the runtime binding that records it, or, when the session already has a conversation from before
 //! the daemon started, the driver's `resume_session` of it and the binding the resume minted. Each
 //! run after that gets a binding of its own on the session's current leg. A session's opening, its
-//! run bindings and its level moves take one lock, so a process never opens at a level a move is
-//! about to replace, and two moves never store one level while the process runs at the other.
+//! run bindings and its level moves take the session's transition lock, so a process never opens
+//! at a level a move is about to replace, two moves never store one level while the process runs
+//! at the other, and no process opens between a close's end of the provider leg and its
+//! `session.closed` write, nor after it: an opening under the lock refuses a closed session.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
 use serde_json::Map;
@@ -21,12 +23,15 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state_through;
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::ipc::domain_error::DomainError;
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 use crate::policy::execution_posture_service::compose_execution_posture;
 use crate::provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::provider::driver::registry::ProviderRegistry;
@@ -35,7 +40,7 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::resume::{
-    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params, read_session_leg,
+    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
 };
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
@@ -46,15 +51,16 @@ use crate::session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
 };
 use crate::session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use crate::session::run::stored_leg::read_session_leg;
 
 #[cfg(test)]
 pub(crate) mod test_opening;
 #[cfg(test)]
 mod tests;
 
-/// The statements the provider sessions' reads prepare: a session's runs, their bindings, its
-/// mode and its level.
-pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 4;
+/// The statements the provider sessions' reads prepare: a session's state, its runs, their
+/// bindings, its mode and its level.
+pub(crate) const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -99,6 +105,9 @@ pub(crate) struct ProviderSessionsDeps {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// The session-wide transition lock, which a session's close holds from its driver's close
+    /// until its `session.closed` write; each opening, run binding and level move takes it.
+    pub(crate) transition_lock: Arc<KeyedLock<SessionId>>,
 }
 
 /// Why a session's provider session was not opened, a run's binding not recorded or a level not
@@ -145,6 +154,18 @@ pub(crate) enum ProviderSessionError {
     /// The session's newest binding holds no conversation to resume.
     #[error(transparent)]
     NotResumable(#[from] RuntimeBindingNotResumable),
+    /// The session closed, so no process opens for it.
+    #[error("session {session_id} is closed")]
+    Closed {
+        /// The session.
+        session_id: SessionId,
+    },
+    /// The session is being deleted, so no process opens for it.
+    #[error("session {session_id} is being deleted")]
+    BeingDeleted {
+        /// The session.
+        session_id: SessionId,
+    },
     /// The driver's create failed, and the binding recorded for it could not be removed.
     #[error("the provider session of session {session_id} was not created ({create}), and its \
              binding {} could not be removed", .binding_id.as_str())]
@@ -231,8 +252,6 @@ struct OpenedSession {
 pub(crate) struct ProviderSessions {
     deps: ProviderSessionsDeps,
     opened: Mutex<HashMap<SessionId, OpenedSession>>,
-    // One open, run binding or level move per session at a time.
-    open_lock: KeyedLock<SessionId>,
 }
 
 impl ProviderSessions {
@@ -241,7 +260,6 @@ impl ProviderSessions {
         Self {
             deps,
             opened: Mutex::new(HashMap::new()),
-            open_lock: KeyedLock::new(),
         }
     }
 
@@ -262,13 +280,17 @@ impl ProviderSessions {
     /// is moved first, through its driver, so the record never names a level the provider refused;
     /// a store that fails then moves it back and fails. A process not open yet opens at the stored
     /// level. Fails as the driver's move fails, with nothing changed.
-    #[expect(dead_code, reason = "the session controls' level move")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the session controls' level move")
+    )]
     pub(crate) async fn change_level(
         &self,
         session_id: SessionId,
         level: PermissionLevel,
     ) -> Result<(), ProviderSessionError> {
-        let _hold = self.open_lock.acquire(session_id).await;
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
         let stored = self
             .deps
             .pool
@@ -317,16 +339,19 @@ impl ProviderSessions {
 
     /// Opens the session's provider session for `run_id`, its first admitted run, when this process
     /// has not opened it: resumed from the session's newest conversation where it has one, else
-    /// created, with the binding `run_id` runs on. Fails with
-    /// [`ProviderSessionError::ResumeRefused`] for a resume the provider refused, and as the
-    /// composition, the driver or a binding's write fails, with no binding left for a create that
-    /// failed.
+    /// created, with the binding `run_id` runs on. Fails with [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for
+    /// a closed session, with nothing spawned, with [`ProviderSessionError::ResumeRefused`] for a
+    /// resume the provider refused, and as the composition, the driver or a binding's write fails,
+    /// with no binding left for a create that failed.
     pub(crate) async fn open(
         &self,
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), ProviderSessionError> {
-        let hold = self.open_lock.acquire(session_id).await;
+        let hold = self.deps.transition_lock.acquire(session_id).await;
+        // Read under the lock, so a close that ran first has written `session.closed`, and before
+        // the opened entry, which that event's listener drops only later.
+        self.refuse_ended(session_id).await?;
         if self.lock_opened().contains_key(&session_id) {
             return Ok(());
         }
@@ -346,8 +371,24 @@ impl ProviderSessions {
         run_id: RunId,
         session_id: SessionId,
     ) -> Result<RuntimeBindingId, ProviderSessionError> {
-        let hold = self.open_lock.acquire(session_id).await;
+        let hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
         self.bind_run(&hold, run_id).await
+    }
+
+    // Refuses, under the session's hold, a session that takes no process, binding or level: a
+    // closed one, or one being deleted.
+    async fn refuse_ended(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
+        match read_session_state_through::<ProviderSessionError>(&self.deps.pool, session_id)
+            .await?
+        {
+            Some(SessionState::Closed) => Err(ProviderSessionError::Closed { session_id }),
+            Some(SessionState::PurgeRequested) => {
+                Err(ProviderSessionError::BeingDeleted { session_id })
+            }
+            Some(SessionState::Provisioning | SessionState::Active | SessionState::Archived)
+            | None => Ok(()),
+        }
     }
 
     /// Forgets a closed session's provider session, whose process its close ended.
@@ -598,7 +639,7 @@ impl ProviderSessions {
 
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
-        self.opened.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.opened)
     }
 }
 

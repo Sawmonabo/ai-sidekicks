@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use notify::{Config, ErrorKind, EventHandler, NullWatcher, RecursiveMode, Watcher, WatcherKind};
@@ -13,6 +13,7 @@ use super::{
     FileWatch, FileWatchNotice, WalkFilter, WatchedRoot, lowered_for_clock_step,
     wait_for_the_next_whole_second,
 };
+use crate::mutex_lock::lock;
 
 const WAIT: Duration = Duration::from_secs(15);
 
@@ -34,10 +35,7 @@ impl Watcher for CeilingWatcher {
         if CEILING_WATCH_CALLS.fetch_add(1, Ordering::AcqRel) < 2 {
             return Err(notify::Error::new(ErrorKind::MaxFilesWatch));
         }
-        CEILING_WATCHED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(path.to_path_buf());
+        lock(&CEILING_WATCHED).push(path.to_path_buf());
         Ok(())
     }
 
@@ -140,9 +138,7 @@ async fn roots_refused_at_the_ceiling_are_watched_and_walked_on_the_retry() {
             .iter()
             .map(|root| root.join("inside"))
             .collect();
-        let watched = CEILING_WATCHED
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let watched = lock(&CEILING_WATCHED);
         assert!(
             inside.iter().all(|folder| watched.contains(folder)),
             "{watched:?}"

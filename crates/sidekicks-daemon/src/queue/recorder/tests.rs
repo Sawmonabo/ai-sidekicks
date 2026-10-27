@@ -25,13 +25,14 @@ use super::{
     SendRoute,
 };
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::questions::schema::schema_parts;
 use crate::queue::changes::{
     QueueChangeSignals, QueueKey, read_current_queue_cursor, read_queue_changes_after,
 };
 use crate::queue::store::{NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord};
-use crate::session::directory::test_rows::insert_session_row;
 use crate::session::run::engine::tests::insert_running_run;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -51,7 +52,7 @@ struct Fixture {
 }
 
 async fn fixture() -> Fixture {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let session_id = test_session_id();
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);

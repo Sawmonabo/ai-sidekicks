@@ -18,7 +18,6 @@ use crate::provider::driver::run_control::{
     ResumeRunParams,
 };
 use crate::provider::driver::session_control::StartReviewParams;
-use crate::queue::refusals::skill_not_listed;
 
 impl CodexDriver {
     /// Starts one run's turn on its session's conversation; see the run start.
@@ -100,15 +99,15 @@ impl CodexDriver {
         match self.parts()?.controls.start_review(params).await {
             Ok(()) => Ok(()),
             Err(CodexDaemonTurnError::Codex(error)) => Err(error.into()),
-            Err(CodexDaemonTurnError::Engine(error)) => Err(DriverError::Internal(Box::new(error))),
+            Err(CodexDaemonTurnError::Engine(error)) => Err(DriverError::Internal(error)),
         }
     }
 
     /// The skills `picks` names as Codex lists them for the session, each by its name and the
     /// file it loads it from, in the order picked: the live session's listing, else a read on
     /// the service of `provider_account_id`, the account the session's runs are admitted
-    /// against, over the session's folder. Fails with `skill.pathRefused` for a pick Codex does
-    /// not list in that folder, and as the read fails.
+    /// against, over the session's folder. Fails with [`DriverError::SkillNotListed`] for a pick
+    /// Codex does not list in that folder, and as the read fails.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
@@ -153,7 +152,7 @@ impl CodexDriver {
                                 == Some(Path::new(pick.folder_path.as_str()))
                     })
                     .cloned()
-                    .ok_or_else(|| DriverError::Refused(skill_not_listed(pick)))
+                    .ok_or_else(|| DriverError::SkillNotListed(pick.clone()))
             })
             .collect()
     }

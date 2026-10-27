@@ -179,7 +179,7 @@ mod tests {
     };
 
     use super::IndexBatchBuilder;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::session::search::hits::HitLineReader;
     use crate::session::search::index::applier::SearchIndexApplyError;
     use crate::session::search::index::rows::{
@@ -217,16 +217,21 @@ mod tests {
     // batch, and by a hit read without the tail.
     #[test]
     fn a_long_row_applied_over_two_batches_reads_back_as_one_row() {
-        let log = TranscriptTestLog::new();
-        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+        insert_session_row(
+            &log.session_log.writer,
+            log.session_log.session_id.text().as_str(),
+            None,
+            None,
+        );
         let reply = [
             page_text("zebra ", ""),
             page_text("", "alpha "),
             "beta words".to_string(),
         ]
         .concat();
-        log.reply("m1", None, &reply);
-        let reader = log.reader();
+        log.session_log.reply("m1", None, &reply);
+        let reader = log.session_log.reader();
         let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
         let [read] = rows
@@ -302,12 +307,18 @@ mod tests {
     // text they charged, and by leaving the key in the index.
     #[test]
     fn a_row_damaged_after_its_batch_was_handed_over_leaves_nothing_in_the_next() {
-        let log = TranscriptTestLog::new();
-        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
-        log.reply("m1", None, &"alpha ".repeat(PAGE_MAX_BYTES / 5));
-        let (damaged, _) = log.reply("m2", None, &"words ".repeat(PAGE_MAX_BYTES));
-        log.damage_frame(damaged, 5);
-        let reader = log.reader();
+        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+        let session_log = &log.session_log;
+        insert_session_row(
+            &session_log.writer,
+            session_log.session_id.text().as_str(),
+            None,
+            None,
+        );
+        session_log.reply("m1", None, &"alpha ".repeat(PAGE_MAX_BYTES / 5));
+        let (damaged, _) = session_log.reply("m2", None, &"words ".repeat(PAGE_MAX_BYTES));
+        session_log.damage_frame(damaged, 5);
+        let reader = session_log.reader();
         let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
         let [earlier, read] = rows

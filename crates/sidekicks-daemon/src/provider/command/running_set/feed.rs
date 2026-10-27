@@ -3,7 +3,7 @@
 //! costs nothing past the tails the set already keeps.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -15,6 +15,7 @@ use tokio::sync::watch;
 use super::SessionCommands;
 use crate::ipc::registry::HandlerError;
 use crate::ipc::stream::feed::{Feed, SendGate};
+use crate::mutex_lock::lock;
 
 /// The most output bytes a command's live tail keeps: 64 KiB, a terminal's recent scrollback for a
 /// reader that joins late; the whole output lands as the tool call's result.
@@ -85,7 +86,7 @@ impl RunningCommandFeed {
     // The next frame due: the set when it changed since this feed last sent it, else the output
     // of the next command, in row order after the last one served, that has output unread.
     fn next_frame(&mut self) -> Option<AgentCommandSubscribeFrame> {
-        let sessions = self.sessions.lock().unwrap_or_else(PoisonError::into_inner);
+        let sessions = lock(&self.sessions);
         let commands = sessions.get(&self.session_id)?;
         if self.sent_version != Some(commands.commands_version) {
             self.sent_version = Some(commands.commands_version);

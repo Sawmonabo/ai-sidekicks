@@ -13,9 +13,10 @@ use sidekicks_platforms::inotify_watch_ceiling;
 use tokio_util::sync::CancellationToken;
 
 use super::root_watchers::RootWatchers;
-use super::walk::{ROOT_MODE, lock};
+use super::walk::ROOT_MODE;
 use super::whole_seconds_now;
 use crate::file::bounded_read::run_on_own_thread;
+use crate::mutex_lock::lock;
 
 /// How long the watch waits after the ceiling refused a watch before it tries again.
 pub(super) const CEILING_RETRY_WAIT: Duration = Duration::from_secs(5);

@@ -7,7 +7,7 @@ mod asks;
 pub(crate) mod scripted_service;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use futures::future::BoxFuture;
@@ -21,6 +21,7 @@ use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::error_description::describe_error;
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION_METHODS;
 use crate::provider::driver::codex::server_requests::{
     CodexAskKind, CodexRoutedMethod, CodexServerRequestResponder,
@@ -404,7 +405,7 @@ impl Drop for PendingRequestSlot<'_> {
 
 impl ConnectionShared {
     fn lock_state(&self) -> MutexGuard<'_, ConnectionState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     fn close_reason(&self) -> String {

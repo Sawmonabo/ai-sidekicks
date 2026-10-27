@@ -4,6 +4,7 @@
 
 mod approvals;
 mod crash_monitor;
+pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
 pub(crate) mod method_tables;
@@ -58,6 +59,7 @@ use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::daemon::machine::local::{LocalMachineError, read_or_mint_local_machine};
 use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::process::crash_monitor::CrashMonitor;
+use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{
     DatabaseFile, DatabaseFileOpenError, DatabaseFileStart, open_database_file,
 };
@@ -96,6 +98,7 @@ use crate::ipc::stream::subscriptions::Subscriptions;
 use crate::observability::diagnostic_buckets::expiry::{
     DiagnosticExpiryDeps, live_diagnostic_files,
 };
+use crate::plans::store::StoredPlanHolds;
 use crate::policy::authorizer::{Authorizer, RulesLoadError};
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::PROVIDER_REGISTRATIONS;
@@ -475,7 +478,7 @@ impl DaemonProcess {
         let truncation = Arc::clone(&database.truncation);
         let followers = Arc::clone(&database.followers);
         let status = Arc::clone(&database.status);
-        let damage = Arc::clone(&database.damage);
+        let damage = DispatchDamageWatch(Arc::clone(&database.damage));
         let live_runs = database.live_runs.clone();
         let idle_memory = Arc::clone(self.idle_memory.insert(Arc::new(IdleMemoryCollect::start(
             live_runs.clone(),
@@ -525,6 +528,7 @@ impl DaemonProcess {
             Arc::clone(&reads),
             &followers,
             Arc::clone(&scheduler),
+            &StoredPlanHolds,
         ));
         self.repo = Some(build_repo_services(RepoServiceStart {
             home_folder: home_folder.to_path_buf(),
@@ -561,16 +565,6 @@ impl DaemonProcess {
                 clock: wall_clock,
             },
         )?;
-        let backups = Backups::new(BackupDeps {
-            writer: Arc::clone(&writer),
-            event_log,
-            reads: Arc::clone(&reads),
-            truncation,
-            settings: Arc::clone(&settings),
-            home_folder: home_folder.to_path_buf(),
-            read_mirror_roots: mirror_roots_reader(home_folder.to_path_buf(), Arc::clone(&reads)),
-            manifest_facts,
-        });
         let providers = build_providers(
             PROVIDER_REGISTRATIONS,
             ProviderStart {
@@ -586,6 +580,20 @@ impl DaemonProcess {
                 shell_lines: Arc::clone(&shell_lines),
             },
         );
+        let backups = Backups::new(BackupDeps {
+            writer: Arc::clone(&writer),
+            event_log,
+            reads: Arc::clone(&reads),
+            truncation,
+            settings: Arc::clone(&settings),
+            home_folder: home_folder.to_path_buf(),
+            read_mirror_roots: mirror_roots_reader(
+                home_folder.to_path_buf(),
+                Arc::clone(&reads),
+                Arc::clone(&providers.registry),
+            ),
+            manifest_facts,
+        });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
         let drivers = Arc::clone(&providers.registry);
@@ -603,7 +611,7 @@ impl DaemonProcess {
         );
         let negotiator =
             ProtocolNegotiator::new(session_token.clone(), caller_check.admission_check());
-        let subscriptions = Subscriptions::new(Arc::clone(&damage));
+        let subscriptions = Subscriptions::new(Arc::new(damage.clone()));
         negotiator.register_handshake(&mut builder)?;
         subscriptions.register_cancel(&mut builder)?;
         let registry = Arc::new(builder.freeze());

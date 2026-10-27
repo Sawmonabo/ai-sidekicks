@@ -10,11 +10,12 @@
 //! - The wake signal is the operating system's own resume event, which every receiver hears once.
 //! - While no job is pending nothing is armed and no clock is read; otherwise only the first
 //!   deadline and the first instant are.
-//! - A job may run only while no run is live; one that falls due while a run is live is parked
-//!   aside, so it never holds the task, and runs once the count of live runs reaches zero, or at
-//!   the latest at its condition's instant on the wall clock, which the wall clock's timer fires
-//!   at as it does a job's own instant. The count is read again before each run is taken, so a run
-//!   that goes live while earlier jobs run parks the jobs after them.
+//! - A job may run only while the busy count its caller hands the start is zero; one that falls
+//!   due while the count is above zero is parked aside, so it never holds the task, and runs once
+//!   the count reaches zero, or at the latest at its condition's instant on the wall clock, which
+//!   the wall clock's timer fires at as it does a job's own instant. The count is read again
+//!   before each run is taken, so a count that rises while earlier jobs run parks the jobs after
+//!   them.
 //! - A job with a processor budget registers it with its run (`budget::metered_job`), which
 //!   meters the run on its own threads and writes its processor time beside the budget.
 
@@ -22,7 +23,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::future::BoxFuture;
@@ -35,6 +36,7 @@ use tracing::Instrument as _;
 
 pub(crate) use crate::daemon::scheduler::condition::JobCondition;
 use crate::daemon::scheduler::condition::ParkedRuns;
+use crate::mutex_lock::lock;
 
 pub(crate) mod budget;
 mod condition;
@@ -85,7 +87,7 @@ pub(crate) struct ScheduledJobHandle {
 }
 
 /// The daemon's one scheduler and its wake signal: jobs run one at a time in the order they fall
-/// due, and a job scheduled after [`Scheduler::stop`] is refused.
+/// due, and a job scheduled after `Scheduler::stop` is refused.
 pub struct Scheduler {
     shared: Arc<SchedulerShared>,
     task: Mutex<Option<JoinHandle<()>>>,
@@ -109,7 +111,8 @@ struct SchedulerState {
     pending_by_instant: BTreeMap<(SystemTime, u64), PendingRun>,
     next_sequence: u64,
     next_job_id: u64,
-    // The due runs whose condition failed, waiting for no run to be live or for their bound.
+    // The due runs whose condition failed, waiting for the busy count to reach zero or for their
+    // bound.
     parked: ParkedRuns,
     // The instant the wall-clock timer holds.
     armed_instant: Option<SystemTime>,
@@ -144,17 +147,18 @@ enum SchedulerEvent {
     DeadlineReached,
     WallClockTimerFired(io::Result<()>),
     MachineWoke(Result<(), WakeWatchError>),
-    LiveRunsChanged(Result<(), watch::error::RecvError>),
+    BusyChanged(Result<(), watch::error::RecvError>),
 }
 
 impl Scheduler {
     /// Starts the scheduler's one task on the running tokio runtime, running a wall-clock job on
     /// `wall_clock`'s timer, telling each wake `wake_watch` hears, and reading each job's condition
-    /// against `live_runs`, the count of live runs; with no watch, receivers hear no wake.
+    /// against `busy`, a count of work the jobs that wait for idle give way to; with no watch,
+    /// receivers hear no wake.
     pub fn start(
         wall_clock: Arc<dyn WallClock>,
         wake_watch: Option<WakeWatch>,
-        live_runs: watch::Receiver<u32>,
+        busy: watch::Receiver<u32>,
     ) -> Self {
         let state = SchedulerState {
             pending_by_deadline: BTreeMap::new(),
@@ -172,7 +176,7 @@ impl Scheduler {
             head_changed: Notify::new(),
             stop: CancellationToken::new(),
         });
-        let task = tokio::spawn(Arc::clone(&shared).run(wake_watch, live_runs));
+        let task = tokio::spawn(Arc::clone(&shared).run(wake_watch, busy));
         Self {
             shared,
             task: Mutex::new(Some(task)),
@@ -289,11 +293,7 @@ impl Scheduler {
         drop(pending_by_instant);
         drop(parked);
         drop(wake_sender);
-        let task = self
-            .task
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let task = lock(&self.task).take();
         match task {
             Some(task) => task.await,
             None => Ok(()),
@@ -414,7 +414,7 @@ impl SchedulerState {
 
 impl SchedulerShared {
     fn lock_state(&self) -> MutexGuard<'_, SchedulerState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 
     // Arms the wall-clock timer for the first pending instant or parked run's latest moment,
@@ -442,7 +442,7 @@ impl SchedulerShared {
     // Arms the wall-clock timer for the first pending instant. Each run whose instant the timer
     // refuses is taken out with the refusal, and the next first instant is armed in its place, so
     // no instant is left pending without the timer armed for it; a parked run whose latest moment
-    // the timer refuses keeps waiting for no run to be live.
+    // the timer refuses keeps waiting for the busy count to reach zero.
     fn arm_or_refuse_first_instants(
         &self,
         state: &mut SchedulerState,
@@ -461,7 +461,7 @@ impl SchedulerShared {
                     job,
                     error = &source as &(dyn Error + 'static),
                     "the wall-clock timer could not be armed for the job's latest moment, so it \
-                     waits for no run to be live"
+                     waits for the busy count to reach zero"
                 );
                 continue;
             }
@@ -480,12 +480,12 @@ impl SchedulerShared {
     }
 
     // The task: sleeps until the first deadline, waits on the wall-clock timer, hears the
-    // machine's wakes and, while a run is parked, follows the count of live runs, until the stop.
-    // A count whose sender is gone reads as no run live, so nothing stays parked for it.
+    // machine's wakes and, while a run is parked, follows the busy count, until the stop. A count
+    // whose sender is gone reads as zero, so nothing stays parked for it.
     async fn run(
         self: Arc<Self>,
         mut wake_watch: Option<WakeWatch>,
-        mut live_runs: watch::Receiver<u32>,
+        mut busy: watch::Receiver<u32>,
     ) {
         let mut is_count_followed = true;
         loop {
@@ -510,12 +510,12 @@ impl SchedulerShared {
                 () = sleep_until_deadline(first_deadline) => SchedulerEvent::DeadlineReached,
                 fired = self.wall_clock.wait() => SchedulerEvent::WallClockTimerFired(fired),
                 woke = wait_for_wake(wake_watch.as_mut()) => SchedulerEvent::MachineWoke(woke),
-                changed = live_runs.changed(), if is_parked && is_count_followed => {
-                    SchedulerEvent::LiveRunsChanged(changed)
+                changed = busy.changed(), if is_parked && is_count_followed => {
+                    SchedulerEvent::BusyChanged(changed)
                 }
             };
             match event {
-                SchedulerEvent::DeadlineReached | SchedulerEvent::LiveRunsChanged(Ok(())) => {}
+                SchedulerEvent::DeadlineReached | SchedulerEvent::BusyChanged(Ok(())) => {}
                 SchedulerEvent::WallClockTimerFired(fired) => {
                     if let Err(failure) = fired {
                         tracing::error!(
@@ -537,18 +537,18 @@ impl SchedulerShared {
                     let wake_sender = self.lock_state().wake_sender.take();
                     drop(wake_sender);
                 }
-                SchedulerEvent::LiveRunsChanged(Err(_closed)) => is_count_followed = false,
+                SchedulerEvent::BusyChanged(Err(_closed)) => is_count_followed = false,
             }
-            let live_runs = is_count_followed.then_some(&live_runs);
-            self.drain_due_runs(live_runs).await;
+            let busy = is_count_followed.then_some(&busy);
+            self.drain_due_runs(busy).await;
         }
     }
 
     // Runs every due run its condition allows, parking each it does not, and every parked run that
-    // may now go; the count of live runs is read before each take, none when it is not followed.
-    async fn drain_due_runs(&self, live_runs: Option<&watch::Receiver<u32>>) {
-        let live_run_count = || live_runs.map_or(0, |live_runs| *live_runs.borrow());
-        while let Some(mut due) = self.take_due_run(live_run_count()) {
+    // may now go; the busy count is read before each take, zero when it is not followed.
+    async fn drain_due_runs(&self, busy: Option<&watch::Receiver<u32>>) {
+        let busy_count = || busy.map_or(0, |busy| *busy.borrow());
+        while let Some(mut due) = self.take_due_run(busy_count()) {
             let span = tracing::info_span!("scheduled job", job = due.name);
             if let Err(failure) = (due.run)(self.stop.clone()).instrument(span).await {
                 tracing::warn!(
@@ -565,16 +565,13 @@ impl SchedulerShared {
     // the count or its latest moment, else the first due run its condition allows, parking each
     // due run it does not; the wall clock is read only while a wall-clock run or a parked run's
     // latest moment is pending.
-    fn take_due_run(&self, live_run_count: u32) -> Option<PendingRun> {
+    fn take_due_run(&self, busy: u32) -> Option<PendingRun> {
         let mut state = self.lock_state();
         if state.is_stopped {
             return None;
         }
         let now = Instant::now();
-        if let Some(released) = state
-            .parked
-            .take_released(live_run_count, || self.wall_clock.now())
-        {
+        if let Some(released) = state.parked.take_released(busy, || self.wall_clock.now()) {
             return Some(released);
         }
         loop {
@@ -589,7 +586,7 @@ impl SchedulerShared {
                 }
                 state.pending_by_instant.pop_first()?.1
             };
-            if due.condition.allows(live_run_count) {
+            if due.condition.allows(busy) {
                 return Some(due);
             }
             state.parked.park(due);

@@ -21,7 +21,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::SystemTime;
 
 use bytes::Bytes as ByteBuffer;
@@ -37,7 +37,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::AnyValue;
-use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::record::JsonRecord;
 use sidekicks_contracts::wire::text::{BoundedText, NonEmptyText};
@@ -66,10 +66,10 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::session::appender::SessionEventAppender;
 use crate::keyed_lock::KeyedLock;
 use crate::missing_entry::MissingEntry as _;
+use crate::mutex_lock::lock;
 #[cfg(test)]
 use crate::pause_point::PausePoint;
 use crate::settle_all::{SettleFailures, settle_all};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The mode of a spool file: its owner's alone.
 const SPOOL_FILE_MODE: u32 = 0o600;
@@ -627,7 +627,7 @@ impl ArtifactIngestService {
 
     fn lock_registry(&self) -> MutexGuard<'_, Registry> {
         // Each change to the registry is one insert or removal, which no panic leaves half done.
-        self.registry.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.registry)
     }
 }
 

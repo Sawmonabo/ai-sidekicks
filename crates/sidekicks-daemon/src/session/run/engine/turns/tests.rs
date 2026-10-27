@@ -13,6 +13,7 @@ use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions, WriteError}
 use crate::events::log_service::tests::open_log;
 use crate::events::session::insert::{SessionEventRow, monotonic_ns_now};
 use crate::mutex_lock::lock;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RunEngineError;
 use crate::session::run::engine::tests::{
     append, arm_step_count, events, hand_limit_interrupter, insert_running_run, provider_end,
@@ -27,7 +28,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 // newest through, or by either guard spelling the category other than the stored word.
 #[tokio::test]
 async fn the_turn_guards_refuse_a_taken_number_and_a_second_end() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
         .await
         .expect("the writer opens its database");
@@ -93,7 +94,7 @@ async fn the_turn_guards_refuse_a_taken_number_and_a_second_end() {
 // gone, and by a failed stop leaving the count stopping, so the next step reaches no stop.
 #[tokio::test]
 async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_again() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
@@ -113,7 +114,7 @@ async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_
             "step {step} answers {counted:?}"
         );
     }
-    assert!(stored_events(&database, &run_id).is_empty());
+    assert_eq!(stored_events(&database, &run_id), events(&[]));
 }
 
 // Killed by a step stop retried after its interrupt failed writing the reached event again, by
@@ -121,7 +122,7 @@ async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_
 // the cut no row names.
 #[tokio::test]
 async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -184,7 +185,7 @@ async fn a_step_stop_retried_after_a_failed_interrupt_writes_one_reached_event()
 // one turn delivered at once then both write that turn's reached event.
 #[tokio::test]
 async fn two_steps_delivered_at_once_write_one_reached_event() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -218,7 +219,7 @@ async fn two_steps_delivered_at_once_write_one_reached_event() {
 // again once the run can be stopped then sends no interrupt.
 #[tokio::test]
 async fn a_step_stop_refused_on_the_runs_state_is_tried_again_at_the_next_step() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -277,7 +278,7 @@ async fn a_step_stop_refused_on_the_runs_state_is_tried_again_at_the_next_step()
 // keeping its cut, which ends turn 1 or turn 2 with a limit no row names.
 #[tokio::test]
 async fn a_failed_resend_at_a_cut_turns_end_is_tried_at_the_next_step_and_turn_end() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -348,7 +349,7 @@ async fn a_failed_resend_at_a_cut_turns_end_is_tried_at_the_next_step_and_turn_e
 // turn 2 reaching its own bound then writes no reached event of its own.
 #[tokio::test]
 async fn a_later_turn_reaching_its_bound_writes_its_own_reached_event_and_one_hand_clears_both() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -411,7 +412,7 @@ async fn a_later_turn_reaching_its_bound_writes_its_own_reached_event_and_one_ha
 async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_first(
     #[case] is_run_end_first: bool,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -488,7 +489,7 @@ async fn a_step_interrupt_handed_again_cuts_the_open_turn_whichever_end_lands_fi
 // one is in flight, which sends a second interrupt.
 #[tokio::test]
 async fn a_turn_reaching_its_bound_while_a_resend_is_in_flight_writes_its_reached_event_once() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -561,7 +562,7 @@ async fn a_turn_reaching_its_bound_while_the_step_interrupt_is_pending_sends_non
     #[case] is_hand_in_flight: bool,
     #[case] expected_calls: usize,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -646,7 +647,7 @@ async fn a_turn_reaching_its_bound_while_the_step_interrupt_is_pending_sends_non
 // that stop forgetting the step limit's interrupt an earlier stop of the run could not hand.
 #[tokio::test]
 async fn a_step_stop_whose_turn_has_ended_writes_nothing_and_keeps_an_owed_interrupt() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -705,7 +706,7 @@ async fn a_step_stop_whose_turn_has_ended_writes_nothing_and_keeps_an_owed_inter
 // no resend goes once the run runs again.
 #[tokio::test]
 async fn a_step_interrupt_resend_waits_for_the_hand_in_flight() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -744,13 +745,14 @@ async fn a_step_interrupt_resend_waits_for_the_hand_in_flight() {
         .await
         .expect("the resend is left to the hand in flight");
     assert_eq!(interventions.calls.load(Ordering::SeqCst), 1);
-    let live = lock(&engine.live);
-    assert_eq!(live.cut_turns, stop_cuts);
-    assert!(
-        live.reached_limits.contains(&(run_id, RunLimit::StepLimit)),
-        "the resend read nothing, so the limit stays owed"
-    );
-    drop(live);
+    {
+        let live = lock(&engine.live);
+        assert_eq!(live.cut_turns, stop_cuts);
+        assert!(
+            live.reached_limits.contains(&(run_id, RunLimit::StepLimit)),
+            "the resend read nothing, so the limit stays owed"
+        );
+    }
 
     set_state("running");
     lock(&engine.live).step_interrupts_in_flight.remove(&run_id);

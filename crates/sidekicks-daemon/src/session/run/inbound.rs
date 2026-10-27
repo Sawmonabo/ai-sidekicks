@@ -8,245 +8,51 @@
 //! no execution and is appended as it is.
 
 mod absorb;
-pub(crate) mod rows;
 #[cfg(test)]
 pub(crate) mod tests;
 
 use std::error::Error;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
-use sidekicks_contracts::event::declared_variants::{AgentOutputPayload, RunAgentOutputPayload};
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use sidekicks_contracts::event::declared_variants::AgentOutputPayload;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
-use sidekicks_contracts::session::controls::events::{
-    RunSafetyBufferingUpdatedPayload, SessionNoticePostedPayload,
-};
+use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::EpochPosition;
 use sidekicks_contracts::wire::text::FreeFormText;
 
+use crate::database::statement::WriteStatement;
 use crate::events::log_service::EventLogService;
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::mutex_lock::lock;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::run_state_publisher::RunStatePublisher;
-use crate::session::run::engine::turns::{ProviderTurnEnd, run_live_or_turn_open_statement};
-use crate::session::run::engine::{RunEngine, RunEngineError, RunMarker};
+use crate::provider::run::delivery::{
+    DeliveryBinding, InboundDelivery, InboundOutcome, LateAppendableRow, LateEventAbsorbReason,
+    RunMarker, SessionScopedRow, UnstampedRow, stamp,
+};
+use crate::provider::run::state_entry::RunStateReport;
+use crate::provider::run::turn_end::ProviderTurnEnd;
+use crate::session::console_state::advisor_model_change_statement;
+use crate::session::run::engine::turns::run_live_or_turn_open_statement;
+use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::epochs::{
-    DeliveryAttribution, DeliveryOperation, EpochBinding, EpochCursorError, ExecutionEpochs,
+    DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs,
 };
 use crate::session::run::inbound::absorb::absorb;
-use crate::session::run::inbound::rows::{
-    LateAppendableRow, MachineScopedRow, SessionScopedRow, UnstampedRow, stamp,
-};
-use crate::session::run::read::RunRead;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{RunStateChange, refused_statement_index};
 use crate::transcript::reasoning::split_reasoning_text;
-
-/// The runtime binding a delivery arrived on, and the provider operation it belongs to, where it
-/// has one.
-#[derive(Debug)]
-pub(crate) struct DeliveryBinding<'key> {
-    /// The binding.
-    pub(crate) binding_id: RuntimeBindingId,
-    /// The provider operation.
-    pub(crate) operation: Option<DeliveryOperation<'key>>,
-}
-
-/// One delivery a provider driver hands the run engine, on its binding and in that binding's
-/// delivery order, or about the session as a whole on no binding.
-#[derive(Debug)]
-pub(crate) enum InboundDelivery<'key> {
-    /// The binding opened its next turn.
-    TurnBoundary {
-        /// The binding.
-        binding_id: RuntimeBindingId,
-    },
-    /// The provider moved a run.
-    RunLifecycle {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The move.
-        change: RunStateChange,
-        /// The end of the turn the move ends, where the provider's end frame reported one.
-        turn_end: Option<ProviderTurnEnd>,
-        /// Whether this is the provider's end of a turn the daemon's own interrupt stopped, which
-        /// the daemon may have written first; refused then, it is absorbed with no diagnostic.
-        is_daemon_interrupt_end: bool,
-    },
-    /// The provider started a turn itself with messages it kept from the interrupted `run_id`'s
-    /// turn, which continues that run.
-    RunContinued {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The interrupted run.
-        run_id: RunId,
-    },
-    /// The provider started a subagent beneath `parent_run_id`.
-    ChildRun {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The run the subagent starts under.
-        parent_run_id: RunId,
-    },
-    /// A marker the provider reported on a live run.
-    RunMarker {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The marker.
-        marker: RunMarker,
-    },
-    /// A state the run's stream shows live and nothing stores.
-    LiveRunState {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The state.
-        state: RunSafetyBufferingUpdatedPayload,
-    },
-    /// An assistant's reasoning on a run, appended whole with its body.
-    ThinkingUpdate {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The update's payload, without the stamp.
-        payload: RunAgentOutputPayload,
-        /// The reasoning text, stored beside the payload.
-        content: String,
-    },
-    /// A notice about the session `session_id`, on no binding.
-    SessionNotice {
-        /// The session the notice names.
-        session_id: SessionId,
-        /// The notice.
-        notice: SessionNoticePostedPayload,
-    },
-    /// A row about the session as a whole, on no binding.
-    SessionEvent {
-        /// The row.
-        row: SessionScopedRow,
-    },
-    /// A row about the machine, on no binding and in no session.
-    MachineEvent {
-        /// The row.
-        row: MachineScopedRow,
-    },
-    /// The provider asked the person's permission.
-    PermissionAsk {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-    },
-    /// A row that takes the stamp when it is late.
-    SessionRow {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The row.
-        row: LateAppendableRow,
-        /// The prose of a body-bearing row, stored beside its payload.
-        content: Option<String>,
-    },
-    /// A row on a run that takes no stamp.
-    UnstampedRow {
-        /// Where it arrived.
-        binding: DeliveryBinding<'key>,
-        /// The row.
-        row: UnstampedRow,
-    },
-}
-
-impl InboundDelivery<'_> {
-    /// The delivery's kind as a diagnostic names it.
-    pub(crate) fn kind_name(&self) -> &'static str {
-        match self {
-            Self::TurnBoundary { .. } => "turnBoundary",
-            Self::RunLifecycle { .. } => "runLifecycle",
-            Self::RunContinued { .. } => "runContinued",
-            Self::ChildRun { .. } => "childRun",
-            Self::RunMarker { .. } => "runMarker",
-            Self::LiveRunState { .. } => "liveRunState",
-            Self::ThinkingUpdate { .. } => "thinkingUpdate",
-            Self::SessionNotice { .. } => "sessionNotice",
-            Self::SessionEvent { .. } => "sessionEvent",
-            Self::MachineEvent { .. } => "machineEvent",
-            Self::PermissionAsk { .. } => "permissionAsk",
-            Self::SessionRow { .. } => "sessionRow",
-            Self::UnstampedRow { .. } => "unstampedRow",
-        }
-    }
-}
-
-/// Why a delivery was absorbed: it came from before an undo's cut, its run had already ended, or
-/// it reported a pause or a turn under way that a resume had already moved past.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum LateEventAbsorbReason {
-    /// From the execution before an undo's cut.
-    BeforeCut,
-    /// For a run that had already ended.
-    RunEnded,
-    /// A late `paused` or `running` report on a run a resume had already set running.
-    RunResumed,
-}
-
-/// What the dispatch did with a delivery. `AskAdmitted` is a permission ask of the current
-/// execution, which the caller hands to the approval pipeline; `ChildRunStarted` carries the
-/// child's new run, which the caller keeps for the subagent's later deliveries; an appended row
-/// carries the id of the event written for it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum InboundOutcome {
-    /// The binding's next turn opened.
-    TurnOpened,
-    /// The run moved, as the move left it.
-    Transitioned {
-        /// The run.
-        run: RunRead,
-    },
-    /// The subagent's run started.
-    ChildRunStarted {
-        /// Its run.
-        run_id: RunId,
-    },
-    /// The live state went to the run's state stream.
-    Published,
-    /// The permission ask belongs to the current execution.
-    AskAdmitted,
-    /// The row was appended as it came.
-    Appended {
-        /// The event written.
-        event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    },
-    /// The row was appended stamped as possibly late.
-    AppendedStamped {
-        /// The event written.
-        event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-        /// The pair it was stamped with.
-        source: EpochPosition,
-    },
-    /// Nothing was written.
-    Absorbed {
-        /// Why.
-        reason: LateEventAbsorbReason,
-    },
-}
-
-impl InboundOutcome {
-    /// The id of the event a delivery was written as; `None` where nothing was written.
-    pub(crate) fn event_id(&self) -> Option<&FreeFormText<EVENT_FIELD_MAX_LEN>> {
-        match self {
-            Self::Appended { event_id } | Self::AppendedStamped { event_id, .. } => Some(event_id),
-            Self::TurnOpened
-            | Self::Transitioned { .. }
-            | Self::ChildRunStarted { .. }
-            | Self::Published
-            | Self::AskAdmitted
-            | Self::Absorbed { .. } => None,
-        }
-    }
-}
 
 /// Why a delivery was neither written, routed nor absorbed; nothing of it is kept.
 #[derive(Debug, thiserror::Error)]
@@ -319,7 +125,7 @@ enum Absorbable {
 // The engine call a delivery on a binding makes once it is attributed.
 enum RunWork {
     Lifecycle {
-        change: RunStateChange,
+        change: RunStateReport,
         turn_end: Option<ProviderTurnEnd>,
         is_daemon_interrupt_end: bool,
     },
@@ -485,7 +291,8 @@ impl RunInboundDispatch {
                 ));
             }
             InboundDelivery::SessionEvent { row } => {
-                let (session_id, event, transactional_prelude) = row.into_event();
+                let transactional_prelude = session_row_statements(&row);
+                let (session_id, event) = row.into_event();
                 let linkage = SessionEventLinkage {
                     transactional_prelude,
                     ..SessionEventLinkage::default()
@@ -697,11 +504,11 @@ impl RunInboundDispatch {
                 let run_id = change.run_id;
                 match self
                     .engine
-                    .apply_provider_state_change(change, turn_end)
+                    .apply_provider_state_change(RunStateChange::from(change), turn_end)
                     .await
                 {
                     Ok(written) => InboundOutcome::Transitioned {
-                        run: written.log_resend_failure(run_id),
+                        state: written.log_resend_failure(run_id).state,
                     },
                     // The end of a turn the daemon interrupted is expected to find the run ended.
                     Err(error) if is_ended_run_refusal(&error) && is_daemon_interrupt_end => {
@@ -726,7 +533,7 @@ impl RunInboundDispatch {
             }
             RunWork::Continued { run_id } => {
                 match self.engine.continue_run_with_kept_messages(run_id).await? {
-                    Some(run) => InboundOutcome::Transitioned { run },
+                    Some(run) => InboundOutcome::Transitioned { state: run.state },
                     None => run_ended(),
                 }
             }
@@ -748,7 +555,33 @@ impl RunInboundDispatch {
     }
 
     fn lock_epochs(&self) -> MutexGuard<'_, ExecutionEpochs> {
-        self.epochs.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.epochs)
+    }
+}
+
+impl InboundDispatch for RunInboundDispatch {
+    fn dispatch<'dispatch>(
+        &'dispatch self,
+        delivery: InboundDelivery<'_>,
+    ) -> BoxFuture<'dispatch, Result<InboundOutcome, Box<dyn Error + Send + Sync>>> {
+        // Attributed in this call, before the returned future is first polled.
+        let dispatched = RunInboundDispatch::dispatch(self, delivery);
+        async move { Ok(dispatched.await?) }.boxed()
+    }
+}
+
+// The statements a row about the session commits with its event: a change of the session's own
+// advisor moves the advisor's column, which every later launch reads.
+fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
+    match row {
+        SessionScopedRow::AdvisorChanged(payload) => vec![advisor_model_change_statement(
+            &payload.session_id,
+            payload.advisor_model.as_ref().map(FreeFormText::as_str),
+            payload.at.as_str(),
+        )],
+        SessionScopedRow::SideQuestionAnswered(_) | SessionScopedRow::OutputStyleChanged(_) => {
+            Vec::new()
+        }
     }
 }
 

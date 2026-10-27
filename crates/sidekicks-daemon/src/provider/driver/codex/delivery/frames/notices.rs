@@ -12,7 +12,7 @@ use crate::provider::driver::codex::delivery::notices::{
 };
 use crate::provider::driver::codex::session::state::CodexSessionRecord;
 use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::session::run::inbound::InboundDelivery;
+use crate::provider::run::delivery::InboundDelivery;
 
 /// Frames that draw nothing and go to the daemon's log only.
 const CODEX_LOGGED_ONLY_METHODS: [&str; 5] = [

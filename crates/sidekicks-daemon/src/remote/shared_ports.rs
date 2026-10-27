@@ -35,7 +35,7 @@ use crate::remote::shared_ports::store::{
 pub(crate) mod listening;
 pub(crate) mod loopback;
 pub(crate) mod methods;
-pub(crate) mod schema;
+pub mod schema;
 pub(crate) mod store;
 
 /// Why a port could not be shared.
@@ -374,6 +374,7 @@ mod tests {
     use crate::ipc::stream::feed::{CreditGate, Feed};
     use crate::ipc::stream::latest_value::LatestValueFeed;
     use crate::mutex_lock::lock;
+    use crate::remote::shared_ports::schema::schema_parts;
 
     const WAIT: Duration = Duration::from_secs(10);
 
@@ -474,7 +475,7 @@ mod tests {
     #[case::added_while_the_writer_had_ended(true)]
     #[tokio::test]
     async fn an_unlisted_port_is_never_dialed(#[case] is_add_attempted: bool) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = open_writer(&database).await;
         let shared_ports = open_shared_ports(&database, Arc::clone(&writer)).await;
         let (listener, listened_port) = listener_on((Ipv4Addr::LOCALHOST, 0).into());
@@ -509,7 +510,7 @@ mod tests {
     #[case::ipv6_only(SocketAddr::from((Ipv6Addr::LOCALHOST, 0)))]
     #[tokio::test]
     async fn a_shared_port_is_reached_on_either_loopback_family(#[case] address: SocketAddr) {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let shared_ports = open_shared_ports(&database, open_writer(&database).await).await;
         let (listener, listened_port) = listener_on(address);
         shared_ports
@@ -533,7 +534,7 @@ mod tests {
     // port's signal (its new connection would be born closed).
     #[tokio::test]
     async fn stop_sharing_closes_every_connection_open_on_the_port() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let shared_ports = open_shared_ports(&database, open_writer(&database).await).await;
         let (_first_listener, first_port) = listener_on((Ipv4Addr::LOCALHOST, 0).into());
         let (_second_listener, second_port) = listener_on((Ipv4Addr::LOCALHOST, 0).into());
@@ -593,7 +594,7 @@ mod tests {
     // call, an announce placed before the write among them.
     #[tokio::test]
     async fn the_list_keeps_the_order_added_across_a_restart_and_announces_only_changes() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let (first, second, never_added) = (port(5174), port(5173), port(3000));
         let writer = open_writer(&database).await;
         let shared_ports = open_shared_ports(&database, Arc::clone(&writer)).await;
@@ -651,7 +652,7 @@ mod tests {
     // a new follow that keeps the last one's readings (its first list would read listening).
     #[tokio::test]
     async fn only_a_listener_the_loopback_connect_reaches_reads_listening() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let listening_source = Arc::new(KeptFollows::default());
         let shared_ports = open_shared_ports_reading(
             &database,

@@ -115,14 +115,15 @@ mod tests {
 
     use super::register_session_read;
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
     use crate::ipc::call_fixtures::{context, request};
     use crate::ipc::handlers::session::draft_update::register_session_draft_update;
     use crate::ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
     use crate::provider::driver::ClaudeSessionInboxAddresser;
+    use crate::remote::shared_ports::schema::schema_parts;
     use crate::session::addresses::SessionInboxAddresses;
-    use crate::session::directory::test_rows::insert_session_row;
     use crate::session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
     use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
     use crate::session::staged_attachments::{StagedAttachments, StagedAttachmentsError};
@@ -152,7 +153,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_read_carries_the_place_and_the_draft_last_saved_and_an_empty_one_once_cleared() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let writer = open_log(&database, None).await.writer;
         let session_id = test_session_id();
         insert_session_row(

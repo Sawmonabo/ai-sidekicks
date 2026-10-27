@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -22,6 +22,7 @@ use super::{
 };
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
+use crate::mutex_lock::lock;
 use crate::provider::command::waiting_checks::WaitingState;
 use crate::provider::driver::contract::{DriverError, MockProviderDriver};
 use crate::provider::port::running_command_publisher::{
@@ -60,17 +61,11 @@ struct DriverScript {
 
 impl DriverScript {
     fn note(&self, act: &'static str) {
-        self.asked
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(act);
+        lock(&self.asked).push(act);
     }
 
     fn asked(&self) -> Vec<&'static str> {
-        self.asked
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.asked).clone()
     }
 }
 
@@ -81,11 +76,7 @@ fn scripted_driver(script: &Arc<DriverScript>, moved: bool) -> MockProviderDrive
     let stopping = Arc::clone(script);
     driver.expect_stop_command().returning(move |_| {
         stopping.note("stop");
-        let refusal = stopping
-            .stop_refusal
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let refusal = lock(&stopping.stop_refusal).take();
         // The provider answers after a turn of the runtime, so a second stop can come meanwhile.
         async move {
             tokio::task::yield_now().await;
@@ -123,9 +114,7 @@ fn fixture() -> Fixture {
     let binding = Arc::new(Mutex::new(self::binding("binding-a")));
     let bound = Arc::clone(&binding);
     let sets = RunningCommandSets::new(
-        Arc::new(move |_session: &SessionId| {
-            Some(bound.lock().unwrap_or_else(PoisonError::into_inner).clone())
-        }),
+        Arc::new(move |_session: &SessionId| Some(lock(&bound).clone())),
         Arc::new(SentEndings(sender)),
     );
     Fixture {
@@ -188,10 +177,7 @@ fn end(code: Option<i64>, summary: Option<&str>) -> ProviderCommandEnd {
 }
 
 fn refused_stop(acts: &DriverScript) {
-    *acts
-        .stop_refusal
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = Some(DriverError::Refused(DomainError::new(
+    *lock(&acts.stop_refusal) = Some(DriverError::Refused(DomainError::new(
         "gone",
         RefusalCode::ProviderUnavailable,
     )));
@@ -469,7 +455,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         NonEmptyText::new("Password for 'https://me@example.com': ".to_owned()).expect("text"),
         true,
         PromptAnswer::new(move |text| {
-            *answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(text);
+            *lock(&answer) = Some(text);
         }),
     );
     let set =
@@ -485,13 +471,7 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .write(&driver, session(), &command("asking"), end_of_input)
         .await
         .expect("answered");
-    assert_eq!(
-        answered
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_deref(),
-        Some("")
-    );
+    assert_eq!(lock(&answered).as_deref(), Some(""));
     assert_eq!(acts.asked().last(), Some(&"write"));
 
     // A stopping row still takes the person's write.
@@ -655,10 +635,7 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
 async fn a_command_running_across_a_fork_move_ends_on_the_new_binding() {
     let mut fixture = fixture();
     fixture.sets.command_started(start("long", "cargo test"));
-    *fixture
-        .binding
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner) = binding("binding-b");
+    *lock(&fixture.binding) = binding("binding-b");
     fixture
         .sets
         .command_ended(session(), command("long"), end(Some(0), None));

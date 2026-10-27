@@ -1,8 +1,5 @@
 //! The terminal-reach switch: its row read from the folder's terminal service, its value applied.
 
-// Unix alone: the services listen on a socket under `/tmp` and Codex's command is a shell script.
-#![cfg(unix)]
-
 use std::sync::atomic::Ordering;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -11,6 +8,7 @@ use sidekicks_contracts::place::{Place, WindowsPlace};
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValue,
 };
+use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 
 use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
@@ -50,7 +48,7 @@ fn reads_on(driver: &CodexDriver) -> bool {
 // folder's next service the terminal one while the row reads off.
 #[tokio::test]
 async fn a_failed_switch_on_reads_off_and_leaves_the_folder_s_service_off() {
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, _services) = driver_on_codex_folder(folder.path());
 
     let applied = driver.apply_row_value(switched(true)).await;
@@ -77,7 +75,10 @@ async fn a_failed_switch_on_reads_off_and_leaves_the_folder_s_service_off() {
 // running service and start another in its place.
 #[tokio::test]
 async fn a_repeated_switch_on_starts_nothing_more() {
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, _services) = driver_on_codex_folder(folder.path());
     listen_on_codex_folder(folder.path());
 
@@ -104,7 +105,7 @@ async fn a_repeated_switch_on_starts_nothing_more() {
 // Killed by acting on a place the computer does not have, as the computer's one place.
 #[tokio::test]
 async fn a_switch_in_a_place_the_computer_lacks_is_refused_and_starts_nothing() {
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, _services) = driver_on_codex_folder(folder.path());
 
     let applied = driver

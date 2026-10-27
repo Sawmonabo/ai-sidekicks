@@ -1,13 +1,19 @@
-//! A person's send: into a paused run, which it resumes, and into a session whose lead run changes
-//! between the send's read and its write.
+//! A person's send: into a paused run, which it resumes, into a session whose lead run changes
+//! between the send's read and its write, and with a skill its provider does not list.
 
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use serde_json::json;
+use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::timeout;
 
 use super::{DriverCalls, WAIT, fixture, recording_driver};
 use crate::ipc::domain_error::DomainError;
+use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::test_registry::bind_run_to_first_provider;
 use crate::queue::error::QueueError;
 use crate::queue::store::RecordedQueueItemState;
@@ -108,5 +114,42 @@ async fn a_send_whose_lead_run_changes_under_every_attempt_is_refused() {
         panic!("the send is refused as its run changed, got {sent:?}");
     };
     assert_eq!(code, RefusalCode::AgentQueueItemRunChanged);
+    assert_eq!(fixture.count_items(), 0);
+}
+
+// A send picking a skill the session's provider does not list is refused `skill.pathRefused`
+// naming the pick's folder with the reason `notListed`, and nothing is queued. Killed by deleting
+// the `SkillNotListed` arm in `queue/admission/skill_picks.rs`, which makes it an internal error.
+#[tokio::test]
+async fn a_send_picking_a_skill_its_provider_does_not_list_is_refused() {
+    let calls = Arc::new(DriverCalls::default());
+    let mut driver = recording_driver(&calls);
+    driver
+        .expect_skill_resolve_starts_process()
+        .returning(|| false);
+    driver
+        .expect_resolve_skill_picks()
+        .returning(|_, _, picks| {
+            let pick = picks[0].clone();
+            async move { Err(DriverError::SkillNotListed(pick)) }.boxed()
+        });
+    let fixture = fixture(driver).await;
+    let pick = QueuedSkillPick {
+        name: FreeFormText::new("review".to_owned()).expect("a skill name"),
+        folder_path: FilesystemPath::new("/skills/review".to_owned()).expect("a short path"),
+    };
+
+    let sent = timeout(WAIT, fixture.send_picking(Some(vec![pick])))
+        .await
+        .expect("the send answers");
+    fixture.queue.stop().await;
+
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = sent else {
+        panic!("the send is refused for its pick, got {sent:?}");
+    };
+    assert_eq!(code, RefusalCode::SkillPathRefused);
+    let detail = detail.expect("the refusal names the pick");
+    assert_eq!(detail["path"], json!("/skills/review"));
+    assert_eq!(detail["reason"], json!("notListed"));
     assert_eq!(fixture.count_items(), 0);
 }

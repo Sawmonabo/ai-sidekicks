@@ -10,9 +10,27 @@ pub(super) mod messages;
 mod patches;
 pub(super) mod requests;
 pub(super) mod reviewer;
-pub(super) mod run_engine;
 pub(super) mod run_readings;
 pub(super) mod stream;
 mod streamed_blocks;
 pub(super) mod system;
 mod turn_end;
+
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
+
+use crate::provider::driver::claude::DESCRIPTOR;
+use crate::provider::driver::delivery_dispatch::DeliveryOrigin;
+
+/// Where a Claude Code delivery came from, as a refusal's diagnostic names it: the process on
+/// `provider_account_id`'s account, `None` on the machine's own home, and the frame `raw_wire_type`
+/// it was read from, `None` for the driver's own.
+pub(crate) fn claude_delivery_origin(
+    provider_account_id: Option<ProviderAccountId>,
+    raw_wire_type: Option<&str>,
+) -> DeliveryOrigin<'_> {
+    DeliveryOrigin {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id,
+        raw_wire_type,
+    }
+}

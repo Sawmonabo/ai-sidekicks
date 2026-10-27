@@ -5,7 +5,6 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::plan::PlanState;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::directory::SessionActivity;
 
@@ -185,10 +184,14 @@ pub(crate) fn run_outcome_of(
     }
 }
 
-/// The SQL of a session's activity, from the session id's SQL and its `last_run_outcome`'s: a plan
-/// whose card is up reads waiting too, since no run waits on it. Each read is an indexed lookup of
-/// the session's runs or plans.
-pub(crate) fn session_activity_sql(session_id_sql: &str, last_run_outcome_sql: &str) -> String {
+/// The SQL of a session's activity, from the session id's SQL, its `last_run_outcome`'s and the
+/// condition under which a plan's card waits on the person: such a session reads waiting too,
+/// since no run waits on the plan. Each run read is an indexed lookup of the session's runs.
+pub(crate) fn session_activity_sql(
+    session_id_sql: &str,
+    last_run_outcome_sql: &str,
+    waiting_plan_sql: &str,
+) -> String {
     let is_any_run_in = |states: &[RunState]| {
         format!(
             "EXISTS (SELECT 1 FROM runs WHERE runs.session_id = {session_id_sql}
@@ -198,10 +201,8 @@ pub(crate) fn session_activity_sql(session_id_sql: &str, last_run_outcome_sql: &
     };
     let waiting = <&'static str>::from(SessionActivity::Waiting);
     let running = <&'static str>::from(SessionActivity::Running);
-    let waiting_plan = <&'static str>::from(PlanState::Waiting);
     format!(
-        "CASE WHEN {} OR EXISTS (SELECT 1 FROM plans WHERE plans.session_id = {session_id_sql}
-                AND plans.state = '{waiting_plan}') THEN '{waiting}'
+        "CASE WHEN {} OR {waiting_plan_sql} THEN '{waiting}'
                WHEN {} THEN '{running}'
                ELSE {last_run_outcome_sql} END",
         is_any_run_in(&WAITING_RUN_STATES),

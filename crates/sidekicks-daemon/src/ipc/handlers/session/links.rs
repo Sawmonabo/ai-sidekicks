@@ -113,6 +113,7 @@ mod tests {
 
     use super::register_session_links;
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::events::log_service::tests::open_log;
     use crate::ipc::call_fixtures::{context, request};
@@ -120,7 +121,7 @@ mod tests {
         Dispatch as _, DispatchError, EncodedFeed, MethodRegistryBuilder, Reply,
     };
     use crate::ipc::stream::feed::CreditGate;
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::remote::shared_ports::schema::schema_parts;
     use crate::session::links::service::{
         SESSION_LINK_SERVICE_STATEMENT_CAPACITY, SessionLinkService,
     };
@@ -149,7 +150,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_related_list_comes_whole_first_and_whole_again_after_a_rescore() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let (followed, first, second) = (test_session_id(), test_session_id(), test_session_id());
         let reader = database.reader();

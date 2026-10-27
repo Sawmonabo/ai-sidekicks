@@ -21,11 +21,11 @@ use crate::provider::driver::claude::delivery::turn_end::{
 };
 use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::provider::run::turn_end::ProviderTurnEnd;
 use crate::provider::terminal_emission_gate::{TerminalEmissionDecision, TerminalRunFrame};
 use crate::provider::thread_frame_router::ThreadFrameRoute;
-use crate::session::run::engine::turns::ProviderTurnEnd;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
 /// Why a run ended failed when the run engine could not take the end Claude Code reported.
 const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =
@@ -92,7 +92,7 @@ impl ClaudeDeliveryStream {
         {
             Ok(started) => started,
             Err(error) => {
-                report_engine_failure(session, "a turn's start", &error);
+                report_engine_failure(session, "a turn's start", &*error);
                 None
             }
         };
@@ -327,9 +327,9 @@ impl ClaudeDeliveryStream {
         if outcome.is_some() {
             return;
         }
-        let failed = RunStateChange {
+        let failed = RunStateReport {
             failure_category: Some(RunFailureCategory::ProviderFailure),
-            ..RunStateChange::new(
+            ..RunStateReport::new(
                 run_id,
                 RunStateEntry::Failed {
                     intended_close: None,
@@ -379,7 +379,7 @@ impl ClaudeDeliveryStream {
             .record_turn_end(run_id, turn_end)
             .await
         {
-            report_engine_failure(session, "a turn's end", &error);
+            report_engine_failure(session, "a turn's end", &*error);
         }
     }
 

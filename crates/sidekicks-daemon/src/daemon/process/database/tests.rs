@@ -16,6 +16,7 @@ use super::{DatabaseFile, DatabaseFileStart, close_database_file, open_database_
 use crate::bootstrap::secure_defaults::{SecureDefaults, SecureDefaultsConfig};
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::database::connection::writer_open::DAEMON_DATABASE_FILE_NAME;
+use crate::database::sibling_path;
 use crate::database::statement::{StatementBindings, WriteStatement};
 use crate::database::writer::WriteError;
 use crate::database::writer::messages::WriteJob;
@@ -25,11 +26,11 @@ use crate::events::log_service::{
 };
 use crate::events::session::appender::UnsequencedEventEnvelope;
 use crate::ipc::caller_process::system_reader::ProcessTableReader;
+use crate::recovery::database_file::WRITE_AHEAD_LOG_SUFFIX;
 use crate::recovery::database_file::copy::DatabaseFileCopier;
 use crate::recovery::database_file::damage::{is_database_damage_error, read_database_damage};
 use crate::recovery::database_file::last_run::{LastRunEnd, read_last_run_end};
 use crate::recovery::database_file::sqlite_shell::SqliteShell;
-use crate::recovery::database_file::{WRITE_AHEAD_LOG_SUFFIX, sibling_path};
 
 /// The longest a close the tests run may drain.
 const CLOSE_BOUND: Duration = Duration::from_secs(4);

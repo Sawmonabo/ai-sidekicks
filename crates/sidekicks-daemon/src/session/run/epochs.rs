@@ -20,6 +20,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::provider::run::delivery::DeliveryOperation;
 
 /// The provider operations a binding remembers: past it the oldest one opened is dropped, and a
 /// late delivery of it may read as from before the last cut.
@@ -47,17 +48,6 @@ pub(crate) struct EpochBinding {
     pub(crate) provider_name: ProviderId,
     /// The account it runs under, `None` on the machine's default home.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
-}
-
-/// The provider-side operation a delivery belongs to (a tool call, a message item, an artifact),
-/// by the key the provider correlates its deliveries with. The first delivery of every operation
-/// is passed as its opening; a later one that finds no opening held is read as one evicted.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct DeliveryOperation<'key> {
-    /// The provider's key for the operation.
-    pub(crate) correlation_key: &'key str,
-    /// Whether this is the operation's first delivery.
-    pub(crate) is_opening: bool,
 }
 
 /// Which execution a delivery belongs to: the current one, the one before an undo's cut, or
@@ -447,10 +437,9 @@ mod tests {
     use sidekicks_contracts::transcript::turn_attribution::{EpochPosition, RUN_START_POSITION};
     use sidekicks_contracts::wire::integer::SafeInt;
 
-    use super::{
-        ConfirmedCut, DeliveryAttribution, DeliveryOperation, EpochBinding, ExecutionEpochs,
-    };
+    use super::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
     use crate::provider::driver::registry::test_provider;
+    use crate::provider::run::delivery::DeliveryOperation;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// One delivery or fence the binding sees, in its delivery order.

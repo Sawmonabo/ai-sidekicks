@@ -29,7 +29,7 @@ pub(crate) struct ProviderPlan {
     not(test),
     expect(
         dead_code,
-        reason = "the Claude Code and Codex drivers, which hand a finished plan over"
+        reason = "the providers' drivers, which hand a finished plan over"
     )
 )]
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -46,7 +46,7 @@ pub(crate) struct ProviderPlanHoldEnd {
 /// plan stays with the provider: no record is written and no verdict can answer it.
 #[expect(
     dead_code,
-    reason = "the Claude Code and Codex drivers, which hand a finished plan over"
+    reason = "the providers' drivers, which hand a finished plan over"
 )]
 pub(crate) trait PlanPort: Send + Sync {
     /// Records `plan` and answers the id the driver keeps its held request under. An error when it

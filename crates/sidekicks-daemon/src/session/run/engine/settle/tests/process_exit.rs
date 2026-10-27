@@ -9,6 +9,7 @@ use super::{
 use crate::database::statement::DATABASE_NOW_SQL;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::open_log;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::tests::{
     append, events, hand_limit_interrupter, insert_running_run, step_stop, stored_events,
     stored_run_state, test_engine, turn_started_at,
@@ -95,7 +96,7 @@ async fn a_process_exit_settles_a_live_run_as_its_stops_would_and_fails_every_un
     #[case] trigger: Option<&str>,
     #[case] turn_one_cause: Option<&str>,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -200,7 +201,7 @@ async fn a_process_exit_settles_a_live_run_as_its_stops_would_and_fails_every_un
 #[case::queued("queued")]
 #[tokio::test]
 async fn a_process_exit_keeps_a_run_that_is_not_live_and_ends_its_open_turns(#[case] state: &str) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -279,7 +280,7 @@ enum SubagentTree {
 async fn a_process_exit_ends_the_open_turns_of_every_provider_subagent_beneath_its_run(
     #[case] tree: SubagentTree,
 ) {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -363,7 +364,7 @@ async fn a_process_exit_ends_the_open_turns_of_every_provider_subagent_beneath_i
 // refuses once more since the person's interrupt that turn 1's end brought is still unread.
 #[tokio::test]
 async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_again_once() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -436,7 +437,7 @@ async fn a_process_exit_refused_by_an_interrupt_asked_for_since_its_read_reads_a
 // `stopped`, and that leaves the live subagent beneath the run without its end.
 #[tokio::test]
 async fn a_close_stops_a_run_owing_its_token_limit_and_ends_its_subagent_as_intended() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let log = open_log(&database, None).await;
     let home = tempfile::tempdir().expect("the test makes a home folder");
     let session_id = test_session_id();
@@ -492,4 +493,48 @@ async fn a_close_stops_a_run_owing_its_token_limit_and_ends_its_subagent_as_inte
     ] {
         assert_eq!(is_intended_close(&database, &run_id, end_type), Some(true));
     }
+}
+
+// Killed by a close that ends a run with no stops as anything but `interrupted`, that drops the
+// intended close from that end (`RunProcessEnd::Closed`'s fallback `RunStateEntry::Interrupted`
+// in `end_on_process_end` built with `intended_close: None`), or that leaves its open turn without
+// an end.
+#[tokio::test]
+async fn a_close_ends_a_run_with_no_stops_interrupted_as_intended() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+
+    engine
+        .end_turn_on_close(run_id)
+        .await
+        .expect("the close ends the run");
+
+    let event_types: Vec<String> = stored_events(&database, &run_id)
+        .into_iter()
+        .map(|(event_type, _cause, _origin)| event_type)
+        .collect();
+    assert_eq!(
+        event_types,
+        [
+            "agent.turn.started",
+            "agent.turn.interrupted",
+            "agent.run.interrupted"
+        ]
+    );
+    assert_eq!(stored_run_state(&database, &run_id).0, "interrupted");
+    assert_eq!(
+        is_intended_close(&database, &run_id, "agent.run.interrupted"),
+        Some(true)
+    );
 }

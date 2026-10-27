@@ -16,7 +16,7 @@ use std::fs::{self, File};
 use std::io::{self, BufWriter, Write as _};
 use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
 use serde::Serialize;
@@ -44,6 +44,7 @@ use crate::events::session::read::{
     DamagedFromSequenceReader, SessionEventReads, SessionLogReadError, UnloadedBodyEvent,
     malformed_body,
 };
+use crate::mutex_lock::lock;
 use crate::text_cut::cut_to_code_points;
 
 const SESSIONS_FOLDER_NAME: &str = "sessions";
@@ -147,10 +148,7 @@ impl RunningExport {
 
 impl Drop for RunningExport {
     fn drop(&mut self) {
-        self.jobs
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .running = None;
+        lock(&self.jobs).running = None;
         let ended = self
             .ended
             .take()
@@ -203,7 +201,7 @@ impl DataExports {
         &self,
         destination: PathBuf,
     ) -> Result<DataExportJobId, DataExportStartRefusal> {
-        let mut jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut jobs = lock(&self.jobs);
         if let Some(running) = jobs.running {
             return Err(DataExportStartRefusal::AlreadyRunning(running));
         }
@@ -259,14 +257,14 @@ impl DataExports {
         &self,
         job_id: DataExportJobId,
     ) -> Option<watch::Receiver<DataExportProgress>> {
-        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let jobs = lock(&self.jobs);
         jobs.jobs.get(&job_id).map(|job| job.progress.subscribe())
     }
 
     /// Stops `job_id` once its current session is written; a finished job stays as it ended.
     /// Answers `false` for a job this run did not start.
     pub(crate) fn cancel(&self, job_id: DataExportJobId) -> bool {
-        let jobs = self.jobs.lock().unwrap_or_else(PoisonError::into_inner);
+        let jobs = lock(&self.jobs);
         jobs.jobs
             .get(&job_id)
             .map(|job| job.stop.cancel())

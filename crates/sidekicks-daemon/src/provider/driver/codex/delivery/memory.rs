@@ -20,7 +20,7 @@ use crate::provider::driver::codex::delivery::rows::{
 };
 use crate::provider::driver::reorder_buffer::NormalizedEventReorderBuffer;
 use crate::provider::driver::streamed_text::StreamedText;
-use crate::session::run::engine::turns::StartedTurn;
+use crate::provider::run::turn_end::StartedTurn;
 
 /// How many tool rows may wait for their start at once. Codex sends an item's start before its end
 /// on one ordered connection, so a held completion is a fault, reported when flushed.

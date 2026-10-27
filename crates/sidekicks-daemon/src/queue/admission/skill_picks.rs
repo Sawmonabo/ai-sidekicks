@@ -12,9 +12,10 @@ use super::{QueueAdmission, provider_work};
 use crate::admission::memory_gate::MemoryAdmissionState;
 use crate::database::connection::read_pool::ReadLength;
 use crate::ipc::domain_error::DomainError;
-use crate::provider::driver::contract::ProviderDriver;
+use crate::provider::driver::contract::{DriverError, ProviderDriver};
 use crate::provider::driver::run_control::PickedSkill;
 use crate::queue::error::QueueError;
+use crate::queue::refusals::skill_not_listed;
 use crate::queue::store::QueueItemReader;
 
 impl QueueAdmission {
@@ -22,8 +23,9 @@ impl QueueAdmission {
     /// start of the session's queued run is waited for first, so the read never takes a second
     /// place behind it, and a read that would start the provider's process waits at the gate
     /// itself and leaves it once the read settles. Refuses `provider.timeout` when either wait
-    /// outlives the delivery timeout, and as the driver refuses a pick. `provider_account_id` is
-    /// the account the session's runs are admitted against.
+    /// outlives the delivery timeout, `skill.pathRefused` for a pick the provider does not list,
+    /// and as the driver refuses a pick. `provider_account_id` is the account the session's runs
+    /// are admitted against.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
@@ -82,7 +84,11 @@ impl QueueAdmission {
             .resolve_skill_picks(session_id, provider_account_id, picks)
             .await;
         drop(place);
-        Ok(Some(resolved?))
+        match resolved {
+            Ok(skills) => Ok(Some(skills)),
+            Err(DriverError::SkillNotListed(pick)) => Err(skill_not_listed(&pick).into()),
+            Err(error) => Err(error.into()),
+        }
     }
 }
 

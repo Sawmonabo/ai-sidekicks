@@ -5,10 +5,9 @@
 //! bytes are stored. Several manifests may share one stored payload, so how many references name a
 //! storage key is counted from these rows, never kept in a column that could drift from them.
 
-use std::sync::LazyLock;
-
 use sidekicks_contracts::artifacts::manifest::ArtifactType;
 
+use crate::database::schema::{SchemaPart, SchemaParts};
 use crate::database::sql_list::sql_list_of_every;
 
 /// The statements the artifact services read through the shared read pool: the owner check's two,
@@ -17,8 +16,11 @@ use crate::database::sql_list::sql_list_of_every;
 /// and referenced keys.
 pub(crate) const ARTIFACT_STATEMENT_CAPACITY: usize = 13;
 
-/// The SQL of the artifact tables and their indexes, run as part of the daemon schema's script.
-pub(crate) static ARTIFACT_SCHEMA_SQL: LazyLock<String> = LazyLock::new(artifact_schema_sql);
+/// The questions' list and the artifact tables' own part.
+pub(crate) fn schema_parts() -> SchemaParts {
+    crate::questions::schema::schema_parts()
+        .with_part(SchemaPart::new("artifacts", artifact_schema_sql()))
+}
 
 fn artifact_schema_sql() -> String {
     let artifact_types = sql_list_of_every::<ArtifactType>();

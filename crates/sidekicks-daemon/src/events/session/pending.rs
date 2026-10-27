@@ -6,10 +6,12 @@
 
 use std::collections::HashSet;
 use std::mem;
-use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::sync::{Mutex, MutexGuard};
 
 use sidekicks_contracts::session::id::SessionId;
 use tokio::sync::Notify;
+
+use crate::mutex_lock::lock;
 
 /// The waiting sessions and the wake of the one task that takes them. Holds at most one entry per
 /// session.
@@ -40,6 +42,6 @@ impl PendingSessions {
 
     fn lock_sessions(&self) -> MutexGuard<'_, HashSet<SessionId>> {
         // The set holds no invariant a panicking holder could break.
-        self.sessions.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.sessions)
     }
 }

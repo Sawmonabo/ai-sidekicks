@@ -183,21 +183,60 @@ pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = true;
 /// removed.
 #[cfg(any(test, feature = "test-support"))]
 pub struct UnreadableEntry {
-    path: std::path::PathBuf,
+    _denial: EveryoneDenial,
 }
 
 /// Makes the file or folder at `path` unreadable until the returned guard drops, through `icacls`,
 /// which adds a deny entry for everyone. Fails when `icacls` cannot start or refuses.
 #[cfg(any(test, feature = "test-support"))]
 pub fn make_unreadable(path: &Path) -> io::Result<UnreadableEntry> {
-    run_icacls(path, &["/deny", EVERYONE_READ_DENIAL])?;
     Ok(UnreadableEntry {
-        path: path.to_path_buf(),
+        _denial: EveryoneDenial::add(path, EVERYONE_READ_DENIAL)?,
     })
 }
 
+/// The access-list entry that denies everyone (`S-1-1-0`) the writing of a file and the making of
+/// a file or folder inside a folder.
 #[cfg(any(test, feature = "test-support"))]
-impl Drop for UnreadableEntry {
+const EVERYONE_WRITE_DENIAL: &str = "*S-1-1-0:(WD,AD)";
+
+/// A file no one may write, or a folder no one may make entries in, until this is dropped, when
+/// its deny entry is removed.
+#[cfg(any(test, feature = "test-support"))]
+pub struct UnwritableEntry {
+    _denial: EveryoneDenial,
+}
+
+/// Makes the file or folder at `path` unwritable until the returned guard drops, through `icacls`,
+/// which adds a deny entry for everyone. Fails when `icacls` cannot start or refuses.
+#[cfg(any(test, feature = "test-support"))]
+pub fn make_unwritable(path: &Path) -> io::Result<UnwritableEntry> {
+    Ok(UnwritableEntry {
+        _denial: EveryoneDenial::add(path, EVERYONE_WRITE_DENIAL)?,
+    })
+}
+
+// A deny entry for everyone on an entry's access list until this drops, when it is removed.
+#[cfg(any(test, feature = "test-support"))]
+struct EveryoneDenial {
+    path: std::path::PathBuf,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl EveryoneDenial {
+    // Adds `denial` to the access list of the entry at `path`.
+    fn add(path: &Path, denial: &str) -> io::Result<Self> {
+        run_icacls(path, &["/deny", denial])?;
+        Ok(Self {
+            path: path.to_path_buf(),
+        })
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl Drop for EveryoneDenial {
+    // `/remove:d *S-1-1-0` removes every deny-everyone entry, so an entry made both unreadable and
+    // unwritable loses both at the first drop.
     fn drop(&mut self) {
         run_icacls(&self.path, &["/remove:d", "*S-1-1-0"]).expect("the deny entry is removed");
     }

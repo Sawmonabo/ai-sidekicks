@@ -590,7 +590,7 @@ mod tests {
 
     use super::{SessionSearchError, SessionSearchService};
     use crate::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-    use crate::database::schema::DAEMON_SCHEMA_SQL;
+    use crate::questions::schema::schema_parts;
     use crate::session::search::cursor::decode_search_cursor;
     use crate::session::search::index::outbox::OutboxReader;
     use crate::session::search::index::rebuild::{
@@ -617,8 +617,8 @@ mod tests {
             let connection =
                 Connection::open(folder.path().join("daemon.db")).expect("the database opens");
             connection
-                .execute_batch(&DAEMON_SCHEMA_SQL)
-                .expect("the daemon's schema runs");
+                .execute_batch(schema_parts().into_schema().sql())
+                .expect("the session's schema runs");
             for number in 1..=3 {
                 add_titled_session(
                     &connection,

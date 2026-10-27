@@ -11,19 +11,17 @@ pub(crate) mod daemon_turns;
 pub(crate) mod record;
 
 use std::collections::HashMap;
-use std::error::Error;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::keyed_lock::{KeyHold, KeyedLock};
+use crate::mutex_lock::lock;
 use crate::provider::driver::attachments::AttachmentResolver;
 use crate::provider::driver::codex::attachments::resolve_codex_turn_message;
 use crate::provider::driver::codex::input_limit::message_too_large_refusal;
@@ -48,8 +46,7 @@ use crate::provider::driver::codex::transport::diagnostics::{
 };
 use crate::provider::driver::contract::StartRunParams;
 use crate::provider::driver::run_control::DaemonTurnBindingResolver;
-use crate::session::console_state::read_session_max_steps_per_turn;
-use crate::session::run::engine::RunEngine;
+use crate::provider::port::run_host::RunHost;
 
 /// How long a turn's start may take before it counts as not started. `turn/start` answers once
 /// Codex accepted the turn, so it matches the ordinary request deadline.
@@ -65,13 +62,11 @@ pub(crate) struct CodexRunStartDependencies {
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// The run engine, which opens a turn the daemon starts as the session's own run and takes
     /// each run's settled output speed.
-    pub(crate) engine: Arc<RunEngine>,
+    pub(crate) engine: Arc<dyn RunHost>,
     /// Opens the binding of a turn the daemon starts.
     pub(crate) daemon_turn_bindings: Arc<dyn DaemonTurnBindingResolver>,
     /// Binds a message's staged files.
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
-    /// The read pool the session's step bound is read from.
-    pub(crate) reads: Arc<DatabaseReadPool>,
 }
 
 /// Starts turns for runs and routes each accepted turn to its run.
@@ -111,8 +106,8 @@ impl CodexRunStart {
     /// every wait within one turn-start deadline. A run whose turn did not start keeps no route,
     /// and the session keeps the binding it had. Fails with `CodexError::SessionTurnInFlight` when
     /// a stopping turn outlived the deadline or a turn Codex started runs, with
-    /// `CodexError::PortFailed` when the message's files or the step bound cannot be read, and as
-    /// the config fork and the request fail.
+    /// `CodexError::PortFailed` when the message's files cannot be read, and as the config fork and
+    /// the request fail.
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), CodexError> {
         let opening = params.opening;
         let session_id = opening.session_id;
@@ -135,7 +130,6 @@ impl CodexRunStart {
         let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
         // Before the run's route is recorded: the end of its own interrupted turn forgets it.
         wait_out_stopped_turns(&inbound, &deadline).await?;
-        let step_bound = read_codex_step_bound(&self.dependencies.reads, session_id).await?;
         let run_routes = &self.dependencies.run_routes;
         run_routes.bind_run_delivery(
             run_id,
@@ -143,7 +137,7 @@ impl CodexRunStart {
                 session_id,
                 binding_id: opening.binding_id.clone(),
                 agent_id: opening.agent_id,
-                step_bound,
+                step_bound: params.step_bound,
             },
         );
         let output_speed_for_turn = params
@@ -342,9 +336,7 @@ impl CodexRunStart {
     }
 
     fn lock_withdrawals(&self) -> MutexGuard<'_, HashMap<RunId, Arc<AtomicBool>>> {
-        self.withdrawals_by_run
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.withdrawals_by_run)
     }
 
     /// Records the speed a run settled at; a failed write is reported.
@@ -352,38 +344,18 @@ impl CodexRunStart {
         if let Err(error) = self
             .dependencies
             .engine
-            .record_settled_output_speed(settled.session_id, settled.run_id, &settled.state)
+            .record_settled_output_speed(settled.session_id, settled.run_id, settled.state)
             .await
         {
             CodexTransportDiagnostic::PortDeliveryFailed {
                 provider_account_id: settled.provider_account_id,
                 port: CodexDeliveryPort::OutputSpeed,
                 session_id: Some(settled.session_id),
-                error: Box::new(error),
+                error,
             }
             .report();
         }
     }
-}
-
-/// The session's own bound on the steps one turn may take, read as a run starts. Fails with
-/// `CodexError::PortFailed` when the read fails.
-pub(crate) async fn read_codex_step_bound(
-    reads: &DatabaseReadPool,
-    session_id: SessionId,
-) -> Result<Option<SafeInt<1>>, CodexError> {
-    reads
-        .read(ReadLength::Short, move |reader| {
-            Ok::<_, Box<dyn Error + Send + Sync>>(read_session_max_steps_per_turn(
-                reader,
-                &session_id,
-            )?)
-        })
-        .await
-        .map_err(|cause| CodexError::PortFailed {
-            port: "session console state",
-            cause,
-        })
 }
 
 // Waits for every turn the daemon is stopping to end within `deadline`, or refuses the turn.

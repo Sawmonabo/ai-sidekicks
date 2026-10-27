@@ -25,9 +25,9 @@ use crate::provider::driver::contract::bound_failure_detail;
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::provider::record_readers::read_non_empty_string;
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::provider::run::turn_end::TurnOutcome;
 use crate::provider::turn_evidence::TurnEvidenceClass;
-use crate::session::run::engine::turns::TurnOutcome;
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
 /// Why Claude Code's loop ended a turn, the whole union its `result` frame's `terminal_reason`
 /// takes; a reason a newer build adds reads as none.
@@ -137,7 +137,7 @@ pub(crate) struct ClaudeTurnEndMarks {
 pub(crate) struct ClaudeTurnEnd {
     /// The run's move; `None` for a turn Claude Code started by itself on a paused run, whose end
     /// moves no run.
-    pub(crate) change: Option<RunStateChange>,
+    pub(crate) change: Option<RunStateReport>,
     /// The turn's own end.
     pub(crate) outcome: TurnOutcome,
     /// Whether it is the end of the daemon's own interrupt, which the daemon may have written.
@@ -164,7 +164,7 @@ pub(crate) fn compose_claude_turn_end(
         .and_then(|reason| ClaudeTerminalReason::from_str(reason).ok());
     let intended_close = marks.is_intended_close.then_some(BoolLiteral);
     let interrupted = |trigger, outcome, is_daemon_interrupt_end| ClaudeTurnEnd {
-        change: Some(RunStateChange::new(
+        change: Some(RunStateReport::new(
             run_id,
             RunStateEntry::Interrupted {
                 intended_close,
@@ -201,9 +201,9 @@ pub(crate) fn compose_claude_turn_end(
     let is_too_long = terminal_reason.is_some_and(ClaudeTerminalReason::is_too_long);
     let (mut change, outcome, is_failed) = match marks.refusal {
         Some(refusal) => (
-            RunStateChange {
+            RunStateReport {
                 failure_category: Some(RunFailureCategory::Refused),
-                ..RunStateChange::new(run_id, failed_entry(Some(refusal), None))
+                ..RunStateReport::new(run_id, failed_entry(Some(refusal), None))
             },
             TurnOutcome::Failed(None),
             true,
@@ -240,16 +240,16 @@ pub(crate) fn compose_claude_turn_end(
                 UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
             );
             (
-                RunStateChange {
+                RunStateReport {
                     failure_category: Some(RunFailureCategory::ProviderFailure),
-                    ..RunStateChange::new(run_id, failed_entry(cause, Some(detail)))
+                    ..RunStateReport::new(run_id, failed_entry(cause, Some(detail)))
                 },
                 TurnOutcome::Failed(None),
                 true,
             )
         }
         None => (
-            RunStateChange::new(
+            RunStateReport::new(
                 run_id,
                 RunStateEntry::Completed {
                     intended_close: None,
@@ -261,9 +261,9 @@ pub(crate) fn compose_claude_turn_end(
     };
     set_intended_close(&mut change.entry, intended_close);
     if marks.is_pause_effect && !is_failed {
-        change = RunStateChange {
+        change = RunStateReport {
             expected_state: Some(RunState::Pausing),
-            ..RunStateChange::new(run_id, RunStateEntry::Paused)
+            ..RunStateReport::new(run_id, RunStateEntry::Paused)
         };
     } else if marks.is_resting_paused && !marks.is_pause_effect {
         return ClaudeTurnEnd {
@@ -352,8 +352,8 @@ mod tests {
     use super::{ClaudeTurnEndMarks, compose_claude_turn_end};
     use crate::provider::driver::claude::event_normalizer::ClaudeWireFrameKind;
     use crate::provider::driver::test_registry::new_run_id;
-    use crate::session::run::engine::turns::TurnOutcome;
-    use crate::session::run::state_change::RunStateEntry;
+    use crate::provider::run::state_entry::RunStateEntry;
+    use crate::provider::run::turn_end::TurnOutcome;
 
     // Killed by ending a turn stopped at its step bound `failed`, as a declared failure would.
     #[test]

@@ -6,8 +6,11 @@ use std::time::Duration;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
+use sidekicks_contracts::run::state::RunState;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::mutex_lock::lock;
@@ -24,13 +27,14 @@ use crate::provider::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
     WaitingMessage,
 };
-use crate::provider::driver::test_registry::{new_message_id, terminal_events};
+use crate::provider::driver::test_registry::new_message_id;
 use crate::provider::port::question::QuestionPort;
 use crate::provider::port::question::test_card::QuestionCard;
-use crate::session::run::engine::tests::stored_run_state;
+use crate::provider::run::delivery::LateAppendableRow;
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
-// Real time under a timeout, since the run engine writes the turn's end through the database
-// writer. Two handlers run on each prompt: the opening prompt's second blocks, the first steer
+// Real time under a timeout, since the session's task applies each frame on its own task. Two
+// handlers run on each prompt: the opening prompt's second blocks, the first steer
 // passes and is echoed, the second steer is blocked by both, the third is stopped by its second.
 // Killed by dropping the `message_refused` call from the session task's turn end, by pairing the
 // opening prompt's refusal with a steer, by refusing a steer Codex echoed, by leaving
@@ -185,15 +189,6 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
     };
     let mut session = LiveCodexSession::start(&steers).await;
     let parts = Arc::clone(session.driver.parts().expect("the driver composes"));
-    // As the run engine moves the run before it asks the driver to pause it.
-    session
-        .database
-        .reader()
-        .execute(
-            "UPDATE runs SET state = 'pausing', run_version = 2 WHERE run_id = ?1",
-            [session.run_id.text().as_str()],
-        )
-        .expect("the test moves the run to pausing");
     parts
         .run_control
         .pause_run(PauseRunParams {
@@ -252,22 +247,26 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
         PauseEnd::Stopped => (
             turn_completed(TEST_THREAD, TEST_TURN, "interrupted"),
             json!({"jsonrpc": "2.0", "id": interrupt["id"], "result": {}}),
-            "paused",
+            RunStateChangeState::Paused,
         ),
         PauseEnd::CompletedByItself => (
             turn_completed(TEST_THREAD, TEST_TURN, "completed"),
             no_active_turn_refusal(&interrupt),
-            "paused",
+            RunStateChangeState::Paused,
         ),
         PauseEnd::FailedByItself => {
             let mut failed = turn_completed(TEST_THREAD, TEST_TURN, "failed");
             failed["params"]["turn"]["error"] = json!({"message": "The model is overloaded."});
-            (failed, no_active_turn_refusal(&interrupt), "failed")
+            (
+                failed,
+                no_active_turn_refusal(&interrupt),
+                RunStateChangeState::Failed,
+            )
         }
         PauseEnd::UnknownStatusByItself => (
             turn_completed(TEST_THREAD, TEST_TURN, "wandered"),
             no_active_turn_refusal(&interrupt),
-            "failed",
+            RunStateChangeState::Failed,
         ),
     };
     match order {
@@ -291,13 +290,19 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
             session.scripted.script.send(&ended);
         }
     }
-    let mut changes = session.followers.change_count(&session.session_id);
-    while stored_run_state(&session.database, &session.run_id).0 != expected_state {
-        tokio::time::timeout(Duration::from_secs(10), changes.changed())
-            .await
-            .expect("the session's task reports the run's end")
-            .expect("the followers stay open");
-    }
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        session.engine.wait_until(|_| {
+            session
+                .engine
+                .run_moves()
+                .iter()
+                .any(|change| change.entry.state() == expected_state)
+                .then_some(())
+        }),
+    )
+    .await
+    .expect("the session's task reports the run's end");
     if end == PauseEnd::Stopped {
         while lock(&session.queue.given_back).is_empty() {
             tokio::time::timeout(Duration::from_secs(10), session.queue.changed.notified())
@@ -320,16 +325,28 @@ async fn a_pause_marked_turn_reads_by_its_own_end(
 
     assert_eq!(live_turn_runs, Vec::new());
 
-    let terminal_types: Vec<String> = terminal_events(&session.database, session.run_id)
-        .into_iter()
-        .map(|(event_type, _intended_close)| event_type)
-        .collect();
+    let moves = session.engine.run_moves();
     match end {
         PauseEnd::Stopped | PauseEnd::CompletedByItself => {
-            assert_eq!(terminal_types, Vec::<String>::new());
+            // Reported from the pausing state, so a pause a resume already moved past is refused.
+            assert_eq!(
+                moves,
+                [RunStateReport {
+                    expected_state: Some(RunState::Pausing),
+                    ..RunStateReport::new(session.run_id, RunStateEntry::Paused)
+                }]
+            );
         }
         PauseEnd::FailedByItself | PauseEnd::UnknownStatusByItself => {
-            assert_eq!(terminal_types, ["agent.run.failed"]);
+            let [failed] = moves.as_slice() else {
+                panic!("the run ends once, failed: {moves:?}");
+            };
+            assert_eq!(failed.run_id, session.run_id);
+            assert_eq!(failed.entry.state(), RunStateChangeState::Failed);
+            assert_eq!(
+                failed.failure_category,
+                Some(RunFailureCategory::ProviderFailure)
+            );
         }
     }
     let given_back: Vec<String> = steers.iter().map(ToString::to_string).collect();
@@ -418,14 +435,7 @@ async fn an_interrupts_turn_ending_ahead_of_its_answer_is_the_interrupts() {
     };
 
     assert_eq!(dropped, [steer]);
-    assert_eq!(
-        terminal_events(&session.database, session.run_id),
-        Vec::new()
-    );
-    assert_eq!(
-        stored_run_state(&session.database, &session.run_id).0,
-        "running"
-    );
+    assert_eq!(session.engine.run_moves(), Vec::new());
 }
 
 // Real time under a timeout, as above. A steer still unechoed when a faster-model retry stops its
@@ -569,10 +579,10 @@ fn refused_words(session: &LiveCodexSession) -> Vec<(String, String)> {
         .collect()
 }
 
-// Real time under a timeout, since the run engine writes the row through the database writer.
-// Killed by dropping the context-window readings from the session task's `apply`, and by reading
-// each reading's run after the batch's turn ends retired their routes: no row would be filed, or
-// the one of a turn that ended in the same batch would name no run.
+// Real time under a timeout, as above. Killed by dropping the context-window readings from the
+// session task's `apply`, and by reading each reading's run after the batch's turn ends retired
+// their routes: no row would be filed, or the one of a turn that ended in the same batch would name
+// no run.
 #[tokio::test]
 async fn a_token_usage_reading_files_the_context_window_on_its_run_even_as_its_turn_ends() {
     let usage = json!({
@@ -611,35 +621,28 @@ async fn a_token_usage_reading_files_the_context_window_on_its_run_even_as_its_t
     }
 }
 
-// The session's `usage.contextWindow.updated` payloads, once one is written.
+// The session's `usage.contextWindow.updated` payloads, once one is delivered.
 async fn wait_for_context_windows(session: &LiveCodexSession) -> Vec<Value> {
-    let mut changes = session.followers.change_count(&session.session_id);
-    loop {
-        let payloads: Vec<Value> = session
-            .database
-            .reader()
-            .prepare(
-                "SELECT payload FROM session_events \
-                 WHERE session_id = ?1 AND type = 'usage.contextWindow.updated' ORDER BY sequence",
-            )
-            .expect("the test reads the session's events")
-            .query_map([session.session_id.to_string()], |row| {
-                row.get::<_, String>(0)
-            })
-            .expect("the session's events read")
-            .map(|payload| {
-                serde_json::from_str(&payload.expect("each event reads"))
-                    .expect("a stored payload is JSON")
-            })
-            .collect();
-        if !payloads.is_empty() {
-            return payloads;
-        }
-        tokio::time::timeout(Duration::from_secs(10), changes.changed())
-            .await
-            .expect("the session's task files the reading")
-            .expect("the followers stay open");
-    }
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        session.engine.wait_until(|_| {
+            let payloads: Vec<Value> = session
+                .engine
+                .deliveries()
+                .iter()
+                .filter_map(|delivery| {
+                    let Some(LateAppendableRow::UsageContextWindowUpdated(payload)) = &delivery.row
+                    else {
+                        return None;
+                    };
+                    Some(serde_json::to_value(payload).expect("a payload serializes"))
+                })
+                .collect();
+            (!payloads.is_empty()).then_some(payloads)
+        }),
+    )
+    .await
+    .expect("the session's task files the reading")
 }
 
 // The daemon declares no dynamic tool, so a tool call Codex sends anyway is refused with the ask's

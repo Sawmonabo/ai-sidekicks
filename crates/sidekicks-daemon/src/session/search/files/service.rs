@@ -10,7 +10,7 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use futures::future::{BoxFuture, Shared};
@@ -34,6 +34,7 @@ use crate::git::process::{GitError, GitRunner};
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::missing_entry::is_gone;
+use crate::mutex_lock::lock;
 use crate::session::search::files::listing::{
     ListingError, WorkingFolderListing, list_working_folder,
 };
@@ -350,7 +351,7 @@ impl FileSearchService {
 
 fn lock_listings(listings: &Mutex<KeptListings>) -> MutexGuard<'_, KeptListings> {
     // The map holds no invariant a panicking holder could break.
-    listings.lock().unwrap_or_else(PoisonError::into_inner)
+    lock(listings)
 }
 
 /// `session.workingFolder.missing`: the session's working folder is not in place, yet or any
@@ -499,10 +500,11 @@ mod tests {
 
     use super::{FILE_SEARCH_STATEMENT_CAPACITY, FileSearchError, FileSearchService};
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::session_directory::insert_session_row;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::git::process::{GitRunner, test_git_runner, write_link};
-    use crate::session::directory::test_rows::insert_session_row;
+    use crate::questions::schema::schema_parts;
     use crate::workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
     /// Bounds a wait the test expects to end, so one that never does fails the test.
@@ -518,7 +520,7 @@ mod tests {
     }
 
     async fn harness(git: GitRunner, folder: &Path) -> Harness {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the writer creates the file with the daemon's schema.
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await

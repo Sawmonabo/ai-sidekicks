@@ -12,7 +12,7 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use semver::Version;
@@ -24,6 +24,7 @@ use tokio::process::Command;
 use tokio::sync::OnceCell;
 
 use crate::missing_entry::is_gone;
+use crate::mutex_lock::lock;
 use crate::provider::driver::{InstallFolderBase, ProviderDescriptor};
 use crate::provider::spawn_environment::{
     place_folder_first_on_search_path, remove_environment_names,
@@ -137,7 +138,7 @@ impl ProviderCommandSearch {
         spawn_environment: &[(String, String)],
     ) -> Option<Version> {
         let version = {
-            let mut versions = self.versions.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut versions = lock(&self.versions);
             match versions.get(&hit.build) {
                 Some(found) if found.stamp == hit.stamp => Arc::clone(&found.version),
                 Some(_) | None => {

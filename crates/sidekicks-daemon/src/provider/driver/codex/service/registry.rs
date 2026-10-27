@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -18,6 +18,7 @@ use sidekicks_platforms::{CAN_LINK_A_SOCKET, read_socket_link};
 use tokio::runtime::Handle;
 use tokio::task::JoinHandle;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::service::home::{
     CodexHomeKind, CodexServiceHome, CodexServiceKind,
@@ -223,7 +224,7 @@ impl CodexServiceRegistry {
                     "whether the codex terminal service is free could not be read; it keeps \
                      running"
                 );
-                let mut held = lock_services(&services);
+                let mut held = lock(&services);
                 let registered = &mut *held;
                 if let Entry::Vacant(slot) =
                     registered.by_home.entry(service.home().codex_home.clone())
@@ -408,7 +409,7 @@ impl CodexServiceRegistry {
     }
 
     fn lock(&self) -> MutexGuard<'_, RegisteredServices> {
-        lock_services(&self.services)
+        lock(&self.services)
     }
 }
 
@@ -476,13 +477,9 @@ async fn may_take_socket_link(
 // Stops `service`, which left its home, and forgets it among `services`.
 async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<CodexService>) {
     service.stop().await;
-    lock_services(services)
+    lock(services)
         .replaced
         .retain(|replaced| !Arc::ptr_eq(replaced, service));
-}
-
-fn lock_services(services: &Mutex<RegisteredServices>) -> MutexGuard<'_, RegisteredServices> {
-    services.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 // Whether `home` is the person's own folder with terminal reach on, which the terminal service

@@ -1,5 +1,5 @@
-//! Run control against the scripted service, on real time under a bound: the session's run engine
-//! sits on a real database, whose writer does not run under paused time.
+//! Run control against the scripted service, on real time under a bound: the session's binding
+//! store sits on a real database, whose writer does not run under paused time.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,12 +33,11 @@ async fn live_run(session: &mut TestCodexSession) -> (Arc<CodexRunControl>, RunI
         run_id,
         CodexRunBinding {
             session_id,
-            binding_id: binding_id.clone(),
+            binding_id,
             agent_id: session.daemon_turn_bindings.agent_id,
             step_bound: None,
         },
     );
-    session.open_epoch(binding_id, run_id);
     session
         .task
         .record

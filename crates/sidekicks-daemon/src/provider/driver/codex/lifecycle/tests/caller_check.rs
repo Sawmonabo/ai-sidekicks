@@ -1,14 +1,14 @@
 //! The caller check over the provider services the driver dials.
 
-// Unix alone: the services listen on a socket under `/tmp` and Codex's command is a shell script.
-#![cfg(unix)]
-
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use sidekicks_platforms::{ParentProcess, ResponsibleProcess, this_process};
+use sidekicks_platforms::{
+    CAN_BIND_A_SOCKET_LISTENER, ParentProcess, ResponsibleProcess, short_socket_folder,
+    this_process,
+};
 
 use super::{driver_on_codex_folder, listen_on_codex_folder};
 use crate::ipc::caller_process::contract::CallerProcessReader;
@@ -24,8 +24,10 @@ use crate::provider::driver::daemon_stop::DaemonStopIntent;
 // service held and answer that the caller needs the session token.
 #[tokio::test]
 async fn the_caller_check_refuses_the_process_serving_a_codex_service_the_driver_dialed() {
-    // Under `/tmp`, so the socket's path fits the system's limit.
-    let folder = tempfile::tempdir_in("/tmp").expect("a scratch folder is made");
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, services) = driver_on_codex_folder(folder.path());
     driver.is_terminal_reach_on.store(true, Ordering::Release);
     let service = driver

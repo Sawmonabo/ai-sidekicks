@@ -18,7 +18,7 @@ use crate::provider::driver::codex::transport::diagnostics::{
 };
 use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
 use crate::provider::record_readers::read_non_empty_string;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
 
 impl CodexFrameDelivery {
     pub(super) async fn deliver_reviewer_frame(

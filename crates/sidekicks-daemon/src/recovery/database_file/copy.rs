@@ -12,7 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::process::{ExitCode, ExitStatus};
 
-use sidekicks_platforms::{Spawner, flush_file};
+use sidekicks_platforms::{ProgramStart, Spawner, flush_file};
 use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
@@ -61,14 +61,37 @@ enum CopyModeError {
 
 /// Starts the daemon's own program in the `database copy` mode, each child on one spawner.
 pub struct DatabaseFileCopier {
-    program: PathBuf,
+    // The program and what it takes before the mode's arguments: none for the daemon's own.
+    start: ProgramStart,
     spawner: Spawner,
 }
 
 impl DatabaseFileCopier {
     /// A copier starting `program`, the daemon's own, on `spawner`'s thread.
     pub fn new(program: PathBuf, spawner: Spawner) -> Self {
-        Self { program, spawner }
+        Self {
+            start: ProgramStart {
+                program,
+                leading_arguments: Vec::new(),
+            },
+            spawner,
+        }
+    }
+
+    /// A copier starting `stand_in`, a test program standing in for the daemon's, which takes its
+    /// own arguments before the mode's, on `spawner`'s thread.
+    #[cfg(test)]
+    pub(crate) fn with_stand_in(
+        stand_in: sidekicks_platforms::TestProgram,
+        spawner: Spawner,
+    ) -> Self {
+        Self {
+            start: ProgramStart {
+                program: PathBuf::from(stand_in.program),
+                leading_arguments: stand_in.arguments.into_iter().map(PathBuf::from).collect(),
+            },
+            spawner,
+        }
     }
 
     /// Copies `source` to `destination`, replacing it, as a clone where the file system makes one,
@@ -82,8 +105,9 @@ impl DatabaseFileCopier {
         destination: &Path,
         stop: &CancellationToken,
     ) -> Result<(), DatabaseCopyError> {
-        let mut command = Command::new(&self.program);
+        let mut command = Command::new(&self.start.program);
         command
+            .args(&self.start.leading_arguments)
             .args(DATABASE_COPY_MODE)
             .arg(source)
             .arg(destination);

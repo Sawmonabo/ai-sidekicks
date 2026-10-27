@@ -18,9 +18,7 @@ use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::run::control::interrupt_codex_run;
 use crate::provider::driver::codex::run::routes::CodexRunBinding;
 use crate::provider::driver::codex::run::start::record::{CodexTurnBegin, CodexTurnStartOutcome};
-use crate::provider::driver::codex::run::start::{
-    CODEX_TURN_START_TIMEOUT, CodexRunStart, read_codex_step_bound,
-};
+use crate::provider::driver::codex::run::start::{CODEX_TURN_START_TIMEOUT, CodexRunStart};
 use crate::provider::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::provider::driver::codex::session::calls::call_codex_session;
 use crate::provider::driver::codex::session::errors::CodexError;
@@ -28,8 +26,8 @@ use crate::provider::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundSender,
 };
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::session::run::engine::RunEngineError;
-use crate::session::run::start_request::DaemonTurnStartRequest;
+use crate::provider::port::run_host::RunHostError;
+use crate::provider::run::start_request::DaemonTurnStartRequest;
 
 /// Sends the request that makes Codex start a turn the daemon starts, on the connection and
 /// conversation it names, within the time left of the start's deadline, and answers the turn its
@@ -52,7 +50,7 @@ pub(crate) enum CodexDaemonTurnError {
     Codex(#[from] CodexError),
     /// The run engine refused the session's own run, or its start failed and ended it failed.
     #[error(transparent)]
-    Engine(#[from] RunEngineError),
+    Engine(#[from] RunHostError),
 }
 
 impl CodexRunStart {
@@ -137,14 +135,13 @@ impl CodexRunStart {
                 cause: Box::new(error),
             })?;
         self.dependencies.config_forks.join(session_id).await;
-        let step_bound = read_codex_step_bound(&self.dependencies.reads, session_id).await?;
         self.dependencies.run_routes.bind_run_delivery(
             run_id,
             CodexRunBinding {
                 session_id,
                 binding_id: binding.binding_id.clone(),
                 agent_id: binding.agent_id,
-                step_bound,
+                step_bound: binding.step_bound,
             },
         );
         let sent = self

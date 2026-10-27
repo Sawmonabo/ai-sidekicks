@@ -4,8 +4,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sidekicks_platforms::{
-    CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused, askpass_socket_path,
-    check_socket_path, create_missing_private_folders, process_identity, replace_file_atomically,
+    CAN_BIND_A_SOCKET_LISTENER, CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused,
+    askpass_socket_path, check_socket_path, create_missing_private_folders, process_identity,
+    replace_file_atomically,
 };
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
@@ -135,6 +136,9 @@ impl TestHome {
 // stop that closes a part the erase already closed again.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_erase_over_a_started_daemon_closes_it_and_the_stop_after_fails_nothing() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
     let home = TestHome::new();
     let mut process = home
         .start(CancellationToken::new())
@@ -222,6 +226,10 @@ async fn a_run_folder_too_long_for_its_sockets_fails_the_start_before_any_step()
         failure.failures
     );
     assert!(!too_long.exists(), "no run folder is made");
+    // The start one byte shorter binds the socket.
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
 
     let started = TestHome::with_run_folder(refused.home, fits);
     create_missing_private_folders(&started.run_folder.folder_path).expect("the run folder");

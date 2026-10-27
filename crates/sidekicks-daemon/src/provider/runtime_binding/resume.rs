@@ -1,8 +1,6 @@
-//! Rebuilding a run's leg from its stored binding: which of a session's bindings is its leg, read
-//! by session id with no live record, and the resume params composed from that binding's stored
-//! legs and the session as it stands now.
+//! Rebuilding a run's leg from its stored binding: the resume params composed from that binding's
+//! stored legs and the session as it stands now.
 
-use rusqlite::Connection;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
@@ -14,13 +12,9 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
-use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::provider::driver::mcp_server_status::McpServerStatusProducer;
 use crate::provider::driver::session_control::ResumeSessionParams;
-use crate::provider::runtime_binding::store::{
-    RuntimeBinding, RuntimeBindingStoreError, read_bindings_of_runs,
-};
-use crate::session::run::ids::read_session_run_ids;
+use crate::provider::runtime_binding::store::RuntimeBinding;
 
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
 /// status sink is a choice at the call.
@@ -89,32 +83,4 @@ pub(crate) fn compose_resume_session_params(
         provider_account_id: spawn_config.provider_account_id,
         on_mcp_server_status: function_legs.on_mcp_server_status,
     })
-}
-
-/// The session's leg, its newest binding with a conversation to resume, by when each was recorded
-/// and then by id, read through `pool`: the account it runs on and the handle of its conversation,
-/// at rest as live; `None` for a session that never ran. Fails as the pool or SQLite fails, or a
-/// stored row does not read.
-pub(crate) async fn read_session_leg(
-    pool: &DatabaseReadPool,
-    session_id: SessionId,
-) -> Result<Option<RuntimeBinding>, RuntimeBindingStoreError> {
-    pool.read(ReadLength::Short, move |reader| {
-        Ok(read_session_bindings(reader, session_id)?
-            .into_iter()
-            .filter(|binding| binding.resume_handle.is_some())
-            .max_by(|left, right| {
-                (&left.created_at, &left.id).cmp(&(&right.created_at, &right.id))
-            }))
-    })
-    .await
-}
-
-/// Every binding of the session's runs, superseded ones included, read on `reader`, inside the
-/// caller's snapshot where it holds one. Fails as SQLite fails or a stored row does not read.
-pub(crate) fn read_session_bindings(
-    reader: &Connection,
-    session_id: SessionId,
-) -> rusqlite::Result<Vec<RuntimeBinding>> {
-    read_bindings_of_runs(reader, &read_session_run_ids(reader, &session_id)?)
 }

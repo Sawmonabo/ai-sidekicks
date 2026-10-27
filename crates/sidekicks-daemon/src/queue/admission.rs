@@ -18,7 +18,7 @@ mod skill_picks;
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -45,9 +45,12 @@ use crate::events::session::read::DamagedFromSequenceReader;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::handlers::driver::resolution::read_session_driver;
 use crate::keyed_lock::KeyHold;
+use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{ProviderDriver, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::queue::delivery::{ProviderProcessIds, QueueDelivery};
+use crate::provider::process_identity::ProviderProcessIds;
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::queue::delivery::QueueDelivery;
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
@@ -60,7 +63,7 @@ use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::read::read_run_through;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::start_request::RunStartRequest;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 pub(crate) use self::opening::RunOpenings;
 
@@ -713,7 +716,7 @@ impl QueueAdmission {
     // The admission's state. No holder awaits or panics while it changes the state, so a poisoned
     // lock still guards a whole state.
     fn lock(&self) -> MutexGuard<'_, AdmissionState> {
-        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.state)
     }
 }
 

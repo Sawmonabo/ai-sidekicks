@@ -8,7 +8,7 @@ use rusqlite::{Connection, ErrorCode, Transaction, TransactionBehavior};
 
 use crate::cleanup_failures::CleanupFailures;
 use crate::database::connection::setup::{apply_connection_pragmas, prepare_or_close};
-use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL, SESSION_EVENTS_TABLE};
+use crate::database::schema::{DatabaseSchema, SESSION_EVENTS_TABLE};
 
 // How long an open waits for another connection's lock, as the busy wait and as the switch to
 // WAL's own retries.
@@ -53,20 +53,22 @@ pub(crate) const DAEMON_DATABASE_FILE_NAME: &str = "daemon.db";
 /// The search index's folder name in the data folder, beside the store whose rows it indexes.
 pub const SEARCH_INDEX_FOLDER_NAME: &str = "search-index";
 
-/// Opens the daemon's database at `database_path` for its one writer, creating the file and its
-/// schema when they are missing. Fails as SQLite does, with [`DatabaseOpenError::PragmaNotTaken`]
-/// for a durability pragma that reads back other than it was set, or with
-/// [`DatabaseOpenError::SchemaFromAnotherBuild`] for a file whose schema is not this build's; the
-/// connection is closed first, with the close's own failure beside the original when that fails.
+/// Opens the database at `database_path` for its one writer, creating the file and `schema` when
+/// they are missing. Fails as SQLite does, with [`DatabaseOpenError::PragmaNotTaken`] for a
+/// durability pragma that reads back other than it was set, or with
+/// [`DatabaseOpenError::SchemaFromAnotherBuild`] for a file whose fingerprint is not `schema`'s;
+/// the connection is closed first, with the close's own failure beside the original when that
+/// fails.
 pub(crate) fn open_database(
     database_path: &Path,
+    schema: &DatabaseSchema,
 ) -> Result<Connection, CleanupFailures<DatabaseOpenError, rusqlite::Error>> {
     let connection = Connection::open(database_path).map_err(|open_failure| {
         CleanupFailures::new(open_failure.into(), Vec::new(), "opening the database")
     })?;
     prepare_or_close(connection, |connection| {
         apply_writer_pragmas(connection)?;
-        create_schema_once(connection, database_path)?;
+        create_schema_once(connection, database_path, schema)?;
         // Once at open, as SQLite advises for a long-lived connection; the daily run is the
         // scheduler's.
         connection.execute_batch(OPTIMIZE_SQL)?;
@@ -154,16 +156,17 @@ fn read_writer_pragmas_back(connection: &Connection) -> Result<(), DatabaseOpenE
 fn create_schema_once(
     connection: &Connection,
     database_path: &Path,
+    schema: &DatabaseSchema,
 ) -> Result<(), DatabaseOpenError> {
     if has_schema(connection)? {
-        return check_fingerprint(connection, database_path);
+        return check_fingerprint(connection, database_path, schema);
     }
     let transaction = Transaction::new_unchecked(connection, TransactionBehavior::Immediate)?;
     if has_schema(&transaction)? {
-        check_fingerprint(&transaction, database_path)?;
+        check_fingerprint(&transaction, database_path, schema)?;
     } else {
-        transaction.execute_batch(&DAEMON_SCHEMA_SQL)?;
-        transaction.pragma_update(None, "user_version", *DAEMON_SCHEMA_FINGERPRINT)?;
+        transaction.execute_batch(schema.sql())?;
+        transaction.pragma_update(None, "user_version", schema.fingerprint())?;
     }
     Ok(transaction.commit()?)
 }
@@ -176,9 +179,10 @@ fn has_schema(connection: &Connection) -> rusqlite::Result<bool> {
 fn check_fingerprint(
     connection: &Connection,
     database_path: &Path,
+    schema: &DatabaseSchema,
 ) -> Result<(), DatabaseOpenError> {
     let fingerprint: i32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if fingerprint == *DAEMON_SCHEMA_FINGERPRINT {
+    if fingerprint == schema.fingerprint() {
         return Ok(());
     }
     Err(DatabaseOpenError::SchemaFromAnotherBuild {
@@ -195,7 +199,11 @@ mod tests {
     use rusqlite::types::Value;
 
     use super::{DatabaseOpenError, open_database};
-    use crate::database::schema::{DAEMON_SCHEMA_FINGERPRINT, SESSION_EVENTS_TABLE};
+    use crate::database::schema::{DatabaseSchema, SESSION_EVENTS_TABLE, schema_parts};
+
+    fn store_schema() -> DatabaseSchema {
+        schema_parts().into_schema()
+    }
 
     fn table_names(connection: &Connection) -> BTreeSet<String> {
         connection
@@ -220,14 +228,13 @@ mod tests {
             .expect("the schema version reads")
     }
 
-    /// A fresh file opens durable, with foreign keys on and deletes zeroed, and every foreign key
-    /// names a table the schema holds and finds nothing dangling. Mutations: drop a pragma, or
-    /// misspell a `REFERENCES` target.
+    /// A fresh file opens durable, with foreign keys on and deletes zeroed. Mutation: drop a
+    /// pragma.
     #[test]
-    fn a_fresh_file_opens_durable_with_every_reference_resolved() {
+    fn a_fresh_file_opens_durable() {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-        let connection =
-            open_database(&folder.path().join("daemon.db")).expect("the fresh file opens");
+        let connection = open_database(&folder.path().join("daemon.db"), &store_schema())
+            .expect("the fresh file opens");
 
         assert_eq!(
             pragma_value(&connection, "journal_mode"),
@@ -246,31 +253,6 @@ mod tests {
                 "{pragma}"
             );
         }
-        let tables = table_names(&connection);
-        let referenced: BTreeSet<String> = tables
-            .iter()
-            .flat_map(|table| {
-                connection
-                    .prepare("SELECT \"table\" FROM pragma_foreign_key_list(?)")
-                    .expect("the foreign key list prepares")
-                    .query_map([table], |row| row.get::<_, String>(0))
-                    .expect("the foreign key list reads")
-                    .collect::<rusqlite::Result<Vec<_>>>()
-                    .expect("each foreign key reads")
-            })
-            .collect();
-        assert!(!referenced.is_empty(), "the schema declares foreign keys");
-        assert!(
-            referenced.is_subset(&tables),
-            "unresolved: {:?}",
-            referenced.difference(&tables).collect::<Vec<_>>()
-        );
-        let dangling: i64 = connection
-            .query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |row| {
-                row.get(0)
-            })
-            .expect("the foreign key check runs");
-        assert_eq!(dangling, 0);
     }
 
     /// A schema that fails partway creates nothing: the whole script runs in one transaction. A
@@ -282,15 +264,16 @@ mod tests {
         let database_path = folder.path().join("daemon.db");
         Connection::open(&database_path)
             .expect("the test opens the file")
-            .execute_batch("CREATE TABLE artifact_payload_refs (id TEXT)")
+            .execute_batch("CREATE TABLE provider_account_usage_windows (id TEXT)")
             .expect("the conflicting table is made");
 
-        open_database(&database_path).expect_err("the schema's own table is already there");
+        open_database(&database_path, &store_schema())
+            .expect_err("the schema's own table is already there");
 
         let connection = Connection::open(&database_path).expect("the test opens the file");
         assert_eq!(
             table_names(&connection),
-            BTreeSet::from(["artifact_payload_refs".to_owned()])
+            BTreeSet::from(["provider_account_usage_windows".to_owned()])
         );
     }
 
@@ -300,7 +283,7 @@ mod tests {
     fn a_second_open_commits_nothing_and_keeps_the_rows() {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database_path = folder.path().join("daemon.db");
-        open_database(&database_path)
+        open_database(&database_path, &store_schema())
             .expect("the fresh file opens")
             .execute(
                 "INSERT INTO session_drafts (session_id, text, updated_at)
@@ -310,7 +293,8 @@ mod tests {
             .expect("a row is written");
         let version_before = schema_version(&database_path);
 
-        let connection = open_database(&database_path).expect("the file opens again");
+        let connection =
+            open_database(&database_path, &store_schema()).expect("the file opens again");
 
         assert_eq!(schema_version(&database_path), version_before);
         let text: String = connection
@@ -326,13 +310,14 @@ mod tests {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database_path = folder.path().join("daemon.db");
         let barrier = std::sync::Barrier::new(2);
+        let schema = store_schema();
 
         let outcomes: Vec<_> = std::thread::scope(|scope| {
             let opens: Vec<_> = (0..2)
                 .map(|_| {
                     scope.spawn(|| {
                         barrier.wait();
-                        open_database(&database_path).map(drop)
+                        open_database(&database_path, &schema).map(drop)
                     })
                 })
                 .collect();
@@ -362,13 +347,14 @@ mod tests {
     fn a_file_from_another_build_is_refused() {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");
         let database_path = folder.path().join("daemon.db");
-        let fingerprint = *DAEMON_SCHEMA_FINGERPRINT;
-        open_database(&database_path)
+        let schema = store_schema();
+        open_database(&database_path, &schema)
             .expect("the fresh file opens")
-            .pragma_update(None, "user_version", fingerprint ^ 1)
+            .pragma_update(None, "user_version", schema.fingerprint() ^ 1)
             .expect("the file takes another build's fingerprint");
 
-        let refusal = open_database(&database_path).expect_err("the other build's file is refused");
+        let refusal =
+            open_database(&database_path, &schema).expect_err("the other build's file is refused");
 
         assert!(
             matches!(

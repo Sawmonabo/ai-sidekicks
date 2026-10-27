@@ -15,7 +15,7 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
 use crate::provider::left_conversations::read_left_conversations;
-use crate::provider::runtime_binding::resume::read_session_bindings;
+use crate::session::run::stored_leg::read_session_bindings;
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
@@ -163,6 +163,7 @@ mod tests {
 
     use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::runs::schema_parts;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::provider::driver::contract::MockProviderDriver;
@@ -193,7 +194,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_provider_no_driver_answers_refuses_before_any_driver_is_called() {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         // Opening the writer creates the file with the daemon's schema.
         let _writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await

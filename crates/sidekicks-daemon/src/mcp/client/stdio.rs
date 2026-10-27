@@ -340,15 +340,17 @@ fn error_output_line_text(line: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
     use std::process::Stdio;
     use std::time::{Duration, Instant};
 
     use rstest::rstest;
     use serde_json::json;
     use sidekicks_contracts::run::control::ProcessExit;
-    use sidekicks_platforms::{PathRules, Spawner, wrap_session_child_command};
+    use sidekicks_platforms::{
+        POSIX_SHELL, PathRules, Spawner, shell_line_command, wrap_session_child_command,
+    };
     use tokio::io::AsyncReadExt as _;
-    use tokio::process::Command;
 
     use super::{LOGGED_LINE_MAX_BYTES, McpStdioServer, StdioProcess, error_output_line_text};
     use crate::mcp::client::connection::{McpConnectionError, McpServerConnection};
@@ -385,7 +387,7 @@ mod tests {
             credential_homes: &[],
         };
         let server = McpStdioServer {
-            program: "/bin/sh".into(),
+            program: POSIX_SHELL.into(),
             arguments: vec![
                 "-c".to_owned(),
                 concat!(
@@ -428,9 +430,8 @@ mod tests {
         let script = "trap 'wait $child; exit 0' TERM; \
                       (trap 'echo asked; exit 0' TERM; while :; do sleep 0.05; done) & \
                       child=$!; wait $child";
-        let mut command = Command::new("/bin/sh");
+        let mut command = shell_line_command(Path::new(POSIX_SHELL), script);
         command
-            .args(["-c", script])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::null());

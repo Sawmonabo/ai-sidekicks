@@ -30,6 +30,7 @@ use std::error::Error;
 use std::io;
 use std::sync::Arc;
 
+use futures::future::BoxFuture;
 use sidekicks_contracts::event::declared_variants::{
     SessionEventCompactedPayload, SessionEventCompactedRemovedSession,
 };
@@ -48,6 +49,7 @@ use crate::approvals::rules::{ApprovalRuleError, ApprovalRules};
 use crate::artifacts::payload_store::PayloadStore;
 use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
+use crate::database::schema::session_directory::read_session_state;
 use crate::database::writer::{DatabaseWriter, WriteError};
 use crate::events::log_service::{EventAppendError, EventLogAppendOptions, EventLogService};
 use crate::events::session::append_lock::SESSION_APPEND_LOCK;
@@ -58,7 +60,7 @@ use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
 use crate::events::session::purge::rows::{
     MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
     mark_statement, read_gone_worktree_candidates, read_purge_targets, read_range_and_links,
-    read_session_state, session_deletion_statements,
+    session_deletion_statements,
 };
 use crate::events::session::version::SESSION_EVENT_VERSION;
 use crate::git::turn_snapshot::diagnostics::TurnSnapshotRetentionSkipReason;
@@ -67,9 +69,10 @@ use crate::git::turn_snapshot::service::{
 };
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
-use crate::provider::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use crate::pty::shell::table::ShellTable;
+use crate::recovery::damaged_history::DamagedSessionPurge;
 use crate::recovery::status::RecoveryStatusTracker;
+use crate::session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::related::ranking::SessionRelatedRanking;
 use crate::session::service::SessionService;
@@ -238,14 +241,6 @@ impl SessionPurge {
     /// again the sessions they were linked to and starts the log's truncation. Never fails: each
     /// session's failure is its outcome. The payloads a purge unlinks are charged to `meter`, the
     /// meter of the job or call the purge runs under.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "`Delete old data`'s retention handler and `session.recovery.delete` purge \
-                      through it"
-        )
-    )]
     pub(crate) async fn purge(
         &self,
         session_ids: &[SessionId],
@@ -379,7 +374,7 @@ impl SessionPurge {
                     .deps
                     .reads
                     .read(ReadLength::Short, move |connection| {
-                        read_session_state(connection, session_id).map_err(|error| {
+                        read_session_state(connection, &session_id).map_err(|error| {
                             SessionPurgeError::Read(PurgeReadError::Database(error))
                         })
                     })
@@ -492,6 +487,34 @@ impl SessionPurge {
             None,
             SESSION_EVENT_VERSION.clone(),
         ))
+    }
+}
+
+impl DamagedSessionPurge for SessionPurge {
+    fn purge_damaged_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        Box::pin(async move {
+            let report = self
+                .purge(
+                    &[session_id],
+                    PurgeCaller::DamagedHistory,
+                    &ProcessorMeter::default(),
+                )
+                .await;
+            let (_, outcome) = report
+                .outcomes
+                .into_iter()
+                .next()
+                .expect("a purge answers one outcome for each session id it was given");
+            match outcome {
+                SessionPurgeOutcome::Removed { .. } => Ok(()),
+                SessionPurgeOutcome::Refused(refusal) => {
+                    Err(Box::<dyn Error + Send + Sync>::from(refusal))
+                }
+            }
+        })
     }
 }
 

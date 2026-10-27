@@ -10,7 +10,7 @@ use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
 use sidekicks_daemon::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-use sidekicks_daemon::database::schema::{DAEMON_SCHEMA_FINGERPRINT, DAEMON_SCHEMA_SQL};
+use sidekicks_daemon::database::schema::DatabaseSchema;
 use sidekicks_daemon::recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
@@ -26,6 +26,7 @@ use sidekicks_daemon::recovery::database_file::repair::{
     repair_damaged_file,
 };
 use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_daemon::remote::shared_ports::schema::schema_parts;
 use sidekicks_platforms::physical_memory;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -273,14 +274,14 @@ async fn a_damaged_file_is_found_and_recovered_through_the_shell_mode() {
     assert_eq!(raw_value.as_bytes(), RAW_VALUE.as_bytes());
 }
 
-// A database file with this build's whole schema and its fingerprint, as the daemon creates one.
-fn schema_file(path: &Path) -> Connection {
+// A database file with `schema` and its fingerprint, as the daemon creates one.
+fn schema_file(path: &Path, schema: &DatabaseSchema) -> Connection {
     let connection = Connection::open(path).expect("the database opens");
     connection
-        .execute_batch(&DAEMON_SCHEMA_SQL)
+        .execute_batch(schema.sql())
         .expect("the schema is made");
     connection
-        .pragma_update(None, "user_version", *DAEMON_SCHEMA_FINGERPRINT)
+        .pragma_update(None, "user_version", schema.fingerprint())
         .expect("the fingerprint is written");
     connection
 }
@@ -369,16 +370,17 @@ async fn sessions_the_newest_backup_holds_more_of_come_from_it(
     #[case] sessions_from_backup: u64,
 ) {
     let data_folder = tempfile::tempdir().expect("a data folder");
+    let schema = schema_parts().into_schema();
     let fresh_path = data_folder.path().join("daemon.db.recovered");
     let backup_copy_path = data_folder.path().join("daemon.db.backup-read");
-    let fresh = schema_file(&fresh_path);
+    let fresh = schema_file(&fresh_path, &schema);
     write_events(&fresh, "richer-in-backup", 1);
     write_events(&fresh, "richer-in-fresh", 2);
     drop(fresh);
     if let BackupCopy::Unreadable = backup {
         fs::write(&backup_copy_path, b"no database").expect("the copy is written");
     } else {
-        let copy = schema_file(&backup_copy_path);
+        let copy = schema_file(&backup_copy_path, &schema);
         write_events(&copy, "richer-in-backup", 3);
         write_events(&copy, "richer-in-fresh", 1);
         copy.execute_batch(
@@ -391,7 +393,7 @@ async fn sessions_the_newest_backup_holds_more_of_come_from_it(
         )
         .expect("the snapshot and the checkpoint are written");
         if let BackupCopy::AnotherBuild = backup {
-            copy.pragma_update(None, "user_version", *DAEMON_SCHEMA_FINGERPRINT ^ 1)
+            copy.pragma_update(None, "user_version", schema.fingerprint() ^ 1)
                 .expect("another build's fingerprint is written");
         }
     }
@@ -401,6 +403,7 @@ async fn sessions_the_newest_backup_holds_more_of_come_from_it(
         &FreshFilePreparation {
             shell: &shell,
             fresh_path: &fresh_path,
+            schema: &schema,
             backup_copy_path: Some(&backup_copy_path),
         },
         &CancellationToken::new(),
@@ -445,8 +448,9 @@ async fn sessions_the_newest_backup_holds_more_of_come_from_it(
 #[tokio::test]
 async fn a_readied_fresh_file_rebuilds_every_session_and_carries_the_fingerprint() {
     let data_folder = tempfile::tempdir().expect("a data folder");
+    let schema = schema_parts().into_schema();
     let fresh_path = data_folder.path().join("daemon.db.recovered");
-    let fresh = schema_file(&fresh_path);
+    let fresh = schema_file(&fresh_path, &schema);
     fresh
         .pragma_update(None, "user_version", 0)
         .expect("a damaged header's fingerprint is lost");
@@ -468,6 +472,7 @@ async fn a_readied_fresh_file_rebuilds_every_session_and_carries_the_fingerprint
         &FreshFilePreparation {
             shell: &shell,
             fresh_path: &fresh_path,
+            schema: &schema,
             backup_copy_path: None,
         },
         &CancellationToken::new(),
@@ -503,7 +508,7 @@ async fn a_readied_fresh_file_rebuilds_every_session_and_carries_the_fingerprint
     let fingerprint: i32 = fresh
         .pragma_query_value(None, "user_version", |row| row.get(0))
         .expect("the fingerprint reads");
-    assert_eq!(fingerprint, *DAEMON_SCHEMA_FINGERPRINT);
+    assert_eq!(fingerprint, schema.fingerprint());
 }
 
 // What breaks a fresh file: an object of the schema it lacks, one the schema does not hold, or an
@@ -523,8 +528,9 @@ enum FreshFileFault {
 #[tokio::test]
 async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: FreshFileFault) {
     let data_folder = tempfile::tempdir().expect("a data folder");
+    let schema = schema_parts().into_schema();
     let fresh_path = data_folder.path().join("daemon.db.recovered");
-    let fresh = schema_file(&fresh_path);
+    let fresh = schema_file(&fresh_path, &schema);
     match fault {
         FreshFileFault::MissingIndex => fresh
             .execute_batch("DROP INDEX idx_session_events_type")
@@ -588,6 +594,7 @@ async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: F
         &FreshFilePreparation {
             shell: &shell,
             fresh_path: &fresh_path,
+            schema: &schema,
             backup_copy_path: None,
         },
         &CancellationToken::new(),
@@ -613,6 +620,7 @@ async fn a_fresh_file_not_of_this_build_or_not_sound_is_refused(#[case] fault: F
 #[tokio::test]
 async fn a_stop_before_the_aside_copy_leaves_the_damaged_file_as_it_was() {
     let data_folder = tempfile::tempdir().expect("a data folder");
+    let schema = schema_parts().into_schema();
     let database_path = data_folder.path().join("daemon.db");
     write_damaged_database(&database_path);
     let damaged_bytes = fs::read(&database_path).expect("the damaged file reads");
@@ -629,6 +637,7 @@ async fn a_stop_before_the_aside_copy_leaves_the_damaged_file_as_it_was() {
             index_folder_path: &data_folder.path().join(SEARCH_INDEX_FOLDER_NAME),
             shell: &shell,
             copier: &copier,
+            schema: &schema,
             now: jiff::Timestamp::now(),
         },
         "page 7 is damaged",
@@ -672,6 +681,7 @@ async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
     #[case] earlier: EarlierBackupCopy,
 ) {
     let data_folder = tempfile::tempdir().expect("a data folder");
+    let schema = schema_parts().into_schema();
     let database_path = data_folder.path().join("daemon.db");
     write_damaged_database(&database_path);
     let backup_copy_path = data_folder.path().join("daemon.db.backup-read");
@@ -694,6 +704,7 @@ async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
             index_folder_path: &data_folder.path().join(SEARCH_INDEX_FOLDER_NAME),
             shell: &shell,
             copier: &copier,
+            schema: &schema,
             now: jiff::Timestamp::now(),
         },
         "page 7 is damaged",

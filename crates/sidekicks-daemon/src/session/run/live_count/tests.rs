@@ -16,10 +16,12 @@ use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::tests::{TestLog, open_log_with};
 use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeWriter, RunStateEntry,
+    RunStateChange, RunStateChangeCompanions, RunStateChangeWriter,
 };
 
 /// The event log on a fresh database, its writer counting the live runs after each commit, and
@@ -33,9 +35,9 @@ pub(crate) async fn counted_log(database: &TestDatabase) -> (TestLog, watch::Rec
     (open_log_with(database, options).await, live_runs)
 }
 
-/// Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
-/// write leaves the run's row.
-pub(crate) async fn commit_run_state(writer: &DatabaseWriter, run_id: RunId, state: RunState) {
+// Commits run `run_id` of a fresh session in `state` through `writer`, as a run state change's
+// write leaves the run's row.
+async fn commit_run_state(writer: &DatabaseWriter, run_id: RunId, state: RunState) {
     let statement = WriteStatement {
         sql: Cow::Borrowed(
             "INSERT INTO runs (run_id, session_id, state, run_version) VALUES (?1, ?2, ?3, 1)
@@ -54,6 +56,21 @@ pub(crate) async fn commit_run_state(writer: &DatabaseWriter, run_id: RunId, sta
         .expect("the test's run state commits");
 }
 
+// A run committed `starting` counts as live from that commit, and its end leaves the count at zero,
+// the count the scheduler's idle jobs and the repack wait on. Killed by `starting` missing from
+// the live set and by an ended run still counted.
+#[tokio::test]
+async fn a_starting_run_counts_until_it_ends() {
+    let database = TestDatabase::new(schema_parts());
+    let (log, count) = counted_log(&database).await;
+    let run_id = test_run_id();
+
+    commit_run_state(&log.writer, run_id, RunState::Starting).await;
+    assert_eq!(*count.borrow(), 1);
+    commit_run_state(&log.writer, run_id, RunState::Completed).await;
+    assert_eq!(*count.borrow(), 0);
+}
+
 // Each committed change moves the count by the states it leaves and enters, read after its commit:
 // `pausing` stays live, `paused` and a wait on a person leave it, a return to `running` enters it,
 // and a refused change moves nothing, whether its state was refused or a companion statement
@@ -61,7 +78,7 @@ pub(crate) async fn commit_run_state(writer: &DatabaseWriter, run_id: RunId, sta
 // counted as live, and by a count read before the commit or after a write that rolled back.
 #[tokio::test]
 async fn committed_changes_move_the_count_by_the_states_they_leave_and_enter() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let (log, count) = counted_log(&database).await;
     let session_id = test_session_id();
     let run_id = test_run_id();

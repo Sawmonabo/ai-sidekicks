@@ -8,7 +8,7 @@
 
 use std::collections::hash_map::Entry as MapEntry;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::FutureExt as _;
 use serde_json::json;
@@ -24,19 +24,24 @@ use tracing::Instrument as _;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::jsonrpc_error_mapping::{CallFailure, json_rpc_error_of};
 use crate::ipc::registry::{
-    EncodedFeed, EncodedValue, HandlerContext, MethodRegistryBuilder, RegistrationError,
-    TransportId,
+    DispatchError, EncodedFeed, EncodedValue, HandlerContext, MethodRegistryBuilder,
+    RegistrationError, TransportId,
 };
 use crate::ipc::stream::feed::SendGate;
-use crate::recovery::database_file::damage::DatabaseDamageWatch;
+use crate::mutex_lock::lock;
+
+/// What a feed's failure is reported to, beside the subscription it ends.
+pub(crate) trait DispatchFailureWatch: Send + Sync {
+    /// Learns of `failure`, the error a feed's read ended with.
+    fn report_dispatch_failure(&self, failure: &DispatchError);
+}
 
 /// The daemon's open subscriptions, by id and by connection, shared by the cancel call, the
 /// gateway's connection close and each open subscription.
 pub(crate) struct Subscriptions {
     table: Mutex<SubscriptionTable>,
-    /// The watch a feed's failure is told to, so damage a subscription's read meets reaches the
-    /// repair.
-    damage: Arc<DatabaseDamageWatch>,
+    /// What each feed's failure is told to.
+    failures: Arc<dyn DispatchFailureWatch>,
 }
 
 /// The open subscriptions by id, and each connection's ids, so a close touches only its own.
@@ -73,11 +78,11 @@ impl SubscriptionTable {
 
 impl Subscriptions {
     /// An empty table, shared by everything that opens, cancels or closes a subscription, telling
-    /// `damage` of each feed's failure.
-    pub(crate) fn new(damage: Arc<DatabaseDamageWatch>) -> Arc<Self> {
+    /// `failures` of each feed's failure.
+    pub(crate) fn new(failures: Arc<dyn DispatchFailureWatch>) -> Arc<Self> {
         Arc::new(Self {
             table: Mutex::default(),
-            damage,
+            failures,
         })
     }
 
@@ -210,7 +215,7 @@ impl Subscriptions {
     }
 
     fn lock(&self) -> MutexGuard<'_, SubscriptionTable> {
-        self.table.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.table)
     }
 }
 
@@ -291,7 +296,7 @@ impl Subscription {
                 subscription_id: self.id,
             },
             Some(Err(error)) => {
-                self.subscriptions.damage.report_dispatch_failure(&error);
+                self.subscriptions.failures.report_dispatch_failure(&error);
                 SubscriptionEndParams::Refused {
                     subscription_id: self.id,
                     // Mapped even when no frame goes out, so a fault is still logged once.
@@ -325,8 +330,18 @@ mod tests {
         Named, NamedSubscribe, SUBSCRIBE_METHOD as METHOD, channel_feed, context, request,
         subscription_id,
     };
-    use crate::ipc::registry::{Dispatch as _, DispatchError, HandlerError, MethodRegistry, Reply};
+    use crate::ipc::registry::{Dispatch as _, HandlerError, MethodRegistry, Reply};
     use crate::ipc::stream::feed::{CreditGate, Feed};
+
+    /// A watch that keeps the text of each failure it is told of.
+    #[derive(Default)]
+    struct ToldFailures(Mutex<Vec<String>>);
+
+    impl DispatchFailureWatch for ToldFailures {
+        fn report_dispatch_failure(&self, failure: &DispatchError) {
+            lock(&self.0).push(failure.to_string());
+        }
+    }
 
     /// A typed feed whose emission breaks its length rule.
     struct OverlongName;
@@ -348,7 +363,7 @@ mod tests {
     /// A table and a frozen registry serving its cancel call and `test.subscribe`, whose feed's
     /// one emission breaks its rule.
     fn served() -> (Arc<Subscriptions>, MethodRegistry) {
-        let subscriptions = Subscriptions::new(Arc::new(DatabaseDamageWatch::new()));
+        let subscriptions = Subscriptions::new(Arc::new(ToldFailures::default()));
         let mut builder = MethodRegistryBuilder::new();
         subscriptions
             .register_cancel(&mut builder)
@@ -503,22 +518,25 @@ mod tests {
         /// A feed whose read meets a damaged database file.
         struct DamagedRead;
 
+        fn damaged() -> rusqlite::Error {
+            rusqlite::Error::SqliteFailure(
+                rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
+                None,
+            )
+        }
+
         impl EncodedFeed for DamagedRead {
             fn next<'a>(
                 &'a mut self,
                 _gate: &'a dyn SendGate,
             ) -> BoxFuture<'a, Result<Option<EncodedValue>, DispatchError>> {
-                let damaged = rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
-                    None,
-                );
-                futures::future::ready(Err(DispatchError::Internal(Box::new(damaged)))).boxed()
+                futures::future::ready(Err(DispatchError::Internal(Box::new(damaged())))).boxed()
             }
         }
 
         let gate = CreditGate::with_credit(1);
-        let damage = Arc::new(DatabaseDamageWatch::new());
-        let subscriptions = Subscriptions::new(Arc::clone(&damage));
+        let told = Arc::new(ToldFailures::default());
+        let subscriptions = Subscriptions::new(Arc::clone(&told) as Arc<dyn DispatchFailureWatch>);
         let mut subscription = subscriptions
             .open(
                 TransportId(1),
@@ -534,7 +552,11 @@ mod tests {
                 SubscriptionEndParams::Refused { .. }
             ))
         ));
-        assert!(damage.is_found(), "the damage reached the watch");
+        assert_eq!(
+            *lock(&told.0),
+            [damaged().to_string()],
+            "the damage reached the watch"
+        );
     }
 
     #[tokio::test]

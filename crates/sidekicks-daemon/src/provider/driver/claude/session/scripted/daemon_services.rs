@@ -270,6 +270,7 @@ impl DaemonTurnBindingResolver for ScriptedBindings {
                 binding_id: binding_id("daemon-turn"),
                 agent_id: AgentId::new(&mint_uuid_v7().to_string())
                     .expect("a minted UUID is an agent id"),
+                step_bound: None,
             })
         }
         .boxed()

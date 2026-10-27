@@ -9,7 +9,7 @@
 use std::error::Error;
 use std::future::Future;
 use std::io;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use sidekicks_contracts::project::ProjectId;
@@ -17,6 +17,8 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::worktree::copy_progress::{WorktreeCopy, WorktreeCopyProgress};
 use tokio::sync::watch;
 use tokio::task::AbortHandle;
+
+use crate::mutex_lock::lock;
 
 /// How often a running copy's figure is sent: four times a second reads as steady progress on the
 /// row and costs the stream next to nothing.
@@ -175,7 +177,7 @@ impl WorktreeCopyFollower {
 
 impl CopiesState {
     fn lock_entries(&self) -> MutexGuard<'_, CopyEntries> {
-        self.entries.lock().unwrap_or_else(PoisonError::into_inner)
+        lock(&self.entries)
     }
 
     // Sent while the entries are held, so two changes reach the followers in the order made.

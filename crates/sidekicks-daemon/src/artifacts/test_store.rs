@@ -20,6 +20,7 @@ use crate::artifacts::publish::ArtifactPublishService;
 use crate::artifacts::refusals::ArtifactError;
 use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
 use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::session_directory::insert_session_row;
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
 use crate::database::writer::DatabaseWriter;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
@@ -27,7 +28,7 @@ use crate::events::log_service::EventLogService;
 use crate::events::log_service::tests::{TestLog, open_log};
 use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::session::directory::test_rows::insert_session_row;
+use crate::plans::schema::schema_parts;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Free room the test volume reports: far more than any test writes.
@@ -60,7 +61,7 @@ pub(crate) struct ArtifactTestStore {
 impl ArtifactTestStore {
     /// Opens the store with its session and run written.
     pub(crate) async fn open() -> Self {
-        let database = TestDatabase::new();
+        let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         Self::open_on(database, log)
     }

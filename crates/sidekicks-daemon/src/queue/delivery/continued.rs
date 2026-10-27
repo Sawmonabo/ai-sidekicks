@@ -12,10 +12,10 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::keyed_lock::KeyHold;
 use crate::provider::driver::message_handing::MessageHanding;
 use crate::provider::driver::run_control::WaitingMessage;
+use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
 use crate::queue::delivery::state::{HandRoute, is_kept_by_process};
 use crate::queue::delivery::{DeliveryError, QueueDelivery};
 use crate::queue::store::RecordedQueueItemState;
-use crate::session::run::pause::{ContinuedMessages, ContinuedMessagesError};
 
 impl QueueDelivery {
     // The unhanded lead messages waiting for `run_id` of `session_id`, a continue that did not go

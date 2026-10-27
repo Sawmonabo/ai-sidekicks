@@ -4,8 +4,10 @@
 //! through that point and it opens there, read-only, until the person continues it from there or
 //! deletes it. The damaged rows are never moved, rewritten or deleted; a continue skips them.
 
+use std::error::Error;
 use std::sync::{Arc, LazyLock};
 
+use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _, named_params};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -21,25 +23,23 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tokio_util::sync::CancellationToken;
 
 use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
 use crate::database::stored_column::text_column;
 use crate::database::writer::{DatabaseWriter, WriteError};
+use crate::events::projection::ProjectionFailure;
 use crate::events::session::append_lock::{SESSION_APPEND_LOCK, SessionAppendHold};
 use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
-use crate::events::session::purge::rows::PurgeCaller;
-use crate::events::session::purge::{SessionPurge, SessionPurgeError, SessionPurgeOutcome};
 use crate::events::session::read::SessionLogReadError;
 use crate::events::session::skipped_ranges::outside_skipped_ranges_sql;
 use crate::ipc::domain_error::DomainError;
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
 use crate::recovery::projection_rebuild::{
-    ProjectionFailure, ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService,
-    REBUILD_PAGE_SIZE, mark_stale_statement,
+    ProjectionRebuildError, ProjectionRebuildRequest, ProjectionRebuildService, REBUILD_PAGE_SIZE,
+    mark_stale_statement,
 };
 use crate::recovery::restart_settle::{RestartSettle, RestartSettleError};
 use crate::recovery::status::{LastGoodPoint, RecoveryStatusTracker};
@@ -65,6 +65,17 @@ static SELECT_LAST_EVENT_BEFORE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// Deletes every row of one damaged session for `Delete session`, from any state but
+/// `provisioning`; the copy set aside stays.
+pub(crate) trait DamagedSessionPurge: Send + Sync {
+    /// Purges `session_id`, answering once its rows are gone; fails with why the session was
+    /// refused or its purge stopped, which leaves its rows for a later purge to finish.
+    fn purge_damaged_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+}
+
 /// What damaged history reads, writes and rebuilds through.
 pub(crate) struct DamagedHistoryDeps {
     /// The reads of a session's last good point and of its row.
@@ -80,7 +91,7 @@ pub(crate) struct DamagedHistoryDeps {
     /// What the restart left in a continued session, settled.
     pub(crate) restart_settle: Arc<RestartSettle>,
     /// The purge `Delete session` runs.
-    pub(crate) purge: Arc<SessionPurge>,
+    pub(crate) purge: Arc<dyn DamagedSessionPurge>,
     /// The recovery state that says which sessions are damaged.
     pub(crate) status: Arc<RecoveryStatusTracker>,
 }
@@ -133,7 +144,7 @@ pub(crate) enum RecoveryActionError {
     Unfinished(Box<CleanupFailures<RecoveryActionError, WriteError>>),
     /// The purge refused the session or failed.
     #[error("the session was not deleted")]
-    Purge(#[source] SessionPurgeError),
+    Purge(#[source] Box<dyn Error + Send + Sync>),
 }
 
 impl From<RecoveryActionError> for HandlerError {
@@ -277,24 +288,11 @@ impl DamagedHistory {
         {
             return Err(self.refusal_of_undamaged(session_id).await);
         }
-        let report = self
-            .deps
+        self.deps
             .purge
-            .purge(
-                &[session_id],
-                PurgeCaller::DamagedHistory,
-                &ProcessorMeter::default(),
-            )
-            .await;
-        let (_, outcome) = report
-            .outcomes
-            .into_iter()
-            .next()
-            .expect("a purge answers one outcome for each session id it was given");
-        match outcome {
-            SessionPurgeOutcome::Refused(failure) => Err(RecoveryActionError::Purge(failure)),
-            SessionPurgeOutcome::Removed { .. } => Ok(()),
-        }
+            .purge_damaged_session(session_id)
+            .await
+            .map_err(RecoveryActionError::Purge)
     }
 
     // The rebuild past the skip and the settle of the live runs, under the continue's hold.

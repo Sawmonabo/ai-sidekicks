@@ -10,11 +10,13 @@ use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, Transcr
 
 use super::{TranscriptReadError, read_transcript_window};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
+use crate::events::test_log::AT;
+use crate::questions::schema::schema_parts;
 use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::body::read_row_body;
 use crate::transcript::body::starts_cache::BlockCuts;
 use crate::transcript::test_log::{
-    AT, STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
+    STALLING_TEXT, TranscriptTestLog, stalling_parse, wire_block_starts, wire_message,
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -36,7 +38,7 @@ fn refusal_code(result: Result<TranscriptReadResponse, TranscriptReadError>) -> 
 
 #[test]
 fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
-    let database = TestDatabase::new();
+    let database = TestDatabase::new(schema_parts());
     let writer = database.opener()().expect("the test creates its database");
     let session_id = test_session_id();
     let session = session_id.text();
@@ -129,11 +131,16 @@ fn read_with_attachments(
     parse: BlockParse,
 ) -> (Value, Vec<bytes::Bytes>) {
     let mut request = request;
-    request["sessionId"] = json!(log.session_id);
+    request["sessionId"] = json!(log.session_log.session_id);
     let request: TranscriptReadRequest =
         serde_json::from_value(request).expect("the test's request reads");
-    let response = read_transcript_window(&log.reader(), &|_: &SessionId| None, &request, parse)
-        .expect("the window reads");
+    let response = read_transcript_window(
+        &log.session_log.reader(),
+        &|_: &SessionId| None,
+        &request,
+        parse,
+    )
+    .expect("the window reads");
     wire_message(&response)
 }
 
@@ -165,12 +172,20 @@ fn row_bodies(page: &Value) -> Vec<String> {
 // anchored read at a later piece standing a row there.
 #[test]
 fn a_rejoined_reply_reads_as_one_row_at_its_first_piece() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+    let session_log = &log.session_log;
     let first_at = "2026-10-14T09:00:00.000Z";
-    let (_, first_id) = log.piece(REPLY, log.run_id, "m1", Some(0), "Hello, ", first_at);
-    let (second, _) = log.piece(
+    let (_, first_id) = session_log.piece(
         REPLY,
-        log.run_id,
+        session_log.run_id,
+        "m1",
+        Some(0),
+        "Hello, ",
+        first_at,
+    );
+    let (second, _) = session_log.piece(
+        REPLY,
+        session_log.run_id,
         "m1",
         Some(0),
         "world.",
@@ -232,14 +247,15 @@ fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
     #[case] steps: &[Step],
     #[case] rows: &[&str],
 ) {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     for step in steps {
         match *step {
             Step::Reply(message_id, block, body) => {
-                log.reply(message_id, block, body);
+                log.session_log.reply(message_id, block, body);
             }
             Step::Tool => {
-                log.tool_completion(log.run_id, "call-1", None, Some("ok"));
+                log.session_log
+                    .tool_completion(log.session_log.run_id, "call-1", None, Some("ok"));
             }
         }
     }
@@ -251,10 +267,10 @@ fn a_reply_rejoins_only_the_pieces_of_its_message_and_block(
 // past its bound.
 #[test]
 fn rejoin_pages_count_rows_and_end_at_the_head_or_their_bound() {
-    let log = TranscriptTestLog::new();
-    log.reply("a", Some(0), "A1 ");
-    let (reply_b, _) = log.reply("b", Some(0), "B");
-    let (head, _) = log.reply("a", Some(0), "A2");
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+    log.session_log.reply("a", Some(0), "A1 ");
+    let (reply_b, _) = log.session_log.reply("b", Some(0), "B");
+    let (head, _) = log.session_log.reply("a", Some(0), "A2");
 
     let first = read(&log, json!({ "limit": 1 }));
     assert_eq!(row_bodies(&first), ["A1 A2"]);
@@ -269,7 +285,7 @@ fn rejoin_pages_count_rows_and_end_at_the_head_or_their_bound() {
     assert_eq!(second["nextCursor"], cursor(head));
     assert_eq!(second["joinedThrough"], cursor(head));
 
-    let (later, _) = log.reply("c", Some(0), "C");
+    let (later, _) = log.session_log.reply("c", Some(0), "C");
     let bounded = read(
         &log,
         json!({ "afterCursor": cursor(reply_b - 1), "beforeCursor": cursor(head), "limit": 5 }),
@@ -283,19 +299,19 @@ fn rejoin_pages_count_rows_and_end_at_the_head_or_their_bound() {
 // Killed by a body read of the anchor's own piece, and by a part cut inside a character.
 #[test]
 fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     // Each piece is stored compressed, and the three together are over one page.
     let pieces: Vec<String> = ["\u{e9}", "\u{1f600}", "\u{5b57}"]
         .iter()
         .map(|character| format!("{}.", character.repeat(120_000)))
         .collect();
-    let (_, row_id) = log.reply("long", Some(0), &pieces[0]);
-    log.reply("long", Some(0), &pieces[1]);
-    log.reply("long", Some(0), &pieces[2]);
+    let (_, row_id) = log.session_log.reply("long", Some(0), &pieces[0]);
+    log.session_log.reply("long", Some(0), &pieces[1]);
+    log.session_log.reply("long", Some(0), &pieces[2]);
     let whole = pieces.concat();
     assert!(whole.len() > sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES);
 
-    let reader = log.reader();
+    let reader = log.session_log.reader();
     let mut read_back = String::new();
     let mut offset = Some(0);
     let mut parts = 0;
@@ -303,7 +319,7 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
         let part = read_row_body(
             &reader,
             &|_: &SessionId| None,
-            &log.session_id,
+            &log.session_log.session_id,
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
@@ -327,13 +343,15 @@ fn a_rejoined_body_over_a_page_reads_back_whole_in_parts() {
 // in.
 #[test]
 fn a_long_tool_output_is_stored_whole_and_read_back_in_parts() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+    let session_log = &log.session_log;
     let mut whole = String::new();
     for line in 0..160_000 {
         writeln!(whole, "{line:>6} \u{e9}output").expect("a string takes text");
     }
-    let (sequence, row_id) = log.tool_completion(log.run_id, "call-1", None, Some(&whole));
-    let stored_bytes: i64 = log
+    let (sequence, row_id) =
+        session_log.tool_completion(session_log.run_id, "call-1", None, Some(&whole));
+    let stored_bytes: i64 = session_log
         .reader()
         .query_row(
             "SELECT length(content_payload) FROM session_events WHERE sequence = ?1",
@@ -348,7 +366,7 @@ fn a_long_tool_output_is_stored_whole_and_read_back_in_parts() {
     assert_eq!(content["contentLength"], whole.len());
     assert!(content.get("body").is_none(), "{content}");
 
-    let reader = log.reader();
+    let reader = session_log.reader();
     let mut read_back = String::new();
     let mut offset = Some(0);
     let mut parts = 0;
@@ -356,7 +374,7 @@ fn a_long_tool_output_is_stored_whole_and_read_back_in_parts() {
         let part = read_row_body(
             &reader,
             &|_: &SessionId| None,
-            &log.session_id,
+            &session_log.session_id,
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
@@ -390,16 +408,17 @@ fn an_intervention_row_stands_on_its_target_runs_arm(
     )]
     state: &str,
 ) {
-    let log = TranscriptTestLog::new();
-    let (_, id) = log.intervention(log.run_id, state);
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+    let (_, id) = log.intervention(log.session_log.run_id, state);
 
     let page = read(&log, json!({}));
     let row = &page["entries"][0];
     assert_eq!(row["id"], id);
     assert_eq!(row["kind"], "run");
-    assert_eq!(row["runId"], json!(log.run_id));
+    assert_eq!(row["runId"], json!(log.session_log.run_id));
     assert_eq!(row["type"], format!("agent.intervention.{state}"));
     let stored_target: String = log
+        .session_log
         .writer
         .query_row(
             "SELECT target_run_id FROM session_events WHERE id = ?",
@@ -407,7 +426,7 @@ fn an_intervention_row_stands_on_its_target_runs_arm(
             |stored| stored.get(0),
         )
         .expect("the intervention's target run is stored");
-    assert_eq!(stored_target, log.run_id.to_string());
+    assert_eq!(stored_target, log.session_log.run_id.to_string());
 }
 
 // The first row of `page` whose inline body is `body`.
@@ -425,19 +444,19 @@ fn row_with_body<'page>(page: &'page Value, body: &str) -> &'page Value {
 // cut not refused, and by one row's failed cut failing the page or another row.
 #[test]
 fn a_window_cuts_reply_rows_into_blocks_and_a_failed_cut_fails_its_row_alone() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
     let text = "First.\n\nSecond.\n\nThird.\n\nFourth.\n";
-    log.reply("m1", Some(0), &text[..17]);
-    log.reply("m1", Some(0), &text[17..]);
+    log.session_log.reply("m1", Some(0), &text[..17]);
+    log.session_log.reply("m1", Some(0), &text[17..]);
     let stalling = format!("Before.\n\n{STALLING_TEXT}\n");
-    log.reply("m2", Some(0), &stalling);
+    log.session_log.reply("m2", Some(0), &stalling);
 
     let (open_page, open_attachments) = read_with_attachments(&log, json!({}), stalling_parse);
     let open = wire_block_starts(
         &row_with_body(&open_page, text)["content"]["blockStarts"],
         &open_attachments,
     );
-    log.turn_end(log.run_id, 1);
+    log.turn_end(log.session_log.run_id, 1);
     let (page, attachments) = read_with_attachments(&log, json!({}), stalling_parse);
     let ended = wire_block_starts(
         &row_with_body(&page, text)["content"]["blockStarts"],
@@ -455,31 +474,32 @@ fn a_window_cuts_reply_rows_into_blocks_and_a_failed_cut_fails_its_row_alone() {
 // by starts over a page answered with a panic rather than spread across the parts.
 #[test]
 fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
-    let log = TranscriptTestLog::new();
+    let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+    let session_log = &log.session_log;
     let paragraphs = 300_000;
     let whole = "a\n\n".repeat(paragraphs);
     // Four pieces, each under the stored cut, take a body whose starts alone pass one page.
     let piece_length = whole.len() / 4;
-    let (_, row_id) = log.reply("long", Some(0), &whole[..piece_length]);
+    let (_, row_id) = session_log.reply("long", Some(0), &whole[..piece_length]);
     for index in 1..4 {
-        log.reply(
+        session_log.reply(
             "long",
             Some(0),
             &whole[index * piece_length..(index + 1) * piece_length],
         );
     }
     // The turn's end ends the row, so every start is final.
-    log.turn_end(log.run_id, 1);
+    log.turn_end(session_log.run_id, 1);
     assert!(4 * paragraphs > sidekicks_contracts::jsonrpc::page::PAGE_MAX_BYTES);
 
-    let reader = log.reader();
+    let reader = session_log.reader();
     let mut starts = Vec::new();
     let mut offset = Some(0);
     while let Some(part_offset) = offset {
         let part = read_row_body(
             &reader,
             &|_: &SessionId| None,
-            &log.session_id,
+            &session_log.session_id,
             &row_id,
             part_offset,
             MARKDOWN_PARSE,

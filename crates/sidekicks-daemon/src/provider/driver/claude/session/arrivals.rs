@@ -19,7 +19,7 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::mutex_lock::lock;
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
+use crate::provider::driver::claude::delivery::claude_delivery_origin;
 use crate::provider::driver::claude::delivery::stream::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::provider::driver::claude::delivery::stream::{
     ClaudeSessionStream, ClaudeSessionStreams,
@@ -32,7 +32,9 @@ use crate::provider::driver::claude::session::process::{
 };
 use crate::provider::driver::claude::session::state::ClaudeSessionRoutingBand;
 use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
+use crate::provider::driver::delivery_dispatch::dispatch_delivery;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::run::delivery::{InboundDelivery, InboundOutcome};
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CLAUDE_SESSION_ARRIVALS_DEPTH_MARK: usize = 1_024;
@@ -121,23 +123,24 @@ impl ClaudeDeliveryPlace {
 }
 
 /// Delivers `delivery` in `session_id`'s order among its process's frames: in place on the
-/// session's own task, queued onto that task from anywhere else, and straight to `engine` only
+/// session's own task, queued onto that task from anywhere else, and straight to `dispatch` only
 /// when the session has no stream left to order it. The delivery is handed over before the
 /// returned future is first polled, which answers its outcome.
-pub(crate) fn deliver_in_session_order<'engine>(
-    engine: &'engine dyn ClaudeRunEngine,
+pub(crate) fn deliver_in_session_order<'dispatch>(
+    dispatch: &'dispatch dyn InboundDispatch,
     streams: &ClaudeSessionStreams,
     session_id: SessionId,
     delivery: InboundDelivery<'static>,
-) -> BoxFuture<'engine, Option<InboundOutcome>> {
+) -> BoxFuture<'dispatch, Option<InboundOutcome>> {
     if let Ok(place) = CLAUDE_DELIVERY_PLACE.try_with(Clone::clone)
         && place.session_id == session_id
     {
-        return engine.deliver(place.provider_account_id, None, delivery);
+        let origin = claude_delivery_origin(place.provider_account_id, None);
+        return dispatch_delivery(dispatch, origin, delivery).boxed();
     }
     match streams.get(session_id) {
         Some(stream) => stream.arrivals().dispatch(delivery).boxed(),
-        None => engine.deliver(None, None, delivery),
+        None => dispatch_delivery(dispatch, claude_delivery_origin(None, None), delivery).boxed(),
     }
 }
 
@@ -412,8 +415,8 @@ mod tests {
     use crate::provider::driver::claude::session::scripted::binding_id;
     use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::provider::driver::test_registry::new_session_id;
+    use crate::provider::run::delivery::InboundDelivery;
     use crate::provider::thread_frame_router::ThreadFrameRoute;
-    use crate::session::run::inbound::InboundDelivery;
 
     // Names each arrival as it is handled; a frame takes a second, so an arrival dispatched beside
     // it rather than after it is handled first.

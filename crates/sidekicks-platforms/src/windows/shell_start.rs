@@ -37,6 +37,14 @@ pub fn default_shell() -> PathBuf {
 #[cfg(any(test, feature = "test-support"))]
 pub const DOES_PARENT_DEATH_FOLLOW_STARTING_THREAD: bool = false;
 
+/// The POSIX shell that runs a line no other shell is named for: `sh` on the search path, as Git
+/// for Windows installs it, since Windows has none of its own.
+pub const POSIX_SHELL: &str = "sh";
+
+/// Whether [`POSIX_SHELL`] knows no `builtin`: no on Windows, where Git's `sh` is bash.
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_POSIX_SHELL_LACK_BUILTIN: bool = false;
+
 /// Arms the process to end with the daemon: nothing to do on Windows, where the daemon's
 /// kill-on-close job ends every shell with it; never fails.
 pub fn arm_parent_death(_daemon_pid: u32) -> io::Result<()> {

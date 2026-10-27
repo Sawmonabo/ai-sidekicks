@@ -31,6 +31,10 @@ pub(crate) const LOGIN_SHELL_DEADLINE: Duration = Duration::from_secs(5);
 // macOS, 2 MiB on Linux), so more output than this holds no usable environment.
 const MAX_CAPTURE_BYTES: usize = 4 * 1024 * 1024;
 
+// The most one read of the shell's output takes. The capture keeps every byte it reads up to
+// `MAX_CAPTURE_BYTES` anyway, so a larger read only means fewer reads and marker searches.
+const CAPTURE_CHUNK_BYTES: usize = 64 * 1024;
+
 // The search path a login gets before any profile runs: `_PATH_DEFPATH`, the same on macOS and in
 // glibc.
 const DEFAULT_LOGIN_PATH: &str = "/usr/bin:/bin";
@@ -361,7 +365,7 @@ async fn read_capture(
 ) -> CaptureOutcome {
     let end = format!("\n{}\n", markers.end_line);
     let mut text = Vec::new();
-    let mut chunk = vec![0_u8; 64 * 1024];
+    let mut chunk = vec![0_u8; CAPTURE_CHUNK_BYTES];
     loop {
         let read = match output.read(&mut chunk).await {
             Ok(0) => {

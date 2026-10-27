@@ -9,12 +9,13 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::Path;
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_platforms::ProcessRecord;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
+use crate::mutex_lock::lock;
 use crate::provider::driver::codex::service::process::{
     LastingCodexService, codex_lasting_service_environment_entry,
 };
@@ -92,9 +93,7 @@ impl LastingServiceDrains {
     }
 
     fn lock(&self) -> MutexGuard<'_, HashMap<LastingServiceRecordFile, LastingServiceDrainWatch>> {
-        self.under_way
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
+        lock(&self.under_way)
     }
 }
 
@@ -181,10 +180,7 @@ async fn wait_for_drained_end(
             report_stop_failed(error);
         }
     }
-    under_way
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .remove(&record_file);
+    lock(&under_way).remove(&record_file);
 }
 
 // Ends what the drained service `ended` left running, then removes its record from `record_file`
@@ -206,10 +202,12 @@ fn retire_drained_service(
 #[cfg(test)]
 mod tests {
     use std::path::Path;
-    use std::process::{Child, Command, Stdio};
+    use std::process::{Child, Stdio};
     use std::sync::Arc;
 
-    use sidekicks_platforms::{CAN_SIGNAL_A_STOP, pin_child_process};
+    use sidekicks_platforms::{
+        CAN_SIGNAL_A_STOP, POSIX_SHELL, pin_child_process, shell_line_command,
+    };
 
     use super::LastingServiceDrains;
     use crate::provider::driver::codex::service::process::{
@@ -224,8 +222,8 @@ mod tests {
     fn start_recorded_shell(
         folder: &Path,
     ) -> (Child, Arc<LockedServiceRecord>, LastingCodexService) {
-        let child = Command::new("/bin/sh")
-            .args(["-c", "trap '' HUP; read never"])
+        let child = shell_line_command(Path::new(POSIX_SHELL), "trap '' HUP; read never")
+            .into_std()
             .stdin(Stdio::piped())
             .spawn()
             .expect("the shell starts");

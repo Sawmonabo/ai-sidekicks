@@ -17,14 +17,15 @@ mod views;
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::task::TaskTracker;
 
-use crate::daemon::service_log::service_log_folder;
-use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::daemon::data_folder::service_log_folder;
+use crate::mutex_lock::lock;
+use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::SessionSpawnContextResolver;
@@ -80,10 +81,10 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::{DriverServices, attachments::AttachmentResolver};
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::run_host::RunHost;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::session::run::engine::RunEngine;
 
 /// The folder under the daemon's data folder that holds each session's helper role files.
 const CODEX_HELPER_ROLES_FOLDER_NAME: &str = "codex-helper-roles";
@@ -100,9 +101,9 @@ pub(crate) struct CodexDriver {
     attachments: Arc<dyn AttachmentResolver>,
     runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
     shell_lines: Arc<crate::policy::shell_commands::reading_bound::ShellLineReadingBound>,
+    background_work: Arc<BackgroundWorkForms>,
     pending_compactions: PendingCompactionRegistry,
     processes: Arc<ProviderProcessRegistry>,
-    reads: Arc<DatabaseReadPool>,
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,
     is_terminal_reach_on: Arc<AtomicBool>,
@@ -125,7 +126,7 @@ pub(crate) struct CodexDriver {
 /// What every session shares once the daemon's run engine is registered; each session's task
 /// holds it.
 pub(crate) struct CodexDriverParts {
-    pub(crate) engine: Arc<RunEngine>,
+    pub(crate) engine: Arc<dyn RunHost>,
     pub(crate) ports: Arc<DriverPorts>,
     pub(crate) registry: Arc<CodexServiceRegistry>,
     pub(crate) release: Arc<CodexConversationRelease>,
@@ -185,6 +186,7 @@ impl CodexDriver {
                 logs_folder: service_log_folder(&services.data_folder),
                 additional_config_overrides: Vec::new(),
                 startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
+                dispatches_hook_mode: services.dispatches_hook_mode,
                 events: Arc::new(CodexDriverServiceEvents::new(Arc::clone(&link))),
                 release: Arc::clone(&release),
                 drains: LastingServiceDrains::default(),
@@ -209,9 +211,9 @@ impl CodexDriver {
             attachments: Arc::clone(&services.attachments),
             runtime_bindings: Arc::clone(&services.runtime_bindings),
             shell_lines: Arc::clone(&services.shell_lines),
+            background_work: Arc::clone(&services.background_work),
             pending_compactions: services.pending_compactions.clone(),
             processes: Arc::clone(&services.processes),
-            reads: Arc::clone(&services.pool),
             ports: Arc::clone(&services.ports),
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
             project_rules: Arc::new(CodexProjectRuleFiles {
@@ -278,6 +280,7 @@ impl CodexDriver {
                 questions: Arc::clone(&ports.questions),
             },
             shell_lines: Arc::clone(&self.shell_lines),
+            background_work: Arc::clone(&self.background_work),
             project_rules: Arc::clone(&self.project_rules) as _,
             tasks: self.tasks.clone(),
         }));
@@ -304,7 +307,7 @@ impl CodexDriver {
                 establishment: Arc::clone(&establishment),
                 services: Arc::clone(&self.registry),
                 release: Arc::clone(&self.release),
-                run_ends: Arc::clone(&engine) as _,
+                run_ends: Arc::clone(&engine),
                 dispatch: Arc::clone(&dispatch),
                 reviewer_denials: Arc::clone(&ports.reviewer_denials),
                 process_gone: Arc::clone(&ports.process_gone),
@@ -320,7 +323,6 @@ impl CodexDriver {
             engine: Arc::clone(&engine),
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings),
             attachments: Arc::clone(&self.attachments),
-            reads: Arc::clone(&self.reads),
         }));
         let retries = Arc::new(CodexFasterModelRetries::new(
             CodexFasterModelRetryDependencies {
@@ -385,7 +387,6 @@ impl CodexDriver {
             self_started: CodexSelfStartedTurnDependencies {
                 engine: Arc::clone(&engine),
                 daemon_turn_bindings,
-                reads: Arc::clone(&self.reads),
             },
             rate_limits,
             engine,
@@ -432,11 +433,7 @@ impl CodexDriver {
         parts: &Arc<CodexDriverParts>,
         service: Arc<crate::provider::driver::codex::service::supervisor::CodexService>,
     ) {
-        let is_first = self
-            .rate_limits_read
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(service.id());
+        let is_first = lock(&self.rate_limits_read).insert(service.id());
         if !is_first {
             return;
         }

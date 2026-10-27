@@ -36,7 +36,7 @@ use crate::provider::driver::codex::session::slots::CodexSessionSlots;
 use crate::provider::driver::codex::session::state::{CodexSessionRecord, CodexTurnInput};
 use crate::provider::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::provider::driver::run_control::{FasterModelRetryOutcome, FasterModelRetryParams};
-use crate::session::run::inbound::RunInboundDispatch;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 
 const NOT_LATEST_REJECTION: &str = "The turn is no longer the run's latest.";
 const REPLY_STARTED_REJECTION: &str = "The turn's reply has started.";
@@ -70,7 +70,7 @@ pub(crate) struct CodexFasterModelRetryDependencies {
     /// The run start, which sends the turn again.
     pub(crate) run_start: Arc<CodexRunStart>,
     /// The run engine's dispatch, which takes the failed run's end.
-    pub(crate) dispatch: Arc<RunInboundDispatch>,
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
 }
 
 /// A retry an interrupt stopped: its session, and the conversation its held turn ran on.
@@ -221,7 +221,7 @@ impl CodexFasterModelRetries {
             }
             Err(error) => {
                 fail_codex_run(
-                    &self.dependencies.dispatch,
+                    &*self.dependencies.dispatch,
                     params.run_id,
                     binding.binding_id,
                     RETRY_FAILED,
@@ -480,7 +480,7 @@ mod tests {
                 slots: Arc::clone(&session.slots),
                 run_routes: Arc::clone(&run_routes),
                 run_start: Arc::clone(&session.run_start),
-                dispatch: Arc::clone(&session.dispatch),
+                dispatch: Arc::clone(&session.engine) as _,
             });
             let settings = session.task.record.thread_settings.clone();
             let retry = retries.retry(FasterModelRetryParams {

@@ -36,6 +36,8 @@ use crate::events::session::appender::SessionEventDraft;
 use crate::mutex_lock::lock;
 use crate::provider::driver::contract::bound_failure_detail;
 use crate::provider::driver::run_control::DriverRunRefusal;
+use crate::provider::run::start_request::DaemonTurnStartRequest;
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::queue::store::take_over_interrupted_statement;
 use crate::session::run::agent::RunAgentReader;
 use crate::session::run::daemon_turn::queue_daemon_turn_run;
@@ -47,10 +49,8 @@ use crate::session::run::projection::insert_queued_run_statement;
 use crate::session::run::read::{RunRead, RunStateReader, read_run_provider};
 use crate::session::run::refusals::{RunRefusal, require_expected_version};
 use crate::session::run::setup_gates::{RunSetupContext, RunSetupGateError, RunTerminalContext};
-use crate::session::run::start_request::{
-    DaemonTurnStartRequest, RunContinueRequest, RunStartRequest, RunTurnStart,
-};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::start_request::{RunContinueRequest, RunStartRequest, RunTurnStart};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // The states a resume continues: a run still finishing its step, or one already held.
