@@ -2,6 +2,7 @@
 //! terminals and the SQLite store, and the helper modes it starts by name.
 
 pub(crate) mod bootstrap;
+pub(crate) mod control_plane_credential;
 pub(crate) mod daemon;
 pub(crate) mod data_acts;
 pub(crate) mod highlight;
