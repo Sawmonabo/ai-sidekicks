@@ -24,6 +24,7 @@ use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
@@ -133,7 +134,7 @@ pub(crate) fn test_codex_service_dependencies(
         data_folder: folder.join("data"),
         logs_folder: folder.join("logs"),
         additional_config_overrides: Vec::new(),
-        startup_timeout: Duration::from_secs(5),
+        startup_timeout: CODEX_SERVICE_STARTUP_TIMEOUT,
         dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,
         events,
         release: Arc::new(CodexConversationRelease::default()),

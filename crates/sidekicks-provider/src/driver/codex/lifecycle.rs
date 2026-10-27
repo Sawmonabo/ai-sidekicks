@@ -84,7 +84,7 @@ use crate::spawn_environment::ReservedEnvironmentNames;
 const CODEX_HELPER_ROLES_FOLDER_NAME: &str = "codex-helper-roles";
 
 /// How long a service's start or redial has to dial and complete its handshake.
-const CODEX_SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const CODEX_SERVICE_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The Codex driver: what it builds at once, and the session pieces it composes once.
 pub(crate) struct CodexDriver {

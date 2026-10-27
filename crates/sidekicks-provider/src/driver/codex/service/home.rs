@@ -50,10 +50,9 @@ pub(crate) struct CodexServiceHome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceKind {
     /// The daemon's own child, prepared as every child of the daemon is, which the daemon's stop
-    /// ends and which carries no hook switch: on an
-    /// account home, and on the person's own folder while terminal reach is off, then on a socket
-    /// of its own so no terminal joins it (an inference: off means no terminal joins anything of
-    /// the daemon's).
+    /// ends and which carries no hook switch: on an account home, and on the person's own folder
+    /// while terminal reach is off, then on a socket of its own so no terminal joins it (an
+    /// inference: off means no terminal joins anything of the daemon's).
     Account,
     /// The lasting service on the person's own Codex folder that terminals join: started by the
     /// daemon in a session of its own with the daemon's two hooks, kept in its record, outliving a

@@ -142,6 +142,15 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     answer_as_a_used_managed_daemon(listener, loaded_sender, notices_received);
     let codex_home = folder.path().join("home");
     std::fs::create_dir(&codex_home).expect("the home is made");
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program: write_failing_codex(folder.path()),
+            environment: Vec::new(),
+        }),
+        Arc::new(UnheardEvents),
+    );
+    let startup_timeout = dependencies.startup_timeout;
     let service = CodexService::new(
         CodexServiceHome {
             codex_home,
@@ -155,17 +164,10 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
             home_socket: socket,
         },
         CodexServiceKind::Terminal,
-        test_codex_service_dependencies(
-            folder.path(),
-            Arc::new(TestCodexProgram {
-                program: write_failing_codex(folder.path()),
-                environment: Vec::new(),
-            }),
-            Arc::new(UnheardEvents),
-        ),
+        dependencies,
     );
     service
-        .ensure_started(Duration::from_secs(5))
+        .ensure_started(startup_timeout)
         .await
         .expect("the start joins the used managed daemon");
     // The start's own read.
