@@ -1,4 +1,4 @@
-//! What the engine's tests and other crates' tests share: an engine over a test database, the
+//! What the session's tests and other crates' tests share: an engine over a test database, the
 //! running runs and events they seed, and a read of a run's stored state.
 
 use std::path::Path;

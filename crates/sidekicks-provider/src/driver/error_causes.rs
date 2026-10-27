@@ -16,6 +16,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::driver::contract::DriverError;
 use crate::driver::contract::bound_failure_detail;
 
 /// Stands in for a provider failure whose words are blank once bounded.
@@ -176,8 +178,8 @@ pub struct RequestUnanswered {
 
 /// The driver's answer when the request went out and no answer came, as tests hand it back.
 #[cfg(any(test, feature = "test-support"))]
-pub fn unanswered() -> crate::driver::contract::DriverError {
-    crate::driver::contract::DriverError::Unanswered(RequestUnanswered {
+pub fn unanswered() -> DriverError {
+    DriverError::Unanswered(RequestUnanswered {
         refusal: DomainError::new("the provider did not answer", RefusalCode::ProviderTimeout),
     })
 }

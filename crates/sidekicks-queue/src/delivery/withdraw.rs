@@ -37,7 +37,7 @@ pub(super) type WithdrawReply = Result<HashMap<QueueItemId, QueueWithdrawal>, De
 pub(super) struct WithdrawJob {
     /// The handed messages to take back.
     candidates: Vec<QueueItemRecord>,
-    /// Cancelled once the caller stops waiting.
+    /// Canceled once the caller stops waiting.
     deadline: CancellationToken,
     /// Set when the withdraws start, under its lock, which the caller reads as it cancels. A plain
     /// boolean no holder leaves half-written, so a poisoned lock still holds a whole flag.

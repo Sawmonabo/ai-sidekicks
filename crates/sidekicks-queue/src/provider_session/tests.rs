@@ -339,12 +339,14 @@ async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
             )
             .expect("the session's state is stored");
         let refused = |answer: &ProviderSessionError| match state {
-            SessionState::Closed => {
-                matches!(answer, ProviderSessionError::Closed { session_id: refused } if *refused == session_id)
-            }
-            SessionState::PurgeRequested => {
-                matches!(answer, ProviderSessionError::BeingDeleted { session_id: refused } if *refused == session_id)
-            }
+            SessionState::Closed => matches!(
+                answer,
+                ProviderSessionError::Closed { session_id: refused } if *refused == session_id
+            ),
+            SessionState::PurgeRequested => matches!(
+                answer,
+                ProviderSessionError::BeingDeleted { session_id: refused } if *refused == session_id
+            ),
             SessionState::Provisioning | SessionState::Active | SessionState::Archived => false,
         };
         let opened = opening.sessions.open(session_id, run_id).await;

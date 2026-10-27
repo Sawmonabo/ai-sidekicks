@@ -51,7 +51,11 @@ fn rename(connection: &Connection, session_id: SessionId, name: &str) {
 async fn append_event(log: &TestLog, session_id: SessionId) {
     let event = serde_json::from_value(json!({
         "type": "agent.toolCall.invoked",
-        "payload": { "sessionId": session_id, "runId": mint_uuid_v7().to_string(), "toolName": "Read" },
+        "payload": {
+            "sessionId": session_id,
+            "runId": mint_uuid_v7().to_string(),
+            "toolName": "Read",
+        },
     }))
     .expect("the test writes an agent.toolCall.invoked event");
     log.service
@@ -264,7 +268,8 @@ async fn the_renewal_runs_only_while_a_session_runs() {
     let run_id = mint_uuid_v7().to_string();
     connection
         .execute(
-            "INSERT INTO runs (run_id, session_id, state, run_version) VALUES (?1, ?2, 'running', 0)",
+            "INSERT INTO runs (run_id, session_id, state, run_version) \
+             VALUES (?1, ?2, 'running', 0)",
             params![run_id, session_id.text().as_str()],
         )
         .expect("the test stores a running run");

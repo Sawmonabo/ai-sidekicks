@@ -1,5 +1,5 @@
-//! What the engine's own tests share: a stand-in interventions service, the turns, events and
-//! limits they build, the cuts they hold, and the driver starts they run.
+//! What the engine's tests and the session's run tests share: a stand-in interventions service,
+//! the turns, events and limits they build, the cuts they hold, and the driver starts they run.
 
 use std::error::Error;
 use std::path::PathBuf;

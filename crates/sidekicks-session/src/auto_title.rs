@@ -131,7 +131,7 @@ pub struct SessionAutoTitle {
     providers: Arc<ProviderRegistry>,
     /// Every naming task, so the stop waits for each.
     passes: TaskTracker,
-    /// Cancelled at the stop; each pass's token is a child of it.
+    /// Canceled at the stop; each pass's token is a child of it.
     stopping: CancellationToken,
     pending: Mutex<PendingPasses>,
 }

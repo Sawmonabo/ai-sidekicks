@@ -155,9 +155,9 @@ impl TranscriptTestLog {
         }
     }
 
-    /// Sets the payload value at the JSON `path` of the row at `sequence` to `value`.
+    // Sets the payload value at the JSON `path` of the row at `sequence` to `value`.
     #[cfg(test)]
-    pub(crate) fn set_payload_value(&self, sequence: i64, path: &str, value: impl ToSql) {
+    fn set_payload_value(&self, sequence: i64, path: &str, value: impl ToSql) {
         self.session_log
             .writer
             .execute(
@@ -167,10 +167,10 @@ impl TranscriptTestLog {
             .expect("the payload is written");
     }
 
-    /// Flips the high bit of the `z` in the `"zstd"` the payload of the row at `sequence` names, so
-    /// that text is no longer UTF-8; fails the test when the payload names no `zstd` encoding.
+    // Flips the high bit of the `z` in the `"zstd"` the payload of the row at `sequence` names, so
+    // that text is no longer UTF-8; fails the test when the payload names no `zstd` encoding.
     #[cfg(test)]
-    pub(crate) fn flip_encoding_high_bit(&self, sequence: i64) {
+    fn flip_encoding_high_bit(&self, sequence: i64) {
         self.session_log
             .writer
             .execute(

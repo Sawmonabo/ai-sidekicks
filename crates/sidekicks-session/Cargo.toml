@@ -51,8 +51,8 @@ rstest.workspace = true
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The illegal byte sequence check the tests read.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The test driver registry, the mock driver, the recorded diagnostics and the runtime binding's
-# test store the tests build on.
+# The test driver registry, the mock driver, the recorded diagnostics, the runtime binding's test
+# store and the unanswered driver error the tests build on.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The documents an index holds under a row's key, for the search apply's damaged-row test.
 sidekicks-search = { workspace = true, features = ["index", "test-support"] }
@@ -68,9 +68,9 @@ tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
 
 [features]
-# Helpers other crates' tests use: the run engine built over a test database, the pause and live
-# count fixtures, the transcript's test log, the questions service's fixtures and the search
-# index's test services.
+# Helpers other crates' tests use: the run engine built over a test database, the live count
+# fixtures, the transcript's test log, the questions service's fixtures and the search index's test
+# services.
 test-support = [
   "dep:bytes",
   "dep:tempfile",
