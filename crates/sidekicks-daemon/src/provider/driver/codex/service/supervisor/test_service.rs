@@ -43,11 +43,15 @@ use crate::provider::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
 use crate::provider::driver::contract::DriverError;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
-use crate::queue::delivery::ProviderProcessIdentity;
+
+/// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
+/// runs none, so a terminal service starts, and is answered, with no hooks.
+const TEST_DISPATCHES_HOOK_MODE: bool = false;
 
 /// The largest message the scripted service takes, far above any a test sends.
 const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
@@ -130,6 +134,7 @@ pub(crate) fn test_codex_service_dependencies(
         logs_folder: folder.join("logs"),
         additional_config_overrides: Vec::new(),
         startup_timeout: Duration::from_secs(5),
+        dispatches_hook_mode: TEST_DISPATCHES_HOOK_MODE,
         events,
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
@@ -271,7 +276,9 @@ impl CodexServiceEvents for UnheardEvents {
 /// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
 /// write is refused, so a start that writes trust fails.
 pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
-    let hooks = match read_terminal_service_hooks().expect("the daemon's hooks read") {
+    let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
+        .expect("the daemon's hooks read")
+    {
         TerminalServiceHooks::Daemon(hooks) => vec![
             listed_hook("preToolUse", &hooks.pre_tool_use),
             listed_hook("postToolUse", &hooks.post_tool_use),

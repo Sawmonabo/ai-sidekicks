@@ -22,9 +22,9 @@ use crate::provider::driver::codex::turn_evidence::{
     CodexTurnStatus, compose_codex_child_terminal,
 };
 use crate::provider::record_readers::read_non_empty_string;
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::provider::run::delivery::DeliveryOperation;
+use crate::provider::run::delivery::LateAppendableRow;
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 
 /// What a thread is to the session's helpers.
 pub(crate) enum ChildRunLookup {

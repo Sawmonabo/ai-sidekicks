@@ -70,8 +70,8 @@ use crate::provider::port::question::{
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::project_rule_folders::write_into_project_folders;
 use crate::provider::record_readers::read_non_empty_string;
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use crate::provider::run::delivery::DeliveryOperation;
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 
 /// The two owners an admitted ask goes to, each registered at runtime.
 pub(crate) struct CodexAskOwners {

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde::de::DeserializeOwned;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalResolutionInvalidReason, ApprovalResolveRequest,
@@ -22,6 +22,7 @@ use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::recovery::SessionRebuildingDetails;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -160,22 +161,25 @@ impl ApprovalFixture {
             )),
             followers: Arc::new(SessionEventFollowers::default()),
             projection_statements: None,
-            refuse_session_write: Some(Box::new(move |_session_id, event_type| {
-                let is_answer =
-                    event_type == "approval.approved" || event_type == "approval.rejected";
-                let is_rule = event_type == "approval.rule.remembered";
-                if (is_answer && refusing.load(Ordering::SeqCst))
-                    || (is_rule && refusing_rules.load(Ordering::SeqCst))
-                {
-                    Err(SessionAppendRefusal {
-                        message: "rebuilding".to_owned(),
-                        code: RefusalCode::SessionRebuilding,
-                        detail: Map::new(),
-                    })
-                } else {
-                    Ok(())
-                }
-            })),
+            refuse_session_write: Some(Box::new(
+                move |session_id: &SessionId, event_type: &str| {
+                    let is_answer =
+                        event_type == "approval.approved" || event_type == "approval.rejected";
+                    let is_rule = event_type == "approval.rule.remembered";
+                    if (is_answer && refusing.load(Ordering::SeqCst))
+                        || (is_rule && refusing_rules.load(Ordering::SeqCst))
+                    {
+                        Err(SessionAppendRefusal::Rebuilding {
+                            message: "rebuilding".to_owned(),
+                            details: SessionRebuildingDetails {
+                                session_id: *session_id,
+                            },
+                        })
+                    } else {
+                        Ok(())
+                    }
+                },
+            )),
             read_damaged_from_sequence: None,
         }));
         let events = Arc::new(SessionEventAppender::new(

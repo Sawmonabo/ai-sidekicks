@@ -7,6 +7,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{ClaudeDialogSession, ClaudeProviderDialogs, MockClaudeDialogPorts};
 use crate::provider::driver::claude::run::routes::ClaudeBoundRun;
@@ -23,9 +24,7 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
-use crate::session::run::inbound::rows::UnstampedRow;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use crate::provider::run::delivery::{InboundDelivery, InboundOutcome, UnstampedRow};
 
 // What each delivery was, in the order handed over: a row's kind or a move's target state.
 type Delivered = Arc<Mutex<Vec<String>>>;

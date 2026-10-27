@@ -322,32 +322,43 @@ async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
     tracing::subscriber::set_global_default(tracing_subscriber::registry().with(damage_logs))
         .expect("the test's process logs to it alone");
     let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-    let services = TestDaemonServices::open(&log.database).await;
+    let services = TestDaemonServices::open(&log.session_log.database).await;
     let folder = tempfile::tempdir().expect("the test makes a temporary folder");
-    let (_, open, _) = index_behind_its_database(&log.database, &services, folder.path(), 1).await;
-    insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+    let (_, open, _) =
+        index_behind_its_database(&log.session_log.database, &services, folder.path(), 1).await;
+    insert_session_row(
+        &log.session_log.writer,
+        log.session_log.session_id.text().as_str(),
+        None,
+        None,
+    );
     let session_rowid: i64 = log
+        .session_log
         .writer
         .query_row(
             "SELECT rowid FROM sessions WHERE id = ?1",
-            [log.session_id.text().as_str()],
+            [log.session_log.session_id.text().as_str()],
             |row| row.get(0),
         )
         .expect("the session's key reads");
     let session_key = u64::try_from(session_rowid).expect("a rowid is positive");
     let damaged_text = format!("zebra {}", "words ".repeat(4 * PAGE_MAX_BYTES / 6));
     let (damaged, _) = if matches!(damage, RowDamage::ToolName) {
-        let payload =
-            json!({ "sessionId": log.session_id, "runId": log.run_id, "toolName": "edit" });
-        log.write(
+        let payload = json!({
+            "sessionId": log.session_log.session_id,
+            "runId": log.session_log.run_id,
+            "toolName": "edit",
+        });
+        log.session_log.write(
             json!({ "type": "agent.toolCall.invoked", "payload": payload }),
             Some(&damaged_text),
         )
     } else {
-        log.reply("m1", None, &damaged_text)
+        log.session_log.reply("m1", None, &damaged_text)
     };
     log.damage_row(damaged, damage);
     let damaged_rowid: i64 = log
+        .session_log
         .writer
         .query_row(
             "SELECT rowid FROM session_events WHERE sequence = ?1",
@@ -359,7 +370,7 @@ async fn an_apply_passes_over_a_damaged_row_and_applies_the_rows_after_it(
         u64::try_from(damaged_rowid).expect("a rowid is positive"),
         IndexRowKind::Event,
     );
-    log.reply("m2", None, "quokka");
+    log.session_log.reply("m2", None, "quokka");
 
     open.applier
         .apply_waiting(|_| {})

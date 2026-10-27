@@ -533,7 +533,7 @@ mod tests {
     use crate::events::content::codec::BodyEncoder;
     use crate::events::session::insert::{SessionEventRow, insert_session_event, monotonic_ns_now};
     use crate::events::session::read::SessionEventReads;
-    use crate::transcript::test_log::TranscriptTestLog;
+    use crate::events::test_log::SessionTestLog;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     /// Appends `event` to `session_id`'s log through the row write, with `body` as its stored
@@ -665,7 +665,7 @@ mod tests {
     // which would hand a provider a reply cut where the wire cut it or a result once per file.
     #[test]
     fn a_row_stored_in_pieces_folds_as_one_segment_with_its_whole_body() {
-        let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
+        let log = SessionTestLog::new(schema_parts());
         let (reply, _) = log.reply("m1", Some(0), "Hello, ");
         log.reply("m1", Some(0), "world.");
         let files = json!([

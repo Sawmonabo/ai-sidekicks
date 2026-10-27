@@ -22,11 +22,11 @@ fn read_part(
     row_id: &str,
     offset: u64,
 ) -> Result<Option<u64>, String> {
-    let reader = log.reader();
+    let reader = log.session_log.reader();
     read_row_body(
         &reader,
         &|_: &SessionId| None,
-        &log.session_id,
+        &log.session_log.session_id,
         row_id,
         offset,
         MARKDOWN_PARSE,
@@ -48,9 +48,9 @@ fn an_ended_replies_later_part_reads_only_its_frames() {
     for is_ended in [true, false] {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
         let block_cuts = BlockCuts::default();
-        let (sequence, row_id) = log.reply("m1", None, &long_reply());
+        let (sequence, row_id) = log.session_log.reply("m1", None, &long_reply());
         if is_ended {
-            log.turn_end(log.run_id, 1);
+            log.turn_end(log.session_log.run_id, 1);
         }
         let second = read_part(&log, &block_cuts, &row_id, 0)
             .expect("the first part reads")
@@ -62,7 +62,7 @@ fn an_ended_replies_later_part_reads_only_its_frames() {
             third > PAGE_MAX_BYTES as u64,
             "the third part starts past the first frame"
         );
-        log.damage_frame(sequence, 0);
+        log.session_log.damage_frame(sequence, 0);
         let read = read_part(&log, &block_cuts, &row_id, third);
         assert_eq!(read.is_ok(), is_ended, "ended: {is_ended}, read: {read:?}");
     }

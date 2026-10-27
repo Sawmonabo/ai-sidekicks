@@ -10,8 +10,6 @@ use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, Provider
 use sidekicks_contracts::wire::record::Record;
 
 use super::{RESTART_WAITS_PASSED, resume_params, start_params};
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::provider::driver::claude::session::establishment::context::CLAUDE_ADVISOR_ROW_ID;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::daemon_services::PortCall;
@@ -70,8 +68,10 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
     ScriptedDriver::exit(&first);
-    // The first restart waits nothing; the second waits a second.
+    // The first restart waits nothing; the second waits a second. The first's relaunch is reported
+    // once its session holds the slot, so the second exit ends a live session, not one starting.
     let second = fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
     ScriptedDriver::exit(&second);
     settle().await;
     let taken_by_resume = Arc::new(ScriptedChannel::default());
@@ -81,7 +81,10 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
         .resume_session(resume_params(session_id))
         .await
         .expect("the resume answers");
-    assert!(matches!(resumed, DriverResumeResult::Resumed { .. }));
+    assert!(
+        matches!(resumed, DriverResumeResult::Resumed { .. }),
+        "{resumed:?}"
+    );
     assert_eq!(fixture.starts.take_started().len(), 1);
 
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
@@ -146,22 +149,13 @@ async fn a_later_start_keeps_the_advisor_claude_code_resolved_at_the_first_start
     #[case] resolved: ClaudeSessionAdvisor,
 ) {
     let fixture = ScriptedDriver::new();
-    let writer = DatabaseWriter::open(fixture.database.opener(), DatabaseWriterOptions::default())
-        .await
-        .expect("the writer opens");
     fixture
         .services
         .ports
         .session_advisors
-        .register(Arc::new(writer))
+        .register(fixture.advisors.clone())
         .expect("the advisor store registers once");
     let session_id = new_session_id();
-    insert_session_row(
-        &fixture.database.reader(),
-        session_id.text().as_str(),
-        None,
-        None,
-    );
     fixture.starts.script_resolved_advisor(resolved.clone());
     fixture
         .starts

@@ -196,9 +196,9 @@ fn restore_from_home(
 }
 
 /// Restores the backup in `backup_folder` into the service of the home folder `home`, as the
-/// mode's doc says, `schema` the daemon's and `service_version` this build's. Fails with the step that failed; before
-/// anything is replaced with [`RestoreError::Lock`] while a service holds the data folder,
-/// [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
+/// mode's doc says, `schema` the daemon's and `service_version` this build's. Fails with the step
+/// that failed; before anything is replaced with [`RestoreError::Lock`] while a service holds the
+/// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
 /// [`RestoreError::Place`] for a kept place that cannot be written.
 pub(crate) async fn restore_backup(
     home: &Path,

@@ -4,14 +4,13 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use tokio_util::task::TaskTracker;
 
-use super::{CodexRunEnds, CodexServiceRecovery, CodexServiceRecoveryDependencies};
+use super::{CodexServiceRecovery, CodexServiceRecoveryDependencies};
 use crate::mutex_lock::lock;
 use crate::provider::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::provider::driver::codex::service::registry::CodexServiceRegistry;
@@ -27,37 +26,29 @@ use crate::provider::driver::session_control::DriverResumeResult;
 use crate::provider::driver::test_registry::new_run_id;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::session::run::engine::RunEngineError;
+use crate::provider::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 
-// What the stand-ins for the run engine, the reviewer denials and the queue heard, in order.
-#[derive(Default)]
-struct Steps(Mutex<Vec<String>>);
-
-impl Steps {
-    fn push(&self, step: String) {
-        lock(&self.0).push(step);
-    }
-
-    fn read(&self) -> Vec<String> {
-        lock(&self.0).clone()
-    }
+// What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
+// ends the run engine took before it.
+struct Steps {
+    engine: Arc<RecordingRunEngine>,
+    heard: Mutex<Vec<(String, Vec<EngineCall>)>>,
 }
 
-struct HeardEnds(Arc<Steps>);
-
-impl CodexRunEnds for HeardEnds {
-    fn end_turn_on_process_exit(
-        &self,
-        run_id: RunId,
-        _process_exit: ProcessExit,
-    ) -> BoxFuture<'_, Result<(), RunEngineError>> {
-        self.0.push(format!("end {run_id}"));
-        async { Ok(()) }.boxed()
+impl Steps {
+    fn new(engine: &Arc<RecordingRunEngine>) -> Self {
+        Self {
+            engine: Arc::clone(engine),
+            heard: Mutex::default(),
+        }
     }
 
-    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
-        self.0.push(format!("close {run_id}"));
-        async { Ok(()) }.boxed()
+    fn push(&self, step: String) {
+        lock(&self.heard).push((step, turn_ends(&self.engine)));
+    }
+
+    fn read(&self) -> Vec<(String, Vec<EngineCall>)> {
+        lock(&self.heard).clone()
     }
 }
 
@@ -120,13 +111,13 @@ fn test_recovery(
             establishment: Arc::new(session.establishment(folder)),
             services: CodexServiceRegistry::holding(&session.scripted),
             release: Arc::clone(&session.scripted.dependencies.release),
-            run_ends: Arc::new(HeardEnds(Arc::clone(steps))),
-            dispatch: Arc::clone(&session.dispatch),
+            run_ends: Arc::clone(&session.engine) as _,
+            dispatch: Arc::clone(&session.engine) as _,
             reviewer_denials,
             process_gone,
             session_relaunched,
             rate_limits: CodexRateLimitFiling::new(
-                Arc::clone(&session.dispatch),
+                Arc::clone(&session.engine) as _,
                 one_folder_spawn_contexts(folder.join("work")),
             ),
             tasks: TaskTracker::new(),
@@ -168,7 +159,7 @@ fn exit_code(code: u8) -> ProcessExit {
 async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_queue_hears() {
     let mut session = TestCodexSession::start().await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let steps = Arc::new(Steps::default());
+    let steps = Arc::new(Steps::new(&session.engine));
     let recovery = test_recovery(&session, folder.path(), &steps);
     let binding_id = session.record_binding().await;
     let run_id = new_run_id();
@@ -186,12 +177,13 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
         .drive(recovery.end_turns_on_exit(&service, Some(exit_code(1))))
         .await;
 
+    let ended = vec![EngineCall::EndTurnOnProcessExit(run_id)];
+    assert_eq!(turn_ends(&session.engine), ended);
     assert_eq!(
         steps.read(),
         [
-            format!("end {run_id}"),
-            format!("release {binding_id:?}"),
-            format!("gone {session_id}"),
+            (format!("release {binding_id:?}"), ended.clone()),
+            (format!("gone {session_id}"), ended),
         ]
     );
     assert!(
@@ -205,38 +197,34 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
 
 // Killed by a notice after a crash restart, by the person's restart telling no session it
 // brought back, by a crash loop naming an exit older than its newest, and by one naming its
-// restart's failure where it read an exit. Runs in real time under
-// a bound, since the notices are written to the database.
+// restart's failure where it read an exit. Runs in real time under a bound, the service answering
+// on its own task.
 #[tokio::test]
 async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_the_session() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut session = TestCodexSession::start().await;
         session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let steps = Arc::new(Steps::default());
+        let steps = Arc::new(Steps::new(&session.engine));
         let recovery = test_recovery(&session, folder.path(), &steps);
         let service = Arc::clone(&session.scripted.service);
         let settings = session.task.record.thread_settings.clone();
         let session_id = session.task.record.session_id;
         let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
-        let notices = |database: &crate::database::writer::test_file::TestDatabase| {
-            database
-                .reader()
-                .prepare(
-                    "SELECT json_extract(payload, '$.kind'), json_extract(payload, '$.exitCode')
-                     FROM session_events
-                     WHERE session_id = ?1 AND type = 'session.notice.posted' ORDER BY sequence",
-                )
-                .and_then(|mut statement| {
-                    statement
-                        .query_map([session_id.text().as_str()], |row| {
-                            Ok((row.get::<_, String>(0)?, row.get::<_, Option<i64>>(1)?))
-                        })?
-                        .collect::<Result<Vec<_>, _>>()
+        let notices = || {
+            notices_on(&session.engine, session_id)
+                .into_iter()
+                .map(|notice| {
+                    (
+                        notice["kind"]
+                            .as_str()
+                            .expect("a notice names its kind")
+                            .to_owned(),
+                        notice["exitCode"].as_i64(),
+                    )
                 })
-                .expect("the test reads the session's notices")
+                .collect::<Vec<_>>()
         };
-
         session
             .task
             .drive(async {
@@ -246,7 +234,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                     .await;
             })
             .await;
-        assert_eq!(notices(&session.database), Vec::new());
+        assert_eq!(notices(), Vec::new());
 
         // Each exit is remembered and forgotten as the service's own events do it.
         session
@@ -269,7 +257,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
             })
             .await;
         assert_eq!(
-            notices(&session.database),
+            notices(),
             [
                 ("providerCrashLoop".to_owned(), Some(137)),
                 ("providerRestarted".to_owned(), None),
@@ -283,13 +271,13 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
 
 // Killed by posting nothing for a loop of failed restarts after an end no wait read, the warning
 // it once logged instead, and by naming an ending the daemon never read, among them one read before
-// a restart that succeeded. Real time under a bound, since the notice is written to the database.
+// a restart that succeeded. Real time under a bound, the service answering on its own task.
 #[tokio::test]
 async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failure() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut session = TestCodexSession::start().await;
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let steps = Arc::new(Steps::default());
+        let steps = Arc::new(Steps::new(&session.engine));
         let recovery = test_recovery(&session, folder.path(), &steps);
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
@@ -314,28 +302,19 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
             })
             .await;
 
-        let notices = session
-            .database
-            .reader()
-            .prepare(
-                "SELECT json_extract(payload, '$.kind'), json_extract(payload, '$.startFailure'),
-                        json_extract(payload, '$.exitCode') IS NULL
-                           AND json_extract(payload, '$.signal') IS NULL
-                 FROM session_events
-                 WHERE session_id = ?1 AND type = 'session.notice.posted' ORDER BY sequence",
-            )
-            .and_then(|mut statement| {
-                statement
-                    .query_map([session_id.text().as_str()], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, Option<String>>(1)?,
-                            row.get::<_, bool>(2)?,
-                        ))
-                    })?
-                    .collect::<Result<Vec<_>, _>>()
+        let notices: Vec<_> = notices_on(&session.engine, session_id)
+            .into_iter()
+            .map(|notice| {
+                (
+                    notice["kind"]
+                        .as_str()
+                        .expect("a notice names its kind")
+                        .to_owned(),
+                    notice["startFailure"].as_str().map(str::to_owned),
+                    notice["exitCode"].is_null() && notice["signal"].is_null(),
+                )
             })
-            .expect("the test reads the session's notices");
+            .collect();
         assert_eq!(
             notices,
             [(
@@ -348,4 +327,30 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
     })
     .await
     .expect("the crash loop is told within the bound");
+}
+
+// The payload of each notice delivered on `session_id`, in order.
+fn notices_on(engine: &RecordingRunEngine, session_id: SessionId) -> Vec<Value> {
+    engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| {
+            delivery.kind == "sessionNotice" && delivery.session_id == Some(session_id)
+        })
+        .map(|delivery| delivery.payload.expect("a notice carries its payload"))
+        .collect()
+}
+
+// The turn ends the run engine took so far, in order.
+fn turn_ends(engine: &RecordingRunEngine) -> Vec<EngineCall> {
+    engine
+        .calls()
+        .into_iter()
+        .filter(|call| {
+            matches!(
+                call,
+                EngineCall::EndTurnOnProcessExit(_) | EngineCall::EndTurnOnClose(_)
+            )
+        })
+        .collect()
 }

@@ -165,7 +165,7 @@ CREATE TABLE workflow_gate_resolutions (
                              CHECK(approval_category IS NULL OR approval_category IN (
                                'toolExecution','fileWrite','networkAccess','destructiveGit','gate'
                              )),
-  approval_request_id        TEXT NOT NULL REFERENCES approval_requests(id), -- the Plan-009 approval request this gate answered
+  approval_request_id        TEXT NOT NULL,             -- the Plan-009 approval request this gate answered
   -- Resolution
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ('approved','rejected')),

@@ -1,7 +1,6 @@
 //! The session controls that run beside a session's own turns, reached through the driver: a side
 //! question, the staged review and a run started through the driver interface.
 
-use std::num::NonZeroUsize;
 use std::sync::Arc;
 
 use serde_json::json;
@@ -10,26 +9,20 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionReviewTarget, SideQuestionId,
 };
-use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-
-use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 
 use super::{resume_params, start_params};
 use crate::policy::execution_posture_service::compose_execution_posture;
-use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::run_engine::{ClaudeRunEngine, RunEngineDelivery};
 use crate::provider::driver::claude::lifecycle::ClaudeDriver;
 use crate::provider::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::provider::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
 };
-use crate::provider::driver::claude::session::scripted::run_engine::{
-    EngineCall, HeldDeliveryEngine,
-};
+use crate::provider::driver::claude::session::scripted::run_engine::HeldDeliveryEngine;
 use crate::provider::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::provider::driver::claude::session::scripted::{
-    SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
+    SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
 };
 use crate::provider::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::provider::driver::claude::session::transport::declarations::{
@@ -42,13 +35,13 @@ use crate::provider::driver::run_control::InterruptRunRequest;
 use crate::provider::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, StartReviewParams,
 };
-use crate::provider::driver::test_registry::{
-    TestRunPorts, new_run_id, new_session_id, terminal_events,
-};
+use crate::provider::driver::test_registry::{new_run_id, new_session_id};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::port::run_host::test_host::EngineCall;
+use crate::provider::run::delivery::LateAppendableRow;
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::provider::usage_delta_accountant::UsageAxisCounts;
-use crate::session::run::engine::tests::{insert_running_run, stored_run_state};
-use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
-use crate::session::run::state_change::RunStateEntry;
 
 // The full id the build resolves the session's `opus` to.
 const FULL_MODEL_ID: &str = "claude-opus-4-7";
@@ -104,20 +97,7 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
         })
         .await
         .expect("the review starts");
-    let run_id = fixture
-        .engine
-        .calls()
-        .into_iter()
-        .find_map(|call| match call {
-            EngineCall::StartDaemonTurn(run_id) => Some(run_id),
-            EngineCall::Deliver(_)
-            | EngineCall::StartTurn(_)
-            | EngineCall::CountStep(_)
-            | EngineCall::RecordTurnEnd(..)
-            | EngineCall::EndTurnOnProcessExit(_)
-            | EngineCall::EndTurnOnClose(_) => None,
-        })
-        .expect("the review's run was started");
+    let run_id = daemon_turn_run(&fixture).expect("the review's run was started");
     fixture
         .driver
         .interrupt_run(InterruptRunRequest {
@@ -247,66 +227,71 @@ fn answered(fixture: &ScriptedDriver) -> usize {
         .count()
 }
 
-// The driver over the daemon's own run engine and inbound dispatch as it reaches them through its
-// ports, with `run_id` running on `session_id`'s lead binding.
-async fn driver_on_the_daemons_engine(
-    fixture: &ScriptedDriver,
-    session_id: SessionId,
-    run_id: RunId,
-) -> Arc<ClaudeDriver> {
-    register_the_daemons_engine(fixture, session_id, run_id).await;
-    Arc::new(ClaudeDriver::with_starts(
-        &fixture.services,
-        fixture.starts.clone(),
-    ))
-}
-
-// Registers the daemon's own run engine and inbound dispatch as the driver's ports, with `run_id`
-// running on `session_id`'s lead binding, and answers the two as the driver delivers to them.
-async fn register_the_daemons_engine(
-    fixture: &ScriptedDriver,
-    session_id: SessionId,
-    run_id: RunId,
-) -> RunEngineDelivery {
-    insert_running_run(&fixture.database, session_id, run_id);
-    let mut epochs = ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero"));
-    epochs
-        .open_binding(
-            EpochBinding {
-                id: binding_id("lead"),
-                run_id,
-                provider_name: DESCRIPTOR.provider_id(),
-                provider_account_id: None,
-            },
-            RUN_START_POSITION,
-        )
-        .expect("the binding has no cursor yet");
-    let run_ports = TestRunPorts::open(&fixture.database, &fixture.home, epochs).await;
-    run_ports.register_on(&fixture.services.ports);
-    RunEngineDelivery::new(run_ports.engine, run_ports.dispatch)
-}
-
-// How many reply messages of `run_id` are stored.
-fn reply_count(fixture: &ScriptedDriver, run_id: RunId) -> i64 {
+// The run of the first turn the daemon or Claude Code started on a session itself.
+fn daemon_turn_run(fixture: &ScriptedDriver) -> Option<RunId> {
     fixture
-        .database
-        .reader()
-        .query_row(
-            "SELECT COUNT(*) FROM session_events WHERE run_id = ?1 AND type = 'agent.message.sent'",
-            [run_id.text().as_str()],
-            |row| row.get(0),
-        )
-        .expect("the run's replies count")
+        .engine
+        .calls()
+        .into_iter()
+        .find_map(|call| match call {
+            EngineCall::StartDaemonTurn(run_id) => Some(run_id),
+            EngineCall::Deliver(_)
+            | EngineCall::StartTurn(_)
+            | EngineCall::CountStep(_)
+            | EngineCall::RecordTurnEnd(..)
+            | EngineCall::EndTurnOnProcessExit(_)
+            | EngineCall::EndTurnOnClose(_) => None,
+        })
 }
 
-// A run started through the driver interface, on the daemon's own run engine and inbound
-// dispatch as the driver reaches them through its ports, ends `completed` on the process result.
+// The run ends the driver reported for `run_id`, in order.
+fn run_ends(fixture: &ScriptedDriver, run_id: RunId) -> Vec<RunStateEntry> {
+    fixture
+        .engine
+        .run_moves()
+        .into_iter()
+        .filter_map(|delivery| delivery.change)
+        .filter(|change| change.run_id == run_id)
+        .map(|change| change.entry)
+        .filter(|entry| {
+            matches!(
+                entry,
+                RunStateEntry::Completed { .. }
+                    | RunStateEntry::Interrupted { .. }
+                    | RunStateEntry::Stopped { .. }
+                    | RunStateEntry::Failed { .. }
+            )
+        })
+        .collect()
+}
+
+// The turns the driver ended through the run engine as their process exited or their session
+// closed.
+fn engine_ends(fixture: &ScriptedDriver) -> Vec<EngineCall> {
+    fixture
+        .engine
+        .calls()
+        .into_iter()
+        .filter(|call| {
+            matches!(
+                call,
+                EngineCall::EndTurnOnClose(_) | EngineCall::EndTurnOnProcessExit(_)
+            )
+        })
+        .collect()
+}
+
+// A run started through the driver interface, on a driver composed from the run engine and
+// inbound dispatch its ports hold, ends `completed` on the process result.
 #[tokio::test(start_paused = true)]
 async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let run_id = new_run_id();
-    let claude = driver_on_the_daemons_engine(&fixture, session_id, run_id).await;
+    let claude = Arc::new(ClaudeDriver::with_starts(
+        &fixture.services,
+        fixture.starts.clone(),
+    ));
     let driver: Arc<dyn ProviderDriver> = claude.clone();
     let channel = Arc::new(ScriptedChannel::default());
     fixture.starts.script_session(Arc::clone(&channel));
@@ -321,21 +306,24 @@ async fn a_run_started_through_the_driver_trait_ends_on_the_process_result() {
         .await
         .expect("the run starts");
     end_turn_of(&claude, &start, session_id);
-    ScriptedDriver::wait_for(|| stored_run_state(&fixture.database, &run_id).0 == "completed")
-        .await;
+    ScriptedDriver::wait_for(|| !run_ends(&fixture, run_id).is_empty()).await;
 
+    assert!(matches!(
+        run_ends(&fixture, run_id).as_slice(),
+        [RunStateEntry::Completed { .. }]
+    ));
     assert_eq!(channel.user_frames().len(), 1);
 }
 
-// Killed by a close that leaves the run in flight with no end, by ending it as anything but the
-// daemon's intended close, and by a second end of a run the close already ended.
+// Killed by a close that leaves the run in flight with no end, by ending it through anything but
+// the run engine's close, which marks it the daemon's intended close, and by a second end of a
+// run the close already ended.
 #[tokio::test(start_paused = true)]
-async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
+async fn a_close_ends_the_run_in_flight_through_the_engines_close() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let run_id = new_run_id();
-    let driver: Arc<dyn ProviderDriver> =
-        driver_on_the_daemons_engine(&fixture, session_id, run_id).await;
+    let driver: Arc<dyn ProviderDriver> = fixture.driver.clone();
     fixture
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
@@ -355,29 +343,27 @@ async fn a_close_ends_the_run_in_flight_interrupted_as_intended() {
         .expect("the session closes");
     settle().await;
 
-    assert_eq!(
-        terminal_events(&fixture.database, run_id),
-        [("agent.run.interrupted".to_owned(), Some(true))]
-    );
+    assert_eq!(engine_ends(&fixture), [EngineCall::EndTurnOnClose(run_id)]);
+    assert_eq!(run_ends(&fixture, run_id), []);
 }
 
 // Killed by a close that stops taking its process's frames once the channel closes (the wait on
 // the session's task deleted from `close_channel`): the reply and the `result` queued behind a held
-// delivery would be dropped and the run would end interrupted by the close, not on its `result`;
-// by a closing slot that refuses every frame; and by a second end the close adds to an ended run.
+// delivery would be dropped and the run would end through the close, not on its `result`; by a
+// closing slot that refuses every frame; and by a `result` read after the close began that is not
+// marked the daemon's intended close.
 #[tokio::test(start_paused = true)]
 async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_intended() {
     let fixture = ScriptedDriver::new();
     let session_id = new_session_id();
     let run_id = new_run_id();
-    let engine = Arc::new(HeldDeliveryEngine::new(Arc::new(
-        register_the_daemons_engine(&fixture, session_id, run_id).await,
-    )));
+    let engine = Arc::new(HeldDeliveryEngine::new(fixture.engine.clone()));
     let claude = Arc::new(
         ClaudeDriver::with_engine(
             &fixture.services,
             fixture.starts.clone(),
-            &(Arc::clone(&engine) as Arc<dyn ClaudeRunEngine>),
+            &(Arc::clone(&engine) as Arc<dyn RunHost>),
+            &(Arc::clone(&engine) as Arc<dyn InboundDispatch>),
         )
         .expect("the driver composes"),
     );
@@ -442,10 +428,18 @@ async fn the_frames_read_before_the_close_ended_the_process_end_their_run_as_int
     settle().await;
 
     assert_eq!(
-        terminal_events(&fixture.database, run_id),
-        [("agent.run.completed".to_owned(), Some(true))]
+        run_ends(&fixture, run_id),
+        [RunStateEntry::Completed {
+            intended_close: Some(BoolLiteral)
+        }]
     );
-    assert_eq!(reply_count(&fixture, run_id), 1);
+    let replies = fixture
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| matches!(delivery.row, Some(LateAppendableRow::AgentMessageSent(_))))
+        .count();
+    assert_eq!(replies, 1);
 }
 
 // Killed by reading the close's run list before its channel closes (the `bound_runs_on` read in
@@ -460,7 +454,8 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
         ClaudeDriver::with_engine(
             &fixture.services,
             fixture.starts.clone(),
-            &(Arc::clone(&engine) as Arc<dyn ClaudeRunEngine>),
+            &(Arc::clone(&engine) as Arc<dyn RunHost>),
+            &(Arc::clone(&engine) as Arc<dyn InboundDispatch>),
         )
         .expect("the driver composes"),
     );
@@ -499,27 +494,9 @@ async fn a_turn_claude_code_started_while_the_close_drained_ends_as_intended() {
         .expect("the session closes");
     settle().await;
 
-    let calls = fixture.engine.calls();
-    let self_started = calls
-        .iter()
-        .find_map(|call| match call {
-            EngineCall::StartDaemonTurn(run_id) => Some(*run_id),
-            EngineCall::Deliver(_)
-            | EngineCall::StartTurn(_)
-            | EngineCall::CountStep(_)
-            | EngineCall::RecordTurnEnd(..)
-            | EngineCall::EndTurnOnProcessExit(_)
-            | EngineCall::EndTurnOnClose(_) => None,
-        })
-        .expect("the self-started turn's run opened");
-    let ends: Vec<_> = calls
-        .into_iter()
-        .filter(|call| {
-            matches!(
-                call,
-                EngineCall::EndTurnOnClose(_) | EngineCall::EndTurnOnProcessExit(_)
-            )
-        })
-        .collect();
-    assert_eq!(ends, [EngineCall::EndTurnOnClose(self_started)]);
+    let self_started = daemon_turn_run(&fixture).expect("the self-started turn's run opened");
+    assert_eq!(
+        engine_ends(&fixture),
+        [EngineCall::EndTurnOnClose(self_started)]
+    );
 }

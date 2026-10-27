@@ -8,15 +8,15 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::daemon_ends::ClaudeDaemonEndSettlement;
 use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
 use crate::provider::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, settle,
 };
 use crate::provider::driver::diagnostics::RecordedEvents;
+use crate::provider::port::run_host::test_host::EngineCall;
 use crate::provider::port::usage_sink::ProviderQuotaWindow;
-use crate::session::run::engine::turns::TurnOutcome;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::state_change::RunStateEntry;
+use crate::provider::run::delivery::LateAppendableRow;
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::provider::run::turn_end::TurnOutcome;
 
 fn init() -> Value {
     json!({

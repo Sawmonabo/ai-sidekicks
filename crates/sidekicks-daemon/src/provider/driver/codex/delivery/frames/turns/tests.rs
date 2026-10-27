@@ -3,6 +3,7 @@ use serde_json::{Value, json};
 use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, TestCodexSession, turn_started,
 };
+use crate::provider::run::delivery::LateAppendableRow;
 
 // An `error` frame of turn `turn-1` on [`TEST_THREAD`] on Codex's arm `kind`.
 fn error_frame(kind: &str, will_retry: bool) -> Value {
@@ -24,7 +25,7 @@ fn error_frame(kind: &str, will_retry: bool) -> Value {
 async fn each_error_codex_retries_files_one_retried_request_on_the_turns_run() {
     let mut session = TestCodexSession::start().await;
     let binding_id = session.record_binding().await;
-    session.daemon_turn_bindings.open_on(binding_id.clone());
+    session.daemon_turn_bindings.open_on(binding_id);
     session.scripted.script.send(&turn_started("turn-1"));
     session.task.handle_next().await;
     let run_id = session
@@ -32,7 +33,6 @@ async fn each_error_codex_retries_files_one_retried_request_on_the_turns_run() {
         .record
         .active_turn_run("turn-1")
         .expect("the turn's run opened");
-    session.open_epoch(binding_id, run_id);
 
     session
         .scripted
@@ -45,21 +45,23 @@ async fn each_error_codex_retries_files_one_retried_request_on_the_turns_run() {
         .send(&error_frame("internalServerError", false));
     session.task.handle_next().await;
 
-    let reader = session.database.reader();
-    let mut statement = reader
-        .prepare(
-            "SELECT run_id, json_extract(payload, '$.errorKind') FROM session_events
-             WHERE type = 'usage.apiRequest.retried' ORDER BY sequence",
-        )
-        .expect("the query is valid");
-    let retried: Vec<(String, String)> = statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .expect("the query runs")
-        .collect::<Result<_, _>>()
-        .expect("the rows read");
+    let retried: Vec<(String, Value)> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter_map(|delivery| {
+            let Some(LateAppendableRow::UsageApiRequestRetried(payload)) = delivery.row else {
+                return None;
+            };
+            Some((
+                payload.run_id.expect("the row names its run").to_string(),
+                serde_json::to_value(payload.error_kind).expect("an error kind serializes"),
+            ))
+        })
+        .collect();
     assert_eq!(
         retried,
-        [(run_id.text().as_str().to_owned(), "overloaded".to_owned())],
+        [(run_id.to_string(), json!("overloaded"))],
         "one row for the retried error, none for the final one"
     );
 }

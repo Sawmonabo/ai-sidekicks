@@ -39,11 +39,11 @@ use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::process_identity::ProviderProcessIds;
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::pty::console::CONSOLE_MODE;
 use crate::questions::service::QuestionsService;
 use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::ProviderProcessIds;
 use crate::queue::provider_session::{
     ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
 };
@@ -268,12 +268,15 @@ pub(crate) fn build_session_services(
     let mut built_approvals = None;
     let engine = Arc::new_cyclic(|engine: &Weak<RunEngine>| {
         let approvals = build_approvals(engine.clone(), &approval_start);
-        let mut built = RunEngine::new(RunEngineDeps {
-            pool: Arc::clone(&reads),
-            event_log: Arc::clone(&event_log),
-            execution_postures,
-            providers: Arc::clone(&providers),
-        });
+        let mut built = RunEngine::new(
+            RunEngineDeps {
+                pool: Arc::clone(&reads),
+                event_log: Arc::clone(&event_log),
+                execution_postures,
+                providers: Arc::clone(&providers),
+            },
+            engine.clone(),
+        );
         built.register_setup_gate(Arc::clone(&approvals.run_end) as Arc<dyn RunSetupGate>);
         built_approvals = Some(approvals);
         built

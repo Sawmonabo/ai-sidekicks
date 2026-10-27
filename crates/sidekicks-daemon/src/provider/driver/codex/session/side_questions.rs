@@ -55,13 +55,13 @@ use crate::provider::driver::codex::transport::diagnostics::CodexTransportDiagno
 use crate::provider::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::usage_sink::UsageSink;
+use crate::provider::run::delivery::{InboundDelivery, SessionScopedRow};
 use crate::provider::usage_delta_accountant::{
     MeteredUsageDelta, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
-use crate::session::run::inbound::rows::SessionScopedRow;
-use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 
@@ -201,7 +201,7 @@ impl CodexSideQuestion {
 /// The side questions of one Codex driver, by the copy's conversation.
 pub(crate) struct CodexSideQuestions {
     /// Where an answer is delivered.
-    dispatch: Arc<RunInboundDispatch>,
+    dispatch: Arc<dyn InboundDispatch>,
     /// The driver's tasks, which its shutdown waits for; each answer is delivered on one.
     tasks: TaskTracker,
     /// The live copies answering, by the copy's conversation. Never held across an await.
@@ -228,7 +228,7 @@ struct CodexCopyStop {
 
 impl CodexSideQuestions {
     /// The side questions, delivering each answer through `dispatch` as a task of `tasks`.
-    pub(crate) fn new(dispatch: Arc<RunInboundDispatch>, tasks: TaskTracker) -> Self {
+    pub(crate) fn new(dispatch: Arc<dyn InboundDispatch>, tasks: TaskTracker) -> Self {
         Self {
             dispatch,
             tasks,
@@ -610,7 +610,7 @@ struct CodexRestingCopy {
 // question's stop fired its turn is stopped and nothing is delivered. The copy leaves `copy_stops`
 // and is let go with its connection.
 async fn answer_at_rest(
-    dispatch: Arc<RunInboundDispatch>,
+    dispatch: Arc<dyn InboundDispatch>,
     usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     mut question: CodexSideQuestion,
     mut copy: CodexRestingCopy,
@@ -623,7 +623,7 @@ async fn answer_at_rest(
         .await;
     lock(&copy_stops).copies.remove(&question.side_question_id);
     if let Some(turn) = read {
-        deliver_answer(&dispatch, question, turn).await;
+        deliver_answer(&*dispatch, question, turn).await;
     } else {
         stop_detached_turn(&copy.connection, &copy.thread_id, async { Ok(turn_id) }).await;
     }
@@ -678,20 +678,20 @@ async fn let_go_live_copy(thread_id: String, question: CodexSideQuestion) {
 
 // Delivers the copy's answer and lets the copy go off its session's service.
 async fn finish(
-    dispatch: Arc<RunInboundDispatch>,
+    dispatch: Arc<dyn InboundDispatch>,
     thread_id: String,
     question: CodexSideQuestion,
     turn: Option<CopyTurn>,
 ) {
     let service = Arc::clone(&question.service);
-    deliver_answer(&dispatch, question, turn).await;
+    deliver_answer(&*dispatch, question, turn).await;
     let_go_codex_thread(&service, &thread_id).await;
 }
 
 // Delivers the copy's answer when its turn completed with one, else reports why none came. A NUL
 // the answer holds is dropped, since the row's text carries none.
 async fn deliver_answer(
-    dispatch: &RunInboundDispatch,
+    dispatch: &dyn InboundDispatch,
     question: CodexSideQuestion,
     turn: Option<CopyTurn>,
 ) {

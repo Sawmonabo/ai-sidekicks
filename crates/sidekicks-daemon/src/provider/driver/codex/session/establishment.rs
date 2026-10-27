@@ -73,6 +73,7 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::tool_server_route::ToolServerRoute;
+use crate::provider::process_identity::ProviderProcessIds as _;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
@@ -80,7 +81,6 @@ use crate::provider::spawn_environment::{
 };
 use crate::provider::spawned_version::to_binding_version_carriers;
 use crate::provider::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
-use crate::queue::delivery::ProviderProcessIds as _;
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";

@@ -19,14 +19,14 @@ use crate::questions::schema::schema_parts;
 use crate::session::run::read::{LiveRun, RunRead};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> Option<RestartDecision> {
-    Some(RestartDecision {
+fn ends(settlement: RestartSettlement, turn_end: RestartTurnEnd) -> RestartDecision {
+    RestartDecision {
         settlement,
         open_turn_end: Some(turn_end),
-    })
+    }
 }
 
-fn stopped_at_token_limit() -> Option<RestartDecision> {
+fn stopped_at_token_limit() -> RestartDecision {
     ends(
         RestartSettlement::Stopped {
             trigger: StopTrigger::TokenLimit,
@@ -35,14 +35,14 @@ fn stopped_at_token_limit() -> Option<RestartDecision> {
     )
 }
 
-fn interrupted(trigger: Option<InterruptReason>) -> Option<RestartDecision> {
+fn interrupted(trigger: Option<InterruptReason>) -> RestartDecision {
     ends(
         RestartSettlement::Interrupted { trigger },
         RestartTurnEnd::Interrupted,
     )
 }
 
-fn failed_with_its_turn() -> Option<RestartDecision> {
+fn failed_with_its_turn() -> RestartDecision {
     ends(RestartSettlement::Failed, RestartTurnEnd::Failed)
 }
 
@@ -74,7 +74,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"pending":"nextTurn"}"#],
     None,
     false,
-    interrupted(None)
+    Some(interrupted(None))
 )]
 #[case::person_naming_step_limit(
     RunState::Running,
@@ -82,7 +82,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"pending":"returnToDraft","reason":"stepLimit"}"#],
     None,
     false,
-    interrupted(None)
+    Some(interrupted(None))
 )]
 #[case::step_limit(
     RunState::Running,
@@ -90,7 +90,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"stepLimit"}"#],
     None,
     false,
-    interrupted(Some(InterruptReason::StepLimit))
+    Some(interrupted(Some(InterruptReason::StepLimit)))
 )]
 #[case::step_limit_pending_and_owed(
     RunState::Running,
@@ -98,7 +98,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"stepLimit"}"#],
     Some(RunLimit::StepLimit),
     false,
-    interrupted(Some(InterruptReason::StepLimit))
+    Some(interrupted(Some(InterruptReason::StepLimit)))
 )]
 #[case::spend_limit(
     RunState::WaitingForApproval,
@@ -106,7 +106,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"spendLimit"}"#],
     None,
     false,
-    interrupted(Some(InterruptReason::SpendLimit))
+    Some(interrupted(Some(InterruptReason::SpendLimit)))
 )]
 #[case::token_limit(
     RunState::Paused,
@@ -114,7 +114,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"tokenLimit"}"#],
     None,
     false,
-    stopped_at_token_limit()
+    Some(stopped_at_token_limit())
 )]
 #[case::token_limit_beside_a_pending_spend_limit(
     RunState::Running,
@@ -122,7 +122,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"spendLimit"}"#, r#"{"limit":"tokenLimit"}"#],
     None,
     false,
-    stopped_at_token_limit()
+    Some(stopped_at_token_limit())
 )]
 #[case::person_interrupt_beside_an_owed_token_limit(
     RunState::Running,
@@ -130,7 +130,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"pending":"nextTurn"}"#],
     Some(RunLimit::TokenLimit),
     false,
-    stopped_at_token_limit()
+    Some(stopped_at_token_limit())
 )]
 #[case::spend_limit_beside_an_owed_token_limit(
     RunState::Running,
@@ -138,7 +138,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"spendLimit"}"#],
     Some(RunLimit::TokenLimit),
     false,
-    stopped_at_token_limit()
+    Some(stopped_at_token_limit())
 )]
 #[case::person_interrupt_beside_an_owed_step_limit(
     RunState::Running,
@@ -146,7 +146,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"pending":"nextTurn"}"#],
     Some(RunLimit::StepLimit),
     false,
-    interrupted(None)
+    Some(interrupted(None))
 )]
 #[case::person_interrupt_beside_a_pending_step_limit(
     RunState::Running,
@@ -154,7 +154,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"stepLimit"}"#, r#"{"pending":"nextTurn"}"#],
     Some(RunLimit::StepLimit),
     false,
-    interrupted(None)
+    Some(interrupted(None))
 )]
 #[case::spend_limit_beside_a_pending_step_limit(
     RunState::Running,
@@ -162,7 +162,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[r#"{"limit":"stepLimit"}"#, r#"{"limit":"spendLimit"}"#],
     Some(RunLimit::StepLimit),
     false,
-    interrupted(Some(InterruptReason::SpendLimit))
+    Some(interrupted(Some(InterruptReason::SpendLimit)))
 )]
 #[case::held_child_paused(
     RunState::Paused,
@@ -170,7 +170,7 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[],
     None,
     false,
-    interrupted(Some(InterruptReason::DaemonRestart))
+    Some(interrupted(Some(InterruptReason::DaemonRestart)))
 )]
 #[case::held_child_pausing(
     RunState::Pausing,
@@ -178,16 +178,16 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[],
     None,
     false,
-    interrupted(Some(InterruptReason::DaemonRestart))
+    Some(interrupted(Some(InterruptReason::DaemonRestart)))
 )]
-#[case::paused_lead(RunState::Paused, false, &[], None, false, failed_with_its_turn())]
+#[case::paused_lead(RunState::Paused, false, &[], None, false, Some(failed_with_its_turn()))]
 #[case::running_child(
     RunState::Running,
     true,
     &[],
     None,
     false,
-    failed_with_its_turn()
+    Some(failed_with_its_turn())
 )]
 #[case::step_limit_owed(
     RunState::Running,
@@ -195,9 +195,9 @@ fn failed_with_its_turn() -> Option<RestartDecision> {
     &[],
     Some(RunLimit::StepLimit),
     false,
-    interrupted(Some(InterruptReason::StepLimit))
+    Some(interrupted(Some(InterruptReason::StepLimit)))
 )]
-#[case::running(RunState::Running, false, &[], None, false, failed_with_its_turn())]
+#[case::running(RunState::Running, false, &[], None, false, Some(failed_with_its_turn()))]
 fn a_restart_settles_each_live_run_by_what_it_was_waiting_on(
     #[case] state: RunState,
     #[case] has_parent: bool,

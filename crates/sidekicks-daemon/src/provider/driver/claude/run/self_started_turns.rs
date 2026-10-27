@@ -116,11 +116,11 @@ fn report(live: &LiveClaudeSession, what: &str, cause: &str) {
 mod tests {
     use serde_json::{Value, json};
 
-    use crate::provider::driver::claude::session::scripted::run_engine::EngineCall;
     use crate::provider::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::session::run::state_change::RunStateEntry;
+    use crate::provider::port::run_host::test_host::EngineCall;
+    use crate::provider::run::state_entry::RunStateEntry;
 
     fn turn() -> [Value; 3] {
         [

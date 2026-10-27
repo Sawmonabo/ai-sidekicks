@@ -41,9 +41,9 @@ const WARM_LABEL: &str = "git status";
 // The label of the project's steps' read when it fails.
 const READ_PROJECT_STEPS_LABEL: &str = "Setup steps";
 
-// How long a command's output may stay open after the command exits or is ended, for the last
-// lines to arrive, before what it left running is ended and the tail is taken as read so far.
-const OUTPUT_LINGER: Duration = Duration::from_secs(1);
+/// How long a command's output may stay open after the command exits or is ended, for the last
+/// lines to arrive, before what it left running is ended and the tail is taken as read so far.
+pub(super) const OUTPUT_LINGER: Duration = Duration::from_secs(1);
 
 /// What a failed step says when its failure has no words of its own.
 const UNNAMED_FAILURE: &str = "The step failed";

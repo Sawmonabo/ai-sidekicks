@@ -1,6 +1,6 @@
 //! Test support for the Claude driver: a scripted Claude Code process that records everything the
-//! driver writes to it and answers each control request as scripted, a run engine that records
-//! each call, approval ports that record what reaches them, and one live session on the driver's
+//! driver writes to it and answers each control request as scripted, a run engine that holds a
+//! delivery or a daemon turn's start, approval ports that record what reaches them, and one live session on the driver's
 //! own composition, reached through its routing, queue, session task, stream, requests and
 //! interventions.
 
@@ -33,7 +33,6 @@ use self::daemon_services::{
     RecordingPorts, RecordingUsage, ScriptedAttachments, test_callback_tool_binding,
 };
 use self::driver::{ScriptedDriver, create_params};
-use self::run_engine::RecordingRunEngine;
 use crate::database::writer::test_file::TestDatabase;
 use crate::git::process::{GitLimits, GitRunner};
 use crate::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -66,7 +65,8 @@ use crate::provider::driver::claude::session::transport::inbound::{
 use crate::provider::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::test_registry::{new_run_id, new_session_id};
-use crate::queue::delivery::ProviderProcessIdentity;
+use crate::provider::port::run_host::test_host::RecordingRunEngine;
+use crate::provider::process_identity::ProviderProcessIdentity;
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 pub(crate) fn scripted_staged_changes() -> StagedChangesWorktrees {

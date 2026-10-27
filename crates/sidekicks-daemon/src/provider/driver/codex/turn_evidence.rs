@@ -20,12 +20,12 @@ use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
 use crate::provider::inbound_json::decode_inbound_json;
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use crate::provider::terminal_emission_gate::{
     TerminalEmissionDecision, TerminalEmissionGate, TerminalRunFrame,
 };
 use crate::provider::thread_frame_router::ThreadFrameRoute;
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
 /// The detail of a failed turn whose error message is blank and for which Codex said nothing else.
 static BLANK_TURN_ERROR_FALLBACK: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>> =
@@ -138,7 +138,7 @@ pub(crate) struct CodexTurnTerminalInput<'frame> {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct CodexTurnTerminal {
     /// The run's change.
-    pub(crate) change: RunStateChange,
+    pub(crate) change: RunStateReport,
     /// The turn's end written with it.
     pub(crate) turn_end: ProviderTurnEnd,
 }
@@ -203,7 +203,7 @@ pub(crate) fn compose_codex_child_terminal(
     child_run_id: RunId,
     params: &str,
     diagnostics: &mut OnceReportedDiagnostics,
-) -> RunStateChange {
+) -> RunStateReport {
     let turn = read_completed_turn(params);
     let status = turn.as_ref().and_then(|turn| turn.read_status(diagnostics));
     let (change, _) = compose_run_end(
@@ -233,15 +233,15 @@ fn compose_run_end(
     status: Option<CodexTurnStatus>,
     turn_error_message: Option<&str>,
     end: RunEnd,
-) -> (RunStateChange, TurnOutcome) {
+) -> (RunStateReport, TurnOutcome) {
     let intended_close = end.is_intended_close.then(True::default);
     match status {
         Some(CodexTurnStatus::Completed) => (
-            RunStateChange::new(run_id, RunStateEntry::Completed { intended_close }),
+            RunStateReport::new(run_id, RunStateEntry::Completed { intended_close }),
             TurnOutcome::Completed,
         ),
         Some(CodexTurnStatus::Interrupted) => (
-            RunStateChange::new(
+            RunStateReport::new(
                 run_id,
                 RunStateEntry::Interrupted {
                     intended_close,
@@ -260,7 +260,7 @@ fn compose_run_end(
                     )),
                     None => end.fallback_detail,
                 };
-            let mut change = RunStateChange::new(
+            let mut change = RunStateReport::new(
                 run_id,
                 RunStateEntry::Failed {
                     intended_close,
@@ -285,10 +285,10 @@ mod tests {
 
     use super::{CodexTurnTerminal, CodexTurnTerminalInput, compose_codex_turn_terminal};
     use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
+    use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
+    use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
     use crate::provider::terminal_emission_gate::TerminalEmissionGate;
     use crate::provider::thread_frame_router::ThreadFrameRoute;
-    use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
-    use crate::session::run::state_change::{RunStateChange, RunStateEntry};
 
     fn run_id() -> RunId {
         RunId::new("0192f3a4-5b6c-7d8e-9f01-23456789abcd").expect("the text is a UUID")
@@ -298,8 +298,8 @@ mod tests {
         SafeInt::new(3).expect("3 is at least 1")
     }
 
-    fn failed_change(detail: Option<&str>) -> RunStateChange {
-        let mut change = RunStateChange::new(
+    fn failed_change(detail: Option<&str>) -> RunStateReport {
+        let mut change = RunStateReport::new(
             run_id(),
             RunStateEntry::Failed {
                 intended_close: None,
@@ -318,14 +318,14 @@ mod tests {
     #[case::completed(
         r#"{"turn":{"status":"completed","items":[{"type":"agentMessage"}]}}"#,
         Some((
-            RunStateChange::new(run_id(), RunStateEntry::Completed { intended_close: None }),
+            RunStateReport::new(run_id(), RunStateEntry::Completed { intended_close: None }),
             TurnOutcome::Completed,
         ))
     )]
     #[case::interrupted(
         r#"{"turn":{"status":"interrupted","items":[]}}"#,
         Some((
-            RunStateChange::new(
+            RunStateReport::new(
                 run_id(),
                 RunStateEntry::Interrupted { intended_close: None, trigger: None },
             ),
@@ -343,7 +343,7 @@ mod tests {
     )]
     fn each_status_ends_its_run_and_its_turn(
         #[case] params: &str,
-        #[case] expected: Option<(RunStateChange, TurnOutcome)>,
+        #[case] expected: Option<(RunStateReport, TurnOutcome)>,
     ) {
         let mut gate = TerminalEmissionGate::new();
         let terminal = compose_codex_turn_terminal(

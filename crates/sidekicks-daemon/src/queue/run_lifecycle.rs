@@ -39,6 +39,7 @@ use crate::events::session::followers::CommittedEvent;
 use crate::keyed_lock::KeyHold;
 use crate::mutex_lock::lock;
 use crate::provider::driver::ports::ProcessGoneListener;
+use crate::provider::port::run_pause::ContinuedMessages;
 use crate::queue::admission::QueueAdmission;
 use crate::queue::delivery::{InterruptedRunContinuation, QueueDelivery};
 use crate::queue::error::QueueError;
@@ -46,7 +47,7 @@ use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::QueueRecorder;
 use crate::queue::session_lock::QueueSessionLock;
 use crate::queue::store::{QueueItemReader, QueueItemRecord};
-use crate::session::run::pause::{ContinuedMessages, RunPauseControl, RunPauseError};
+use crate::session::run::pause::{RunPauseControl, RunPauseError};
 use crate::session::run::read::read_run_through;
 use crate::session::run::stored_state_change::{
     StoredRunStateChange, read_stored_run_state_change,

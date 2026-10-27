@@ -1,8 +1,8 @@
 //! A Codex session the tests drive as its task would: a record on a scripted service with its
-//! routing band and waits, a run engine and binding store on a real database, and each item of
-//! the session's queue handed to the test, which handles it the way the session's task does.
+//! routing band and waits, a recording run engine, a binding store on a real database, and each
+//! item of the session's queue handed to the test, which handles it the way the session's task
+//! does.
 
-use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -18,22 +18,19 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
-use tempfile::TempDir;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::{TestDatabase, insert_lead};
+use crate::database::schema::provider_drivers::schema_parts;
+use crate::database::writer::test_file::TestDatabase;
 use crate::mutex_lock::lock;
-use crate::plans::schema::schema_parts;
 use crate::policy::execution_posture_service::{
     ExecutionPostureService, compose_execution_posture,
 };
 use crate::provider::compaction_wait::PendingCompactionRegistry;
 use crate::provider::driver::attachments::{AttachmentResolver, ProviderAttachment};
-use crate::provider::driver::codex::DESCRIPTOR;
 use crate::provider::driver::codex::commands::CodexProviderCommandCache;
 use crate::provider::driver::codex::delivery::frames::{
     CodexFrameDelivery, CodexFrameDeliveryDependencies, CodexFrameEffects,
@@ -93,20 +90,18 @@ use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
-use crate::provider::driver::test_registry::new_session_id;
-use crate::provider::driver::test_registry::{RecordedQueue, TestRunPorts};
+use crate::provider::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::provider::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
 use crate::provider::port::registration::PortRegistration;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::port::run_host::test_host::RecordingRunEngine;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::provider::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
-use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine};
-use crate::session::run::epochs::{EpochBinding, ExecutionEpochs};
-use crate::session::run::inbound::RunInboundDispatch;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";
@@ -119,8 +114,8 @@ pub(crate) struct TestCodexSession {
     pub(crate) task: TestCodexTask,
     /// The binding store on the database.
     pub(crate) bindings: Arc<RuntimeBindingStore>,
-    /// The run engine's dispatch.
-    pub(crate) dispatch: Arc<RunInboundDispatch>,
+    /// The run engine and its dispatch, which record each call the session makes.
+    pub(crate) engine: Arc<RecordingRunEngine>,
     /// The session's slot, holding its queue live.
     pub(crate) slots: Arc<CodexSessionSlots>,
     /// The run start on the session.
@@ -133,8 +128,6 @@ pub(crate) struct TestCodexSession {
     pub(crate) processes: Arc<ProviderProcessRegistry>,
     /// What the session's intake told the run queue.
     pub(crate) queue: Arc<RecordedQueue>,
-    epochs: Arc<Mutex<ExecutionEpochs>>,
-    _home: TempDir,
 }
 
 /// What the session's task holds: the record, its band and waits, its queue's items as they come,
@@ -155,7 +148,7 @@ pub(crate) struct TestCodexTask {
     /// The driver's ports the session's intake tells, the queue's intake among them.
     pub(crate) ports: Arc<DriverPorts>,
     /// The run engine an ended turn's end is recorded in.
-    pub(crate) engine: Arc<RunEngine>,
+    pub(crate) engine: Arc<dyn RunHost>,
     /// Run control on the session, which an ended turn's pause or continue is acted on through.
     pub(crate) run_control: Arc<CodexRunControl>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
@@ -167,28 +160,13 @@ impl TestCodexSession {
     pub(crate) async fn start() -> Self {
         let scripted = start_scripted_codex_service();
         let database = TestDatabase::new(schema_parts());
-        let home = tempfile::tempdir().expect("the test makes a home folder");
-        let TestRunPorts {
-            engine,
-            dispatch,
-            epochs,
-            ..
-        } = TestRunPorts::open(
-            &database,
-            home.path(),
-            ExecutionEpochs::new(NonZeroUsize::new(8).expect("the cap is not zero")),
-        )
-        .await;
-        let reads = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            RUN_ENGINE_STATEMENT_CAPACITY,
-        ));
+        let engine = Arc::new(RecordingRunEngine::default());
         let bindings = Arc::new(open_store(&database).await);
         let run_routes = Arc::new(CodexRunRoutes::default());
         let pending_compactions = PendingCompactionRegistry::default();
         let delivery = Arc::new(CodexFrameDelivery::new(CodexFrameDeliveryDependencies {
-            engine: Arc::clone(&engine),
-            dispatch: Arc::clone(&dispatch),
+            engine: Arc::clone(&engine) as _,
+            dispatch: Arc::clone(&engine) as _,
             run_routes: Arc::clone(&run_routes),
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
             command_output: Arc::new(PortRegistration::new("command output")),
@@ -196,7 +174,8 @@ impl TestCodexSession {
             effects: Arc::new(NoEffects),
         }));
         let session_id = new_session_id();
-        let lead_agent_id = insert_lead(&database, session_id, DESCRIPTOR.id);
+        let lead_agent_id =
+            AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
         let (inbound, receiver) = codex_session_inbound(session_id);
         let slots = Arc::new(CodexSessionSlots::new());
         slots
@@ -247,17 +226,15 @@ impl TestCodexSession {
             slots: Arc::clone(&slots),
             config_forks,
             run_routes: Arc::clone(&run_routes),
-            engine: Arc::clone(&engine),
+            engine: Arc::clone(&engine) as _,
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
                 as Arc<dyn DaemonTurnBindingResolver>,
             attachments: Arc::new(NoAttachments),
-            reads: Arc::clone(&reads),
         }));
         let self_started = CodexSelfStartedTurnDependencies {
-            engine: Arc::clone(&engine),
+            engine: Arc::clone(&engine) as _,
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
                 as Arc<dyn DaemonTurnBindingResolver>,
-            reads,
         };
         let ports = Arc::new(DriverPorts::new());
         let queue = Arc::new(RecordedQueue::default());
@@ -269,7 +246,7 @@ impl TestCodexSession {
                 slots: Arc::clone(&slots),
                 run_routes: Arc::clone(&run_routes),
                 run_start: Arc::clone(&run_start),
-                dispatch: Arc::clone(&dispatch),
+                dispatch: Arc::clone(&engine) as _,
             },
         ));
         let run_control = Arc::new(CodexRunControl::new(CodexRunControlDependencies {
@@ -279,7 +256,7 @@ impl TestCodexSession {
             run_start: Arc::clone(&run_start),
             retries,
             attachments: Arc::new(NoAttachments),
-            dispatch: Arc::clone(&dispatch),
+            dispatch: Arc::clone(&engine) as _,
             run_pauses: Arc::clone(&ports.run_pauses),
             continued_messages: Arc::clone(&ports.continued_messages),
             tasks: TaskTracker::new(),
@@ -294,20 +271,18 @@ impl TestCodexSession {
                 run_routes,
                 self_started,
                 ports,
-                engine,
+                engine: Arc::clone(&engine) as _,
                 run_control,
                 items,
             },
             bindings,
-            dispatch,
+            engine,
             slots,
             run_start,
             daemon_turn_bindings,
             database,
             processes: Arc::new(ProviderProcessRegistry::default()),
             queue,
-            epochs,
-            _home: home,
         }
     }
 
@@ -321,22 +296,6 @@ impl TestCodexSession {
             .await
             .expect("the binding is recorded")
             .id
-    }
-
-    /// Opens the epoch cursor of `binding_id` on `run_id` at the run's start, as the binding's
-    /// spawn does, so the run's rows are attributed.
-    pub(crate) fn open_epoch(&self, binding_id: RuntimeBindingId, run_id: RunId) {
-        lock(&self.epochs)
-            .open_binding(
-                EpochBinding {
-                    id: binding_id,
-                    run_id,
-                    provider_name: DESCRIPTOR.provider_id(),
-                    provider_account_id: None,
-                },
-                RUN_START_POSITION,
-            )
-            .expect("the binding has no cursor yet");
     }
 }
 
@@ -394,6 +353,8 @@ impl SessionSpawnContextResolver for OneFolder {
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
                 account_folders: None,
+                step_bound: None,
+                advisor_model: None,
             })
         }
         .boxed()
@@ -698,6 +659,7 @@ impl DaemonTurnBindingResolver for TestDaemonTurnBindings {
         let binding = self.lock().clone().map(|binding_id| DaemonTurnBinding {
             binding_id,
             agent_id: self.agent_id,
+            step_bound: None,
         });
         async move { binding.ok_or(DaemonTurnBindingError::NoConversation { session_id }) }.boxed()
     }

@@ -33,8 +33,8 @@ use crate::provider::driver::claude::spawn::launch::one_turn::{
 };
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, GetCapabilitiesResult};
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::runtime_binding::test_store::spawned_build;
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The build every scripted process reports.
 pub(crate) const SCRIPTED_BUILD_VERSION: &str = "2.1.0";

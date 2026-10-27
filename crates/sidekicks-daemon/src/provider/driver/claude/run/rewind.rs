@@ -27,8 +27,8 @@ use crate::provider::driver::rewind::RewindConversationResult;
 use crate::provider::lenient_json::{lenient_object, read_lenient};
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
 // Why a run whose turn a cut took before Claude Code settled it ended failed.
 const CLAUDE_SUPERSEDED_RUN_DETAIL: &str = "The turn carrying this run's words was cut from the \
@@ -152,9 +152,9 @@ impl ClaudeConversationCuts {
         let Some(stream) = self.streams.get(live.session_id) else {
             return;
         };
-        let change = RunStateChange {
+        let change = RunStateReport {
             failure_category: Some(RunFailureCategory::ProviderFailure),
-            ..RunStateChange::new(
+            ..RunStateReport::new(
                 run_id,
                 RunStateEntry::Failed {
                     intended_close: None,

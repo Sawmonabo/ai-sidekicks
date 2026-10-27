@@ -27,16 +27,16 @@ use crate::provider::driver::codex::usage_limit_signal::{
     codex_epoch_seconds_to_wire_instant, observe_codex_rate_limit_read,
 };
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::registration::PortRegistration;
-use crate::session::run::inbound::rows::MachineScopedRow;
-use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
+use crate::provider::run::delivery::{InboundDelivery, MachineScopedRow};
 
 /// Reads and files an account's rate-limit readings. A clone files through the same record of what
 /// was filed, so a reading one clone filed is not filed again by another.
 #[derive(Clone)]
 pub(crate) struct CodexRateLimitFiling {
     /// The run engine's dispatch, which files each row.
-    dispatch: Arc<RunInboundDispatch>,
+    dispatch: Arc<dyn InboundDispatch>,
     /// Reads the account's credential generation.
     spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     /// What was last filed, shared by every clone. Never held across an await.
@@ -57,7 +57,7 @@ impl CodexRateLimitFiling {
     /// A filing through `dispatch` with the credential generations `spawn_contexts` reads, having
     /// filed nothing yet.
     pub(crate) fn new(
-        dispatch: Arc<RunInboundDispatch>,
+        dispatch: Arc<dyn InboundDispatch>,
         spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
     ) -> Self {
         Self {
@@ -145,7 +145,7 @@ impl CodexRateLimitFiling {
         let mut answered = Vec::new();
         for row in changed {
             let outcome = Box::pin(dispatch_delivery(
-                &self.dispatch,
+                &*self.dispatch,
                 DeliveryOrigin {
                     provider: DESCRIPTOR.provider_id(),
                     provider_account_id: Some(provider_account_id.clone()),

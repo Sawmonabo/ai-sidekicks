@@ -40,9 +40,6 @@ use crate::git::turn_snapshot::service::{
 };
 use crate::keyed_lock::KeyedLock;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::conversation_purge::{
-    CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError,
-};
 use crate::provider::driver::contract::MockProviderDriver;
 use crate::provider::driver::registry::{ProviderRegistry, test_provider};
 use crate::provider::driver::test_registry::test_driver_services;
@@ -50,6 +47,9 @@ use crate::provider::driver::{PROVIDERS, ProviderRegistration};
 use crate::pty::shell::test_table::{TableFixture, table_fixture};
 use crate::recovery::status::RecoveryStatusTracker;
 use crate::remote::shared_ports::schema::schema_parts;
+use crate::session::conversation_purge::{
+    CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError,
+};
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::related::ranking::SessionRelatedRanking;
 use crate::session::run::engine::tests::insert_running_run;

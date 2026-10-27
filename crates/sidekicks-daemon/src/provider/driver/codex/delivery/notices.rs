@@ -23,7 +23,7 @@ use crate::provider::driver::codex::delivery::rows::{
     CodexRow, CodexRowDelivery, CodexRowRun, event_text,
 };
 use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::session::run::inbound::rows::LateAppendableRow;
+use crate::provider::run::delivery::LateAppendableRow;
 use crate::text_cut::cut_to_code_points;
 
 /// Codex's one reroute reason, a cyber-safety check.

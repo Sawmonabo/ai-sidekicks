@@ -106,10 +106,7 @@ fn deleted_event_runs(rows: &Connection) -> Vec<String> {
 /// event's append, the steps' delete or the execution context's delete from the run's write.
 #[tokio::test]
 async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() {
-    let database = TestDatabase::new(
-        crate::workflow::schema::schema_parts()
-            .with_parts(crate::approvals::schema::schema_parts()),
-    );
+    let database = TestDatabase::new(crate::workflow::schema::schema_parts());
     let (deletion, rows) = open_deletion(&database).await;
     let going = run_id(1);
     let ended = run_id(2);
@@ -185,10 +182,7 @@ async fn a_delete_refuses_a_going_run_and_removes_an_ended_one_with_its_event() 
 /// condition or the Keep mark from what bulk delete removes.
 #[tokio::test]
 async fn a_bulk_delete_removes_what_its_preview_counted() {
-    let database = TestDatabase::new(
-        crate::workflow::schema::schema_parts()
-            .with_parts(crate::approvals::schema::schema_parts()),
-    );
+    let database = TestDatabase::new(crate::workflow::schema::schema_parts());
     let (deletion, rows) = open_deletion(&database).await;
     let ended = |number, started_at| {
         insert_run(
@@ -300,10 +294,7 @@ async fn a_cutoff_between_milliseconds_takes_the_runs_started_before_it(
     #[case] cutoff: &str,
     #[case] takes_the_earlier_run: bool,
 ) {
-    let database = TestDatabase::new(
-        crate::workflow::schema::schema_parts()
-            .with_parts(crate::approvals::schema::schema_parts()),
-    );
+    let database = TestDatabase::new(crate::workflow::schema::schema_parts());
     let (deletion, rows) = open_deletion(&database).await;
     for (number, started_at) in [
         (1, "2026-10-10T00:00:00.000Z"),
@@ -345,10 +336,7 @@ async fn a_cutoff_between_milliseconds_takes_the_runs_started_before_it(
 /// theirs. Mutation: answer the guard's refusal instead of dropping the run.
 #[tokio::test]
 async fn a_run_kept_since_its_page_was_read_is_left_and_the_rest_go() {
-    let database = TestDatabase::new(
-        crate::workflow::schema::schema_parts()
-            .with_parts(crate::approvals::schema::schema_parts()),
-    );
+    let database = TestDatabase::new(crate::workflow::schema::schema_parts());
     let (deletion, rows) = open_deletion(&database).await;
     for number in 1..=3 {
         insert_run(
@@ -395,10 +383,7 @@ async fn a_run_kept_since_its_page_was_read_is_left_and_the_rest_go() {
 /// read; end the delete after its first page.
 #[tokio::test]
 async fn a_bulk_delete_reads_its_second_page_after_the_first_pages_last_run() {
-    let database = TestDatabase::new(
-        crate::workflow::schema::schema_parts()
-            .with_parts(crate::approvals::schema::schema_parts()),
-    );
+    let database = TestDatabase::new(crate::workflow::schema::schema_parts());
     let (deletion, rows) = open_deletion(&database).await;
     let run_count = RUNS_PER_DELETE_WRITE + 1;
     let last_number = u16::try_from(run_count).expect("the test's run count fits its ids");

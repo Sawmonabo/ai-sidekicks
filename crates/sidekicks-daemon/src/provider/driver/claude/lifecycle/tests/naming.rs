@@ -6,7 +6,6 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use crate::provider::driver::ProviderAccountFolders;
 use crate::provider::driver::claude::session::scripted::driver::ScriptedDriver;
 use crate::provider::driver::test_registry::new_session_id;
-use crate::provider::runtime_binding::test_store::record_session_leg;
 
 /// The conversation the session's stored leg names.
 const STORED_CONVERSATION: &str = "0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
@@ -28,7 +27,7 @@ async fn a_rename_at_rest_after_a_restart_names_the_conversation_its_stored_leg_
     std::fs::write(&file, "{\"type\":\"user\"}\n").expect("the conversation is written");
     let session_id = new_session_id();
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    record_session_leg(&fixture.database, session_id, account, STORED_CONVERSATION).await;
+    fixture.record_session_leg(session_id, account, STORED_CONVERSATION);
 
     fixture
         .driver

@@ -43,7 +43,7 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     let tasks = TaskTracker::new();
-    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id, Path::new("/"));
     let profile = read_only_profile(folder.path());
@@ -74,18 +74,13 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
     assert_eq!(fork["permissions"], profile.as_str());
     assert_eq!(fork["approvalPolicy"], "never");
     let answers: Vec<String> = session
-        .database
-        .reader()
-        .prepare(
-            "SELECT payload FROM session_events WHERE session_id = ?1 \
-             AND type = 'session.sideQuestion.answered'",
-        )
-        .expect("the test reads the session's events")
-        .query_map([session_id.text().as_str()], |row| row.get::<_, String>(0))
-        .expect("the events read")
-        .map(|payload| {
-            let payload: Value =
-                serde_json::from_str(&payload.expect("a payload reads")).expect("it is JSON");
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "sessionEvent")
+        .map(|delivery| {
+            let payload = delivery.payload.expect("a session row carries its payload");
+            assert_eq!(payload["sessionId"], session_id.to_string());
             payload["answer"]
                 .as_str()
                 .expect("an answer is text")
@@ -126,7 +121,7 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     let tasks = TaskTracker::new();
-    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id, Path::new("/"));
     let served = tokio::spawn(serve_unended_copy(
@@ -250,7 +245,7 @@ async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_runni
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     let tasks = TaskTracker::new();
-    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id, Path::new("/"));
     let (reached, held_came) = oneshot::channel();
@@ -306,7 +301,7 @@ async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_runni
 async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
     let mut session = TestCodexSession::start().await;
     let tasks = TaskTracker::new();
-    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
     let session_id = session.task.record.session_id;
     let params = AskSideQuestionParams {
         resume: None,
@@ -404,7 +399,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
 ) {
     let mut session = TestCodexSession::start().await;
     let tasks = TaskTracker::new();
-    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), tasks.clone());
+    let side_questions = CodexSideQuestions::new(Arc::clone(&session.engine) as _, tasks.clone());
     let session_id = session.task.record.session_id;
     let params = AskSideQuestionParams {
         resume: None,
@@ -476,7 +471,8 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
     };
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
-    let side_questions = CodexSideQuestions::new(Arc::clone(&session.dispatch), TaskTracker::new());
+    let side_questions =
+        CodexSideQuestions::new(Arc::clone(&session.engine) as _, TaskTracker::new());
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id, Path::new("/"));
 

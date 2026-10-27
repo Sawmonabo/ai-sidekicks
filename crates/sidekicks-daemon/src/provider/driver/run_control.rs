@@ -338,6 +338,9 @@ pub(crate) struct DaemonTurnBinding {
     pub(crate) binding_id: RuntimeBindingId,
     /// The session's lead agent.
     pub(crate) agent_id: AgentId,
+    /// The session's own bound on the steps one turn may take, read as the binding opens; `None`
+    /// where the person set none.
+    pub(crate) step_bound: Option<SafeInt<1>>,
 }
 
 /// Why the binding of a turn the daemon starts on a session could not be opened, which ends the

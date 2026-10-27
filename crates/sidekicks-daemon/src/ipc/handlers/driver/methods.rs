@@ -36,12 +36,12 @@ use crate::provider::driver::contract::{
     CompactContextParams, DriverError, ListModelsParams, ListProviderCommandsParams,
 };
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::runtime_binding::live_runs::{
-    AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
-};
 use crate::session::directory::lookups::session_exists;
 use crate::session::not_found::session_not_found;
 use crate::session::run::agent::read_lead_binding;
+use crate::session::run::live_bindings::{
+    AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
+};
 use crate::session::run::refusals::RunRefusal;
 
 #[cfg(test)]
@@ -204,6 +204,7 @@ fn provider_outcome<Read, Report>(
             | DriverError::RunRefused(_)
             | DriverError::CapabilityProbe(_)
             | DriverError::RuleNotKept(_)
+            | DriverError::SkillNotListed(_)
             | DriverError::Internal(_)),
         ) => {
             let failure = read_failure(&provider_name, failure);

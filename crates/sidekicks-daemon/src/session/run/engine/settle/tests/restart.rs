@@ -560,7 +560,7 @@ async fn a_message_queued_while_a_restart_settles_a_queued_run_leaves_it_queued(
         stored_run_state(&database, &run_id),
         ("queued".to_owned(), 0)
     );
-    assert!(stored_events(&database, &run_id).is_empty());
+    assert_eq!(stored_events(&database, &run_id), events(&[]));
 }
 
 // Killed by pushing the no-pending guard only when the settle read no pending interrupt, which
@@ -622,7 +622,7 @@ async fn a_restart_settle_is_refused_by_an_interrupt_asked_for_after_its_read() 
         stored_run_state(&database, &run_id),
         ("running".to_owned(), 1)
     );
-    assert!(stored_events(&database, &run_id).is_empty());
+    assert_eq!(stored_events(&database, &run_id), events(&[]));
 }
 
 // Killed by dropping the `from_state != run.run.state` guard on the settle's refusal arm, which

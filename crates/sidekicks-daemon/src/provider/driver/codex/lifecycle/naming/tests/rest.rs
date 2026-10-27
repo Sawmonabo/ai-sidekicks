@@ -5,9 +5,11 @@ use std::time::Duration;
 
 use futures::future::BoxFuture;
 use serde_json::json;
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
+use crate::database::schema::provider_drivers::schema_parts;
 use crate::database::writer::test_file::TestDatabase;
 use crate::provider::driver::codex::lifecycle::CodexDriver;
 use crate::provider::driver::codex::service::home::CodexServiceHome;
@@ -15,13 +17,11 @@ use crate::provider::driver::codex::service::registry::{CodexHomeResolver, Codex
 use crate::provider::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
+use crate::provider::driver::codex::session::test_session::TestDaemonTurnBindings;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::test_registry::{new_session_id, test_driver_services};
+use crate::provider::port::run_host::test_host::RecordingRunEngine;
 use crate::provider::runtime_binding::test_store::record_session_leg;
-use crate::questions::schema::schema_parts;
-
-/// The statements the driver's read pool caches.
-const POOL_STATEMENT_CAPACITY: usize = 8;
 
 /// How long a rename that asks Codex nothing may take.
 const NOTHING_SENT_BOUND: Duration = Duration::from_secs(5);
@@ -48,19 +48,29 @@ impl CodexHomeResolver for AccountHome {
     }
 }
 
-// A driver whose only service is the scripted one, on `provider_account_id`'s home, over the
-// daemon's schema in `database`.
+// A driver whose only service is the scripted one, on `provider_account_id`'s home, each stored leg
+// read from `engine`.
 fn driver_on_account(
     scripted: &ScriptedCodexService,
-    database: &TestDatabase,
+    engine: &Arc<RecordingRunEngine>,
     provider_account_id: ProviderAccountId,
 ) -> CodexDriver {
-    drop((database.opener())().expect("the test database opens with the daemon's schema"));
-    let mut services = test_driver_services();
-    services.pool = Arc::new(DatabaseReadPool::new(
-        database.path(),
-        POOL_STATEMENT_CAPACITY,
-    ));
+    let services = test_driver_services();
+    let ports = &services.ports;
+    assert!(ports.run_engine.register(Arc::clone(engine) as _).is_ok());
+    assert!(
+        ports
+            .inbound_dispatch
+            .register(Arc::clone(engine) as _)
+            .is_ok()
+    );
+    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+    assert!(
+        ports
+            .daemon_turn_bindings
+            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
+            .is_ok()
+    );
     let mut driver = CodexDriver::new(&services);
     driver.registry = CodexServiceRegistry::holding_on(
         scripted,
@@ -78,10 +88,11 @@ fn driver_on_account(
 async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_stored_handle() {
     let mut scripted = start_scripted_codex_service();
     let database = TestDatabase::new(schema_parts());
+    let engine = Arc::new(RecordingRunEngine::default());
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    let driver = driver_on_account(&scripted, &database, account.clone());
+    let driver = driver_on_account(&scripted, &engine, account.clone());
     let session_id = new_session_id();
-    record_session_leg(&database, session_id, account, STORED_THREAD).await;
+    record_session_leg(&database, &engine, session_id, account, STORED_THREAD).await;
 
     let told = driver.tell_session_name(session_id, "Fix the login page".to_owned());
     tokio::pin!(told);
@@ -103,9 +114,9 @@ async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_st
 #[tokio::test]
 async fn a_session_that_never_ran_renames_with_nothing_sent() {
     let scripted = start_scripted_codex_service();
-    let database = TestDatabase::new(schema_parts());
+    let engine = Arc::new(RecordingRunEngine::default());
     let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-    let driver = driver_on_account(&scripted, &database, account);
+    let driver = driver_on_account(&scripted, &engine, account);
 
     let told = tokio::time::timeout(
         NOTHING_SENT_BOUND,

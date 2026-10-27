@@ -26,10 +26,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
-use super::{
-    InterruptedRunContinuation, OpeningMessages, ProcessStandIn, ProviderProcessIds, QueueDelivery,
-    QueueDeliveryDeps, TEST_PROVIDER_PROCESS,
-};
+use super::{InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::schema::session_directory::insert_session_row;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
@@ -43,6 +40,10 @@ use crate::provider::driver::run_control::{
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, new_run_id, registry_of_first_provider,
 };
+use crate::provider::port::run_pause::ContinuedMessages;
+use crate::provider::process_identity::{
+    ProcessStandIn, ProviderProcessIds, TEST_PROVIDER_PROCESS,
+};
 use crate::questions::schema::schema_parts;
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::recorder::{QueueRecorder, QueueRecorderDeps};
@@ -51,7 +52,6 @@ use crate::queue::store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, insert_queue_item_statement,
 };
 use crate::session::run::engine::tests::insert_running_run;
-use crate::session::run::pause::ContinuedMessages;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The statements the tests' read pool prepares: the delivery's reads and the recorder's.

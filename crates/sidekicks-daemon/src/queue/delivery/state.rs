@@ -11,7 +11,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::provider::driver::message_handing::MessageHanding;
-use crate::queue::delivery::ProviderProcessIdentity;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::queue::delivery::chain::SessionChain;
 use crate::queue::store::QueueItemRecord;
 

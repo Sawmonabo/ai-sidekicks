@@ -25,7 +25,7 @@ use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::error_description::describe_error;
 use crate::mutex_lock::lock;
 use crate::provider::driver::claude::DESCRIPTOR;
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
+use crate::provider::driver::claude::delivery::claude_delivery_origin;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::provider::driver::claude::session::establishment::ClaudeSessionEstablishment;
@@ -38,6 +38,7 @@ use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::ultracode::relaunch_claude_options;
 use crate::provider::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::provider::driver::contract::{DriverError, bound_failure_detail};
+use crate::provider::driver::delivery_dispatch::dispatch_delivery;
 use crate::provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -46,7 +47,9 @@ use crate::provider::driver::ports::DriverPorts;
 use crate::provider::driver::session_control::{
     DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
 };
-use crate::session::run::inbound::InboundDelivery;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::run::delivery::InboundDelivery;
 use crate::settle_all::settle_all;
 
 // Every session's crash window and what waits to start it again.
@@ -75,7 +78,8 @@ pub(crate) struct ClaudeEndedConversation {
 pub(crate) struct ClaudeSessionRestarts {
     slots: ClaudeSessionSlots,
     routes: Arc<ClaudeRunRoutes>,
-    engine: Arc<dyn ClaudeRunEngine>,
+    engine: Arc<dyn RunHost>,
+    dispatch: Arc<dyn InboundDispatch>,
     establishment: Weak<ClaudeSessionEstablishment>,
     ports: Arc<DriverPorts>,
     table: Mutex<ClaudeRestartTable>,
@@ -87,7 +91,8 @@ impl ClaudeSessionRestarts {
     /// takes the exit path once the fork fails.
     pub(crate) fn new(
         routes: Arc<ClaudeRunRoutes>,
-        engine: Arc<dyn ClaudeRunEngine>,
+        engine: Arc<dyn RunHost>,
+        dispatch: Arc<dyn InboundDispatch>,
         establishment: Weak<ClaudeSessionEstablishment>,
         ports: Arc<DriverPorts>,
     ) -> Arc<Self> {
@@ -108,6 +113,7 @@ impl ClaudeSessionRestarts {
                 slots,
                 routes,
                 engine,
+                dispatch,
                 establishment,
                 ports,
                 table: Mutex::new(ClaudeRestartTable::default()),
@@ -152,7 +158,7 @@ impl ClaudeSessionRestarts {
                     DriverDiagnosticKind::ProcessReportFailed,
                     session_id,
                     "the run end of a process that exited",
-                    &error,
+                    &*error,
                 );
             }
         }
@@ -489,17 +495,17 @@ impl ClaudeSessionRestarts {
 
     // Posts `notice` on the session; the process that would order it among its rows is gone.
     async fn post_notice(&self, session_id: SessionId, notice: SessionNotice) {
+        let delivery = InboundDelivery::SessionNotice {
+            session_id,
+            notice: SessionNoticePostedPayload::Notice(notice),
+        };
         drop(
-            self.engine
-                .deliver(
-                    None,
-                    None,
-                    InboundDelivery::SessionNotice {
-                        session_id,
-                        notice: SessionNoticePostedPayload::Notice(notice),
-                    },
-                )
-                .await,
+            dispatch_delivery(
+                &*self.dispatch,
+                claude_delivery_origin(None, None),
+                delivery,
+            )
+            .await,
         );
     }
 }

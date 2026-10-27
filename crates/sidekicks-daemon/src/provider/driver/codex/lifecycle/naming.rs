@@ -44,7 +44,7 @@ use crate::provider::driver::codex::transport::connection::{
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::session_control::{NameSessionParams, run_naming_pass_until};
-use crate::provider::runtime_binding::resume::read_session_leg;
+use crate::provider::runtime_binding::store::RuntimeBinding;
 use crate::provider::spawned_version::ResolvedProviderExecutable;
 
 const CONFIG_READ_METHOD: &str = "config/read";
@@ -145,7 +145,7 @@ impl CodexDriver {
                 let leg = tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
                     () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    leg = read_session_leg(&self.reads, params.session_id) => leg?,
+                    leg = self.read_session_leg(params.session_id) => leg?,
                 };
                 // A session that never ran has no exchange to name.
                 let Some(leg) = leg else {
@@ -183,7 +183,7 @@ impl CodexDriver {
         {
             (service, thread_id)
         } else {
-            let Some(leg) = read_session_leg(&self.reads, session_id).await? else {
+            let Some(leg) = self.read_session_leg(session_id).await? else {
                 return Ok(());
             };
             let Some(thread_id) = leg.resume_handle else {
@@ -206,6 +206,18 @@ impl CodexDriver {
             )
             .await?;
         Ok(())
+    }
+
+    // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
+    async fn read_session_leg(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<RuntimeBinding>, DriverError> {
+        self.parts()?
+            .engine
+            .read_session_leg(session_id)
+            .await
+            .map_err(DriverError::Internal)
     }
 }
 

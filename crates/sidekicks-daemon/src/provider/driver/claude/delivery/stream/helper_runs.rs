@@ -18,10 +18,10 @@ use crate::provider::driver::claude::run::routes::{
     ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute,
 };
 use crate::provider::record_readers::read_non_empty_string;
+use crate::provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
+};
 use crate::provider::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
 
 impl ClaudeDeliveryStream {
     // A helper's start gets a child run beneath the lead run, the one holding the turn as the

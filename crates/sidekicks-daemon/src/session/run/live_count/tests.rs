@@ -16,11 +16,12 @@ use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::events::log_service::tests::{TestLog, open_log_with};
 use crate::events::session::appender::SessionEventAppender;
 use crate::events::session::version::SESSION_EVENT_VERSION;
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::schema::schema_parts;
 use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
 use crate::session::run::engine::tests::insert_running_run;
 use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeWriter, RunStateEntry,
+    RunStateChange, RunStateChangeCompanions, RunStateChangeWriter,
 };
 
 /// The event log on a fresh database, its writer counting the live runs after each commit, and

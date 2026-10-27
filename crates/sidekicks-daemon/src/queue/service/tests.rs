@@ -50,9 +50,9 @@ use crate::provider::driver::run_control::{
 };
 use crate::provider::driver::session_control::ProviderSessionHandle;
 use crate::provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use crate::provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use crate::provider::runtime_binding::store::RuntimeBindingStore;
 use crate::queue::changes::QueueChangeSignals;
-use crate::queue::delivery::{ProcessStandIn, ProviderProcessIds};
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::test_opening::{
     record_first_provider_capabilities, test_opening_composer,

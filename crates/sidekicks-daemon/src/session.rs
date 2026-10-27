@@ -1,11 +1,12 @@
 //! Sessions: creating, changing, naming, converting and searching them, reading a session's record
 //! and log, their groups, tags, drafts, staged files, review notes, inbox addresses, directory and
-//! working folder.
+//! working folder, and deleting the provider conversations a session ran on.
 
 pub(crate) mod addresses;
 pub(crate) mod auto_title;
 pub(crate) mod changes;
 pub(crate) mod console_state;
+pub(crate) mod conversation_purge;
 pub mod directory;
 pub(crate) mod draft_store;
 pub(crate) mod groups;

@@ -1,11 +1,10 @@
 use std::sync::{Arc, Mutex};
 
 use rusqlite::Connection;
-use serde_json::Map;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::recovery::SessionRebuildingDetails;
 use tokio_util::sync::CancellationToken;
 
 use super::{REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY, RepoMountHealthReprobe};
@@ -61,10 +60,11 @@ async fn a_changed_mount_health_reaches_each_session_once_and_a_failed_send_is_s
         refuse_session_write: Some(Box::new(
             move |session_id: &SessionId, _event_type: &str| {
                 if *refusing.lock().expect("no holder panics") == Some(*session_id) {
-                    Err(SessionAppendRefusal {
+                    Err(SessionAppendRefusal::Rebuilding {
                         message: "the test refuses this session's appends".to_owned(),
-                        code: RefusalCode::SessionNotFound,
-                        detail: Map::new(),
+                        details: SessionRebuildingDetails {
+                            session_id: *session_id,
+                        },
                     })
                 } else {
                     Ok(())

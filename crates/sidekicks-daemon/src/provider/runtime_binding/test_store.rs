@@ -16,11 +16,11 @@ use crate::database::writer::test_file::TestDatabase;
 use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use crate::provider::driver::PROVIDERS;
 use crate::provider::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::provider::port::run_host::test_host::RecordingRunEngine;
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
     RuntimeBindingStore,
 };
-use crate::session::run::engine::tests::insert_running_run;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The binding store on `database`, through a writer of its own that creates the daemon's schema.
@@ -60,10 +60,12 @@ pub(crate) fn binding_input(
     }
 }
 
-/// Records the leg of a session that ran and now rests: a run of `session_id` whose binding names
-/// conversation `resume_handle` on `provider_account_id`'s account.
+/// Records the leg of a session that ran and now rests: a binding of a fresh run naming
+/// conversation `resume_handle` on `provider_account_id`'s account, which `host` then answers as
+/// `session_id`'s stored leg.
 pub(crate) async fn record_session_leg(
     database: &TestDatabase,
+    host: &RecordingRunEngine,
     session_id: SessionId,
     provider_account_id: ProviderAccountId,
     resume_handle: &str,
@@ -75,11 +77,11 @@ pub(crate) async fn record_session_leg(
         },
         spawned_build("1.0.0", "/opt/provider/bin"),
     );
-    insert_running_run(database, session_id, input.run_id);
     input.resume_handle = Some(resume_handle.to_owned());
-    open_store(database)
+    let leg = open_store(database)
         .await
         .create(input)
         .await
         .expect("the binding is recorded");
+    host.set_session_leg(session_id, leg);
 }

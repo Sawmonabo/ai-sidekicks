@@ -51,9 +51,10 @@ use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
 use crate::provider::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
-use crate::session::run::inbound::rows::UnstampedRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, InboundOutcome};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::run::delivery::{
+    DeliveryBinding, InboundDelivery, InboundOutcome, UnstampedRow,
+};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
 // The models a switch off Fable moves to, in the order Claude Code tries them.
 const CLAUDE_SWITCH_MODEL_FAMILIES: [&str; 3] = ["opus", "sonnet", "haiku"];
@@ -617,9 +618,9 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
             session_id,
             run_move(
                 run,
-                RunStateChange {
+                RunStateReport {
                     expected_state: Some(RunState::Running),
-                    ..RunStateChange::new(run.run_id, RunStateEntry::WaitingForInput)
+                    ..RunStateReport::new(run.run_id, RunStateEntry::WaitingForInput)
                 },
             ),
         );
@@ -638,9 +639,9 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
                     held.session_id,
                     run_move(
                         &held.run,
-                        RunStateChange {
+                        RunStateReport {
                             expected_state: Some(RunState::WaitingForInput),
-                            ..RunStateChange::new(
+                            ..RunStateReport::new(
                                 held.run.run_id,
                                 RunStateEntry::Running {
                                     execution_posture: None,
@@ -682,9 +683,9 @@ impl<P: ClaudeDialogPorts> ClaudeProviderDialogs<P> {
             held.session_id,
             run_move(
                 &held.run,
-                RunStateChange {
+                RunStateReport {
                     failure_category: Some(RunFailureCategory::Refused),
-                    ..RunStateChange::new(
+                    ..RunStateReport::new(
                         run_id,
                         RunStateEntry::Failed {
                             intended_close: None,
@@ -803,7 +804,7 @@ fn unattributed(run: &ClaudeBoundRun) -> DeliveryBinding<'static> {
     }
 }
 
-fn run_move(run: &ClaudeBoundRun, change: RunStateChange) -> InboundDelivery<'static> {
+fn run_move(run: &ClaudeBoundRun, change: RunStateReport) -> InboundDelivery<'static> {
     InboundDelivery::RunLifecycle {
         binding: unattributed(run),
         change,

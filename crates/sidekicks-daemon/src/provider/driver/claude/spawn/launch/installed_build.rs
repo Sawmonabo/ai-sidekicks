@@ -42,11 +42,11 @@ use crate::provider::driver::claude::version::read_reported_version;
 use crate::provider::driver::contract::{
     DriverError, GetCapabilitiesResult, SpawnedVersionBindingCarriers,
 };
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::spawned_version::{
     ProviderVersionHandshakeRequest, ResolvedProviderExecutable, read_spawned_version,
     resolve_provider_executable, to_binding_version_carriers,
 };
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// A session's process brought up, with what it declared and the build that runs it.
 pub(crate) struct ClaudeStartedSession {

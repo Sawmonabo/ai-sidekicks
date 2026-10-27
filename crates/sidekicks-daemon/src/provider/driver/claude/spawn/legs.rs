@@ -11,6 +11,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 
 use crate::events::canonicalizer::CanonicalizationRefusal;
@@ -68,6 +69,8 @@ pub(crate) struct ClaudeSpawnContext {
     pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
     pub(crate) output_style: Option<String>,
+    /// The session's own bound on the steps one turn takes; `None` where none is set.
+    pub(crate) step_bound: Option<SafeInt<1>>,
 }
 
 /// What one spawn's legs are built from: the create's or resume's spawn-bound members and the

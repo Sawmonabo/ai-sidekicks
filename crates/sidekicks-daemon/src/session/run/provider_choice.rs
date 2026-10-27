@@ -44,6 +44,7 @@ use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::pause::run_control_response;
 use crate::session::run::read::{
@@ -51,8 +52,7 @@ use crate::session::run::read::{
 };
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::state_change::{
-    RunStateChange, RunStateChangeCompanions, RunStateChangeError, RunStateEntry,
-    refused_statement_index,
+    RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
 };
 use crate::session::run::transitions::RUN_TERMINAL_STATES_SQL;
 

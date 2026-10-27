@@ -598,26 +598,31 @@ mod tests {
     #[test]
     fn the_index_takes_a_compressed_body_as_its_whole_text() {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+        insert_session_row(
+            &log.session_log.writer,
+            log.session_log.session_id.text().as_str(),
+            None,
+            None,
+        );
         let reply = format!("{} quokka", "words ".repeat(400));
-        log.reply("m1", None, &reply);
+        log.session_log.reply("m1", None, &reply);
         let arguments = format!(
             "{{\"path\": \"{}\", \"note\": \"wombat\"}}",
             "a/".repeat(700)
         );
-        log.write(
+        log.session_log.write(
             json!({
                 "type": "agent.toolCall.invoked",
                 "payload": {
-                    "sessionId": log.session_id,
-                    "runId": log.run_id,
+                    "sessionId": log.session_log.session_id,
+                    "runId": log.session_log.run_id,
                     "toolName": "edit",
                 },
             }),
             Some(&arguments),
         );
 
-        let reader = log.reader();
+        let reader = log.session_log.reader();
         let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
         let texts: Vec<String> = rows
@@ -638,14 +643,19 @@ mod tests {
     #[test]
     fn a_long_body_is_read_as_pages_that_end_between_words() {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-        insert_session_row(&log.writer, log.session_id.text().as_str(), None, None);
+        insert_session_row(
+            &log.session_log.writer,
+            log.session_log.session_id.text().as_str(),
+            None,
+            None,
+        );
         let reply = format!(
             "{}quokka",
             "words ".repeat((2 * PAGE_MAX_BYTES + 4_000) / 6)
         );
-        log.reply("m1", None, &reply);
+        log.session_log.reply("m1", None, &reply);
 
-        let reader = log.reader();
+        let reader = log.session_log.reader();
         let rows = IndexRowReader::new(&reader);
         let mut room = empty_index_batch_room();
         let read = rows

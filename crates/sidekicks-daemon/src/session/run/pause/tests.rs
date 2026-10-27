@@ -19,10 +19,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 
-use super::{
-    ContinuedMessages, ContinuedMessagesError, RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl,
-    RunPauseError,
-};
+use super::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl, RunPauseError};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
 use crate::events::log_service::tests::{TestLog, open_log};
@@ -38,10 +35,12 @@ use crate::provider::driver::run_control::{TakenMessages, WaitingMessage};
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
+use crate::provider::port::run_pause::{ContinuedMessages, ContinuedMessagesError};
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::tests::{SETTLE_WAIT, insert_running_run, test_engine};
 use crate::session::run::engine::{InterruptRoute, RunEngine};
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// How long a call held behind a resume is watched to show it waits.

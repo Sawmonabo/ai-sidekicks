@@ -69,11 +69,10 @@ use crate::provider::port::in_process_tool_servers::InProcessToolServers;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::session_rules::SessionRulePort;
 use crate::provider::port::usage_sink::UsageSink;
+use crate::provider::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::provider::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
-use crate::session::run::inbound::rows::SessionScopedRow;
-use crate::session::run::inbound::{InboundDelivery, InboundOutcome};
 
 // The bundled skill Claude Code's review runs, by the name the build's skill list gives it.
 const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";
@@ -583,7 +582,7 @@ impl ClaudeSessionControls {
         delivery: InboundDelivery<'static>,
     ) -> Option<InboundOutcome> {
         deliver_in_session_order(
-            &*self.run_start.engine,
+            &*self.run_start.dispatch,
             &self.run_start.streams,
             session_id,
             delivery,

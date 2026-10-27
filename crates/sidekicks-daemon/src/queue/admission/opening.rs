@@ -11,9 +11,10 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 
 use super::QueueAdmission;
-use crate::database::connection::read_pool::ReadLength;
+use crate::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
 use crate::provider::driver::run_control::{
@@ -23,6 +24,7 @@ use crate::queue::delivery::OpeningMessages;
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessionError;
 use crate::queue::store::{QueueItemReader, QueueItemRecord};
+use crate::session::console_state::read_session_max_steps_per_turn;
 use crate::session::run::agent::read_lead_agent_through;
 use crate::session::run::start_request::RunTurnStart;
 
@@ -160,6 +162,7 @@ impl QueueAdmission {
             .open_run_binding(run_id, session_id)
             .await?;
         let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
+        let step_bound = read_step_bound(&self.deps.pool, session_id).await?;
         let output_speed_for_turn = opening.body.output_speed_for_turn.clone();
         driver
             .start_run(StartRunParams {
@@ -179,6 +182,7 @@ impl QueueAdmission {
                 output_speed_for_turn,
                 execution_posture: Some(execution_posture),
                 output_schema: None,
+                step_bound,
             })
             .await?;
         Ok(())
@@ -225,17 +229,34 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                         }
                     }
                 })?;
+            let not_recorded = |error: QueueError| DaemonTurnBindingError::BindingNotRecorded {
+                session_id,
+                source: Box::new(error),
+            };
             let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id)
                 .await
-                .map_err(|error| DaemonTurnBindingError::BindingNotRecorded {
-                    session_id,
-                    source: Box::new(error),
-                })?;
+                .map_err(not_recorded)?;
+            let step_bound = read_step_bound(&self.deps.pool, session_id)
+                .await
+                .map_err(not_recorded)?;
             Ok(DaemonTurnBinding {
                 binding_id,
                 agent_id,
+                step_bound,
             })
         }
         .boxed()
     }
+}
+
+// The session's own bound on the steps one turn may take, which the turn reaches its driver with.
+// Fails as the read fails.
+async fn read_step_bound(
+    pool: &DatabaseReadPool,
+    session_id: SessionId,
+) -> Result<Option<SafeInt<1>>, QueueError> {
+    pool.read(ReadLength::Short, move |reader| {
+        Ok::<_, QueueError>(read_session_max_steps_per_turn(reader, &session_id)?)
+    })
+    .await
 }

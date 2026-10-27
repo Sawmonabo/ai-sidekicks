@@ -34,7 +34,7 @@ use crate::provider::driver::session_control::{
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
-use crate::provider::runtime_binding::resume::read_session_leg;
+use crate::provider::runtime_binding::store::RuntimeBinding;
 use crate::settle_all::settle_all;
 
 impl ClaudeDriver {
@@ -157,7 +157,7 @@ impl ClaudeDriver {
                                 DriverDiagnosticKind::ProcessReportFailed,
                                 session_id,
                                 "the run end of a closed session",
-                                &error,
+                                &*error,
                             );
                         }
                     }
@@ -211,7 +211,7 @@ impl ClaudeDriver {
         let rest_account = if live.is_some() {
             None
         } else {
-            let Some(leg) = read_session_leg(&self.sources.pool, params.session_id).await? else {
+            let Some(leg) = self.read_session_leg(params.session_id).await? else {
                 return Ok(None);
             };
             leg.spawn_config.provider_account_id
@@ -238,7 +238,7 @@ impl ClaudeDriver {
         let live = parts.and_then(|parts| parts.slots().live_session(session_id));
         let mut ended = parts.and_then(|parts| parts.restarts.ended_conversation(session_id));
         if live.is_none() && ended.is_none() {
-            let Some(leg) = read_session_leg(&self.sources.pool, session_id).await? else {
+            let Some(leg) = self.read_session_leg(session_id).await? else {
                 return Ok(());
             };
             let Some(handle) = leg.resume_handle else {
@@ -357,5 +357,18 @@ impl ClaudeDriver {
             .await?;
         let account = context.account_folders.zip(provider_account_id.as_ref());
         Ok(self.process_environment(account, &context.every_project_rows, &context.project_rows)?)
+    }
+
+    // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
+    async fn read_session_leg(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<RuntimeBinding>, DriverError> {
+        self.parts()?
+            .run_start
+            .engine
+            .read_session_leg(session_id)
+            .await
+            .map_err(DriverError::Internal)
     }
 }

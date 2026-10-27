@@ -12,10 +12,10 @@ use crate::session::search::index::outbox::OutboxOperation;
 use crate::session::search::index::rows::INDEXED_EVENT_TYPES_SQL;
 use crate::session::search::rowid_floors::rowid_floor_trigger_sql;
 
-/// The provider drivers' list and the search index's own part, whose triggers follow the session
+/// The command receipts' list and the search index's own part, whose triggers follow the session
 /// directory's tables they watch.
 pub(crate) fn schema_parts() -> SchemaParts {
-    crate::database::schema::provider_drivers::schema_parts()
+    crate::mcp::schema::schema_parts()
         .with_part(SchemaPart::new("search_index", search_index_schema_sql()))
 }
 

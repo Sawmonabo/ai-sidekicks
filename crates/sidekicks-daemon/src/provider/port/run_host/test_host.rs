@@ -1,0 +1,422 @@
+//! A run engine for the drivers' tests, reached through the run host and inbound dispatch ports:
+//! it records each call a driver makes, in order, and answers as the real one would on success.
+
+use std::collections::{HashMap, VecDeque};
+use std::error::Error;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+use futures::FutureExt;
+use futures::future::BoxFuture;
+use serde_json::Value;
+use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::control::ProcessExit;
+use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
+use tokio::sync::{Notify, oneshot};
+
+use crate::mutex_lock::lock;
+use crate::provider::driver::test_registry::new_run_id;
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::port::run_host::{RunHost, RunHostError};
+use crate::provider::run::delivery::{
+    InboundDelivery, InboundOutcome, LateAppendableRow, MachineScopedRow, SessionScopedRow,
+    UnstampedRow,
+};
+use crate::provider::run::start_request::DaemonTurnStartRequest;
+use crate::provider::run::state_entry::RunStateReport;
+use crate::provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
+use crate::provider::runtime_binding::store::RuntimeBinding;
+
+/// The refusal of every daemon turn a test asked the engine to refuse, before any run exists.
+#[derive(Debug, thiserror::Error)]
+#[error("the test refuses the daemon turn of run {run_id}")]
+struct DaemonTurnsRefused {
+    run_id: RunId,
+}
+
+/// One delivery as the recording engine kept it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RecordedDelivery {
+    /// The delivery's kind, as the run engine names it.
+    pub(crate) kind: &'static str,
+    /// The binding it was attributed on, where it names one.
+    pub(crate) binding_id: Option<RuntimeBindingId>,
+    /// A run's move, for a run lifecycle delivery.
+    pub(crate) change: Option<RunStateReport>,
+    /// The turn's end a run lifecycle delivery carries.
+    pub(crate) turn_end: Option<TurnOutcome>,
+    /// Whether it is the end of the daemon's own interrupt.
+    pub(crate) is_daemon_interrupt_end: bool,
+    /// The run a child run delivery starts beneath.
+    pub(crate) parent_run_id: Option<RunId>,
+    /// The row a session row delivery appends.
+    pub(crate) row: Option<LateAppendableRow>,
+    /// The session a notice names.
+    pub(crate) session_id: Option<SessionId>,
+    /// The payload of a notice, a row on no binding or a row that takes no stamp, as its event
+    /// would carry it.
+    pub(crate) payload: Option<Value>,
+}
+
+/// One call the driver made on the run engine, in order.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum EngineCall {
+    /// A delivery.
+    Deliver(Box<RecordedDelivery>),
+    /// A turn opened on the run.
+    StartTurn(RunId),
+    /// A step counted on the run.
+    CountStep(RunId),
+    /// A turn's end that moves no run.
+    RecordTurnEnd(RunId, TurnOutcome),
+    /// A turn the daemon or Claude Code started itself, as the minted run.
+    StartDaemonTurn(RunId),
+    /// A run's turn ended on its process's exit.
+    EndTurnOnProcessExit(RunId),
+    /// A run's turn ended as its session closed.
+    EndTurnOnClose(RunId),
+}
+
+/// A run engine that records each call and answers as the real one would on success: every ask is
+/// admitted, every child run started, every turn opened and numbered.
+#[derive(Default)]
+pub(crate) struct RecordingRunEngine {
+    calls: Mutex<Vec<EngineCall>>,
+    ask_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    turn_start_holds: Mutex<VecDeque<oneshot::Receiver<()>>>,
+    turns_started: AtomicU64,
+    fails_daemon_turns: AtomicBool,
+    leaves_turns_unnumbered: AtomicBool,
+    session_legs: Mutex<HashMap<SessionId, RuntimeBinding>>,
+    changed: Notify,
+}
+
+impl RecordingRunEngine {
+    /// Every call so far, in order.
+    pub(crate) fn calls(&self) -> Vec<EngineCall> {
+        lock(&self.calls).clone()
+    }
+
+    /// The deliveries so far, in order.
+    pub(crate) fn deliveries(&self) -> Vec<RecordedDelivery> {
+        self.calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                EngineCall::Deliver(delivery) => Some(*delivery),
+                EngineCall::StartTurn(_)
+                | EngineCall::CountStep(_)
+                | EngineCall::RecordTurnEnd(..)
+                | EngineCall::StartDaemonTurn(_)
+                | EngineCall::EndTurnOnProcessExit(_)
+                | EngineCall::EndTurnOnClose(_) => None,
+            })
+            .collect()
+    }
+
+    /// The run moves delivered so far, in order.
+    pub(crate) fn run_moves(&self) -> Vec<RecordedDelivery> {
+        self.deliveries()
+            .into_iter()
+            .filter(|delivery| delivery.change.is_some())
+            .collect()
+    }
+
+    /// Holds the next ask's admission until the returned sender fires or drops.
+    pub(crate) fn hold_next_ask(&self) -> oneshot::Sender<()> {
+        hold_next(&self.ask_holds)
+    }
+
+    /// Holds the next turn's opening until the returned sender fires or drops.
+    pub(crate) fn hold_next_turn_start(&self) -> oneshot::Sender<()> {
+        hold_next(&self.turn_start_holds)
+    }
+
+    /// Makes every later daemon turn's start fail before any run exists.
+    pub(crate) fn fail_daemon_turns(&self) {
+        self.fails_daemon_turns.store(true, Ordering::SeqCst);
+    }
+
+    /// Makes every later turn open with no number, as a turn the engine could not number.
+    pub(crate) fn leave_turns_unnumbered(&self) {
+        self.leaves_turns_unnumbered.store(true, Ordering::SeqCst);
+    }
+
+    /// Makes `leg` the stored leg `session_id`'s reads answer; a session with none never ran.
+    pub(crate) fn set_session_leg(&self, session_id: SessionId, leg: RuntimeBinding) {
+        lock(&self.session_legs).insert(session_id, leg);
+    }
+
+    /// Waits until `found` finds what it looks for in the calls so far, checked again at each new
+    /// call, and answers it.
+    pub(crate) async fn wait_until<Found>(
+        &self,
+        mut found: impl FnMut(&[EngineCall]) -> Option<Found>,
+    ) -> Found {
+        loop {
+            let changed = self.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if let Some(found) = found(&self.calls()) {
+                return found;
+            }
+            changed.await;
+        }
+    }
+
+    fn record(&self, call: EngineCall) {
+        lock(&self.calls).push(call);
+        self.changed.notify_waiters();
+    }
+}
+
+impl InboundDispatch for RecordingRunEngine {
+    fn dispatch<'dispatch>(
+        &'dispatch self,
+        delivery: InboundDelivery<'_>,
+    ) -> BoxFuture<'dispatch, Result<InboundOutcome, Box<dyn Error + Send + Sync>>> {
+        let recorded = record_delivery(&delivery);
+        let (outcome, hold) = match &delivery {
+            InboundDelivery::PermissionAsk { .. } => (
+                InboundOutcome::AskAdmitted,
+                lock(&self.ask_holds).pop_front(),
+            ),
+            InboundDelivery::ChildRun { .. } => (
+                InboundOutcome::ChildRunStarted {
+                    run_id: new_run_id(),
+                },
+                None,
+            ),
+            InboundDelivery::SessionRow { .. } | InboundDelivery::UnstampedRow { .. } => (
+                InboundOutcome::Appended {
+                    event_id: FreeFormText::new(mint_uuid_v7().to_string())
+                        .expect("a minted UUID is an event id"),
+                },
+                None,
+            ),
+            InboundDelivery::RunLifecycle { change, .. } => (
+                InboundOutcome::Transitioned {
+                    state: change.entry.state().into(),
+                },
+                None,
+            ),
+            InboundDelivery::TurnBoundary { .. }
+            | InboundDelivery::RunContinued { .. }
+            | InboundDelivery::RunMarker { .. }
+            | InboundDelivery::LiveRunState { .. }
+            | InboundDelivery::ThinkingUpdate { .. }
+            | InboundDelivery::SessionNotice { .. }
+            | InboundDelivery::SessionEvent { .. }
+            | InboundDelivery::MachineEvent { .. } => (InboundOutcome::Published, None),
+        };
+        self.record(EngineCall::Deliver(Box::new(recorded)));
+        async move {
+            if let Some(hold) = hold {
+                hold.await.unwrap_or(());
+            }
+            Ok(outcome)
+        }
+        .boxed()
+    }
+}
+
+impl RunHost for RecordingRunEngine {
+    fn start_turn(
+        &self,
+        run_id: RunId,
+        _step_bound: Option<SafeInt<1>>,
+    ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunHostError>> {
+        self.record(EngineCall::StartTurn(run_id));
+        let turn_number = self.turns_started.fetch_add(1, Ordering::SeqCst) + 1;
+        let hold = lock(&self.turn_start_holds).pop_front();
+        let is_unnumbered = self.leaves_turns_unnumbered.load(Ordering::SeqCst);
+        async move {
+            if let Some(hold) = hold {
+                hold.await.unwrap_or(());
+            }
+            if is_unnumbered {
+                return Ok(None);
+            }
+            Ok(Some(StartedTurn {
+                turn_number: SafeInt::new(turn_number).expect("a turn number is positive"),
+                event_id: FreeFormText::new(format!("turn-{turn_number}"))
+                    .expect("an event id fits"),
+            }))
+        }
+        .boxed()
+    }
+
+    fn count_step(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunHostError>> {
+        self.record(EngineCall::CountStep(run_id));
+        async { Ok(()) }.boxed()
+    }
+
+    fn record_turn_end(
+        &self,
+        run_id: RunId,
+        turn_end: ProviderTurnEnd,
+    ) -> BoxFuture<'_, Result<bool, RunHostError>> {
+        self.record(EngineCall::RecordTurnEnd(run_id, turn_end.outcome));
+        async { Ok(true) }.boxed()
+    }
+
+    fn record_settled_output_speed(
+        &self,
+        _session_id: SessionId,
+        _run_id: RunId,
+        _state: ProviderOutputSpeedState,
+    ) -> BoxFuture<'_, Result<(), RunHostError>> {
+        async { Ok(()) }.boxed()
+    }
+
+    fn start_daemon_turn(
+        &self,
+        request: DaemonTurnStartRequest,
+    ) -> BoxFuture<'_, Result<RunId, RunHostError>> {
+        let run_id = new_run_id();
+        if self.fails_daemon_turns.load(Ordering::SeqCst) {
+            return async move { Err(DaemonTurnsRefused { run_id }.into()) }.boxed();
+        }
+        self.record(EngineCall::StartDaemonTurn(run_id));
+        async move {
+            (request.start_turn)(run_id).await?;
+            Ok(run_id)
+        }
+        .boxed()
+    }
+
+    fn end_turn_on_process_exit(
+        &self,
+        run_id: RunId,
+        _process_exit: ProcessExit,
+    ) -> BoxFuture<'_, Result<(), RunHostError>> {
+        self.record(EngineCall::EndTurnOnProcessExit(run_id));
+        async { Ok(()) }.boxed()
+    }
+
+    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunHostError>> {
+        self.record(EngineCall::EndTurnOnClose(run_id));
+        async { Ok(()) }.boxed()
+    }
+
+    fn read_session_leg(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<Option<RuntimeBinding>, RunHostError>> {
+        let leg = lock(&self.session_legs).get(&session_id).cloned();
+        async move { Ok(leg) }.boxed()
+    }
+}
+
+/// Queues a hold on the next call that takes one from `holds`, released when the returned sender
+/// fires or drops.
+pub(crate) fn hold_next(holds: &Mutex<VecDeque<oneshot::Receiver<()>>>) -> oneshot::Sender<()> {
+    let (release, held) = oneshot::channel();
+    lock(holds).push_back(held);
+    release
+}
+
+fn record_delivery(delivery: &InboundDelivery<'_>) -> RecordedDelivery {
+    let mut recorded = RecordedDelivery {
+        kind: "",
+        binding_id: None,
+        change: None,
+        turn_end: None,
+        is_daemon_interrupt_end: false,
+        parent_run_id: None,
+        row: None,
+        session_id: None,
+        payload: None,
+    };
+    match delivery {
+        InboundDelivery::TurnBoundary { binding_id } => {
+            recorded.kind = "turnBoundary";
+            recorded.binding_id = Some(binding_id.clone());
+        }
+        InboundDelivery::RunLifecycle {
+            binding,
+            change,
+            turn_end,
+            is_daemon_interrupt_end,
+        } => {
+            recorded.kind = "runLifecycle";
+            recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.change = Some(change.clone());
+            recorded.turn_end = turn_end.map(|turn_end| turn_end.outcome);
+            recorded.is_daemon_interrupt_end = *is_daemon_interrupt_end;
+        }
+        InboundDelivery::RunContinued { binding, .. } => {
+            recorded.kind = "runContinued";
+            recorded.binding_id = Some(binding.binding_id.clone());
+        }
+        InboundDelivery::ChildRun {
+            binding,
+            parent_run_id,
+        } => {
+            recorded.kind = "childRun";
+            recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.parent_run_id = Some(*parent_run_id);
+        }
+        InboundDelivery::RunMarker { binding, .. } => {
+            recorded.kind = "runMarker";
+            recorded.binding_id = Some(binding.binding_id.clone());
+        }
+        InboundDelivery::LiveRunState { binding, .. } => {
+            recorded.kind = "liveRunState";
+            recorded.binding_id = Some(binding.binding_id.clone());
+        }
+        InboundDelivery::ThinkingUpdate { binding, .. } => {
+            recorded.kind = "thinkingUpdate";
+            recorded.binding_id = Some(binding.binding_id.clone());
+        }
+        InboundDelivery::SessionNotice { session_id, notice } => {
+            recorded.kind = "sessionNotice";
+            recorded.session_id = Some(*session_id);
+            recorded.payload = Some(payload_of(notice));
+        }
+        InboundDelivery::SessionEvent { row } => {
+            recorded.kind = "sessionEvent";
+            recorded.payload = Some(match row {
+                SessionScopedRow::SideQuestionAnswered(payload) => payload_of(payload),
+                SessionScopedRow::AdvisorChanged(payload) => payload_of(payload),
+                SessionScopedRow::OutputStyleChanged(payload) => payload_of(payload),
+            });
+        }
+        InboundDelivery::MachineEvent { row } => {
+            recorded.kind = "machineEvent";
+            recorded.payload = Some(match row {
+                MachineScopedRow::UsageRateLimitUpdated(payload) => payload_of(payload),
+            });
+        }
+        InboundDelivery::PermissionAsk { binding } => {
+            recorded.kind = "permissionAsk";
+            recorded.binding_id = Some(binding.binding_id.clone());
+        }
+        InboundDelivery::SessionRow { binding, row, .. } => {
+            recorded.kind = "sessionRow";
+            recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.row = Some(row.clone());
+        }
+        InboundDelivery::UnstampedRow { binding, row } => {
+            recorded.kind = "unstampedRow";
+            recorded.binding_id = Some(binding.binding_id.clone());
+            recorded.payload = Some(match row {
+                UnstampedRow::ApprovalReviewerFlagged(payload) => payload_of(payload),
+                UnstampedRow::AgentRunRefusalChoiceRequested(payload) => payload_of(payload),
+                UnstampedRow::AgentRunRefusalChoiceResolved(payload) => payload_of(payload),
+                UnstampedRow::AgentRunUsageCreditsChoiceRequested(payload) => payload_of(payload),
+                UnstampedRow::AgentRunUsageCreditsChoiceResolved(payload) => payload_of(payload),
+            });
+        }
+    }
+    recorded
+}
+
+// A row's payload as its event carries it.
+fn payload_of(payload: &impl serde::Serialize) -> Value {
+    serde_json::to_value(payload).expect("a contract payload serializes")
+}

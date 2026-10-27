@@ -25,6 +25,7 @@ use tempfile::TempDir;
 
 use WorktreeSetupStepState::{Failed, Pending, Succeeded};
 
+use super::steps::OUTPUT_LINGER;
 use super::{
     MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupRunnerDeps,
     WorktreeSetupSources,
@@ -428,10 +429,6 @@ async fn a_command_past_its_time_limit_is_ended_with_every_process_it_started() 
     );
 }
 
-// The longest a command step may take once its command exited: twice its one-second linger, once
-// for the output and once after what the command left running is ended.
-const TWICE_THE_LINGER: Duration = Duration::from_secs(2);
-
 // How far the test moves a paused clock at a time, and how long it waits in real time between two
 // moves, so the step sees each move before the next.
 const CLOCK_TICK: Duration = Duration::from_millis(1);
@@ -460,8 +457,9 @@ async fn move_clock_until_closed(mut reader: BufReader<File>) -> String {
             }
             paced = tokio::task::spawn_blocking(|| std::thread::sleep(CLOCK_TICK)) => {
                 paced.expect("the pause finishes");
+                // Once for the output and once after what the command left running is ended.
                 assert!(
-                    moved < TWICE_THE_LINGER,
+                    moved < 2 * OUTPUT_LINGER,
                     "the step waited past twice the linger for the output"
                 );
                 tokio::time::advance(CLOCK_TICK).await;

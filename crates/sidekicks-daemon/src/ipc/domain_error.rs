@@ -93,13 +93,16 @@ impl DomainError {
 }
 
 impl From<SessionAppendRefusal> for DomainError {
-    /// A session's refusal of an append, answered with its code, message and fields.
+    /// A session's refusal of an append, answered with its reason's code, its message and its
+    /// details as the fields.
     fn from(refusal: SessionAppendRefusal) -> Self {
-        Self {
-            message: refusal.message,
-            code: refusal.code,
-            detail: Some(refusal.detail),
-            source: None,
+        match refusal {
+            SessionAppendRefusal::Rebuilding { message, details } => {
+                Self::new(message, RefusalCode::SessionRebuilding).with_detail(details)
+            }
+            SessionAppendRefusal::HistoryDamaged { message, details } => {
+                Self::new(message, RefusalCode::SessionHistoryDamaged).with_detail(details)
+            }
         }
     }
 }

@@ -55,10 +55,11 @@ use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delive
 use crate::provider::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::provider::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::provider::driver::session_control::{DriverResumeResult, ProviderBuildChange};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::port::reviewer_denial::ReviewerDenialPort;
-use crate::session::run::engine::{RunEngine, RunEngineError};
-use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
+use crate::provider::port::run_host::RunHost;
+use crate::provider::run::delivery::InboundDelivery;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";
@@ -86,33 +87,6 @@ pub(crate) struct CodexInPlaceResumeCall {
     pub(crate) writer_left: CodexWriterLeft,
 }
 
-/// The run engine's end of the turns a provider process left, as recovery and a close reach it.
-pub(crate) trait CodexRunEnds: Send + Sync {
-    /// Ends `run_id`'s turns, and its helpers', on the exit of the process that ran them.
-    fn end_turn_on_process_exit(
-        &self,
-        run_id: RunId,
-        process_exit: ProcessExit,
-    ) -> BoxFuture<'_, Result<(), RunEngineError>>;
-
-    /// Ends `run_id`'s turns, and its helpers', as the daemon closed their session.
-    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>>;
-}
-
-impl CodexRunEnds for RunEngine {
-    fn end_turn_on_process_exit(
-        &self,
-        run_id: RunId,
-        process_exit: ProcessExit,
-    ) -> BoxFuture<'_, Result<(), RunEngineError>> {
-        RunEngine::end_turn_on_process_exit(self, run_id, process_exit).boxed()
-    }
-
-    fn end_turn_on_close(&self, run_id: RunId) -> BoxFuture<'_, Result<(), RunEngineError>> {
-        RunEngine::end_turn_on_close(self, run_id).boxed()
-    }
-}
-
 /// What recovery acts through.
 pub(crate) struct CodexServiceRecoveryDependencies {
     /// The sessions' slots, each resume claimed in its session's.
@@ -124,9 +98,9 @@ pub(crate) struct CodexServiceRecoveryDependencies {
     /// The conversations sessions moved off, held while their commands run.
     pub(crate) release: Arc<CodexConversationRelease>,
     /// The run engine's end of the turns a process left.
-    pub(crate) run_ends: Arc<dyn CodexRunEnds>,
+    pub(crate) run_ends: Arc<dyn RunHost>,
     /// The run engine's dispatch, which takes the sessions' notices and a lost run's end.
-    pub(crate) dispatch: Arc<RunInboundDispatch>,
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
     /// Lets a block's `Allow once` be pressed again once its process ended.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The queue's intake of a session whose process ended.
@@ -532,7 +506,7 @@ impl CodexServiceRecovery {
                         provider_account_id: service.home().provider_account_id.clone(),
                         port: CodexDeliveryPort::RunEnd,
                         session_id: Some(session_id),
-                        error: Box::new(error),
+                        error,
                     }
                     .report();
                 }
@@ -545,7 +519,7 @@ impl CodexServiceRecovery {
                         cause: None,
                     };
                     fail_codex_run(
-                        &self.dependencies.dispatch,
+                        &*self.dependencies.dispatch,
                         run_id,
                         binding_id.clone(),
                         CODEX_EXIT_UNREAD_FAILURE,
@@ -565,7 +539,7 @@ impl CodexServiceRecovery {
         notice: SessionNotice,
     ) {
         Box::pin(dispatch_delivery(
-            &self.dependencies.dispatch,
+            &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
                 provider_account_id: service.home().provider_account_id.clone(),

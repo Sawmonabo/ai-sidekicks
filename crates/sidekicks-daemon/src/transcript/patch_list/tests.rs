@@ -19,7 +19,7 @@ use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
 fn list(log: &TranscriptTestLog, tool_call_id: &str, cursor: Option<&Value>) -> Value {
     let page = list_patches(
-        &log.reader(),
+        &log.session_log.reader(),
         &|_: &SessionId| None,
         &request(log, tool_call_id, cursor),
     )
@@ -29,10 +29,10 @@ fn list(log: &TranscriptTestLog, tool_call_id: &str, cursor: Option<&Value>) -> 
 
 // The session's first window page, as JSON.
 fn window(log: &TranscriptTestLog) -> Value {
-    let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
+    let request = serde_json::from_value(json!({ "sessionId": log.session_log.session_id }))
         .expect("the test's request reads");
     let window = read_transcript_window(
-        &log.reader(),
+        &log.session_log.reader(),
         &|_: &SessionId| None,
         &request,
         MARKDOWN_PARSE,
@@ -46,7 +46,10 @@ fn request(
     tool_call_id: &str,
     cursor: Option<&Value>,
 ) -> TranscriptPatchListRequest {
-    let mut request = json!({ "sessionId": log.session_id, "toolCallId": tool_call_id });
+    let mut request = json!({
+        "sessionId": log.session_log.session_id,
+        "toolCallId": tool_call_id,
+    });
     if let Some(cursor) = cursor {
         request["cursor"] = cursor.clone();
     }
@@ -71,7 +74,12 @@ fn named(files: &[Value]) -> Value {
 // Writes a completion of `tool_call_id` holding `files`; returns its sequence and event id.
 fn completion_of(log: &TranscriptTestLog, tool_call_id: &str, files: &[Value]) -> (i64, String) {
     let body = json!({ "files": files }).to_string();
-    log.tool_completion(log.run_id, tool_call_id, Some(named(files)), Some(&body))
+    log.session_log.tool_completion(
+        log.session_log.run_id,
+        tool_call_id,
+        Some(named(files)),
+        Some(&body),
+    )
 }
 
 // The stored parts of file `file_index`'s text of the completion at `completion`: each one's
@@ -81,7 +89,7 @@ fn text_parts(
     completion: i64,
     file_index: i64,
 ) -> Vec<(i64, usize, usize, String, Vec<u8>)> {
-    let reader = log.reader();
+    let reader = log.session_log.reader();
     let mut statement = reader
         .prepare(&format!(
             "SELECT event.sequence, event.patch_text_offset, {}
@@ -182,9 +190,9 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
     let mut offset = Some(0);
     while let Some(part_offset) = offset {
         let part = read_row_body(
-            &log.reader(),
+            &log.session_log.reader(),
             &|_: &SessionId| None,
-            &log.session_id,
+            &log.session_log.session_id,
             &row_id,
             part_offset,
             MARKDOWN_PARSE,
@@ -236,7 +244,8 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
             .map(|(sequence, ..)| *sequence)
             .collect();
         for sequence in &unanswered {
-            log.writer
+            log.session_log
+                .writer
                 .execute(
                     "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
                     (br"\q".as_slice(), sequence),
@@ -245,7 +254,8 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
         }
         assert_eq!(&list(&log, "call-1", cursor.as_ref()), page);
         for (sequence, _, _, _, stored) in &parts {
-            log.writer
+            log.session_log
+                .writer
                 .execute(
                     "UPDATE session_events SET content_payload = ?1 WHERE sequence = ?2",
                     (stored.as_slice(), sequence),
@@ -256,13 +266,14 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
 
     let inside_a_character = json!({ "fileIndex": 1, "offset": 1 });
     let refused = list_patches(
-        &log.reader(),
+        &log.session_log.reader(),
         &|_: &SessionId| None,
         &request(&log, "call-1", Some(&inside_a_character)),
     );
     assert!(matches!(refused, Err(PatchListError::Cursor(_))));
     // A part that decodes but is no JSON string content, stored as it is with its own length.
-    log.writer
+    log.session_log
+        .writer
         .execute(
             "UPDATE session_events SET content_payload = ?1,
                     payload = json_remove(json_set(payload, '$.contentLength', 2),
@@ -272,7 +283,7 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
         )
         .expect("the test breaks a part");
     let malformed = list_patches(
-        &log.reader(),
+        &log.session_log.reader(),
         &|_: &SessionId| None,
         &request(
             &log,
@@ -292,7 +303,7 @@ fn patch_list_reads_a_file_over_the_cap_across_pages_loading_only_the_parts_each
         "{malformed:?}"
     );
     let unknown = list_patches(
-        &log.reader(),
+        &log.session_log.reader(),
         &|_: &SessionId| None,
         &request(&log, "call-2", None),
     );
@@ -355,6 +366,7 @@ fn patch_list_keeps_two_completions_of_one_call_in_one_turn_apart() {
     let (second, _) = completion_of(&log, "call-1", &[file("/repo/b.rs"), file("/repo/c.rs")]);
 
     let joins: Vec<(i64, Option<i64>)> = log
+        .session_log
         .reader()
         .prepare("SELECT sequence, joins_sequence FROM session_events ORDER BY sequence")
         .expect("the test's read prepares")
@@ -388,10 +400,15 @@ fn patch_list_keeps_two_completions_of_one_call_in_one_turn_apart() {
 ))]
 fn a_completion_naming_no_files_stores_its_body_whole(#[case] body: String) {
     let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-    let (completion, row_id) =
-        log.tool_completion(log.run_id, "call-1", Some(json!([])), Some(&body));
+    let (completion, row_id) = log.session_log.tool_completion(
+        log.session_log.run_id,
+        "call-1",
+        Some(json!([])),
+        Some(&body),
+    );
 
     let parts: i64 = log
+        .session_log
         .reader()
         .query_row(
             "SELECT count(*) FROM session_events WHERE joins_sequence = ?1",
@@ -401,9 +418,9 @@ fn a_completion_naming_no_files_stores_its_body_whole(#[case] body: String) {
         .expect("the test counts the completion's parts");
     assert_eq!(parts, 0);
     let read_back = read_row_body(
-        &log.reader(),
+        &log.session_log.reader(),
         &|_: &SessionId| None,
-        &log.session_id,
+        &log.session_log.session_id,
         &row_id,
         0,
         MARKDOWN_PARSE,

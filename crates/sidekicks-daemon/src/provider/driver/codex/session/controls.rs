@@ -42,7 +42,8 @@ use crate::provider::driver::codex::transport::connection::{
 use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::provider::driver::run_control::OverrideDenialParams;
 use crate::provider::driver::session_control::{StartReviewParams, UpdatePermissionLevelParams};
-use crate::session::run::inbound::{InboundDelivery, RunInboundDispatch};
+use crate::provider::port::inbound_dispatch::InboundDispatch;
+use crate::provider::run::delivery::InboundDelivery;
 
 const THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
 const REVIEW_START_METHOD: &str = "review/start";
@@ -158,7 +159,7 @@ struct EffortSettings {
 pub(crate) struct CodexSessionControls {
     slots: Arc<CodexSessionSlots>,
     run_start: Arc<CodexRunStart>,
-    dispatch: Arc<RunInboundDispatch>,
+    dispatch: Arc<dyn InboundDispatch>,
 }
 
 impl CodexSessionControls {
@@ -167,7 +168,7 @@ impl CodexSessionControls {
     pub(crate) fn new(
         slots: Arc<CodexSessionSlots>,
         run_start: Arc<CodexRunStart>,
-        dispatch: Arc<RunInboundDispatch>,
+        dispatch: Arc<dyn InboundDispatch>,
     ) -> Self {
         Self {
             slots,
@@ -204,7 +205,7 @@ impl CodexSessionControls {
                         timeout,
                     )
                     .await?;
-                record_review_started(&dispatch, session_id, target).await;
+                record_review_started(&*dispatch, session_id, target).await;
                 read_turn_id(&reply, REVIEW_START_METHOD)
             }
             .boxed()
@@ -338,7 +339,7 @@ fn compose_review_target(target: SessionReviewTarget) -> ReviewTarget {
 }
 
 async fn record_review_started(
-    dispatch: &RunInboundDispatch,
+    dispatch: &dyn InboundDispatch,
     session_id: SessionId,
     target: SessionReviewTarget,
 ) {
@@ -432,7 +433,7 @@ mod tests {
         let controls = CodexSessionControls::new(
             Arc::clone(&session.slots),
             Arc::clone(&session.run_start),
-            Arc::clone(&session.dispatch),
+            Arc::clone(&session.engine) as _,
         );
         let denial = json!({
             "threadId": "thread-left",

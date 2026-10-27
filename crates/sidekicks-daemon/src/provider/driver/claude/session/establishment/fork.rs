@@ -89,6 +89,11 @@ impl ClaudeSessionEstablishment {
             spawn_binding: predecessor.spawn_binding.clone(),
             model_check: ClaudeModelCheck::Unchecked,
             ultracode: settings.ultracode_requested,
+            // The predecessor's bound; a run started under another one relaunches the fork first.
+            step_bound: self
+                .streams
+                .get(session_id)
+                .and_then(|stream| stream.step_bound()),
         };
         let rebind = |resume_handle: &str, left: Vec<LeftConversation>| RuntimeBindingRebind {
             binding_id: params.binding_id.clone(),

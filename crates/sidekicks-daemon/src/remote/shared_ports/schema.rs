@@ -33,8 +33,7 @@ mod tests {
     use crate::database::connection::writer_open::open_database;
 
     /// The daemon's whole schema opens with every foreign key naming a table it holds and nothing
-    /// dangling. Mutations: misspell a `REFERENCES` target, or drop the approvals' list from the
-    /// program's.
+    /// dangling. Mutation: misspell a `REFERENCES` target.
     #[test]
     fn the_whole_schema_opens_with_every_reference_resolved() {
         let folder = tempfile::tempdir().expect("the test makes a temporary folder");

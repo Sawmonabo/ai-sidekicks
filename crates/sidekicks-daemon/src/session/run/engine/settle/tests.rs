@@ -157,13 +157,14 @@ async fn a_limit_end_writes_its_cut_turn_end_and_leaves_a_run_that_ended_since()
     let seeded = stored_events(&database, &run_id);
 
     // The cut is planted directly, for a step interrupt accepted at 2, before the run's end at 3.
-    let mut live = lock(&engine.live);
-    let cut = live.new_cut(RunLimit::StepLimit);
-    live.cut_turns
-        .entry((run_id, turn_one))
-        .or_default()
-        .push(cut);
-    drop(live);
+    {
+        let mut live = lock(&engine.live);
+        let cut = live.new_cut(RunLimit::StepLimit);
+        live.cut_turns
+            .entry((run_id, turn_one))
+            .or_default()
+            .push(cut);
+    }
     let ended_since = engine
         .end_run_for_interrupt(
             run_id,

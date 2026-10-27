@@ -253,9 +253,9 @@ async fn join_former_service(
     record_file: LastingServiceRecordFile,
     physical_socket: PathBuf,
 ) -> Result<StartedService, StartFailure> {
-    let hooks = read_terminal_service_hooks().map_err(|error| {
-        start_failed("The daemon's hook commands could not be composed.", error)
-    })?;
+    let hooks = read_terminal_service_hooks(service.dependencies().dispatches_hook_mode).map_err(
+        |error| start_failed("The daemon's hook commands could not be composed.", error),
+    )?;
     let joined = async {
         let (connection, reply) = connect(
             service,
@@ -312,7 +312,7 @@ async fn launch_terminal_service(
             "the Codex folder's socket link could not be checked"
         );
     }
-    let hook_commands = match read_terminal_service_hooks()
+    let hook_commands = match read_terminal_service_hooks(dependencies.dispatches_hook_mode)
         .map_err(|error| start_failed("The daemon's hook commands could not be composed.", error))?
     {
         TerminalServiceHooks::NoHooks => None,

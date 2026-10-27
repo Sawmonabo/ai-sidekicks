@@ -114,7 +114,7 @@ async fn a_limit_stop_with_no_interventions_service_writes_nothing_and_is_tried_
             "step {step} answers {counted:?}"
         );
     }
-    assert!(stored_events(&database, &run_id).is_empty());
+    assert_eq!(stored_events(&database, &run_id), events(&[]));
 }
 
 // Killed by a step stop retried after its interrupt failed writing the reached event again, by
@@ -745,13 +745,14 @@ async fn a_step_interrupt_resend_waits_for_the_hand_in_flight() {
         .await
         .expect("the resend is left to the hand in flight");
     assert_eq!(interventions.calls.load(Ordering::SeqCst), 1);
-    let live = lock(&engine.live);
-    assert_eq!(live.cut_turns, stop_cuts);
-    assert!(
-        live.reached_limits.contains(&(run_id, RunLimit::StepLimit)),
-        "the resend read nothing, so the limit stays owed"
-    );
-    drop(live);
+    {
+        let live = lock(&engine.live);
+        assert_eq!(live.cut_turns, stop_cuts);
+        assert!(
+            live.reached_limits.contains(&(run_id, RunLimit::StepLimit)),
+            "the resend read nothing, so the limit stays owed"
+        );
+    }
 
     set_state("running");
     lock(&engine.live).step_interrupts_in_flight.remove(&run_id);

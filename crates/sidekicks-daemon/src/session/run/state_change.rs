@@ -8,11 +8,8 @@ use std::sync::{Arc, LazyLock};
 use rusqlite::types::Value;
 use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::orchestration::InterruptReason;
-use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
-use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
-use sidekicks_contracts::run::control::{ProcessExit, RunFailureCategory, StopTrigger};
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::{
     AgentRunCompletedNewState, AgentRunCompletedPayload, AgentRunFailedNewState,
     AgentRunFailedPayload, AgentRunInterruptedNewState, AgentRunInterruptedPayload,
@@ -22,14 +19,11 @@ use sidekicks_contracts::run::events::{
     AgentRunWaitingForApprovalNewState, AgentRunWaitingForApprovalPayload,
     AgentRunWaitingForInputNewState, AgentRunWaitingForInputPayload, RunStateChangeState,
 };
-use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::InterventionId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
 use crate::database::statement::{StatementBindings, WriteStatement, text_binding};
@@ -39,6 +33,7 @@ use crate::events::session::appender::{
     SessionEventAppendError, SessionEventAppender, SessionEventDraft, SessionEventDraftError,
     SessionEventLinkage,
 };
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::session::run::projection::{RunStateSwap, swap_run_state_statement};
 use crate::session::run::provider_choice::ChoiceDialog;
 use crate::session::run::read::{RunRead, read_run_through, safe_run_version};
@@ -99,74 +94,6 @@ macro_rules! state_change_payload {
             $($member,)*
         }
     };
-}
-
-/// The state a change enters, with what that state's event carries beyond the transition itself.
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RunStateEntry {
-    /// Into `starting`.
-    Starting,
-    /// Into `running`, stamped with the effective posture where it is final.
-    Running {
-        /// The effective posture, with the workspace root resolved.
-        execution_posture: Option<ExecutionPosture>,
-    },
-    /// Into `waitingForApproval`.
-    WaitingForApproval,
-    /// Into `waitingForInput`.
-    WaitingForInput,
-    /// Into `pausing`.
-    Pausing,
-    /// Into `paused`.
-    Paused,
-    /// Into `completed`.
-    Completed {
-        /// Set only on a terminal the daemon itself closed.
-        intended_close: Option<True>,
-    },
-    /// Into `interrupted`.
-    Interrupted {
-        /// Set only on a terminal the daemon itself closed.
-        intended_close: Option<True>,
-        /// Why the daemon itself interrupted the run; `None` for a person's interrupt.
-        trigger: Option<InterruptReason>,
-    },
-    /// Into `stopped`.
-    Stopped {
-        /// Set only on a terminal the daemon itself closed.
-        intended_close: Option<True>,
-        /// Why the daemon itself stopped the run.
-        trigger: Option<StopTrigger>,
-    },
-    /// Into `failed`.
-    Failed {
-        /// Set only on a terminal the daemon itself closed.
-        intended_close: Option<True>,
-        /// The run's typed failure cause.
-        failure_cause: Option<RunFailureCause>,
-        /// The provider's own words on why it failed the run.
-        provider_failure_detail: Option<FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>>,
-        /// How the provider process ended under the turn, where it ended on its own.
-        process_exit: Option<ProcessExit>,
-    },
-}
-
-impl RunStateEntry {
-    /// The state the change enters.
-    pub(crate) fn state(&self) -> RunStateChangeState {
-        match self {
-            Self::Starting => RunStateChangeState::Starting,
-            Self::Running { .. } => RunStateChangeState::Running,
-            Self::WaitingForApproval => RunStateChangeState::WaitingForApproval,
-            Self::WaitingForInput => RunStateChangeState::WaitingForInput,
-            Self::Pausing => RunStateChangeState::Pausing,
-            Self::Paused => RunStateChangeState::Paused,
-            Self::Completed { .. } => RunStateChangeState::Completed,
-            Self::Interrupted { .. } => RunStateChangeState::Interrupted,
-            Self::Stopped { .. } => RunStateChangeState::Stopped,
-            Self::Failed { .. } => RunStateChangeState::Failed,
-        }
-    }
 }
 
 /// One state change asked of a run: the state it enters with what that state's event carries,
@@ -296,6 +223,25 @@ impl RunStateChange {
                     process_exit
                 }
             )),
+        }
+    }
+}
+
+impl From<RunStateReport> for RunStateChange {
+    /// The change a driver reported, with no recovery condition.
+    fn from(report: RunStateReport) -> Self {
+        let RunStateReport {
+            run_id,
+            expected_state,
+            failure_category,
+            entry,
+        } = report;
+        Self {
+            run_id,
+            expected_state,
+            failure_category,
+            recovery_condition: None,
+            entry,
         }
     }
 }

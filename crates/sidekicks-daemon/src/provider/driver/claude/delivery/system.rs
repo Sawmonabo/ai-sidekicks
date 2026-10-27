@@ -22,7 +22,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::provider::driver::claude::DESCRIPTOR;
 use crate::provider::record_readers::{read_count, read_non_empty_string};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::text_cut::cut_to_code_points;
 
 /// The `model_fallback` trigger that names a blocked model; any other names one unavailable.
@@ -197,7 +197,7 @@ pub(crate) fn read_claude_worker_shutdown_reason(
 pub(crate) fn read_claude_helper_end(
     frame: &Map<String, Value>,
     child_run_id: RunId,
-) -> Option<RunStateChange> {
+) -> Option<RunStateReport> {
     let entry = match frame.get("status").and_then(Value::as_str)? {
         "completed" => RunStateEntry::Completed {
             intended_close: None,
@@ -215,8 +215,8 @@ pub(crate) fn read_claude_helper_end(
         _ => return None,
     };
     let is_failed = matches!(entry, RunStateEntry::Failed { .. });
-    Some(RunStateChange {
+    Some(RunStateReport {
         failure_category: is_failed.then_some(RunFailureCategory::ProviderFailure),
-        ..RunStateChange::new(child_run_id, entry)
+        ..RunStateReport::new(child_run_id, entry)
     })
 }

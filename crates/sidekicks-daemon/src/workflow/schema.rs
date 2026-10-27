@@ -241,7 +241,7 @@ CREATE TABLE workflow_gate_resolutions (
   approval_category          TEXT
                              CHECK(approval_category IS NULL
                                OR approval_category IN ({approval_categories})),
-  approval_request_id        TEXT NOT NULL REFERENCES approval_requests(id),
+  approval_request_id        TEXT NOT NULL,
   outcome                    TEXT NOT NULL
                              CHECK(outcome IN ({approval_decisions})),
   device_id                  TEXT NOT NULL,          -- the answering device

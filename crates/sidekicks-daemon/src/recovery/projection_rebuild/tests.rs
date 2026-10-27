@@ -1,5 +1,5 @@
-//! The rebuild's cursor at each way a fold ends, and for each domain, the rows a rebuild writes from
-//! the log against the rows its live writes wrote.
+//! The rebuild's cursor at each way a fold ends, and for each domain, the rows a rebuild writes
+//! from the log against the rows its live writes wrote.
 
 mod approvals;
 mod plans;

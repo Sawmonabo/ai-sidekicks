@@ -70,9 +70,9 @@ use crate::provider::driver::codex::usage_limit_signal::CodexRateLimitObservatio
 use crate::provider::driver::codex::version::CODEX_CLIENT_NAME;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::daemon_stop::DaemonStopIntent;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::process_registry::ProviderProcessRegistry;
 use crate::provider::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionReading};
-use crate::queue::delivery::ProviderProcessIdentity;
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
@@ -107,6 +107,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) additional_config_overrides: Vec<String>,
     /// How long a start or redial has to dial and complete its handshake.
     pub(crate) startup_timeout: Duration,
+    /// Whether the daemon's program runs the hook mode a hook command starts, so the terminal
+    /// service is started with the daemon's hooks.
+    pub(crate) dispatches_hook_mode: bool,
     /// The session's recovery, told of exits, recoveries, crash loops and planned restarts.
     pub(crate) events: Arc<dyn CodexServiceEvents>,
     /// The conversations sessions moved off, which see each of their frames first.

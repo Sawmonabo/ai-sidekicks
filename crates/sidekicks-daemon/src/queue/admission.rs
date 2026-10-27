@@ -48,7 +48,9 @@ use crate::keyed_lock::KeyHold;
 use crate::mutex_lock::lock;
 use crate::provider::driver::contract::{ProviderDriver, bound_failure_detail};
 use crate::provider::driver::registry::ProviderRegistry;
-use crate::queue::delivery::{ProviderProcessIds, QueueDelivery};
+use crate::provider::process_identity::ProviderProcessIds;
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::queue::delivery::QueueDelivery;
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;
 use crate::queue::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
@@ -61,7 +63,7 @@ use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::read::read_run_through;
 use crate::session::run::refusals::RunRefusal;
 use crate::session::run::start_request::RunStartRequest;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 pub(crate) use self::opening::RunOpenings;
 

@@ -60,10 +60,11 @@ use crate::provider::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delive
 use crate::provider::driver::run_control::{
     InterruptRunRequest, PauseRunParams, ResumeRunParams, SteerTurnEndedError, WaitingMessage,
 };
+use crate::provider::port::inbound_dispatch::InboundDispatch;
 use crate::provider::port::registration::PortRegistration;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery, RunInboundDispatch};
-use crate::session::run::pause::{ContinuedMessages, RunPauseControl};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::port::run_pause::{ContinuedMessages, RunPauses};
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
 /// What run control acts through.
 pub(crate) struct CodexRunControlDependencies {
@@ -81,9 +82,9 @@ pub(crate) struct CodexRunControlDependencies {
     /// Binds a message's staged files.
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
     /// The run engine's dispatch, which takes a run's `paused` and a lost continue's end.
-    pub(crate) dispatch: Arc<RunInboundDispatch>,
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
     /// The pause and continue of runs, which settles the messages a continue's start took.
-    pub(crate) run_pauses: Arc<PortRegistration<Arc<RunPauseControl>>>,
+    pub(crate) run_pauses: Arc<PortRegistration<Arc<dyn RunPauses>>>,
     /// The messages waiting for paused runs, as the queue holds them.
     pub(crate) continued_messages: Arc<PortRegistration<Arc<dyn ContinuedMessages>>>,
     /// The driver's tracked tasks: a pause's interrupt and a continue started off the session's
@@ -291,12 +292,12 @@ impl CodexRunControl {
         let Some(binding) = self.dependencies.run_routes.binding_for(run_id) else {
             return;
         };
-        let change = RunStateChange {
+        let change = RunStateReport {
             expected_state: Some(RunState::Pausing),
-            ..RunStateChange::new(run_id, RunStateEntry::Paused)
+            ..RunStateReport::new(run_id, RunStateEntry::Paused)
         };
         Box::pin(dispatch_delivery(
-            &self.dependencies.dispatch,
+            &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
                 provider_account_id,
@@ -407,10 +408,11 @@ impl CodexRunControl {
             self.dependencies.run_pauses.require_port(),
             self.dependencies.continued_messages.require_port(),
         ) {
-            (Ok(pauses), Ok(continued)) => pauses
-                .settle_kept_as_taken(session_id, run_id, continued.as_ref())
-                .await
-                .map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>),
+            (Ok(pauses), Ok(continued)) => {
+                pauses
+                    .settle_kept_as_taken(session_id, run_id, continued.as_ref())
+                    .await
+            }
             (Err(error), _) | (_, Err(error)) => Err(Box::new(error) as _),
         };
         if let Err(error) = settled {
@@ -538,7 +540,7 @@ pub(crate) async fn interrupt_codex_run(
 /// Ends `run_id` failed on `binding_id` with `failure` and the error that caused it, as a provider
 /// failure, for a run no turn of Codex's will end.
 pub(crate) async fn fail_codex_run(
-    dispatch: &RunInboundDispatch,
+    dispatch: &dyn InboundDispatch,
     run_id: RunId,
     binding_id: RuntimeBindingId,
     failure: &str,
@@ -547,9 +549,9 @@ pub(crate) async fn fail_codex_run(
     let detail = format!("{failure}: {error}");
     let fallback =
         FreeFormText::new(format!("{failure}.")).expect("a run failure's words are within the cap");
-    let change = RunStateChange {
+    let change = RunStateReport {
         failure_category: Some(RunFailureCategory::ProviderFailure),
-        ..RunStateChange::new(
+        ..RunStateReport::new(
             run_id,
             RunStateEntry::Failed {
                 intended_close: None,

@@ -48,8 +48,8 @@ use crate::provider::driver::claude::session::transport::user_message::{
     ClaudeUserFrame, ClaudeWriteAttempt,
 };
 use crate::provider::driver::diagnostics::OnceReportedDiagnostics;
+use crate::provider::process_identity::ProviderProcessIdentity;
 use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::queue::delivery::ProviderProcessIdentity;
 
 use stdin::ClaudeInputWriter;
 pub(crate) use stdout::CLAUDE_OUTPUT_LINE_MAX_BYTES;

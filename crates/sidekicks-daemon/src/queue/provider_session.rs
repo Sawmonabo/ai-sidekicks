@@ -36,7 +36,7 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::left_conversations::LeftConversation;
 use crate::provider::runtime_binding::resume::{
-    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params, read_session_leg,
+    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
 };
 use crate::provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
@@ -47,6 +47,7 @@ use crate::session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
 };
 use crate::session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
+use crate::session::run::stored_leg::read_session_leg;
 
 #[cfg(test)]
 pub(crate) mod test_opening;

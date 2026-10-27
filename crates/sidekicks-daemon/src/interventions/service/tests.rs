@@ -50,13 +50,14 @@ use crate::provider::driver::run_control::{
 use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
+use crate::provider::run::state_entry::RunStateEntry;
+use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use crate::queue::store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
 use crate::queue::store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::pause::tests::unanswered;
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// A run queue that holds nothing but counts each hold it takes, records each release's choice,

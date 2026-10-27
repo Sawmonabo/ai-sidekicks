@@ -41,13 +41,13 @@ use crate::ipc::handlers::driver::resolution::read_session_driver;
 use crate::keyed_lock::KeyHold;
 use crate::provider::driver::ports::ProcessGoneListener;
 use crate::provider::driver::registry::ProviderRegistry;
+use crate::provider::process_identity::ProviderProcessIds;
 use crate::queue::admission::{
     QUEUE_DELIVERY_TIMEOUT, QueueAdmission, QueueAdmissionDeps, RunOpenings,
 };
 use crate::queue::changes::QueueChangeSignals;
 use crate::queue::delivery::{
-    InterruptedRunContinuation, OpeningMessages, ProviderProcessIds, QueueDelivery,
-    QueueDeliveryDeps, QueueWithdrawal,
+    InterruptedRunContinuation, OpeningMessages, QueueDelivery, QueueDeliveryDeps, QueueWithdrawal,
 };
 use crate::queue::error::QueueError;
 use crate::queue::provider_session::ProviderSessions;

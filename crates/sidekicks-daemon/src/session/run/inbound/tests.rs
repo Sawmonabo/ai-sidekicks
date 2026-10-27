@@ -9,34 +9,49 @@ use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, Sou
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::events::{
+    ProviderWarningSource, RunSafetyBufferingUpdatedPayload, SessionNotice,
+    SessionNoticePostedPayload,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::REASONING_ENTRY_CONTENT_MAX_LEN;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use tempfile::TempDir;
 
-use super::rows::{LateAppendableRow, MachineScopedRow};
-use super::{
-    DeliveryBinding, InboundDelivery, InboundDispatchError, InboundOutcome, LateEventAbsorbReason,
-    RunInboundDispatch,
-};
+use super::{InboundDispatchError, RunInboundDispatch};
 use crate::database::writer::test_file::{TestDatabase, test_session_id};
+use crate::events::log_service::tests::open_log;
 use crate::plans::schema::schema_parts;
 use crate::provider::driver::diagnostics::RecordedEvents;
 use crate::provider::driver::registry::test_provider;
-use crate::provider::driver::test_registry::{TestRunPorts, new_run_id};
+use crate::provider::driver::test_registry::new_run_id;
+use crate::provider::port::run_state_publisher::RunStatePublisher;
+use crate::provider::run::delivery::{
+    DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
+    LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
+};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, append, continue_request, held_driver, insert_running_run,
-    stored_run_state, turn_completed_at, turn_started_at,
+    stored_run_state, test_engine, turn_completed_at, turn_started_at,
 };
 use crate::session::run::engine::{RunEngine, RunEngineError};
 use crate::session::run::epochs::{
-    ConfirmedCut, DeliveryAttribution, DeliveryOperation, EpochBinding, ExecutionEpochs,
+    ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs,
 };
 use crate::session::run::refusals::RunRefusal;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::RunStateChangeCompanions;
 use crate::transcript::reasoning::read_reasoning;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+
+// A run-state stream no one reads.
+struct UnreadRunStates;
+
+impl RunStatePublisher for UnreadRunStates {
+    fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
+}
 
 // A dispatch over one binding of one run, its cursor remembering two operations.
 struct Harness {
@@ -55,17 +70,17 @@ impl Harness {
         let database = TestDatabase::new(schema_parts());
         let home = tempfile::tempdir().expect("the test makes a home folder");
         // Opening the writer creates the file with the daemon's schema.
-        let TestRunPorts {
-            engine,
-            dispatch,
-            epochs,
-            ..
-        } = TestRunPorts::open(
-            &database,
-            home.path(),
-            ExecutionEpochs::new(NonZeroUsize::new(2).expect("the cap is not zero")),
-        )
-        .await;
+        let log = open_log(&database, None).await;
+        let engine = test_engine(&database, Arc::clone(&log.service), home.path());
+        let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
+            NonZeroUsize::new(2).expect("the cap is not zero"),
+        )));
+        let dispatch = Arc::new(RunInboundDispatch::new(
+            Arc::clone(&engine),
+            Arc::clone(&epochs),
+            Arc::new(UnreadRunStates),
+            Arc::clone(&log.service),
+        ));
         let run_id = new_run_id();
         insert_running_run(&database, test_session_id(), run_id);
         database
@@ -164,7 +179,7 @@ impl Harness {
     ) -> InboundDelivery<'static> {
         InboundDelivery::RunLifecycle {
             binding: self.on_binding(operation),
-            change: RunStateChange::new(
+            change: RunStateReport::new(
                 self.run_id,
                 RunStateEntry::Interrupted {
                     intended_close: None,
@@ -294,7 +309,7 @@ async fn inbound_reads_an_unknown_execution_as_current_for_a_live_terminal_and_a
     if is_terminal {
         let is_interrupted = matches!(
             &outcome,
-            InboundOutcome::Transitioned { run } if run.state == RunState::Interrupted
+            InboundOutcome::Transitioned { state } if *state == RunState::Interrupted
         );
         assert!(is_interrupted, "{outcome:?}");
         assert_eq!(
@@ -510,36 +525,65 @@ async fn inbound_fails_a_piece_of_a_run_with_no_row() {
 }
 
 // Killed by a late `paused` or `running` report on a run a resume already set running surfaced as
-// a failure on the event path, or by any row written for it.
+// a failure on the event path, or by any row written for it; and by the engine taking a pause
+// report from `running` (`Next::Paused` added to `running`'s row in `transitions.rs`) or refusing
+// one from `pausing` (`Next::Paused` dropped from `pausing`'s row).
 #[rstest]
-#[case::a_late_pause(RunStateEntry::Paused)]
-#[case::a_late_turn_under_way(RunStateEntry::Running {
-    execution_posture: None,
-})]
+#[case::a_late_pause(
+    RunState::Running,
+    RunStateEntry::Paused,
+    Some(RunState::Pausing),
+    None
+)]
+#[case::a_late_turn_under_way(
+    RunState::Running,
+    RunStateEntry::Running {
+        execution_posture: None,
+    },
+    None,
+    None
+)]
+#[case::a_pause_from_pausing(
+    RunState::Pausing,
+    RunStateEntry::Paused,
+    Some(RunState::Pausing),
+    Some(RunState::Paused)
+)]
 #[tokio::test]
-async fn inbound_absorbs_a_late_report_on_a_resumed_run(#[case] entry: RunStateEntry) {
-    let harness = Harness::new(RunState::Running).await;
+async fn inbound_takes_a_pause_report_only_from_pausing_and_absorbs_one_on_a_resumed_run(
+    #[case] stored: RunState,
+    #[case] entry: RunStateEntry,
+    #[case] expected_state: Option<RunState>,
+    #[case] moved_to: Option<RunState>,
+) {
+    let harness = Harness::new(stored).await;
 
     let outcome = harness
         .dispatched(InboundDelivery::RunLifecycle {
             binding: harness.on_binding(None),
-            change: RunStateChange::new(harness.run_id, entry),
+            change: RunStateReport {
+                expected_state,
+                ..RunStateReport::new(harness.run_id, entry)
+            },
             turn_end: None,
             is_daemon_interrupt_end: false,
         })
         .await;
 
-    assert_eq!(
-        outcome,
-        InboundOutcome::Absorbed {
-            reason: LateEventAbsorbReason::RunResumed,
-        }
-    );
-    assert_eq!(harness.stored_event_count(), 0);
-    assert_eq!(
-        stored_run_state(&harness.database, &harness.run_id).0,
-        "running"
-    );
+    let stored_state = stored_run_state(&harness.database, &harness.run_id).0;
+    if let Some(state) = moved_to {
+        assert_eq!(outcome, InboundOutcome::Transitioned { state });
+        assert_eq!(stored_state, <&'static str>::from(state));
+    } else {
+        assert_eq!(
+            outcome,
+            InboundOutcome::Absorbed {
+                reason: LateEventAbsorbReason::RunResumed,
+            }
+        );
+        assert_eq!(harness.stored_event_count(), 0);
+        assert_eq!(stored_state, "running");
+    }
 }
 
 // Killed by a long reasoning text stored as one piece over an entry's length, by a text cut by
@@ -636,4 +680,111 @@ async fn inbound_files_a_rate_limit_reading_under_the_sentinel_session_with_its_
         })
         .expect("the test reads the sentinel session's rows");
     assert_eq!(filed, [("usage.rateLimit.updated".to_owned(), 3)]);
+}
+
+// A notice, a side question's answer, and the run's context-window reading and retried request
+// each reach the log on their session, the run's rows on the run. Killed by dropping the append
+// of the `SessionNotice` or the `SessionEvent` arm, or by filing a `SessionRow` without its run.
+#[tokio::test]
+async fn inbound_appends_a_notice_an_answer_and_the_runs_usage_rows() {
+    let harness = Harness::new(RunState::Running).await;
+    let session_id = harness.session_id();
+    let run_id = harness.run_id;
+    let warning = FreeFormText::new("the model is deprecated".to_owned())
+        .expect("the test's warning is text");
+    harness
+        .dispatched(InboundDelivery::SessionNotice {
+            session_id,
+            notice: SessionNoticePostedPayload::Notice(SessionNotice::ProviderWarning {
+                session_id,
+                source: ProviderWarningSource::Deprecation,
+                text: warning,
+                details: None,
+            }),
+        })
+        .await;
+    let answer = serde_json::from_value(json!({
+        "sessionId": session_id,
+        "sideQuestionId": mint_uuid_v7().to_string(),
+        "question": "what changed?",
+        "answer": "the parser",
+    }))
+    .expect("the test writes a side question's answer");
+    harness
+        .dispatched(InboundDelivery::SessionEvent {
+            row: SessionScopedRow::SideQuestionAnswered(answer),
+        })
+        .await;
+    let context_window = serde_json::from_value(json!({
+        "sessionId": session_id,
+        "runId": run_id,
+        "windowUsedTokens": 1200,
+        "windowMaxTokens": 200_000,
+        "windowSource": "providerReported",
+        "exceeded": false,
+    }))
+    .expect("the test writes a context-window reading");
+    let retried = serde_json::from_value(json!({
+        "sessionId": session_id,
+        "runId": run_id,
+        "provider": "codex",
+        "errorKind": "overloaded",
+    }))
+    .expect("the test writes a retried request");
+    for row in [
+        LateAppendableRow::UsageContextWindowUpdated(context_window),
+        LateAppendableRow::UsageApiRequestRetried(retried),
+    ] {
+        harness
+            .dispatched(InboundDelivery::SessionRow {
+                binding: harness.on_binding(None),
+                row,
+                content: None,
+            })
+            .await;
+    }
+
+    let stored: Vec<(String, Option<String>, String)> = harness
+        .database
+        .reader()
+        .prepare(
+            "SELECT type, run_id, CAST(COALESCE(json_extract(payload, '$.text'),
+                    json_extract(payload, '$.answer'), json_extract(payload, '$.windowUsedTokens'),
+                    json_extract(payload, '$.errorKind')) AS TEXT)
+               FROM session_events WHERE session_id = ?1 ORDER BY sequence",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_map([session_id.text().as_str()], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })?
+                .collect()
+        })
+        .expect("the test reads the session's rows");
+    let on_run = Some(run_id.text().as_str().to_owned());
+    assert_eq!(
+        stored,
+        [
+            (
+                "session.notice.posted".to_owned(),
+                None,
+                "the model is deprecated".to_owned()
+            ),
+            (
+                "session.sideQuestion.answered".to_owned(),
+                None,
+                "the parser".to_owned()
+            ),
+            (
+                "usage.contextWindow.updated".to_owned(),
+                on_run.clone(),
+                "1200".to_owned()
+            ),
+            (
+                "usage.apiRequest.retried".to_owned(),
+                on_run,
+                "overloaded".to_owned()
+            ),
+        ]
+    );
 }

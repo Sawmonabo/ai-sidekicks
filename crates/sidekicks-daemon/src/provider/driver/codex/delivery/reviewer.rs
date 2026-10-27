@@ -29,7 +29,7 @@ use crate::provider::driver::codex::delivery::reviewer::assessment::{
 use crate::provider::driver::codex::delivery::rows::CodexRowRun;
 use crate::provider::port::reviewer_denial::ProviderReviewerDenial;
 use crate::provider::record_readers::read_non_empty_string;
-use crate::session::run::inbound::rows::UnstampedRow;
+use crate::provider::run::delivery::UnstampedRow;
 
 /// The sentence Codex's own app writes for a required review, which carries no words of its own.
 const CODEX_REVIEW_REQUIRED_SENTENCE: &str =

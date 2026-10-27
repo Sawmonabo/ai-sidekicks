@@ -19,13 +19,12 @@ use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::provider::driver::message_handing::{HandMoment, MessageHanding};
 use crate::provider::driver::run_control::TakenMessages;
 use crate::provider::driver::test_registry::registry_of_first_provider;
-use crate::queue::delivery::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
+use crate::provider::port::run_pause::ContinuedMessages;
+use crate::provider::process_identity::{ProviderProcessIdentity, TEST_PROVIDER_PROCESS};
 use crate::queue::store::RecordedQueueItemState;
 use crate::session::run::engine::tests::test_engine;
 use crate::session::run::pause::tests::unanswered;
-use crate::session::run::pause::{
-    ContinuedMessages, RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl,
-};
+use crate::session::run::pause::{RUN_PAUSE_STATEMENT_CAPACITY, RunPauseControl};
 
 /// A provider whose process keeps a message past its run's end, for a turn it starts with it.
 const KEPT_BY_PROCESS: MessageHanding = MessageHanding {

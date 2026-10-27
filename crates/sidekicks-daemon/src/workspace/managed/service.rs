@@ -595,9 +595,9 @@ mod tests {
 
     // Catches a count left unwritten, the `.git` folder counted, a removal that leaves the count
     // high, and a count that moves without the sessions list being named the chat: the chat's row
-    // follows the files written into and removed from its folder.
+    // follows the files written into and removed from its folder, and each move names the chat.
     #[tokio::test]
-    async fn a_chats_document_count_follows_its_folder_into_the_sessions_list() {
+    async fn a_chats_document_count_follows_its_folder_and_names_the_chat_to_the_list() {
         let home = tempfile::tempdir().expect("a scratch home");
         let database = TestDatabase::new(schema_parts());
         let (writes_sender, _writes) = mpsc::channel(64);

@@ -33,6 +33,7 @@ use crate::plans::service::PlansService;
 use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::execution_posture_service::ExecutionPostureService;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::program::dispatches_hook_mode;
 use crate::provider::callback_tools::host::CallbackToolHost;
 use crate::provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
 use crate::provider::command_search::ProviderCommandSearch;
@@ -163,6 +164,7 @@ pub(crate) fn build_providers(
         runtime_bindings: Arc::clone(&runtime_bindings) as _,
         shell_lines: start.shell_lines,
         background_work: Arc::clone(&background_work),
+        dispatches_hook_mode: dispatches_hook_mode(),
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
@@ -546,7 +548,7 @@ pub(crate) async fn shut_down_drivers(
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::sync::{Arc, LazyLock, Mutex};
+    use std::sync::{Arc, Mutex};
 
     use futures::FutureExt as _;
 
@@ -557,7 +559,6 @@ mod tests {
         ProviderDeclarationId, ProviderPlaceSwitch, ProviderPlaceSwitches, ProviderValue,
     };
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::record::Record;
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_platforms::Spawner;
@@ -569,7 +570,7 @@ mod tests {
     };
     use crate::daemon::machine::settings::file::MachineSettingsFile;
     use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
+    use crate::database::writer::test_file::TestDatabase;
     use crate::events::log_service::tests::open_log;
     use crate::git::process::{GitLimits, GitRunner};
     use crate::mutex_lock::lock;
@@ -583,7 +584,6 @@ mod tests {
     };
     use crate::provider::driver::test_registry::{NothingServed, registrations_of_first_providers};
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
-    use crate::queue::delivery::{ProviderProcessIds, TEST_PROVIDER_PROCESS};
     use crate::remote::shared_ports::schema::schema_parts;
 
     /// The statements the tests' read pool caches.
@@ -591,9 +591,6 @@ mod tests {
 
     /// The most line bytes the tests' bound lets the shell-line reader parse at once.
     const SHELL_LINE_LIMIT: usize = 1 << 20;
-
-    /// The session the stand-in driver records its process for.
-    static SPAWNED_SESSION: LazyLock<SessionId> = LazyLock::new(test_session_id);
 
     /// The database and the home folder a test's providers are built on.
     struct TestStart {
@@ -639,31 +636,6 @@ mod tests {
                 },
             )
         }
-    }
-
-    // A process a driver records at its spawn is the one the run queue reads for the session: the
-    // drivers and the queue share one registry. Killed by handing the queue a registry of its own,
-    // which reads no process for any session.
-    #[tokio::test]
-    async fn the_run_queue_reads_the_process_a_driver_recorded() {
-        let start = TestStart::new();
-        let registrations = [ProviderRegistration {
-            descriptor: PROVIDERS[0],
-            build: |services| {
-                services
-                    .processes
-                    .record(*SPAWNED_SESSION, TEST_PROVIDER_PROCESS);
-                Arc::new(MockProviderDriver::new())
-            },
-        }];
-
-        let providers = start.build(&registrations).await;
-
-        let queue_reads: Arc<dyn ProviderProcessIds> = providers.processes;
-        assert_eq!(
-            queue_reads.process_identity(&SPAWNED_SESSION),
-            Some(TEST_PROVIDER_PROCESS)
-        );
     }
 
     // A gated call the stored reading allows passes at a cold start, before any refresh pass has

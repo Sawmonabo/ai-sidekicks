@@ -35,11 +35,13 @@ use crate::policy::execution_posture_service::{
 };
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::test_registry::test_driver_services;
+use crate::provider::run::start_request::DriverStep;
+use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use crate::session::run::engine::limits::LimitStop;
-use crate::session::run::engine::turns::{ProviderTurnEnd, StepCount, TurnOutcome};
+use crate::session::run::engine::turns::StepCount;
 use crate::session::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
 use crate::session::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
-use crate::session::run::start_request::{DriverStep, RunContinueRequest, RunTurnStart};
+use crate::session::run::start_request::{RunContinueRequest, RunTurnStart};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// Bounds a start or a continue, the call made while its driver is held and a hand on a task of
@@ -59,7 +61,7 @@ pub(crate) fn test_engine(
     home: &Path,
 ) -> Arc<RunEngine> {
     let services = test_driver_services();
-    Arc::new(RunEngine::new(RunEngineDeps {
+    let deps = RunEngineDeps {
         pool: Arc::new(DatabaseReadPool::new(
             database.path(),
             RUN_ENGINE_STATEMENT_CAPACITY,
@@ -70,7 +72,8 @@ pub(crate) fn test_engine(
             home.join("session-token"),
         )),
         providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
-    }))
+    };
+    Arc::new_cyclic(|this| RunEngine::new(deps, this.clone()))
 }
 
 /// A stand-in interventions service that refuses the first limit interrupts it is handed, as many

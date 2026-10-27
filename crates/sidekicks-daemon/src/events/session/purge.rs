@@ -67,9 +67,9 @@ use crate::git::turn_snapshot::service::{
 };
 use crate::ipc::registry::HandlerError;
 use crate::keyed_lock::KeyedLock;
-use crate::provider::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use crate::pty::shell::table::ShellTable;
 use crate::recovery::status::RecoveryStatusTracker;
+use crate::session::conversation_purge::{ConversationPurge, ConversationPurgeError};
 use crate::session::directory::list_feed::SessionListFeed;
 use crate::session::related::ranking::SessionRelatedRanking;
 use crate::session::service::SessionService;

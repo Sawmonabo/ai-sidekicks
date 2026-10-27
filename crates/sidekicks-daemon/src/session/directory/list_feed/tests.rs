@@ -1,5 +1,6 @@
 //! The live sessions list's tests: a change behind the paged opening read, a slow subscriber held
-//! to one place per session, a purge's removal, and the renewal running only while a session runs.
+//! to one place per session, a purge's removal, a chat's document count, and the renewal running
+//! only while a session runs.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,6 +11,7 @@ use sidekicks_contracts::session::directory::{
     SessionActivity, SessionListChange, SessionListEntry,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::time::timeout;
 
@@ -21,6 +23,9 @@ use crate::ipc::stream::feed::{CreditGate, Feed as _};
 use crate::plans::schema::schema_parts;
 use crate::session::directory::list_feed::subscriber::SessionListSubscriber;
 use crate::session::directory::list_feed::{SessionListFeed, SessionListOpening};
+use crate::workspace::managed::service::SessionListRefresh as _;
+use crate::workspace::schema::MountOrigin;
+use crate::workspace::test_rows::PARENT_ROWS_AT;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Past the renewal interval, so a paused clock reaches a renewal before the wait ends.
@@ -193,6 +198,57 @@ async fn a_slow_subscriber_sends_the_newest_entry_once_and_a_purge_removes_it() 
         other @ (SessionListChange::Page { .. } | SessionListChange::Upsert { .. }) => {
             panic!("a purged session leaves the list, not {other:?}")
         }
+    }
+}
+
+// Catches a chat's document count left out of its entry, or read only at the opening: the count its
+// managed mount's row holds reaches the list, and again once the workspace names the chat.
+#[tokio::test]
+async fn a_chats_document_count_reaches_the_list_when_the_workspace_names_it() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let session_id = test_session_id();
+    let connection = database.reader();
+    insert_session_row(&connection, session_id.text().as_str(), None, None);
+    connection
+        .execute(
+            "INSERT INTO repo_mounts (id, machine_id, local_path, canonical_root, origin, \
+             managed_session_id, attached_at, updated_at) \
+             VALUES ('mount', 'machine', '/chat', '/chat', ?1, ?2, ?3, ?3)",
+            params![
+                <&'static str>::from(MountOrigin::Managed),
+                session_id.text().as_str(),
+                PARENT_ROWS_AT
+            ],
+        )
+        .expect("the test stores the chat's managed mount");
+    let feed = SessionListFeed::for_test(&database, &log.followers);
+    let SessionListOpening {
+        sessions,
+        mut subscriber,
+        ..
+    } = feed.open().await.expect("the list opens");
+    assert_eq!(
+        sessions.iter().map(document_count_of).collect::<Vec<_>>(),
+        [Some(0)]
+    );
+    let gate = CreditGate::with_credit(1);
+
+    connection
+        .execute(
+            "UPDATE repo_mounts SET document_count = 3 WHERE managed_session_id = ?1",
+            params![session_id.text().as_str()],
+        )
+        .expect("the test counts the chat's documents");
+    feed.refresh_session(session_id);
+    let counted = upsert_of(&mut subscriber, &gate, session_id).await;
+    assert_eq!(document_count_of(&counted), Some(3));
+}
+
+fn document_count_of(entry: &SessionListEntry) -> Option<u64> {
+    match entry {
+        SessionListEntry::Chat(chat) => chat.document_count.map(SafeInt::get),
+        SessionListEntry::Project(_) => None,
     }
 }
 

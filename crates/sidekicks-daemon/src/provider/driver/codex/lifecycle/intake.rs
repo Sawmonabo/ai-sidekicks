@@ -65,10 +65,10 @@ use crate::provider::driver::codex::transport::connection::{
 };
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::ports::DriverPorts;
+use crate::provider::port::run_host::RunHost;
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
+use crate::provider::run::turn_end::ProviderTurnEnd;
 use crate::provider::usage_delta_accountant::WindowTelemetry;
-use crate::session::run::engine::RunEngine;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
@@ -374,7 +374,7 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
     /// The queue's intake of taken, refused and given-back messages, and the usage record.
     pub(crate) ports: &'parts DriverPorts,
     /// The run engine an ended turn's end is recorded in.
-    pub(crate) engine: &'parts Arc<RunEngine>,
+    pub(crate) engine: &'parts Arc<dyn RunHost>,
     /// The run routes an ended turn's route is retired from.
     pub(crate) run_routes: &'parts CodexRunRoutes,
     /// The run control an ended turn's pause or continue is acted on through.
@@ -437,7 +437,7 @@ pub(crate) async fn apply_codex_routed_frames(
                 }
             }
             if let Some(turn_end) = ended.turn_end {
-                record_turn_end(intake.engine, ended.run_id, turn_end).await;
+                record_turn_end(intake.engine.as_ref(), ended.run_id, turn_end).await;
             }
             // By turn id, never run id, so a stale end cannot retire a newer turn.
             intake.run_routes.retire_turn_route(record, &ended.turn_id);
@@ -459,26 +459,13 @@ pub(crate) async fn apply_codex_routed_frames(
 }
 
 // Writes the end of a turn that moved no run; a failed write is logged, the turn already gone.
-async fn record_turn_end(
-    engine: &Arc<RunEngine>,
-    run_id: RunId,
-    turn_end: crate::session::run::engine::turns::ProviderTurnEnd,
-) {
-    match engine.record_turn_end(run_id, turn_end).await {
-        Ok(written) => {
-            if let Some(error) = written.resend_failure {
-                tracing::warn!(
-                    error = &error as &(dyn std::error::Error + 'static),
-                    %run_id,
-                    "a step limit's interrupt owed after a codex turn's end could not be handed"
-                );
-            }
-        }
-        Err(error) => tracing::warn!(
-            error = &error as &(dyn std::error::Error + 'static),
+async fn record_turn_end(engine: &dyn RunHost, run_id: RunId, turn_end: ProviderTurnEnd) {
+    if let Err(error) = engine.record_turn_end(run_id, turn_end).await {
+        tracing::warn!(
+            error = &*error as &(dyn std::error::Error + 'static),
             %run_id,
             "the end of a codex turn that moved no run could not be recorded"
-        ),
+        );
     }
 }
 

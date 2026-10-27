@@ -380,8 +380,9 @@ mod tests {
     use sidekicks_contracts::wire::instant::WireInstant;
 
     use super::expand_child_run;
+    use crate::events::test_log::AT;
     use crate::transcript::block_cut::MARKDOWN_PARSE;
-    use crate::transcript::test_log::{AT, TranscriptTestLog, wire_message};
+    use crate::transcript::test_log::{TranscriptTestLog, wire_message};
     use crate::transcript::window::{TranscriptReadError, read_transcript_window};
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
@@ -397,7 +398,7 @@ mod tests {
         }
         let request = serde_json::from_value(request).expect("the test's request reads");
         expand_child_run(
-            &log.reader(),
+            &log.session_log.reader(),
             &|_: &SessionId| None,
             &request,
             &WireInstant::now(),
@@ -407,10 +408,10 @@ mod tests {
 
     // The summary on the creation row of `run_id` in the session's first page.
     fn summary_of(log: &TranscriptTestLog, run_id: RunId) -> Value {
-        let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
+        let request = serde_json::from_value(json!({ "sessionId": log.session_log.session_id }))
             .expect("the test's request reads");
         let page = read_transcript_window(
-            &log.reader(),
+            &log.session_log.reader(),
             &|_: &SessionId| None,
             &request,
             MARKDOWN_PARSE,
@@ -432,14 +433,16 @@ mod tests {
     #[test]
     fn a_child_run_summary_counts_its_readable_events_and_marks_skipped_ones() {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-        let child = log.child_run(log.run_id, "completed");
-        log.piece("agent.message.sent", child, "m1", Some(0), "One ", AT);
-        let (skipped, _) = log.piece("agent.message.sent", child, "m1", Some(0), "row.", AT);
+        let session_log = &log.session_log;
+        let child = log.child_run(session_log.run_id, "completed");
+        session_log.piece("agent.message.sent", child, "m1", Some(0), "One ", AT);
+        let (skipped, _) =
+            session_log.piece("agent.message.sent", child, "m1", Some(0), "row.", AT);
         let patch = "@@ -1 +1 @@\n-old\n+new\n";
         let body = json!({
             "files": [{ "path": "/w/a.rs", "patch": patch, "additions": 1, "deletions": 1 }],
         });
-        log.tool_completion(
+        session_log.tool_completion(
             child,
             "call-1",
             Some(json!([{ "path": "/w/a.rs", "size": patch.len() }])),
@@ -447,7 +450,7 @@ mod tests {
         );
 
         let complete = summary_of(&log, child);
-        assert_eq!(complete["parentRunId"], json!(log.run_id));
+        assert_eq!(complete["parentRunId"], json!(session_log.run_id));
         assert_eq!(complete["state"], "completed");
         assert_eq!(complete["eventCount"], 4);
         assert_eq!(complete["completeness"]["state"], "complete");
@@ -465,14 +468,15 @@ mod tests {
     #[test]
     fn an_uncounted_child_is_marked_incomplete_and_an_unread_state_fails_the_page() {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-        let child = log.child_run(log.run_id, "completed");
-        log.piece("agent.message.sent", child, "m1", Some(0), "One row.", AT);
-        let request = serde_json::from_value(json!({ "sessionId": log.session_id }))
+        let session_log = &log.session_log;
+        let child = log.child_run(session_log.run_id, "completed");
+        session_log.piece("agent.message.sent", child, "m1", Some(0), "One row.", AT);
+        let request = serde_json::from_value(json!({ "sessionId": session_log.session_id }))
             .expect("the test's request reads");
         // Only the child counts call `count`, and in a session's window only the children's reads
         // read the runs table, so refusing either fails just those reads.
         let read_refusing = |refuses_runs: bool| {
-            let reader = log.reader();
+            let reader = session_log.reader();
             reader
                 .authorizer(Some(move |context: AuthContext<'_>| {
                     let is_refused = matches!(
@@ -526,10 +530,11 @@ mod tests {
     #[test]
     fn a_child_run_expands_to_its_rows_interventions_and_children_in_pages() {
         let log = TranscriptTestLog::new(crate::questions::schema::schema_parts());
-        let child = log.child_run(log.run_id, "completed");
-        log.reply("lead", Some(0), "The lead's own row.");
+        let session_log = &log.session_log;
+        let child = log.child_run(session_log.run_id, "completed");
+        session_log.reply("lead", Some(0), "The lead's own row.");
         for index in 0..TRANSCRIPT_READ_LIMIT_MAX {
-            log.piece(
+            session_log.piece(
                 "agent.message.sent",
                 child,
                 &format!("m{index}"),
@@ -576,7 +581,10 @@ mod tests {
             Err(TranscriptReadError::Refused(refusal)) => refusal.code,
             other => panic!("the expansion is refused: {other:?}"),
         };
-        assert_eq!(refusal_code(log.run_id), RefusalCode::AgentRunNotChild);
+        assert_eq!(
+            refusal_code(session_log.run_id),
+            RefusalCode::AgentRunNotChild
+        );
         assert_eq!(
             refusal_code(RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id")),
             RefusalCode::AgentRunNotFound

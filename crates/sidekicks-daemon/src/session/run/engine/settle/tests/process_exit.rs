@@ -494,3 +494,47 @@ async fn a_close_stops_a_run_owing_its_token_limit_and_ends_its_subagent_as_inte
         assert_eq!(is_intended_close(&database, &run_id, end_type), Some(true));
     }
 }
+
+// Killed by a close that ends a run with no stops as anything but `interrupted`, that drops the
+// intended close from that end (`RunProcessEnd::Closed`'s fallback `RunStateEntry::Interrupted`
+// in `end_on_process_end` built with `intended_close: None`), or that leaves its open turn without
+// an end.
+#[tokio::test]
+async fn a_close_ends_a_run_with_no_stops_interrupted_as_intended() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let session_id = test_session_id();
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    insert_running_run(&database, session_id, run_id);
+    let engine = test_engine(&database, log.service, home.path());
+    append(
+        &engine,
+        session_id,
+        &turn_started_at(session_id, run_id, 1, 1),
+    )
+    .await;
+
+    engine
+        .end_turn_on_close(run_id)
+        .await
+        .expect("the close ends the run");
+
+    let event_types: Vec<String> = stored_events(&database, &run_id)
+        .into_iter()
+        .map(|(event_type, _cause, _origin)| event_type)
+        .collect();
+    assert_eq!(
+        event_types,
+        [
+            "agent.turn.started",
+            "agent.turn.interrupted",
+            "agent.run.interrupted"
+        ]
+    );
+    assert_eq!(stored_run_state(&database, &run_id).0, "interrupted");
+    assert_eq!(
+        is_intended_close(&database, &run_id, "agent.run.interrupted"),
+        Some(true)
+    );
+}

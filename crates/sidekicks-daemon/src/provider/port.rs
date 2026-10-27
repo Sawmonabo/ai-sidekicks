@@ -3,12 +3,15 @@
 
 pub(crate) mod file_tool_write;
 pub(crate) mod in_process_tool_servers;
+pub(crate) mod inbound_dispatch;
 pub(crate) mod permission_ask;
 pub(crate) mod plan;
 pub(crate) mod question;
 pub(crate) mod registration;
 pub(crate) mod repository_reader;
 pub(crate) mod reviewer_denial;
+pub(crate) mod run_host;
+pub(crate) mod run_pause;
 pub(crate) mod run_state_publisher;
 pub(crate) mod running_command_publisher;
 pub(crate) mod server_prompts;

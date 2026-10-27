@@ -24,16 +24,17 @@ use std::error::Error;
 use std::sync::Arc;
 
 use rusqlite::Connection;
-use serde_json::{Map, Value};
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::session::{SessionEvent, SessionEventReadError};
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, EventCursorPositionOutOfRange, START_OF_LOG_POSITION,
     SessionEventCursorUnresolvable, encode_event_cursor,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::session::recovery::{
+    SessionHistoryDamagedDetails, SessionRebuildingDetails,
+};
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use tokio::sync::watch;
@@ -81,17 +82,26 @@ pub(crate) type ProjectionError = Box<dyn Error + Send + Sync>;
 pub(crate) type SessionWriteCheck =
     dyn Fn(&SessionId, &str) -> Result<(), SessionAppendRefusal> + Send + Sync;
 
-/// A session's refusal of an append, raised by its [`SessionWriteCheck`] and answered by the
-/// caller with this code, message and detail; its `Display` is the message a person reads.
+/// Why a session refuses an append, raised by its [`SessionWriteCheck`]; its `Display` is the
+/// message a person reads.
 #[derive(Debug, thiserror::Error)]
-#[error("{message}")]
-pub(crate) struct SessionAppendRefusal {
-    /// What went wrong, in words a person reads.
-    pub(crate) message: String,
-    /// The refusal code the caller answers with.
-    pub(crate) code: RefusalCode,
-    /// The refusal's fields, as the caller's answer carries them.
-    pub(crate) detail: Map<String, Value>,
+pub(crate) enum SessionAppendRefusal {
+    /// The restart's recovery is still rebuilding the session.
+    #[error("{message}")]
+    Rebuilding {
+        /// What went wrong, in words a person reads.
+        message: String,
+        /// The session refused.
+        details: SessionRebuildingDetails,
+    },
+    /// The session's history is damaged.
+    #[error("{message}")]
+    HistoryDamaged {
+        /// What went wrong, in words a person reads.
+        message: String,
+        /// The session refused and how far its history is damaged.
+        details: SessionHistoryDamagedDetails,
+    },
 }
 
 /// The reads of one call, on a borrowed connection.

@@ -42,10 +42,11 @@ use crate::provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
 use crate::provider::port::question::{ProviderQuestion, ToolServerQuestionAnswer};
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::questions::projection::question_projection_statements;
 use crate::session::run::engine::RunEngine;
 use crate::session::run::engine::tests::{insert_running_run, stored_run_state, test_engine};
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// The secret the tests answer with, which no stored row may hold.

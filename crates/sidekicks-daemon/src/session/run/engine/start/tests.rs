@@ -10,12 +10,13 @@ use crate::plans::schema::schema_parts;
 use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::test_provider;
 use crate::provider::driver::run_control::DriverRunRefusal;
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::queue::error::QueueError;
 use crate::session::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, held_driver, test_engine, turn_start,
 };
 use crate::session::run::start_request::RunStartRequest;
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::session::run::state_change::RunStateChange;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 // Killed by recording a driver's refused start as a provider failure, which drops the refusal's

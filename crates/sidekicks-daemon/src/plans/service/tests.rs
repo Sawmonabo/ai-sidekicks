@@ -15,8 +15,9 @@ use crate::artifacts::list::list_artifacts;
 use crate::artifacts::test_store::ArtifactTestStore;
 use crate::database::schema::session_directory::insert_session_row;
 use crate::provider::port::plan::{ProviderPlan, ProviderPlanHoldEnd};
+use crate::provider::run::state_entry::RunStateEntry;
 use crate::session::run::engine::tests::test_engine;
-use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions, RunStateEntry};
+use crate::session::run::state_change::{RunStateChange, RunStateChangeCompanions};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 const PLAN_TEXT: &str = "# Ship the importer\n\n1. Read `src/import.rs`\n2. Write the tests\n";

@@ -42,6 +42,7 @@ fn start_params(session_id: SessionId, run_id: RunId) -> StartRunParams {
         output_speed_for_turn: None,
         execution_posture: None,
         output_schema: None,
+        step_bound: None,
     }
 }
 

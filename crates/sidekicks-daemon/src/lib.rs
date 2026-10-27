@@ -9,7 +9,6 @@ pub mod attention;
 pub mod bootstrap;
 pub mod bounded_wait;
 pub mod cleanup_failures;
-pub mod command_receipts;
 pub mod crash_window;
 pub(crate) mod credential_store;
 pub mod daemon;

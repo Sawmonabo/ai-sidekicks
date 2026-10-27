@@ -36,12 +36,12 @@ use crate::provider::driver::codex::turn_evidence::{
 };
 use crate::provider::driver::run_control::SteerTurnEndedError;
 use crate::provider::record_readers::read_non_empty_string;
+use crate::provider::run::delivery::DeliveryOperation;
+use crate::provider::run::delivery::LateAppendableRow;
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::turn_end::{ProviderTurnEnd, TurnOutcome};
 use crate::provider::terminal_emission_gate::TerminalEmissionGate;
 use crate::provider::thread_frame_router::ThreadFrameRoute;
-use crate::session::run::engine::turns::{ProviderTurnEnd, TurnOutcome};
-use crate::session::run::epochs::DeliveryOperation;
-use crate::session::run::inbound::rows::LateAppendableRow;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
 
 /// The hook event whose blocked or stopped run keeps the person's prompt from its turn.
 const CODEX_USER_PROMPT_SUBMIT_HOOK: &str = "userPromptSubmit";
@@ -123,7 +123,7 @@ impl CodexFrameDelivery {
         match self
             .dependencies
             .engine
-            .start_turn(turn_run.run_id, None, turn_run.binding.step_bound)
+            .start_turn(turn_run.run_id, turn_run.binding.step_bound)
             .await
         {
             Ok(Some(started)) => {
@@ -138,7 +138,7 @@ impl CodexFrameDelivery {
                 provider_account_id: record.provider_account_id.clone(),
                 port: CodexDeliveryPort::TurnStart,
                 session_id: Some(record.session_id),
-                error: Box::new(error),
+                error,
             }
             .report(),
         }

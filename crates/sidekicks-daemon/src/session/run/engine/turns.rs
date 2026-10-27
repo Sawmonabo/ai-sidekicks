@@ -11,16 +11,14 @@ use rusqlite::{OptionalExtension as _, named_params};
 use sidekicks_contracts::event::envelope::{EventCategory, SourcePosition};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
-use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::events::{
     AgentTurnCompletedPayload, AgentTurnFailedPayload, AgentTurnInterruptedPayload,
-    AgentTurnStartedPayload, TurnEndCause, TurnEndOrigin,
+    AgentTurnStartedPayload, TurnEndOrigin,
 };
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::database::connection::read_pool::ReadLength;
 use crate::database::sql_list::sql_list_of;
@@ -30,6 +28,7 @@ use crate::events::session::append_lock::SessionAppendHold;
 use crate::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 use crate::interventions::store::run_at_version_statement;
 use crate::mutex_lock::lock;
+use crate::provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use crate::session::run::engine::limits::LimitStop;
 use crate::session::run::engine::live::LiveRuns;
 use crate::session::run::engine::{
@@ -121,26 +120,6 @@ static RUN_LIVE_OR_TURN_OPEN_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// A turn's end its provider's end frame reported.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderTurnEnd {
-    /// The turn's number within its run, as its start was numbered.
-    pub(crate) turn_number: SafeInt<1>,
-    /// How it ended, with the cause the delivery knows from the frame; a limit stop's cut of the
-    /// turn replaces it.
-    pub(crate) outcome: TurnOutcome,
-}
-
-/// A turn the engine opened: its number within its run and the id of its `run.turn_started` event,
-/// which a flag about the whole turn points at.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct StartedTurn {
-    /// The turn's number within its run.
-    pub(crate) turn_number: SafeInt<1>,
-    /// The id of the event that started it.
-    pub(crate) event_id: FreeFormText<EVENT_FIELD_MAX_LEN>,
-}
-
 /// The steps of a run's open turn, counted against its step bound, and whether the turn has
 /// reached its step limit: its reached event being written or landed, or the limit's interrupt
 /// handed on it.
@@ -199,17 +178,6 @@ pub(super) struct TurnEnd {
     pub(super) origin: TurnEndOrigin,
     /// How it ended.
     pub(super) outcome: TurnOutcome,
-}
-
-/// How a turn ended, with why where the daemon knows it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TurnOutcome {
-    /// `agent.turn.completed`.
-    Completed,
-    /// `agent.turn.interrupted`.
-    Interrupted(Option<TurnEndCause>),
-    /// `agent.turn.failed`.
-    Failed(Option<TurnEndCause>),
 }
 
 impl TurnEnd {

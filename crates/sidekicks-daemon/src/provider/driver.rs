@@ -14,6 +14,7 @@ use sidekicks_contracts::provider::account::record::{CredentialGeneration, Provi
 use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
@@ -465,12 +466,16 @@ pub(crate) struct DriverServices {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no agent's shell line may start.
     pub(crate) background_work: Arc<BackgroundWorkForms>,
+    /// Whether the daemon's program runs the hook mode a provider's hook command starts, so a
+    /// driver composes and trusts a hook that runs this program only while it does.
+    pub(crate) dispatches_hook_mode: bool,
     /// The handles the daemon builds after the drivers, each registered by its start.
     pub(crate) ports: Arc<DriverPorts>,
 }
 
-/// Where and as whom one session's provider process runs, as the daemon resolves it at every spawn:
-/// what every provider reads; a provider's own settings for the session stay with its driver.
+/// Where and as whom one session's provider process runs, and the settings the daemon keeps for the
+/// session, as the daemon resolves them at every spawn; a provider's own settings for the session
+/// stay with its driver.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionSpawnContext {
     /// The session's working folder, its worktree, absolute.
@@ -484,6 +489,15 @@ pub(crate) struct SessionSpawnContext {
     /// The folders of the account the process runs on, where the app manages its home; `None` on
     /// the person's own sign-in.
     pub(crate) account_folders: Option<ProviderAccountFolders>,
+    /// The session's own bound on the steps one turn may take; `None` where the person set none.
+    pub(crate) step_bound: Option<SafeInt<1>>,
+    /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
+    /// off.
+    #[expect(
+        clippy::option_option,
+        reason = "a session with no advisor of its own differs from one whose advisor is off"
+    )]
+    pub(crate) advisor_model: Option<Option<String>>,
 }
 
 /// The folders of an account whose home the app manages, each absolute: the configuration folder a

@@ -15,7 +15,7 @@ use crate::provider::driver::contract::DriverError;
 use crate::provider::driver::registry::ProviderRegistry;
 use crate::provider::driver::session_control::{PurgeSessionParams, PurgedConversation};
 use crate::provider::left_conversations::read_left_conversations;
-use crate::provider::runtime_binding::resume::read_session_bindings;
+use crate::session::run::stored_leg::read_session_bindings;
 use crate::settle_all::{SettleFailures, settle_all};
 
 /// The statements the purge's read prepares on a read connection: the session's runs, their
@@ -163,13 +163,13 @@ mod tests {
 
     use super::{CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError};
     use crate::database::connection::read_pool::DatabaseReadPool;
+    use crate::database::schema::runs::schema_parts;
     use crate::database::writer::test_file::{TestDatabase, test_session_id};
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use crate::provider::driver::contract::MockProviderDriver;
     use crate::provider::driver::registry::{ProviderRegistry, test_provider};
     use crate::provider::driver::test_registry::test_driver_services;
     use crate::provider::driver::{PROVIDERS, ProviderRegistration};
-    use crate::questions::schema::schema_parts;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     // A binding row of `run_id` on `provider` naming `resume_handle`.

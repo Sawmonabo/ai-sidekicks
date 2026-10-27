@@ -17,6 +17,7 @@ use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler
 use crate::mutex_lock::lock;
 use crate::policy::background_work::BackgroundWorkForms;
 use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
+use crate::provider::driver::claude::delivery::claude_delivery_origin;
 use crate::provider::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::provider::driver::claude::delivery::requests::{
     ClaudeInboundRequests, ClaudeRequestSession,
@@ -48,11 +49,12 @@ use crate::provider::driver::claude::session::restart::{
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
 use crate::provider::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::provider::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+use crate::provider::driver::delivery_dispatch::dispatch_delivery;
 use crate::provider::port::in_process_tool_servers::InProcessToolServers;
 use crate::provider::port::registration::PortRegistration;
 use crate::provider::process_registry::ProviderProcessRegistry;
-use crate::session::run::inbound::{DeliveryBinding, InboundDelivery};
-use crate::session::run::state_change::{RunStateChange, RunStateEntry};
+use crate::provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use crate::provider::run::state_entry::{RunStateEntry, RunStateReport};
 
 /// What every session's task shares.
 pub(crate) struct ClaudeSessionTaskServices {
@@ -239,21 +241,18 @@ impl ClaudeSessionTask {
                 binding_id: route.binding_id,
                 operation: None,
             },
-            change: RunStateChange {
+            change: RunStateReport {
                 expected_state: Some(RunState::Pausing),
-                ..RunStateChange::new(child_run_id, RunStateEntry::Paused)
+                ..RunStateReport::new(child_run_id, RunStateEntry::Paused)
             },
             turn_end: None,
             is_daemon_interrupt_end: false,
         };
-        start
-            .engine
-            .deliver(
-                self.stream.provider_account_id().cloned(),
-                Some("control_request/hook_callback"),
-                delivery,
-            )
-            .await;
+        let origin = claude_delivery_origin(
+            self.stream.provider_account_id().cloned(),
+            Some("control_request/hook_callback"),
+        );
+        dispatch_delivery(&*start.dispatch, origin, delivery).await;
     }
 
     // The process is gone: what it held is forgotten, its stream's last rows sent, and its slot

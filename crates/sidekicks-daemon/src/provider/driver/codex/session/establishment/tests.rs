@@ -19,7 +19,7 @@ use crate::provider::driver::codex::session::test_session::{
     TEST_THREAD, TestCodexSession, fork_reply, no_turns,
 };
 use crate::provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
-use crate::queue::delivery::ProviderProcessIds as _;
+use crate::provider::process_identity::ProviderProcessIds as _;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.

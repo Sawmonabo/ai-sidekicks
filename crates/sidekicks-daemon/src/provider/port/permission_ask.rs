@@ -59,6 +59,7 @@ pub(crate) enum ProviderAskAction {
 }
 
 impl From<&ProviderAskAction> for ProviderAskActionKind {
+    /// The kind of action `action` would take, as a standing rule names it.
     fn from(action: &ProviderAskAction) -> Self {
         match action {
             ProviderAskAction::Command { .. } => Self::Command,

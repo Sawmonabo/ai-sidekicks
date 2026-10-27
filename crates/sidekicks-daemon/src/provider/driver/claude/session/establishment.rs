@@ -27,14 +27,12 @@ use sidekicks_contracts::session::controls::events::SessionNoticePostedPayload;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_platforms::{PathRules, Spawner};
 use tokio::sync::SetOnce;
 
-use self::context::{
-    ClaudeSpawnContextError, ClaudeStoredReadError, read_claude_step_bound,
-    record_claude_resolved_advisor,
-};
+use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
 use self::figures::ClaudeHeldFigures;
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::events::canonicalizer::CanonicalizationRefusal;
@@ -100,11 +98,11 @@ use crate::provider::driver::session_control::{
 };
 use crate::provider::port::registration::PortRegistrationError;
 use crate::provider::process_registry::ProviderProcessRegistry;
+use crate::provider::run::delivery::InboundDelivery;
 use crate::provider::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::provider::spawn_environment::ReservedEnvironmentNames;
 use crate::provider::thread_frame_router::ThreadFrameRouter;
 use crate::provider::usage_delta_accountant::UsageDeltaAccountant;
-use crate::session::run::inbound::InboundDelivery;
 
 /// Why a session's process could not be brought up and adopted.
 #[derive(Debug, thiserror::Error)]
@@ -121,9 +119,6 @@ pub(crate) enum ClaudeEstablishmentError {
     /// The legs the process starts with could not be built.
     #[error(transparent)]
     Legs(#[from] ClaudeSpawnLegsError),
-    /// The session's stored step bound could not be read.
-    #[error(transparent)]
-    StepBound(#[from] ClaudeStoredReadError),
     /// The session's standing rules could not be read.
     #[error("the session's standing rules could not be read")]
     SessionRules(#[source] Box<dyn Error + Send + Sync>),
@@ -163,7 +158,6 @@ impl ClaudeEstablishmentError {
             Self::Launch(_)
             | Self::Context(_)
             | Self::Legs(_)
-            | Self::StepBound(_)
             | Self::SessionRules(_)
             | Self::AdvisorRecord(_)
             | Self::OutputSchema(_)
@@ -183,7 +177,6 @@ impl From<ClaudeEstablishmentError> for DriverError {
             ClaudeEstablishmentError::Launch(error) => error.into(),
             error @ (ClaudeEstablishmentError::Context(_)
             | ClaudeEstablishmentError::Legs(_)
-            | ClaudeEstablishmentError::StepBound(_)
             | ClaudeEstablishmentError::SessionRules(_)
             | ClaudeEstablishmentError::AdvisorRecord(_)
             | ClaudeEstablishmentError::OutputSchema(_)
@@ -300,6 +293,7 @@ struct ClaudeSessionStart {
     spawn_binding: ClaudeSpawnBinding,
     model_check: ClaudeModelCheck,
     ultracode: Option<bool>,
+    step_bound: Option<SafeInt<1>>,
 }
 
 /// What a resume or create asks a spawn to start with, beside its legs.
@@ -485,6 +479,7 @@ impl ClaudeSessionEstablishment {
             &request.row_values,
         )
         .await?;
+        let step_bound = context.step_bound;
         let host = sources.ports.callback_tool_host.require_port()?;
         let session_id = request.session_id;
         let provider_account_id = request.provider_account_id.clone();
@@ -539,6 +534,7 @@ impl ClaudeSessionEstablishment {
             spawn_binding,
             model_check: ClaudeModelCheck::Checked,
             ultracode: request.ultracode,
+            step_bound,
         })
     }
 
@@ -576,16 +572,10 @@ impl ClaudeSessionEstablishment {
             spawn_binding,
             model_check,
             ultracode,
+            step_bound,
         } = start;
         let session_id = legs.session_id;
         let sources = &self.sources;
-        let step_bound = match read_claude_step_bound(&sources.pool, session_id).await {
-            Ok(step_bound) => step_bound,
-            Err(error) => {
-                callback_tools.roll_back();
-                return Err(error.into());
-            }
-        };
         let session_rules =
             match read_claude_session_rules(&sources.ports.session_rules, session_id).await {
                 Ok(rules) => rules,

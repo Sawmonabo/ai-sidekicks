@@ -8,20 +8,20 @@ use std::sync::{Arc, Mutex};
 
 use crate::mutex_lock::lock;
 use crate::provider::compaction_wait::PendingCompactionRegistry;
-use crate::provider::driver::claude::delivery::run_engine::ClaudeRunEngine;
 use crate::provider::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::provider::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::provider::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::provider::driver::claude::hooks::pause::ClaudeHookAnswer;
 use crate::provider::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::provider::driver::claude::session::state::LiveClaudeSession;
+use crate::provider::port::run_host::RunHost;
 
 /// What a turn's settlement settles through.
 pub(crate) struct ClaudeTurnSettlement {
     /// Each process's handshake, which holds the output speed a run's turn ran at.
     pub(crate) handshakes: Arc<ClaudeHandshakeRegister>,
     /// The run engine, which records that output speed.
-    pub(crate) engine: Arc<dyn ClaudeRunEngine>,
+    pub(crate) engine: Arc<dyn RunHost>,
     /// The runs bound to each session.
     pub(crate) routes: Arc<ClaudeRunRoutes>,
     /// Each session's helper limit and the starts it holds.
@@ -46,7 +46,7 @@ impl ClaudeTurnSettlement {
         {
             tracing::warn!(
                 session_id = %session_id,
-                error = &error as &(dyn std::error::Error + 'static),
+                error = &*error as &(dyn std::error::Error + 'static),
                 "the run engine could not record the output speed a Claude Code turn ran at"
             );
         }

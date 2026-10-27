@@ -8,7 +8,7 @@ use std::sync::{Arc, LazyLock};
 
 use rusqlite::types::Value;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::wire::id::UuidText;
+use sidekicks_contracts::wire::id::{UuidText, mint_uuid_v7};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -16,7 +16,6 @@ use crate::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
 use crate::database::writer::{DatabaseWriter, WriteError};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 /// One receipt's id, minted when its command is accepted.
 #[cfg_attr(
@@ -256,7 +255,7 @@ mod tests {
     use super::{CommandAcceptance, CommandReceiptError, CommandReceiptStore, CommandToReceive};
     use crate::database::writer::test_file::TestDatabase;
     use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::questions::schema::schema_parts;
+    use crate::mcp::schema::schema_parts;
 
     // A canceled accept writes nothing; the accept after it records the command, which only an
     // accepted receipt lets a worker claim.
