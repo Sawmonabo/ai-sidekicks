@@ -77,3 +77,49 @@ async fn a_close_and_a_sweep_remove_only_the_review_trees_records() {
     assert!(failures.is_empty(), "{failures:?}");
     assert_eq!(recorded_git_files(&repository).await, sibling_git_file);
 }
+
+// A daemon ended mid-`worktree add` leaves a tree with no `.git` and its record locked. Kills a
+// sweep that finds the repository only through the tree's `.git`.
+#[tokio::test]
+async fn a_sweep_removes_the_locked_record_of_a_tree_left_without_its_git_file() {
+    let scratch = tempfile::tempdir().expect("a scratch folder");
+    let scratch_path = real_path(scratch.path()).expect("the scratch folder resolves");
+    let git = test_git_runner();
+    let repository = make_test_repository(&git, &scratch_path, "app").await;
+    let worktrees_folder = scratch_path.join("worktrees");
+    let worktrees = StagedChangesWorktrees::new(&worktrees_folder, git.clone());
+    let left = worktrees
+        .open_staged_worktree(None, &repository)
+        .await
+        .expect("a review tree opens");
+    let record = git_in(
+        &git,
+        left.folder(),
+        &["rev-parse", "--path-format=absolute", "--git-dir"],
+    )
+    .await;
+    tokio::fs::write(Path::new(&record).join("locked"), "initializing\n")
+        .await
+        .expect("the record is locked");
+    tokio::fs::remove_file(left.folder().join(".git"))
+        .await
+        .expect("the tree's .git is removed");
+    drop(left);
+
+    let failures = worktrees.sweep_left_worktrees().await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(recorded_git_files(&repository).await.is_empty());
+    assert!(!Path::new(&record).exists(), "the locked record is left");
+    let mut staged = tokio::fs::read_dir(worktrees_folder.join(".staged-changes"))
+        .await
+        .expect("the staged-changes folder is listed");
+    assert!(
+        staged
+            .next_entry()
+            .await
+            .expect("an entry is read")
+            .is_none(),
+        "the left tree's folder is left"
+    );
+}
