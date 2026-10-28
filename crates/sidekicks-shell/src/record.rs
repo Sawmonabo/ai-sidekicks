@@ -257,6 +257,11 @@ impl ShellRecord {
         self.lock_state().handle
     }
 
+    /// The nonce the orphan registry knows the shell's process by, while the shell runs.
+    pub(crate) fn spawn_nonce(&self) -> Option<String> {
+        self.lock_state().spawn_nonce.clone()
+    }
+
     /// Whether the shell has left its session.
     pub(crate) fn is_removed(&self) -> bool {
         self.lock_state().is_removed

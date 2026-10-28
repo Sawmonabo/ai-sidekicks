@@ -1,7 +1,8 @@
 //! The close of what the shells run in a folder about to be moved or deleted. Each process a shell
 //! started is judged by its own working folder: a shell working inside is ended with its tree, and
 //! under a shell outside each process working inside is ended with every process under it, while
-//! the shell lives.
+//! the shell lives. A process that left its shell's tree, as a daemonized server does, is found by
+//! the shell's nonce in its environment and judged the same way.
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -19,6 +20,7 @@ use sidekicks_workspace::trust_envelope::is_contained_within;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 use tokio::task::JoinError;
 
+use crate::orphan::nonce_search::find_processes_carrying_nonces;
 use crate::record::ShellRecord;
 use crate::table::ShellTable;
 
@@ -70,7 +72,11 @@ impl ShellTable {
             return Ok(());
         }
         let roots = shells.iter().map(|(_, process_id)| *process_id).collect();
-        let roots_inside = end_processes_inside(roots, &folder_key).await?;
+        let nonces = shells
+            .iter()
+            .filter_map(|(shell, _)| shell.spawn_nonce())
+            .collect();
+        let roots_inside = end_processes_inside(roots, nonces, &folder_key).await?;
         let picked: Vec<Arc<ShellRecord>> = shells
             .into_iter()
             .filter(|(_, process_id)| roots_inside.contains(process_id))
@@ -107,14 +113,23 @@ struct TreeProcess {
     working_folder: Option<PathBuf>,
 }
 
-// Ends, under each of `roots`, every process working in the folder whose key is `folder_key` or
-// inside it, with every process under it, and answers the roots that work inside themselves,
-// which are left running with their trees for the caller to end as shells.
+// The processes under one root: a shell's, or one that carries a shell's nonce outside every
+// shell's tree.
+struct ProcessTree {
+    is_shell: bool,
+    processes: Vec<TreeProcess>,
+}
+
+// Ends, under each of the shells `roots` and each process outside their trees that carries one of
+// `nonces`, every process working in the folder whose key is `folder_key` or inside it, with every
+// process under it, and answers the shells that work inside themselves, which are left running
+// with their trees for the caller to close.
 async fn end_processes_inside(
     roots: Vec<u32>,
+    nonces: HashSet<String>,
     folder_key: &Path,
 ) -> Result<HashSet<u32>, FolderShellsCloseError> {
-    let trees = tokio::task::spawn_blocking(move || read_trees(&roots))
+    let trees = tokio::task::spawn_blocking(move || read_trees(&roots, &nonces))
         .await
         .map_err(FolderShellsCloseError::Interrupted)?;
     let mut folders_inside: HashMap<PathBuf, bool> = HashMap::new();
@@ -122,12 +137,12 @@ async fn end_processes_inside(
     let mut ending_ids = Vec::new();
     let mut is_listed = HashSet::new();
     for tree in trees {
-        let Some(root) = tree.first().map(|process| process.id) else {
+        let Some(root) = tree.processes.first().map(|process| process.id) else {
             continue;
         };
         // Each process comes after its parent, so an ending parent is known before its children.
         let mut ending = HashSet::new();
-        for process in &tree {
+        for process in &tree.processes {
             let is_parent_ending = process
                 .parent
                 .is_some_and(|parent| ending.contains(&parent));
@@ -137,7 +152,7 @@ async fn end_processes_inside(
                 continue;
             }
             ending.insert(process.id);
-            if process.id == root {
+            if tree.is_shell && process.id == root {
                 roots_inside.insert(root.as_u32());
             } else if is_listed.insert(process.id) {
                 ending_ids.push(process.id.as_u32());
@@ -171,21 +186,43 @@ async fn is_working_inside(
     Ok(is_inside)
 }
 
-// Every process in each tree under `roots`, in the roots' order, each tree's root first and each
-// process after its parent: one pass of pids and parents for every process to find the trees, then
-// the working folders of their processes alone.
-fn read_trees(roots: &[u32]) -> Vec<Vec<TreeProcess>> {
+// Every process in each tree under the shells `roots`, in their order, then under each topmost
+// process outside those trees carrying one of `nonces`, each tree's root first and each process
+// after its parent: one pass of pids and parents for every process to find the trees, then the
+// working folders of their processes alone. Blocks on the reads.
+fn read_trees(roots: &[u32], nonces: &HashSet<String>) -> Vec<ProcessTree> {
     let mut system = process_table();
     system.refresh_processes_specifics(
         ProcessesToUpdate::All,
         true,
         ProcessRefreshKind::nothing().without_tasks(),
     );
-    let trees: Vec<Vec<Pid>> = roots
+    let mut trees: Vec<(bool, Vec<Pid>)> = roots
         .iter()
-        .map(|root| tree_under(&system, Pid::from_u32(*root)))
+        .map(|root| (true, tree_under(&system, Pid::from_u32(*root))))
         .collect();
-    let pids: Vec<Pid> = trees.iter().flatten().copied().collect();
+    let in_shell_trees: HashSet<Pid> = trees.iter().flat_map(|(_, tree)| tree).copied().collect();
+    let carriers: HashSet<Pid> =
+        find_processes_carrying_nonces(&nonces.iter().map(String::as_str).collect())
+            .into_keys()
+            .map(Pid::from_u32)
+            .collect();
+    let mut escaped: Vec<Pid> = carriers
+        .iter()
+        .copied()
+        .filter(|carrier| !in_shell_trees.contains(carrier))
+        .filter(|carrier| {
+            let parent = system.process(*carrier).and_then(sysinfo::Process::parent);
+            parent.is_none_or(|parent| !carriers.contains(&parent))
+        })
+        .collect();
+    escaped.sort_unstable();
+    trees.extend(
+        escaped
+            .into_iter()
+            .map(|carrier| (false, tree_under(&system, carrier))),
+    );
+    let pids: Vec<Pid> = trees.iter().flat_map(|(_, tree)| tree).copied().collect();
     system.refresh_processes_specifics(
         ProcessesToUpdate::Some(&pids),
         true,
@@ -195,8 +232,10 @@ fn read_trees(roots: &[u32]) -> Vec<Vec<TreeProcess>> {
     );
     trees
         .iter()
-        .map(|tree| {
-            tree.iter()
+        .map(|(is_shell, tree)| ProcessTree {
+            is_shell: *is_shell,
+            processes: tree
+                .iter()
                 .map(|pid| {
                     let process = system.process(*pid);
                     TreeProcess {
@@ -207,7 +246,7 @@ fn read_trees(roots: &[u32]) -> Vec<Vec<TreeProcess>> {
                             .map(Path::to_path_buf),
                     }
                 })
-                .collect()
+                .collect(),
         })
         .collect()
 }
@@ -224,7 +263,10 @@ mod tests {
     use sidekicks_platforms::{harness_test_name, pass_through_start};
     use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 
+    use std::collections::HashSet;
+
     use super::end_processes_inside;
+    use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
 
     // Set on a stand-in's start, so the harness running ignored tests leaves the stand-in idle.
     const STAND_IN_VARIABLE: &str = "SIDEKICKS_TEST_FOLDER_STAND_IN";
@@ -233,7 +275,7 @@ mod tests {
     const READY_LINE: &str = "ready";
     // What a stand-in prints once its child stand-in has ended.
     const CHILD_ENDED_LINE: &str = "child ended";
-    // How long a test waits for a line a stand-in prints.
+    // How long a test waits for a line a stand-in prints or for its end.
     const LINE_WAIT: Duration = Duration::from_secs(30);
 
     // A stand-in process working in a folder, which ends once its standard input closes; its
@@ -247,6 +289,12 @@ mod tests {
         // Starts this test program's stand-in working in `folder`, and its child in
         // `child_folder`, answering once both are ready.
         fn start(folder: &Path, child_folder: Option<&Path>) -> Self {
+            Self::start_carrying(folder, child_folder, None)
+        }
+
+        // Starts a stand-in as [`Self::start`] does, carrying `nonce` in its environment as a
+        // shell's processes carry their shell's.
+        fn start_carrying(folder: &Path, child_folder: Option<&Path>, nonce: Option<&str>) -> Self {
             let program = pass_through_start(&harness_test_name(
                 module_path!(),
                 "folder_process_stand_in",
@@ -261,6 +309,9 @@ mod tests {
                 .stdout(Stdio::piped());
             if let Some(child_folder) = child_folder {
                 command.env(CHILD_FOLDER_VARIABLE, child_folder);
+            }
+            if let Some(nonce) = nonce {
+                command.env(SPAWN_NONCE_ENVIRONMENT_NAME, nonce);
             }
             let mut child = command.spawn().expect("the stand-in starts");
             let mut output =
@@ -286,6 +337,19 @@ mod tests {
                 .try_wait()
                 .expect("the stand-in's exit reads")
                 .is_none()
+        }
+
+        // Whether the stand-in has ended within the wait; a killed process can still be exiting
+        // once its kill's wait answers, so its end is read again until it lands.
+        fn ends_within_wait(&mut self) -> bool {
+            let deadline = Instant::now() + LINE_WAIT;
+            while self.is_running() {
+                if Instant::now() >= deadline {
+                    return false;
+                }
+                thread::sleep(Duration::from_millis(10));
+            }
+            true
         }
 
         // Whether the stand-in prints `line` within the wait, its output read from here on.
@@ -388,6 +452,7 @@ mod tests {
                 outside_shell.process_id(),
                 parent_shell.process_id(),
             ],
+            HashSet::new(),
             &tree_key,
         )
         .await
@@ -402,5 +467,38 @@ mod tests {
             "the child working inside is ended"
         );
         assert!(parent_shell.is_running(), "the shell outside lives");
+    }
+
+    // Kills dropping the nonce search: a process carrying a shell's nonce that left the shell's
+    // tree and works inside is ended, while the shell outside lives.
+    #[tokio::test]
+    async fn a_process_that_left_its_shell_s_tree_is_found_by_its_nonce_and_ended_inside() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let tree = scratch.path().join("tree");
+        let outside = scratch.path().join("outside");
+        for folder in [&tree, &outside] {
+            std::fs::create_dir(folder).expect("a folder is made");
+        }
+        let nonce = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d10";
+        let mut shell = StandIn::start_carrying(&outside, None, Some(nonce));
+        let mut escaped = StandIn::start_carrying(&tree, None, Some(nonce));
+        let tree_key = canonical_folder_path(&tree)
+            .await
+            .expect("the tree's folder resolves");
+
+        let roots_inside = end_processes_inside(
+            vec![shell.process_id()],
+            HashSet::from([nonce.to_owned()]),
+            &tree_key,
+        )
+        .await
+        .expect("the processes inside are ended");
+
+        assert!(roots_inside.is_empty(), "the shell outside is not closed");
+        assert!(
+            escaped.ends_within_wait(),
+            "the process that left the tree is ended"
+        );
+        assert!(shell.is_running(), "the shell outside lives");
     }
 }

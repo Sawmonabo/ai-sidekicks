@@ -45,11 +45,11 @@ pub fn tree_under(system: &System, root: Pid) -> Vec<Pid> {
     tree
 }
 
-/// Ends each of `process_ids` outright in the order given, so a parent listed before its children,
-/// as [`tree_under`] lists them, starts no new one once its children are killed, and answers once
-/// each has exited; a process already gone is skipped. Each is pinned before its kill, so no
-/// process its id passes to meanwhile is ended. Fails with the first error a pin, a kill or a wait
-/// met, every kill still sent, and with `TimedOut` when one outlives the kill's bound.
+/// Ends each of `process_ids` outright in the order given, so with parents listed before their
+/// children, as [`tree_under`] lists them, no ended parent starts another; a process already gone
+/// is skipped. Each is pinned before its kill, so no process its id passes to meanwhile is ended.
+/// Answers once each has exited, on macOS once it has begun its exit. Fails with the first error a
+/// pin, a kill or a wait met, every kill still sent, and with `TimedOut` past the kill's bound.
 pub async fn end_processes(process_ids: Vec<u32>) -> io::Result<()> {
     let (killed, kill_result) = tokio::task::spawn_blocking(move || kill_processes(&process_ids))
         .await
