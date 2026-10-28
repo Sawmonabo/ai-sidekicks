@@ -1,10 +1,16 @@
 //! Codex's own review of a set of changes, started with `review/start` as the turn of the run the
-//! queue admitted. Its start is recorded once Codex took the request; its end once Codex leaves
-//! review mode.
+//! queue admitted: sent on the binding the daemon opened for that run, with the run waiting as the
+//! turn starting next, so every row of the turn has a run. Its start is recorded once Codex took
+//! the request; its end once Codex leaves review mode.
 
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
+use std::time::Duration;
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
@@ -12,19 +18,33 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::{ReviewStartParams, ReviewTarget};
 use crate::driver::codex::run::routes::CodexRunBinding;
-use crate::driver::codex::run::start::daemon_turns::CodexDaemonTurnOpening;
+use crate::driver::codex::run::start::record::{CodexTurnBegin, CodexTurnStartOutcome};
 use crate::driver::codex::run::start::{
     CODEX_TURN_START_TIMEOUT, CodexRunStart, wait_out_stopped_turns,
 };
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::thread::view::read_turn_id;
+use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::contract::StartRunParams;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::run::delivery::InboundDelivery;
 
 const REVIEW_START_METHOD: &str = "review/start";
+
+// Sends the request that makes Codex start the review's turn, on the connection and conversation
+// it names, within the time left of the start's deadline, and answers the turn its reply names.
+type CodexReviewOpening = Arc<
+    dyn Fn(
+            Arc<CodexAppServerConnection>,
+            String,
+            Duration,
+        ) -> BoxFuture<'static, Result<String, CodexError>>
+        + Send
+        + Sync,
+>;
 
 impl CodexRunStart {
     /// Starts Codex's own review of `target` as the turn of the run the queue admitted in
@@ -65,7 +85,7 @@ impl CodexRunStart {
         &self,
         session_id: SessionId,
         target: SessionReviewTarget,
-    ) -> CodexDaemonTurnOpening {
+    ) -> CodexReviewOpening {
         let dispatch = Arc::clone(&self.dependencies.dispatch);
         Arc::new(move |connection, thread_id, timeout| {
             let dispatch = Arc::clone(&dispatch);
@@ -86,6 +106,65 @@ impl CodexRunStart {
             }
             .boxed()
         })
+    }
+
+    // Routes `run_id` to `binding` and sends the turn `opening` makes on it; a failed start leaves
+    // the run no route.
+    async fn send_bound_turn(
+        &self,
+        inbound: &CodexSessionInboundSender,
+        run_id: RunId,
+        binding: CodexRunBinding,
+        opening: CodexReviewOpening,
+    ) -> Result<(), CodexError> {
+        let binding_id = binding.binding_id.clone();
+        self.dependencies
+            .run_routes
+            .bind_run_delivery(run_id, binding);
+        let sent = self
+            .send_opening_turn(inbound, run_id, binding_id, opening)
+            .await;
+        if sent.is_err() {
+            self.dependencies.run_routes.forget_run(run_id);
+        }
+        sent
+    }
+
+    // Sends the opening with the run waiting as the turn starting next, so the turn's first frames
+    // reach it even when they come before the reply; the run's interrupt withdraws it meanwhile.
+    async fn send_opening_turn(
+        &self,
+        inbound: &CodexSessionInboundSender,
+        run_id: RunId,
+        binding_id: RuntimeBindingId,
+        opening: CodexReviewOpening,
+    ) -> Result<(), CodexError> {
+        let withdrawn = Arc::new(AtomicBool::new(false));
+        self.withdrawable(inbound, run_id, Arc::clone(&withdrawn), async {
+            let hold = self.turn_sends.acquire(inbound.session_id()).await;
+            let deadline = CodexTurnEndDeadline::new(CODEX_TURN_START_TIMEOUT);
+            let begin = CodexTurnBegin {
+                run_id,
+                turn: None,
+                binding_id,
+                withdrawn: Some(withdrawn),
+            };
+            let send = self.begin_turn(&hold, inbound, begin, &deadline).await?;
+            let turn_id = opening(
+                Arc::clone(&send.connection),
+                send.thread_id.clone(),
+                deadline.remaining(),
+            )
+            .await;
+            self.settle_turn(
+                inbound,
+                run_id,
+                send.accepted,
+                CodexTurnStartOutcome::of_request(turn_id),
+            )
+            .await
+        })
+        .await
     }
 }
 
