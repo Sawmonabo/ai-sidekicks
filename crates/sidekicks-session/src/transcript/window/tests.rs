@@ -645,3 +645,88 @@ fn a_task_list_call_adds_no_row_and_a_stretch_of_them_is_passed_over() {
     };
     assert_eq!(page.entries.as_slice().len(), 4);
 }
+
+// A read whose stretches are all task-list calls past the request's cap answers an empty page that
+// continues after the last stretch it passed over, and the read from there finds the row behind
+// them. Killed by passing over stretches without a cap (the first page reads on to the row), and
+// by a capped page continuing from where it was asked to read (the second page is empty again).
+#[test]
+fn a_read_past_its_cap_of_task_list_stretches_continues_empty_after_them() {
+    const LIMIT: usize = 2;
+    let log = TranscriptTestLog::new(schema_parts());
+    let session_log = &log.session_log;
+    insert_lead(
+        &session_log.database,
+        session_log.session_id,
+        "test-provider",
+    );
+    let tool_row = |event_type: &str, tool_name: &str, call: usize, body: &str| {
+        session_log
+            .write(
+                json!({
+                    "type": event_type,
+                    "payload": {
+                        "sessionId": session_log.session_id,
+                        "runId": session_log.run_id,
+                        "toolName": tool_name,
+                        "toolCallId": format!("{tool_name}-call-{call}"),
+                    },
+                }),
+                Some(body),
+            )
+            .0
+    };
+    let task_list_events = super::PASSED_OVER_STRETCHES_MAX * LIMIT;
+    let mut last_task_list_event = 0;
+    for call in 0..task_list_events / 2 {
+        tool_row(
+            "agent.toolCall.invoked",
+            "task-list",
+            call,
+            r#"{"tasks":[]}"#,
+        );
+        last_task_list_event = tool_row("agent.toolCall.completed", "task-list", call, "Updated.");
+    }
+    let read_opening = tool_row("agent.toolCall.invoked", "read", 0, "{}");
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_task_list_change()
+        .returning(|call| (call.tool_name == "task-list").then_some(TaskListChange::Nothing));
+    let driver: Arc<dyn ProviderDriver> = Arc::new(driver);
+    let read_after = |after: Value| {
+        read_transcript_window(
+            &session_log.reader(),
+            &|_: &SessionId| None,
+            &|_| Some(Arc::clone(&driver)),
+            &serde_json::from_value(json!({
+                "sessionId": session_log.session_id,
+                "afterCursor": after,
+                "limit": LIMIT,
+            }))
+            .expect("the test's request reads"),
+            MARKDOWN_PARSE,
+        )
+        .expect("the window reads")
+    };
+
+    let TranscriptReadResponse::Continuing(capped) = read_after(cursor(0)) else {
+        panic!("the capped page continues");
+    };
+    let rest = read_after(serde_json::to_value(&capped.next_cursor).expect("a cursor writes"));
+
+    assert!(capped.entries.as_slice().is_empty());
+    assert_eq!(
+        Some(capped.next_cursor),
+        encode_event_cursor(last_task_list_event).ok()
+    );
+    let TranscriptReadResponse::Terminal(rest) = rest else {
+        panic!("the read after the capped page reaches the end of the log");
+    };
+    let sequences: Vec<i64> = rest
+        .entries
+        .as_slice()
+        .iter()
+        .map(|row| i64::from(row.sequence()))
+        .collect();
+    assert_eq!(sequences, [read_opening]);
+}

@@ -16,8 +16,9 @@
 //!
 //! A page stops at the caller's limit or the page byte budget, whichever trips first, and says
 //! whether more remain. One candidate past the limit is read to learn that, never projected. An
-//! event that stands as no row, a task-list call, takes a place in the limit; a page that continues
-//! holds at least one row, so a stretch with none is passed over. Each page carries the facts of
+//! event that stands as no row, a task-list call, takes a place in the limit; a stretch with none is
+//! passed over, so a page that continues holds a row, up to [`PASSED_OVER_STRETCHES_MAX`] stretches
+//! a request, past which the page continues empty after the last. Each page carries the facts of
 //! the runs its rows name, folded from the whole log through the head, which share the page's
 //! budget with its rows.
 
@@ -60,6 +61,10 @@ use crate::transcript::block_cut::BlockParse;
 use crate::transcript::child_run::stamp_child_run_summaries;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
 use crate::transcript::run_facts::TranscriptRunFactsReader;
+
+/// The most stretches of events standing as no row one read passes over: a request projects at
+/// most this many times its limit of events, and past them its page continues empty.
+pub(crate) const PASSED_OVER_STRETCHES_MAX: usize = 4;
 
 /// Why a transcript read failed.
 #[derive(Debug, thiserror::Error)]
@@ -214,9 +219,11 @@ where
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
         let rows_of = RowReads::new(reads, self.reader, self.session_id);
         // A stretch whose every event stands as no row is passed over while more follow, so a page
-        // that continues holds a row.
+        // that continues holds a row, up to the request's cap.
         let mut stretch_after = after_position;
+        let mut stretches = 0;
         let (stretch, mut rows, has_later) = loop {
+            stretches += 1;
             // The read's bound is strict, so the window keeps the event at `before_position`.
             let mut stretch = match before_position {
                 Some(before) if before <= stretch_after => Vec::new(),
@@ -229,7 +236,10 @@ where
             let has_later = stretch.len() > limit;
             stretch.truncate(limit);
             let rows = self.project(&stretch, head)?;
-            let Some(newest) = stretch.last().filter(|_| rows.is_empty() && has_later) else {
+            let Some(newest) = stretch
+                .last()
+                .filter(|_| rows.is_empty() && has_later && stretches < PASSED_OVER_STRETCHES_MAX)
+            else {
                 break (stretch, rows, has_later);
             };
             stretch_after = i64::from(newest.sequence);
@@ -260,8 +270,7 @@ where
             };
             return Ok(TranscriptReadResponse::Continuing(
                 TranscriptReadContinuing {
-                    entries: ReadEntries::new(rows)
-                        .expect("a page that leaves more holds 1 to limit rows"),
+                    entries: ReadEntries::new(rows).expect("a page holds at most limit rows"),
                     runs,
                     has_more: True::default(),
                     next_cursor: cursor_at(i64::from(continues_after)),
@@ -293,15 +302,20 @@ where
         limit: usize,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
         let rows_of = RowReads::new(reads, self.reader, self.session_id);
-        // A stretch whose every event stands as no row is passed over while more precede it.
+        // A stretch whose every event stands as no row is passed over while more precede it, up
+        // to the request's cap.
         let mut stretch_before = before_position;
+        let mut stretches = 0;
         let (stretch, mut rows, has_earlier) = loop {
+            stretches += 1;
             let mut candidates =
                 rows_of.rows_at_or_before(stretch_before, count_bound(limit + 1))?;
             let has_earlier = candidates.len() > limit;
             let stretch = candidates.split_off(candidates.len().saturating_sub(limit));
             let rows = self.project(&stretch, head)?;
-            let Some(oldest) = stretch.first().filter(|_| rows.is_empty() && has_earlier) else {
+            let Some(oldest) = stretch.first().filter(|_| {
+                rows.is_empty() && has_earlier && stretches < PASSED_OVER_STRETCHES_MAX
+            }) else {
                 break (stretch, rows, has_earlier);
             };
             stretch_before = i64::from(oldest.sequence) - 1;
@@ -334,8 +348,7 @@ where
             };
             return Ok(TranscriptReadResponse::Continuing(
                 TranscriptReadContinuing {
-                    entries: ReadEntries::new(entries)
-                        .expect("a page that leaves more holds 1 to limit rows"),
+                    entries: ReadEntries::new(entries).expect("a page holds at most limit rows"),
                     runs,
                     has_more: True::default(),
                     next_cursor: cursor_at(i64::from(continues_before) - 1),

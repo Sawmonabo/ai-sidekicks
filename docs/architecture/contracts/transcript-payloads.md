@@ -33,9 +33,13 @@ interface TranscriptReadRequest {
 // §Interfaces And Contracts, "cursor-based continuation"). The terminal arm PERMITS one and never
 // requires it — the two members answer different questions, and a client that has just read to the
 // end and now resumes session.event.subscribe from exactly there needs that position. The
-// continuing arm additionally requires entries to be NON-EMPTY (Plan-010 Phase 1): a page promising
-// more and delivering none advances no cursor while reading like progress, so the client re-asks
-// from the same position and loops. The terminal arm keeps no floor — an empty final page is the
+// continuing arm's nextCursor must ADVANCE past the request's cursor (Plan-010 Phase 1): a page
+// promising more that moves no cursor reads like progress while the client re-asks from the same
+// position and loops. So a continuing page holds at least one row, with one exception: an event
+// that stands as no row (a task-list call) is passed over, and a read passes over at most a fixed
+// number of stretches of them, each its limit long, so one request never projects the whole log;
+// past that cap the page continues EMPTY, its nextCursor after the last event it passed over, and
+// the client reads on from there. The terminal arm keeps no floor — an empty final page is the
 // honest answer to an exhausted continuation and to a filtered read that matched nothing. entries
 // is additionally bounded by PAGE_MAX_BYTES less the bytes of runs (see this section's opening
 // note). runs carries the facts of each run the entries name, folded over the whole log, one per
@@ -361,9 +365,9 @@ interface TranscriptChildRunExpandRequest {
 // Discriminated on hasMore exactly as TranscriptReadResponse is, and for the same reason: a child
 // run is not inherently smaller than a session window — a long-running subagent produces more rows
 // than fit one frame — so the expansion needs the same continuation, on the same two arms, with the
-// same rule about which of them may carry a cursor — and the same non-empty floor on the continuing
-// arm, for the same reason: a child run's expansion loops a client on a repeated cursor exactly as
-// a session read does. Two further rules the schema enforces (Plan-010 Phase 1): every entry that
+// same rule about which of them may carry a cursor — and the same advancing cursor on the
+// continuing arm, empty only past the same cap of stretches passed over, for the same reason: a
+// child run's expansion loops a client on a repeated cursor exactly as a session read does. Two further rules the schema enforces (Plan-010 Phase 1): every entry that
 // carries a run identity must carry THIS run's (the general arm is exempt, having none — a
 // session-scoped row inside a child's window is context, not misattribution), and runId !==
 // parentRunId, since a run that is its own parent makes the lineage graph cyclic and every walk of

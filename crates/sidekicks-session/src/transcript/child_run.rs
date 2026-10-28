@@ -42,7 +42,9 @@ use sidekicks_store::transcript::rejoin::{row_condition_sql, stored_patch_part_s
 use crate::run::refusals::RunRefusal;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::projector::project_window;
-use crate::transcript::window::{TranscriptReadError, read_transcript_head};
+use crate::transcript::window::{
+    PASSED_OVER_STRETCHES_MAX, TranscriptReadError, read_transcript_head,
+};
 
 /// The payload member of an `agent.run.queued` that names the run it is a child of.
 const PARENT_RUN_ID_PAYLOAD_KEY: &str = "parentRunId";
@@ -323,9 +325,11 @@ where
         ));
     };
     // A stretch whose every event stands as no row is passed over while more follow, so a page
-    // that continues holds a row.
+    // that continues holds a row, up to the request's cap.
     let mut stretch_after = after_position;
+    let mut stretches = 0;
     let (stretch, mut rows, has_later) = loop {
+        stretches += 1;
         let mut stretch = reads.read_envelopes(
             &RUN_ROWS_AFTER_SQL,
             named_params! {
@@ -347,7 +351,10 @@ where
             head,
             parse,
         )?;
-        let Some(newest) = stretch.last().filter(|_| rows.is_empty() && has_later) else {
+        let Some(newest) = stretch
+            .last()
+            .filter(|_| rows.is_empty() && has_later && stretches < PASSED_OVER_STRETCHES_MAX)
+        else {
             break (stretch, rows, has_later);
         };
         stretch_after = i64::from(newest.sequence);
@@ -386,8 +393,7 @@ where
                 run_id,
                 parent_run_id,
                 state: run.state,
-                entries: ReadEntries::new(rows)
-                    .expect("a page that leaves more holds 1 to limit rows"),
+                entries: ReadEntries::new(rows).expect("a page holds at most limit rows"),
                 has_more: True::default(),
                 next_cursor: cursor_at(i64::from(continues_after)),
                 joined_through,
