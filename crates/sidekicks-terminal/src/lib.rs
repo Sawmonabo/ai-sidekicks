@@ -413,7 +413,7 @@ impl Terminals {
     }
 }
 
-// The process id of the program `entry` started, while its exit has not come.
+/// The process id of the program `entry` started, while its exit has not come.
 fn running_process_id(entry: &TerminalEntry) -> Option<u32> {
     if entry.control.has_child_exited() {
         return None;
