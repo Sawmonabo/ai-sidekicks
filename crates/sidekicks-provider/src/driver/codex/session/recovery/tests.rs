@@ -61,6 +61,16 @@ impl Steps {
     }
 }
 
+// How many times the queue heard `session_id`'s process gone.
+fn gone_steps(steps: &Steps, session_id: SessionId) -> usize {
+    let gone = format!("gone {session_id}");
+    steps
+        .read()
+        .iter()
+        .filter(|(step, _)| *step == gone)
+        .count()
+}
+
 struct HeardDenials(Arc<Steps>);
 
 impl ReviewerDenialPort for HeardDenials {
@@ -256,10 +266,13 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                         .end_turns_on_exit(&service, Some(exit_code(code)))
                         .await;
                 }
-                // The exit read wins over the failure of the restart that filled the window.
+                // The exit read wins over the failure of the restart that filled the window, and the
+                // queue hears the session's process gone at the crash loop itself.
+                let gone_before = gone_steps(&steps, session_id);
                 recovery
                     .crash_loop(&service, Some(&restart_failure()))
                     .await;
+                assert_eq!(gone_steps(&steps, session_id), gone_before + 1);
                 recovery.forget_exit(&service);
                 recovery
                     .recover(&service, CodexServiceRecoveryCause::PersonRestart)

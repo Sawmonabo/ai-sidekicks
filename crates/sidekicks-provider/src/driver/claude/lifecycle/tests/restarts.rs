@@ -2,7 +2,7 @@
 //! presses each end lets go.
 
 use std::pin::pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rstest::rstest;
@@ -30,6 +30,7 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::SessionProcessState;
+use crate::driver::ports::ProcessGoneListener;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
     ResumeSessionParams, UpdateSessionModeParams,
@@ -192,6 +193,47 @@ async fn a_settle_during_the_crash_wait_answers_once_the_restart_relaunched() {
         .await
         .expect("the run starts on the relaunched process");
     assert_eq!(relaunched.user_frames().len(), 1);
+}
+
+// The sessions the queue heard gone, in order.
+#[derive(Default)]
+struct HeardGone(Mutex<Vec<SessionId>>);
+
+impl ProcessGoneListener for HeardGone {
+    fn process_gone(&self, session_id: SessionId) {
+        self.0.lock().expect("the gone list locks").push(session_id);
+    }
+}
+
+// Killed by a failed relaunch that leaves the queue untold: its next run would open the kept
+// entry of a process that never came back. The exit tells it once, the failed relaunch again.
+#[tokio::test(start_paused = true)]
+async fn a_restart_whose_relaunch_fails_tells_the_queue_the_process_is_gone() {
+    let fixture = ScriptedDriver::new();
+    let heard = Arc::new(HeardGone::default());
+    fixture
+        .services
+        .ports
+        .process_gone
+        .register(heard.clone())
+        .expect("the gone listener registers once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_failed_session("the relaunch is refused");
+
+    ScriptedDriver::exit(&first);
+    fixture.relaunches.reported(1).await;
+
+    assert_eq!(
+        *heard.0.lock().expect("the gone list locks"),
+        [session_id, session_id]
+    );
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Down
+    );
 }
 
 // What a resume arriving during a restart's relaunch asks for, beside the relaunched process.
