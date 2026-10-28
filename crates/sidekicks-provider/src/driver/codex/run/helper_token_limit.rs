@@ -3,27 +3,19 @@
 
 use serde::Deserialize;
 
-use crate::driver::codex::app_server_protocol::ThreadTurnsListParams;
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::history::read_codex_newest_turn;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::DriverError;
 use crate::driver::run_control::HelperTokenLimitParams;
 
-const THREAD_TURNS_LIST_METHOD: &str = "thread/turns/list";
-
-// The members of a `thread/turns/list` page this stop reads.
+// The member of a listed turn this stop reads.
 #[derive(Deserialize)]
-struct NewestTurnPage {
-    data: Vec<ListedTurn>,
-}
-
-#[derive(Deserialize)]
-struct ListedTurn {
-    id: String,
-    status: String,
+struct ListedTurnStatus {
+    status: Option<String>,
 }
 
 impl CodexDriver {
@@ -43,34 +35,19 @@ impl CodexDriver {
     }
 }
 
-/// Interrupts the running turn of the helper conversation `helper_thread_id`, read as the newest
-/// turn `thread/turns/list` names; a helper whose newest turn has ended is left as it is.
+/// Interrupts the running turn of the helper conversation `helper_thread_id`, read as its newest
+/// turn; a helper whose newest turn has ended, or that no message has reached yet, is left as it
+/// is.
 async fn stop_codex_helper_turn(
     connection: &CodexAppServerConnection,
     helper_thread_id: &str,
 ) -> Result<(), CodexError> {
-    let params = ThreadTurnsListParams {
-        cursor: None,
-        items_view: None,
-        limit: Some(1),
-        // Codex lists the newest turn first by default.
-        sort_direction: None,
-        thread_id: helper_thread_id.to_owned(),
-    };
-    let reply = connection
-        .request(THREAD_TURNS_LIST_METHOD, &params)
-        .await?;
-    let page =
-        read_codex_object::<NewestTurnPage>(reply.get()).ok_or_else(|| CodexError::Transport {
-            detail: format!(
-                "The Codex app-server \"{THREAD_TURNS_LIST_METHOD}\" reply carried no page of turns."
-            ),
-            cause: None,
-        })?;
-    let Some(newest) = page.data.into_iter().next() else {
+    let Some(newest) = read_codex_newest_turn(connection, helper_thread_id).await? else {
         return Ok(());
     };
-    if CodexTurnStatus::read(&newest.status) != Some(CodexTurnStatus::InProgress) {
+    let status =
+        read_codex_object::<ListedTurnStatus>(newest.turn.get()).and_then(|listed| listed.status);
+    if status.as_deref().and_then(CodexTurnStatus::read) != Some(CodexTurnStatus::InProgress) {
         return Ok(());
     }
     interrupt_codex_turn(connection, helper_thread_id, &newest.id).await?;
@@ -97,13 +74,19 @@ mod tests {
     const HELPER_TURN: &str = "helper-turn";
 
     // A helper running a turn has that turn interrupted on its own conversation, and only that
-    // one; a helper whose newest turn ended is sent no interrupt.
+    // one; a helper whose newest turn ended, or that no message has reached yet, is sent no
+    // interrupt and its stop succeeds. The last case is killed by reading Codex's refusal for a
+    // conversation with no turn as a failed stop.
     #[rstest]
-    #[case::running("inProgress", true)]
-    #[case::ended("completed", false)]
+    #[case::running(json!({ "result": { "data": [{ "id": HELPER_TURN, "status": "inProgress" }] } }), true)]
+    #[case::ended(json!({ "result": { "data": [{ "id": HELPER_TURN, "status": "completed" }] } }), false)]
+    #[case::no_turn_yet(
+        json!({ "error": { "code": -32600, "message": "thread helper-thread is not materialized yet" } }),
+        false
+    )]
     #[tokio::test]
     async fn interrupts_only_the_running_turn_of_the_helpers_own_conversation(
-        #[case] status: &str,
+        #[case] answer: serde_json::Value,
         #[case] is_interrupted: bool,
     ) {
         let (events, _frames) = CodexDetachedFrames::new();
@@ -123,10 +106,9 @@ mod tests {
         assert_eq!(list["method"], "thread/turns/list");
         assert_eq!(list["params"]["threadId"], HELPER_THREAD);
         assert_eq!(list["params"]["limit"], 1);
-        script.answer(
-            &list,
-            &json!({ "data": [{ "id": HELPER_TURN, "status": status }], "nextCursor": null }),
-        );
+        let mut reply = answer;
+        reply["id"] = list["id"].clone();
+        script.send(&reply);
 
         if is_interrupted {
             let interrupt = script.next_sent().await;
