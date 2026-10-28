@@ -311,6 +311,18 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         self.child_attributions_by_thread_id.get(child_thread_id)
     }
 
+    /// The subagent ids of every registered child the provider named one for: the helpers the
+    /// router holds until each one's end.
+    pub(crate) fn held_subagent_ids(&self) -> HashSet<String> {
+        self.child_attributions_by_thread_id
+            .values()
+            .filter_map(|attribution| match attribution {
+                ChildSpendAttribution::Subagent { subagent_id } => Some(subagent_id.clone()),
+                ChildSpendAttribution::ParentRun => None,
+            })
+            .collect()
+    }
+
     /// Releases a completed child thread's state, so the registry does not grow with every child
     /// a long session starts, and sheds with a diagnostic each frame still held pending it.
     /// Completion is terminal for the identity: a later frame naming it waits again and ends in

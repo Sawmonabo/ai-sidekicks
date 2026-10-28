@@ -4,6 +4,7 @@
 //! turn, and a run another caller started since keeps the hold it took. Whether a pending relaunch
 //! may go is read from the hold afterwards.
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_std::mutex_lock::lock;
@@ -32,9 +33,14 @@ pub(crate) struct ClaudeTurnSettlement {
 }
 
 impl ClaudeTurnSettlement {
-    /// Settles the live session's turn on the session's task, and answers whether nothing holds the
-    /// session's turn now, so a relaunch that waited for it may go.
-    pub(crate) async fn settle_turn(&self, live: &LiveClaudeSession) -> bool {
+    /// Settles the live session's turn on the session's task, `held_helper_ids` the helpers its
+    /// routing still held then, and answers whether nothing holds the session's turn now, so a
+    /// relaunch that waited for it may go.
+    pub(crate) async fn settle_turn(
+        &self,
+        live: &LiveClaudeSession,
+        held_helper_ids: &HashSet<String>,
+    ) -> bool {
         let session_id = live.session_id;
         // A turn that ended before its handshake reported settles on the state the process holds.
         if let Some(settled) = self
@@ -55,7 +61,7 @@ impl ClaudeTurnSettlement {
         // compaction's own, whose frame came first if it compacted.
         self.pending_compactions
             .observe_turn_end(&session_id.to_string());
-        let admitted = lock(&self.helpers).turn_ended(&session_id);
+        let admitted = lock(&self.helpers).turn_ended(&session_id, held_helper_ids);
         for request_id in admitted {
             answer_claude_request(
                 &*live.channel,

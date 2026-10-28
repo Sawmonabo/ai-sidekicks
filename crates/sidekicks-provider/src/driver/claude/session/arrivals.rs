@@ -7,6 +7,7 @@
 
 pub(crate) mod task;
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -46,8 +47,12 @@ tokio::task_local! {
 pub(crate) enum ClaudeSessionArrival {
     /// A stream frame of the session's process, routed on the reader.
     Frame(Box<ClaudeRoutedFrame>),
-    /// The lead's turn ended: its settlement follows the turn-ending `result`.
-    Terminal,
+    /// The lead's turn ended: its settlement follows the turn-ending `result`, with the helpers
+    /// the routing band still held when the reader read it.
+    Terminal {
+        /// The subagent ids of the helpers the band held.
+        held_helper_ids: HashSet<String>,
+    },
     /// A request the process sent, or its withdrawal.
     Request(ClaudeInboundRequestEvent),
     /// The process ended; the last arrival.
@@ -383,7 +388,9 @@ impl ClaudeProcessListener for ClaudeSessionListener {
                 turn_at_read,
             })));
         if is_turn_ending {
-            self.arrivals.push(ClaudeSessionArrival::Terminal);
+            let held_helper_ids = lock(&self.band).router.held_subagent_ids();
+            self.arrivals
+                .push(ClaudeSessionArrival::Terminal { held_helper_ids });
         }
     }
 
@@ -448,7 +455,7 @@ mod tests {
                         "delivery".to_owned()
                     }
                     ClaudeSessionArrival::Deliver(_)
-                    | ClaudeSessionArrival::Terminal
+                    | ClaudeSessionArrival::Terminal { .. }
                     | ClaudeSessionArrival::Exit(_) => "other".to_owned(),
                 };
                 self.handled.push(name);

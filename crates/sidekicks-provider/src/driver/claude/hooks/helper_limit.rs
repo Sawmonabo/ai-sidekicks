@@ -143,13 +143,22 @@ impl ClaudeHelperLimit {
         helpers.admit_held_starts()
     }
 
-    /// At the end of the lead's turn, an admitted start that never announced a helper never will:
-    /// it is let go, and the held starts it frees are answered by their request ids.
-    pub(crate) fn turn_ended(&mut self, session_id: &SessionId) -> Vec<String> {
+    /// At the end of the lead's turn, an admitted start that never announced a helper never will,
+    /// and a running helper the routing no longer holds, `held_helper_ids` naming those it does,
+    /// will send no end: both are let go, and the held starts they free are answered by their
+    /// request ids.
+    pub(crate) fn turn_ended(
+        &mut self,
+        session_id: &SessionId,
+        held_helper_ids: &HashSet<String>,
+    ) -> Vec<String> {
         let Some(helpers) = self.sessions.get_mut(session_id) else {
             return Vec::new();
         };
         helpers.admitted_starts.clear();
+        helpers
+            .running_helper_ids
+            .retain(|helper_id| held_helper_ids.contains(helper_id));
         helpers.admit_held_starts()
     }
 
@@ -173,6 +182,7 @@ impl ClaudeHelperLimit {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::num::NonZeroUsize;
 
     use sidekicks_contracts::session::id::SessionId;
@@ -218,7 +228,11 @@ mod tests {
             limit.observe_lifecycle(&session_id, &started),
             Vec::<String>::new()
         );
-        assert_eq!(limit.turn_ended(&session_id), Vec::<String>::new());
+        let still_held = HashSet::from(["h1".to_owned()]);
+        assert_eq!(
+            limit.turn_ended(&session_id, &still_held),
+            Vec::<String>::new()
+        );
 
         let completed = lifecycle(SubagentLifecycleEventType::Completed, "t1");
         assert_eq!(limit.observe_lifecycle(&session_id, &completed), ["r2"]);
@@ -228,7 +242,18 @@ mod tests {
     fn a_turn_end_frees_an_admitted_start_that_never_announced() {
         let (mut limit, session_id) = one_admitted_one_held();
 
-        assert_eq!(limit.turn_ended(&session_id), ["r2"]);
+        assert_eq!(limit.turn_ended(&session_id, &HashSet::new()), ["r2"]);
+    }
+
+    // Killed by a turn's end that keeps counting a helper the routing no longer holds, which
+    // holds every later start for the process's life.
+    #[test]
+    fn a_turn_end_frees_a_start_held_behind_a_helper_that_never_ended() {
+        let (mut limit, session_id) = one_admitted_one_held();
+        let started = lifecycle(SubagentLifecycleEventType::Started, "t1");
+        limit.observe_lifecycle(&session_id, &started);
+
+        assert_eq!(limit.turn_ended(&session_id, &HashSet::new()), ["r2"]);
     }
 
     #[test]
@@ -236,6 +261,9 @@ mod tests {
         let (mut limit, session_id) = one_admitted_one_held();
         limit.withdraw_start(&session_id, "r2");
 
-        assert_eq!(limit.turn_ended(&session_id), Vec::<String>::new());
+        assert_eq!(
+            limit.turn_ended(&session_id, &HashSet::new()),
+            Vec::<String>::new()
+        );
     }
 }

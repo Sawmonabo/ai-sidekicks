@@ -333,8 +333,13 @@ impl ClaudeSessionArrivalHandler for ClaudeSessionTask {
         async move {
             match arrival {
                 ClaudeSessionArrival::Frame(routed) => self.take_frame(*routed).await,
-                ClaudeSessionArrival::Terminal => {
-                    if self.services.settlement.settle_turn(&self.live).await {
+                ClaudeSessionArrival::Terminal { held_helper_ids } => {
+                    let is_settled = self
+                        .services
+                        .settlement
+                        .settle_turn(&self.live, &held_helper_ids)
+                        .await;
+                    if is_settled {
                         self.services.restarts.turn_settled(&self.live);
                     }
                 }
