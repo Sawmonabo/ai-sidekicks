@@ -257,12 +257,11 @@ fn group_name_taken(name: &str) -> DomainError {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use rusqlite::{Connection, params};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::repo::mount::ExecutionMode;
-    use std::time::Duration;
-
     use sidekicks_contracts::session::directory::{SessionListChange, SessionListEntry};
     use sidekicks_contracts::session::groups::{
         SessionGroupCreateRequest, SessionGroupMoveRequest, SessionGroupRenameRequest,
