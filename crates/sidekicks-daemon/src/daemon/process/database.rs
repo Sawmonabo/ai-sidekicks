@@ -63,6 +63,7 @@ use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
 use sidekicks_session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
@@ -107,7 +108,9 @@ use sidekicks_workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPA
 use sidekicks_workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
 use sidekicks_workspace::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::creation::WORKTREE_CREATOR_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
 use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
@@ -177,6 +180,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + SESSION_DRAFT_STORE_STATEMENT_CAPACITY
     + SESSION_LINK_SERVICE_STATEMENT_CAPACITY
     + SESSION_LIST_ROWS_STATEMENT_CAPACITY
+    + SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY
     + SESSION_PURGE_STATEMENT_CAPACITY
     + SESSION_SERVICE_STATEMENT_CAPACITY
     + SESSION_TAG_SERVICE_STATEMENT_CAPACITY
@@ -191,7 +195,9 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY
     + WORKFLOW_RUN_STORE_STATEMENT_CAPACITY
     + WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY
-    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
+    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY
+    + WORKTREE_CREATOR_STATEMENT_CAPACITY
+    + WORKTREE_SERVICE_STATEMENT_CAPACITY;
 
 /// How the writer's open fails, as [`DatabaseWriter::open`] reports the schema's opener.
 type WriterOpenFailure =
