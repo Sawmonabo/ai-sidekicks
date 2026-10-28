@@ -4,6 +4,7 @@
 //! second one before its warning, or still waiting when its turn ends, goes without a sentence.
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::event::usage::{
     AgentTurnReroutedPayload, ModelRerouteCause, ModelRerouteScope,
 };
@@ -60,7 +61,7 @@ pub(crate) fn hold_reroute(
 ) -> Option<CodexRowDelivery> {
     let thread_id = read_non_empty_string(params, "threadId")?;
     let from_model = event_text(read_non_empty_string(params, "fromModel")?)?;
-    let to_model = event_text(read_non_empty_string(params, "toModel")?)?;
+    let to_model = ProviderToken::new(read_non_empty_string(params, "toModel")?.to_owned()).ok()?;
     let is_cyber = params.get("reason").and_then(Value::as_str) == Some(CODEX_CYBER_REROUTE_REASON);
     let row = AgentTurnReroutedPayload {
         session_id: run.session_id,

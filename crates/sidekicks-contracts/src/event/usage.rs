@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent::definition::AgentId;
+use crate::agent::definition::binding::ProviderToken;
 use crate::context_window::ContextWindowSource;
 use crate::event::envelope::{
     SourceEpoch, SourcePosition, check_epoch_stamp, epoch_stamp_dependent_required,
@@ -558,8 +559,9 @@ pub struct AgentTurnReroutedPayload {
     pub agent_id: Option<AgentId>,
     /// The model the turn was asked of.
     pub from_model: FreeFormText<EVENT_FIELD_MAX_LEN>,
-    /// The model the turn ran on, and the model it is priced at.
-    pub to_model: FreeFormText<EVENT_FIELD_MAX_LEN>,
+    /// The model the turn ran on, and the model it is priced at; a session-long move makes it the
+    /// model the session runs on, so it takes a model id's bound.
+    pub to_model: ProviderToken,
     /// How long the move holds.
     pub scope: ModelRerouteScope,
     /// The provider's own sentence, absent when it sent none.
