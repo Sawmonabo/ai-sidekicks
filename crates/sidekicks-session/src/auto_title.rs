@@ -6,7 +6,7 @@
 //! whose name the person clears is named again the same way, a pass under way finishing as that
 //! naming, and the fresh name is told to its providers, since no provider takes an empty name. A
 //! session left unnamed while the daemon was not following it is named at the next start, one
-//! session at a time.
+//! session at a time. The same name, or those first words, give a worktree's name its title.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -455,6 +455,40 @@ pub fn session_title_words(
     }
 }
 
+/// Why a session's title words could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionTitleWordsReadError {
+    /// SQLite refused the read.
+    #[error("a read of the session's name and first message failed")]
+    Read(#[from] rusqlite::Error),
+    /// No read connection could be had.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
+}
+
+/// The words `session_id`'s title gives a worktree's name, read from its stored name and first
+/// message as [`session_title_words`] reads them, `fallback_message` standing in for a first
+/// message not yet recorded; `None` for a session with no row. Fails as the read fails.
+pub async fn read_session_title_words(
+    reads: &DatabaseReadPool,
+    session_id: SessionId,
+    fallback_message: Option<String>,
+) -> Result<Option<String>, SessionTitleWordsReadError> {
+    reads
+        .read(ReadLength::Short, move |reader| {
+            Ok(
+                read_naming_source(reader, &session_id)?.map(|(name, first_message_preview)| {
+                    session_title_words(
+                        name.as_deref(),
+                        first_message_preview.as_deref(),
+                        fallback_message.as_deref(),
+                    )
+                }),
+            )
+        })
+        .await
+}
+
 /// The fallback name a session takes from its first message: the message's whole words, split at
 /// ECMAScript whitespace and joined by single spaces, up to [`DERIVED_NAME_MAX_CODE_POINTS`]; a
 /// first word longer than that is cut at it. Empty when the message has no words.
@@ -514,16 +548,7 @@ fn read_naming_input(
     if completed_at.is_some_and(|sequence| i64::from(sequence) != first_sequence) {
         return Ok(None);
     }
-    let source = snapshot
-        .prepare_cached(NAMING_SOURCE_SQL)?
-        .query_row(named_params! { "@sessionId": session.as_str() }, |row| {
-            Ok((
-                row.get::<_, Option<String>>(0)?,
-                row.get::<_, Option<String>>(1)?,
-            ))
-        })
-        .optional()?;
-    let Some((None, Some(first_message))) = source else {
+    let Some((None, Some(first_message))) = read_naming_source(&snapshot, session_id)? else {
         return Ok(None);
     };
     let place = read_working_folder(&snapshot, session_id)?.place;
@@ -535,6 +560,20 @@ fn read_naming_input(
         provider,
         first_reply,
     }))
+}
+
+// `session_id`'s stored name and first message preview; `None` for a session with no row.
+fn read_naming_source(
+    reader: &Connection,
+    session_id: &SessionId,
+) -> rusqlite::Result<Option<(Option<String>, Option<String>)>> {
+    reader
+        .prepare_cached(NAMING_SOURCE_SQL)?
+        .query_row(
+            named_params! { "@sessionId": session_id.text().as_str() },
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
 }
 
 // The run's reply messages in order, joined, read only as far as the pass's bound and cut there
