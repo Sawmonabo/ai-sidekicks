@@ -583,7 +583,13 @@ methods! {
             mutating: true,
             params: SessionSideQuestionAskRequest,
             result: SessionSideQuestionAskResponse,
-            refusals: [SessionNotFound, ProviderNotFound, ProviderUnavailable, ProviderTimeout],
+            refusals: [
+                SessionNotFound,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SessionSideQuestionRefused,
+            ],
         },
         /// Queues the provider's own review.
         SessionCodeReviewStart = mutation "session.codeReview.start" {

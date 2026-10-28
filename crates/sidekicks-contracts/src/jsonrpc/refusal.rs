@@ -666,6 +666,9 @@ refusal_codes! {
     SessionRecoveryRefused = "session.recovery.refused" (FailedPrecondition, 409);
     /// Raised by `session.reviewNote.update` and `session.reviewNote.add`.
     SessionReviewNoteNotFound = "session.reviewNote.notFound" (NotFound, 404);
+    /// The model refused a `session.sideQuestion.ask` question, so no answer lands
+    /// (`data.fields`: `sessionId`, `sideQuestionId`, `cause`, the refusal as the provider gave it).
+    SessionSideQuestionRefused = "session.sideQuestion.refused" (FailedPrecondition, 409);
     /// A `session.search` `afterCursor` the daemon did not write, one written for another query, or
     /// one whose search the daemon no longer holds.
     SessionSearchCursorUnresolvable = "session.search.cursorUnresolvable" (InvalidArgument, 400);

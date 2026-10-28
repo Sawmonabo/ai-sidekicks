@@ -11,6 +11,7 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
+use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -28,6 +29,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -233,8 +235,8 @@ impl ClaudeSessionControls {
     /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
     /// plan mode that keeps nothing, and resolves once it is answered: the answer is appended as a
     /// row, its usage metered on the session through `usage` less the copied conversation's own.
-    /// Fails as the copy cannot be composed or its turn fails, and when the model refuses the
-    /// question or its words cannot be stored.
+    /// Refused `session.sideQuestion.refused` when the model refuses the question; fails as the
+    /// copy cannot be composed or its turn fails, and when its words cannot be stored.
     pub(crate) async fn ask_side_question(
         &self,
         session_id: SessionId,
@@ -246,8 +248,7 @@ impl ClaudeSessionControls {
         let reply = self
             .run_side_question(copy, question.clone(), usage)
             .await?;
-        let row = side_question_row(session_id, side_question_id, question, reply)
-            .map_err(|error| DriverError::Internal(Box::new(error)))?;
+        let row = side_question_row(session_id, side_question_id, question, reply)?;
         self.deliver(session_id, InboundDelivery::SessionEvent { row })
             .await;
         Ok(())
@@ -595,30 +596,31 @@ fn meter_side_question(
     }
 }
 
-// Why a side question's answer is not stored.
-#[derive(Debug, thiserror::Error)]
-enum ClaudeSideQuestionError {
-    // The model refused it; the error names only that, since a diagnostic never carries the
-    // model's own words.
-    #[error("the model refused the side question")]
-    Refused,
-    // The question or the answer is blank, holds a NUL or passes the cap.
-    #[error("the side question or its answer cannot be stored")]
-    Unstorable(#[source] TextError),
-}
-
-// The answered row of a side question, or why it has none.
+// The answered row of a side question; refused `session.sideQuestion.refused`, the refusal as the
+// provider gave it in its detail, when the model refused it, and a fault when the question or the
+// answer is blank, holds a NUL or passes the cap.
 fn side_question_row(
     session_id: SessionId,
     side_question_id: SideQuestionId,
     question: String,
     reply: ClaudeOneTurnReply,
-) -> Result<SessionScopedRow, ClaudeSideQuestionError> {
-    if reply.refusal.is_some() {
-        return Err(ClaudeSideQuestionError::Refused);
+) -> Result<SessionScopedRow, DriverError> {
+    if let Some(cause) = reply.refusal {
+        return Err(DriverError::Refused(
+            DomainError::new(
+                "The model refused the side question",
+                RefusalCode::SessionSideQuestionRefused,
+            )
+            .with_detail(json!({
+                "sessionId": session_id,
+                "sideQuestionId": side_question_id,
+                "cause": cause,
+            })),
+        ));
     }
-    let question = FreeFormText::new(question).map_err(ClaudeSideQuestionError::Unstorable)?;
-    let answer = FreeFormText::new(reply.text).map_err(ClaudeSideQuestionError::Unstorable)?;
+    let unstorable = |error: TextError| DriverError::Internal(Box::new(error));
+    let question = FreeFormText::new(question).map_err(unstorable)?;
+    let answer = FreeFormText::new(reply.text).map_err(unstorable)?;
     Ok(SessionScopedRow::SideQuestionAnswered(
         SessionSideQuestionAnsweredPayload {
             session_id,
