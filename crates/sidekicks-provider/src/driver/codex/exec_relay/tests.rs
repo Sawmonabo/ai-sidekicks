@@ -1,5 +1,7 @@
-use std::path::Path;
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
 use serde_json::{Map, Value, json};
@@ -33,14 +35,21 @@ use crate::command::running_set::RunningCommandSets;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+use crate::driver::codex::service::supervisor::test_service::{
+    TestCodexProgram, UnheardEvents, start_scripted_codex_service, test_codex_service_dependencies,
+};
+use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
+use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
+use crate::driver::codex::thread::view::{THREAD_START_METHOD, TURN_START_METHOD};
 use crate::driver::contract::DriverError;
 use crate::driver::test_registry::new_run_id;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::port::running_command_publisher::{
     CommandStart, RunningCommandParams, RunningCommandPublisher as _,
 };
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 const THREAD: &str = "thread-1";
 const COPY_THREAD: &str = "thread-copy";
@@ -597,4 +606,123 @@ async fn stops_only_on_codex_terminated() {
             Err(other) => panic!("the stop failed otherwise: {other:?}"),
         }
     }
+}
+
+/// The one command the parity turn asks Codex to run: two lines, one on standard error, and a
+/// failing exit code, so output, order and code are all compared.
+const PARITY_COMMAND: &str = "printf 'one\\n'; printf 'two\\n' >&2; exit 3";
+
+/// How long the parity turn may take on a real account.
+const PARITY_TURN_DEADLINE: Duration = Duration::from_secs(300);
+
+// One command run in one turn on the signed-in account home `SIDEKICKS_TEST_CODEX_HOME` names,
+// with the downloaded Codex build `SIDEKICKS_TEST_CODEX_PROGRAM` names, reads the same output and
+// exit code through the relay, on the account's service, as when Codex runs it itself, on a
+// service of the same home with no relay.
+#[tokio::test]
+#[ignore = "needs a downloaded Codex release and a signed-in account"]
+async fn a_relayed_commands_output_reads_as_codexs_own() {
+    let program = std::env::var_os("SIDEKICKS_TEST_CODEX_PROGRAM")
+        .expect("SIDEKICKS_TEST_CODEX_PROGRAM names the downloaded Codex program");
+    let home = PathBuf::from(
+        std::env::var_os("SIDEKICKS_TEST_CODEX_HOME")
+            .expect("SIDEKICKS_TEST_CODEX_HOME names a signed-in Codex home"),
+    );
+    let relayed = run_parity_turn(
+        &program,
+        &home,
+        CodexHomeKind::Account(test_provider_account_id()),
+    )
+    .await;
+    let local = run_parity_turn(&program, &home, CodexHomeKind::CapabilityRead).await;
+    assert!(!relayed.is_empty(), "the turn ran the command");
+    assert_eq!(relayed, local);
+}
+
+// The output and exit code of each command one turn on `home` ran, on a service of `kind`: an
+// account's runs its commands through the relay, a capability read's runs them itself.
+async fn run_parity_turn(
+    program: &OsString,
+    home: &Path,
+    kind: CodexHomeKind,
+) -> Vec<(Option<String>, Option<i64>)> {
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let environment = ["HOME", "PATH"]
+        .into_iter()
+        .filter_map(|name| Some((name.to_owned(), std::env::var(name).ok()?)))
+        .collect();
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program: PathBuf::from(program),
+            environment,
+        }),
+        Arc::new(UnheardEvents),
+    );
+    let socket = folder.path().join("codex.sock");
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home: home.to_owned(),
+            kind,
+        },
+        CodexServiceSocket {
+            path: socket.clone(),
+            home_socket: socket,
+        },
+        CodexServiceKind::Account,
+        dependencies,
+    );
+    let (events, mut frames) = CodexDetachedFrames::new();
+    let connection = service
+        .open_detached_connection(events)
+        .await
+        .expect("the service starts and is dialed");
+    let started = connection
+        .request(
+            THREAD_START_METHOD,
+            &json!({
+                "cwd": folder.path(),
+                "ephemeral": true,
+                "approvalPolicy": "never",
+                "sandbox": "danger-full-access",
+            }),
+        )
+        .await
+        .expect("a conversation starts");
+    let started: Value = serde_json::from_str(started.get()).expect("the reply is JSON");
+    let prompt = format!(
+        "Run exactly this shell command once, with no other command, then stop: {PARITY_COMMAND}"
+    );
+    connection
+        .request(
+            TURN_START_METHOD,
+            &json!({
+                "threadId": started["thread"]["id"],
+                "input": [{ "type": "text", "text": prompt }],
+            }),
+        )
+        .await
+        .expect("the turn starts");
+    let mut commands = Vec::new();
+    let collected = tokio::time::timeout(PARITY_TURN_DEADLINE, async {
+        while let Some((method, params)) = frames.recv().await {
+            let params: Value = serde_json::from_str(params.get()).expect("the params are JSON");
+            match method.as_str() {
+                "item/completed" if params["item"]["type"] == "commandExecution" => {
+                    commands.push((
+                        params["item"]["aggregatedOutput"]
+                            .as_str()
+                            .map(str::to_owned),
+                        params["item"]["exitCode"].as_i64(),
+                    ));
+                }
+                "turn/completed" => return,
+                _ => {}
+            }
+        }
+    })
+    .await;
+    service.stop().await;
+    collected.expect("the turn ends within its deadline");
+    commands
 }
