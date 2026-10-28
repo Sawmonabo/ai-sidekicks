@@ -211,9 +211,12 @@ impl McpBindingStore {
 /// tracker is built with and the drain's run, which writes each binding's row through `store` once
 /// in this process and ends once the tracker, holding the outlet, is dropped. A binding whose
 /// write fails is logged and not marked recorded, so its next observation tries again.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the status tracker over it and spawns the run"
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start builds the status tracker over it and spawns the run"
+    )
 )]
 pub(crate) async fn open_first_observation_drain(
     store: McpBindingStore,
@@ -266,14 +269,111 @@ pub(crate) async fn open_first_observation_drain(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
+    use sidekicks_contracts::mcp::server::McpServerStatus::Connected;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+    use tokio::task::JoinHandle;
 
-    use super::McpBindingStore;
+    use super::{McpBindingStore, open_first_observation_drain};
     use crate::schema::schema_parts;
+    use crate::status::McpServerStatusTracker;
+    use crate::status::notices::McpNoticeBoard;
+
+    /// How long a test waits for the writer's next commit.
+    const COMMIT_BOUND: Duration = Duration::from_secs(10);
+
+    fn user_binding(server_name: &str) -> McpServerBindingRef {
+        McpServerBindingRef::User {
+            provider: ProviderId::new("provider-a".to_owned()).expect("a provider id"),
+            server_name: McpServerName::new(server_name.to_owned()).expect("a server name"),
+        }
+    }
+
+    /// A status tracker handing its bindings to a running drain over a fresh database, with the
+    /// writer the drain records through.
+    async fn tracker_over_a_drain() -> (
+        TestDatabase,
+        Arc<DatabaseWriter>,
+        McpServerStatusTracker,
+        JoinHandle<()>,
+    ) {
+        let database = TestDatabase::new(schema_parts());
+        let writer = Arc::new(
+            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
+                .await
+                .expect("the writer opens its database"),
+        );
+        let (outlet, run) =
+            open_first_observation_drain(McpBindingStore::new(Arc::clone(&writer))).await;
+        let tracker = McpServerStatusTracker::new(Arc::new(McpNoticeBoard::default()), outlet);
+        (database, writer, tracker, tokio::spawn(run))
+    }
+
+    /// The recorded bindings' server names, in name order.
+    fn recorded_server_names(database: &TestDatabase) -> Vec<String> {
+        database
+            .reader()
+            .prepare("SELECT server_name FROM mcp_server_bindings ORDER BY server_name")
+            .and_then(|mut statement| {
+                statement
+                    .query_map([], |row| row.get(0))?
+                    .collect::<rusqlite::Result<_>>()
+            })
+            .expect("the test reads the bindings")
+    }
+
+    /// A binding only the machine probe reads, with no session reporting it, gets its row. Killed
+    /// by the probe's hand-off to the drain dropped.
+    #[tokio::test]
+    async fn a_binding_only_the_probe_reads_gets_its_row() {
+        let (database, _writer, tracker, run) = tracker_over_a_drain().await;
+
+        tracker.record_probe(&user_binding("docs"), Connected, None);
+        // The drain ends once the tracker, holding its outlet, is gone and what waits is written.
+        drop(tracker);
+        run.await.expect("the drain's run ends");
+
+        assert_eq!(recorded_server_names(&database), vec!["docs"]);
+    }
+
+    /// A first observation whose write fails is written at the binding's next observation. Killed
+    /// by the drain marking the binding recorded before its write.
+    #[tokio::test]
+    async fn a_failed_first_observation_is_recorded_at_the_next_observation() {
+        let (database, writer, tracker, run) = tracker_over_a_drain().await;
+        database
+            .reader()
+            .execute_batch(
+                "CREATE TRIGGER fail_docs BEFORE INSERT ON mcp_server_bindings
+                   WHEN NEW.server_name = 'docs'
+                   BEGIN SELECT RAISE(ABORT, 'the test fails this write'); END",
+            )
+            .expect("the test fails the binding's writes");
+        let mut commits = writer.follow_commits();
+
+        tracker.record_probe(&user_binding("docs"), Connected, None);
+        // The drain writes one binding at a time in order, and a failed write commits nothing, so
+        // the next commit is this binding's, after the failed one.
+        tracker.record_probe(&user_binding("github"), Connected, None);
+        tokio::time::timeout(COMMIT_BOUND, commits.changed())
+            .await
+            .expect("the drain writes the second binding in time")
+            .expect("the writer is open");
+        assert_eq!(recorded_server_names(&database), vec!["github"]);
+        database
+            .reader()
+            .execute_batch("DROP TRIGGER fail_docs")
+            .expect("the test lets the binding's writes through");
+        tracker.record_probe(&user_binding("docs"), Connected, None);
+        drop(tracker);
+        run.await.expect("the drain's run ends");
+
+        assert_eq!(recorded_server_names(&database), vec!["docs", "github"]);
+    }
 
     // A second observation of a recorded binding adds no row and keeps the switch set on it.
     #[tokio::test]
@@ -283,10 +383,7 @@ mod tests {
             .await
             .expect("the writer opens its database");
         let store = McpBindingStore::new(Arc::new(writer));
-        let binding = McpServerBindingRef::User {
-            provider: ProviderId::new("provider-a".to_owned()).expect("a provider id"),
-            server_name: McpServerName::new("github".to_owned()).expect("a server name"),
-        };
+        let binding = user_binding("github");
 
         store
             .record_first_observation(&binding)
