@@ -58,9 +58,8 @@ use crate::idle_sleep::kept_schedules::{
 use crate::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 
 /// The statements the idle sleep prepares on a pooled connection: a session's live runs, its
-/// waiting messages, its state, its lead's binding, and the kept schedules, every session's and one
-/// session's.
-pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 6;
+/// waiting messages, its state, its lead's binding, and every session's kept schedules.
+pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 5;
 
 /// How often the one check looks at every awake session.
 const CHECK_INTERVAL: Duration = Duration::from_mins(5);
@@ -584,9 +583,10 @@ impl SessionIdleSleep {
     async fn stop_unless_held(&self, session_id: SessionId) -> Result<StopOutcome, IdleSleepError> {
         let driver = self.session_driver(session_id).await?;
         let holds = self.read_holds(driver.as_ref(), session_id).await?;
-        // Stored before the stop, so the daemon's next start finds what wakes the session.
-        self.keep_schedules(session_id, &holds.schedules).await;
-        if holds.is_held || self.is_triggered_while_stopping(session_id) {
+        // Stored before the stop, so the daemon's next start finds what wakes the session; a
+        // session whose fires were not stored stays awake, so the next check stores them again.
+        let are_schedules_stored = self.keep_schedules(session_id, &holds.schedules).await;
+        if !are_schedules_stored || holds.is_held || self.is_triggered_while_stopping(session_id) {
             return Ok(StopOutcome::Held);
         }
         Ok(match driver.sleep_session(session_id).await? {
@@ -622,16 +622,16 @@ impl SessionIdleSleep {
     }
 
     // Keeps `schedules` as `session_id`'s timed fires, which its armed wake follows, and stores
-    // them when they differ from those stored. A failed store never holds back the session's sleep:
-    // it is logged once and tried again at the next check.
-    async fn keep_schedules(&self, session_id: SessionId, schedules: &[KeptSchedule]) {
+    // them when they differ from those stored; answers whether they are stored. A failed store is
+    // logged once and tried again at the next check.
+    async fn keep_schedules(&self, session_id: SessionId, schedules: &[KeptSchedule]) -> bool {
         {
             let mut sessions = lock(&self.sessions);
             let Some(entry) = sessions.get_mut(&session_id) else {
-                return;
+                return true;
             };
             if entry.are_schedules_stored && entry.kept_schedules == schedules {
-                return;
+                return true;
             }
             entry.kept_schedules = schedules.to_vec();
         }
@@ -642,13 +642,14 @@ impl SessionIdleSleep {
             .await;
         let mut sessions = lock(&self.sessions);
         let Some(entry) = sessions.get_mut(&session_id) else {
-            return;
+            return stored.is_ok();
         };
         match stored {
             // A newer read kept other fires while this one was written; the next check stores them.
             Ok(_) => {
                 entry.are_schedules_stored = entry.kept_schedules == schedules;
                 entry.is_store_failure_logged = false;
+                true
             }
             Err(error) => {
                 entry.are_schedules_stored = false;
@@ -657,9 +658,11 @@ impl SessionIdleSleep {
                     tracing::warn!(
                         session_id = %session_id,
                         error = &error as &(dyn Error + 'static),
-                        "a session's timed fires were not stored; each check tries again"
+                        "a session's timed fires were not stored; it stays awake and each check \
+                         tries again"
                     );
                 }
+                false
             }
         }
     }

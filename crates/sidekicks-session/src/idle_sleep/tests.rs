@@ -389,6 +389,46 @@ async fn a_recurring_job_sleeps_and_wakes_the_session_before_its_run() {
     assert_eq!(calls.wakes.load(Ordering::SeqCst), 1);
 }
 
+// A session whose recurring job could not be stored stays awake past the limit, so a restart never
+// finds it asleep with its job lost, and it sleeps once a later check stores the job. Killed by a
+// failed store that still lets the stop go on.
+#[tokio::test(start_paused = true)]
+async fn a_session_whose_fires_were_not_stored_stays_awake_until_they_are() {
+    let calls = Arc::new(DriverCalls::default());
+    let holds = IdleSleepHolds {
+        schedules: vec![KeptSchedule::Recurring {
+            cron: "0 * * * *".to_owned(),
+            next_fire_at: Some(Timestamp::now() + SignedDuration::from_hours(3)),
+        }],
+        ..IdleSleepHolds::default()
+    };
+    let fixture = fixture(counting_driver(holds, &calls)).await;
+    let session_id = fixture.add_session();
+    let reader = fixture.database.reader();
+    reader
+        .execute_batch(
+            "CREATE TRIGGER refuse_kept_schedules BEFORE INSERT ON session_kept_schedules
+             BEGIN SELECT RAISE(ABORT, 'the test refuses the store'); END;",
+        )
+        .expect("the test refuses the kept schedules' store");
+
+    fixture.idle_past_the_limit(session_id).await;
+    let sleeps_unstored = calls.sleeps.load(Ordering::SeqCst);
+    reader
+        .execute_batch("DROP TRIGGER refuse_kept_schedules")
+        .expect("the test lets the store through");
+    fixture.idle_sleep.check().await;
+    tokio::time::advance(PAST_IDLE_LIMIT).await;
+    fixture.idle_sleep.check().await;
+    fixture.idle_sleep.settle_transitions().await;
+
+    assert_eq!(
+        sleeps_unstored, 0,
+        "the session stays awake while its job is not stored"
+    );
+    assert_eq!(calls.sleeps.load(Ordering::SeqCst), 1);
+}
+
 // At the daemon's start a session found asleep stays asleep, one whose kept fire already passed
 // among them, and one with a job ahead is woken on its schedule only. Killed by waking every
 // stored session at the start.
