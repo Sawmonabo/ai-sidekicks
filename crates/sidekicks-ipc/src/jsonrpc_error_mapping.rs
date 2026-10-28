@@ -8,7 +8,6 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use regex::{Captures, NoExpand};
 use serde_json::error::Category;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
@@ -23,19 +22,12 @@ use sidekicks_contracts::transcript::content::BodyReadOffsetRefused;
 use sidekicks_contracts::wire::AnyValue;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::record::Record;
-use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::events::log_service::{EventLogFollowError, EventLogReadError};
 
 use crate::domain_error::{DomainError, refusal_fields};
-use crate::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH};
+use crate::redaction::{cap_text, redact_paths};
 use crate::registry::{DispatchError, HandlerError};
 use crate::session_not_found::session_not_found;
-
-/// What replaces an absolute path in a message or a field.
-const REDACTED_PATH: &str = "<redacted-path>";
-
-/// What a capped message or field value ends with.
-const TRUNCATION_MARKER: &str = "…[truncated]";
 
 /// Longest string kept in a field, in code points, so one long string cannot balloon the reply.
 const FIELDS_VALUE_MAX_LEN: usize = 512;
@@ -271,29 +263,6 @@ fn json_rpc_error(
         message: cap_text(redact_paths(message), ERROR_MESSAGE_MAX_LEN),
         data,
     }
-}
-
-/// `text` with each Unix, UNC and Windows-drive path, and its `:line:col`, replaced by
-/// `<redacted-path>`. A Windows segment may hold spaces, so prose right after such a path can be
-/// redacted with it, the safe direction.
-fn redact_paths(text: &str) -> String {
-    let text = UNIX_PATH.replace_all(text, |captures: &Captures<'_>| {
-        format!("{}{REDACTED_PATH}", &captures[1])
-    });
-    let text = UNC_PATH.replace_all(&text, NoExpand(REDACTED_PATH));
-    DRIVE_PATH
-        .replace_all(&text, NoExpand(REDACTED_PATH))
-        .into_owned()
-}
-
-/// `text` cut to `max_code_points` code points, its end replaced by the truncation marker when
-/// cut.
-fn cap_text(text: String, max_code_points: usize) -> String {
-    if cut_to_code_points(&text, max_code_points).len() == text.len() {
-        return text;
-    }
-    let kept = cut_to_code_points(&text, max_code_points - TRUNCATION_MARKER.chars().count());
-    format!("{kept}{TRUNCATION_MARKER}")
 }
 
 /// A refusal's fields made safe to send: strings path-redacted and capped, and objects, arrays,

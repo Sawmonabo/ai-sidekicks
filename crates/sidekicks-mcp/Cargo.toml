@@ -3,7 +3,7 @@ name = "sidekicks-mcp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The MCP client a session's tool servers are reached through, its tool calls and command receipts."
+description = "The MCP client a session's tool servers are reached through, its tool calls and command receipts, each server's status folded from its bindings and session legs, and the MCP governance tables."
 license.workspace = true
 publish.workspace = true
 
@@ -18,6 +18,7 @@ ignored = [
 doctest = false
 
 [dependencies]
+blake3.workspace = true
 bytes.workspace = true
 futures.workspace = true
 jwt-simple.workspace = true
@@ -28,6 +29,7 @@ rmcp.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-std.workspace = true
@@ -43,12 +45,18 @@ uuid.workspace = true
 [dev-dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
 rstest.workspace = true
+# The credit gate the status tests read the notice board through.
+sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The question port's test card the tests answer through.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The test database the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The paused clock the client's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# What other crates' tests use: the notice board's probe notice.
+test-support = []
 
 [lints]
 workspace = true

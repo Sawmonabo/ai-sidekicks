@@ -4,10 +4,12 @@
 use schemars::{JsonSchema, Schema};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::mcp::server::config::McpServerConfigView;
-use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
+use crate::mcp::server::{
+    McpApprovalMode, McpServerBindingId, McpServerStatus, McpToolName, binding_addressed,
+};
 use crate::place::PlacedPath;
 use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::schema::{push_all_of, required_member};
@@ -71,8 +73,21 @@ pub enum McpServerFailedReason {
 
 /// The interrupted-call classes a person can assign to a tool. `manualReconcileOnly` is the floor
 /// a tool reads with no assignment, so it is cleared to, never set.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum McpAssignableIdempotencyClass {
     /// Safe to repeat.
     Idempotent,
@@ -257,6 +272,8 @@ macro_rules! inventory_entry {
         binding_addressed! {
             $(#[$meta])+
             pub enum $name in every scope {
+                /// The binding's id, which places a status notice on this row.
+                server_binding_id: McpServerBindingId,
                 /// The redacted declaration.
                 config: McpServerConfigView,
                 /// The status folded over the legs.
@@ -279,12 +296,14 @@ macro_rules! inventory_entry {
                 #[schemars(with = "WireInstant")]
                 #[garde(dive)]
                 observed_at: Option<WireInstant>,
-                /// The project roots, each with the distribution it is in, in which another binding
-                /// of this provider takes this one's place, by the provider's order: a project's
-                /// `local` binding over its `project` one, either over the `user` one, matched by
-                /// server name, and, on a provider that matches that way, a plugin's server or a
-                /// connector that points at the same address or command. Absent where it is used
-                /// wherever it applies.
+                /// Where another declaration of this provider takes this one's place, by the
+                /// provider's order, each a path with the distribution it is in: a project root
+                /// where a project's `local` binding wins over its `project` one, either over the
+                /// `user` one, matched by server name, or, on a provider that matches that way, a
+                /// plugin's server or a connector that points at the same address or command; or
+                /// the settings file, the person's or a project's, whose entry overrides an
+                /// administrator layer's server field by field. Absent where it is used wherever it
+                /// applies.
                 #[serde(
                     default,
                     skip_serializing_if = "Option::is_none",
