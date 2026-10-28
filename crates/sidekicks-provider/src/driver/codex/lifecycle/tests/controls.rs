@@ -1,5 +1,5 @@
 //! A live session's level and mode moves Codex refuses, and a settle as the session opens and while
-//! it comes back, through the driver.
+//! it comes back, with the resume its service's return owes it, through the driver.
 
 use std::pin::pin;
 use std::sync::Arc;
@@ -13,8 +13,13 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
+use super::super::service_events::CodexDriverServiceEvents;
 use super::{LiveCodexSession, driver_holding};
+use crate::driver::codex::service::supervisor::events::{
+    CodexServiceEvents as _, CodexServiceRecoveryCause,
+};
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+use crate::driver::codex::session::errors::CodexSessionSlotState;
 use crate::driver::codex::session::test_fixture::{TEST_THREAD, create_session_params};
 use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
@@ -187,5 +192,27 @@ async fn a_settle_as_soon_as_a_session_is_created_answers_live() {
     assert!(
         matches!(settled, Some(Ok(()))),
         "a session reads live as soon as its create returns: {settled:?}"
+    );
+}
+
+// Killed by marking the resumes a service's return owes on the recovery's own task: until that
+// task ran, the session would read live on a conversation its service has not resumed yet.
+#[tokio::test]
+async fn a_service_back_owes_its_sessions_their_resume_as_its_event_arrives() {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        scripted,
+        ..
+    } = LiveCodexSession::idle().await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let events = CodexDriverServiceEvents::new(Arc::clone(&driver.link));
+
+    events.recovered(&scripted.service, CodexServiceRecoveryCause::Reconnect);
+
+    // Read with no yield after the event, before the recovery's task first runs.
+    assert_eq!(
+        parts.slots.describe_holder(session_id),
+        Some(CodexSessionSlotState::Establishing)
     );
 }

@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
@@ -60,7 +61,9 @@ use crate::driver::codex::transport::connection::{CodexAppServerConnection, read
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::driver::error_causes::{UNSPECIFIED_PROVIDER_FAILURE_DETAIL, side_question_refusal};
+use crate::driver::error_causes::{
+    UNSPECIFIED_PROVIDER_FAILURE_DETAIL, provider_failure_refusal, side_question_refusal,
+};
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::registration::PortRegistration;
@@ -767,7 +770,8 @@ async fn deliver_answer(
 }
 
 // Why a copy's turn on `model` gave no answer: refused `session.sideQuestion.refused` with Codex's
-// error as the cause where Codex's policy refused the turn, else a failure in Codex's words.
+// error as the cause where Codex's policy refused the turn, else Codex's failure refused
+// `provider.unavailable` in Codex's words.
 fn unanswered(
     session_id: SessionId,
     side_question_id: SideQuestionId,
@@ -797,14 +801,19 @@ fn unanswered(
             side_question_id,
             &cause,
         ))),
-        None => CodexError::Driver(DriverError::Internal(
-            words("message")
-                .unwrap_or(NO_ANSWER_DETAIL)
-                .to_owned()
-                .into(),
-        )),
+        None => CodexError::Driver(DriverError::Refused(provider_failure_refusal(
+            &DESCRIPTOR.provider_id(),
+            "Codex gave the side question no answer",
+            RefusalCode::ProviderUnavailable,
+            CopyTurnFailure(words("message").unwrap_or(NO_ANSWER_DETAIL).to_owned()),
+        ))),
     }
 }
+
+/// Codex's own words for a copy's turn that ended with no answer.
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct CopyTurnFailure(String);
 
 fn failure_detail(words: &str) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
     bound_failure_detail(words, UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone())
