@@ -7,6 +7,7 @@ use serde_json::{Map, Value};
 
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::settings::ClaudeSpawnSettings;
+use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
 
 /// How a spawn's conversation starts: a new one, a resume of one, one kept nowhere (a throwaway
 /// copy of a conversation or a new one), or a fork at one message.
@@ -87,6 +88,7 @@ pub(crate) fn compose_claude_arguments(request: &ClaudeArgumentsRequest<'_>) -> 
     arguments.push(write_permission_mode(request.permission_mode));
     arguments.push("--model".to_owned());
     arguments.push(request.model.to_owned());
+    arguments.extend(claude_appended_system_prompt_arguments().map(str::to_owned));
     arguments.push("--settings".to_owned());
     arguments.push(
         serde_json::to_string(request.settings).expect("the settings document always serializes"),
@@ -169,7 +171,10 @@ fn write_permission_mode(mode: ClaudePermissionMode) -> String {
 mod tests {
     use rstest::rstest;
 
-    use super::{ClaudeArgumentsRequest, ClaudeConversationStart, compose_claude_arguments};
+    use super::{
+        ClaudeArgumentsRequest, ClaudeConversationStart, claude_appended_system_prompt_arguments,
+        compose_claude_arguments,
+    };
     use crate::driver::claude::session::transport::control::{
         ClaudePermissionMode, ClaudePermissionsDocument,
     };
@@ -178,12 +183,12 @@ mod tests {
     };
 
     // The arguments every process starts with, `--settings`'s document the last.
-    const LEADING_ARGUMENTS: usize = 16;
+    const LEADING_ARGUMENTS: usize = 18;
 
     // Killed by a `--max-turns` of the bound itself, by a leftover daemon `--mcp-config` entry, by
     // `--strict-mcp-config` under a managed file (Claude Code's startup exit), by a fork that
     // drops `--resume-drops-turn` or writes it before `--resume-session-at`, and by any start's
-    // list changing.
+    // list changing, and by a start that does not append the long-running-commands section.
     #[rstest]
     #[case::new(
         ClaudeConversationStart::New { provider_session_id: "s1".to_owned() },
@@ -255,6 +260,10 @@ mod tests {
         let arguments = compose_claude_arguments(&request);
 
         assert_eq!(arguments[LEADING_ARGUMENTS - 2], "--settings");
+        assert_eq!(
+            arguments[LEADING_ARGUMENTS - 4..LEADING_ARGUMENTS - 2],
+            claude_appended_system_prompt_arguments(),
+        );
         assert_eq!(&arguments[LEADING_ARGUMENTS..], tail);
         assert!(!arguments.iter().any(|argument| argument == "--mcp-config"));
     }

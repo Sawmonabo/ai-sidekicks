@@ -41,8 +41,11 @@ use self::figures::ClaudeHeldFigures;
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::{
+    ClaudeCommandChannel, ClaudeCommandChannels, ClaudeSessionChannel,
+};
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
-use crate::driver::claude::frame_routing::ClaudeFrameRouting;
+use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeThreadUsageTally};
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -138,6 +141,9 @@ pub(crate) enum ClaudeEstablishmentError {
     /// A close took the session's slot while its process came up, so the process was ended.
     #[error("the session was closed while its Claude Code process came up")]
     Closed,
+    /// The session's command channel could not be opened.
+    #[error("the session's command channel could not be opened")]
+    CommandChannel(#[source] io::Error),
 }
 
 impl ClaudeEstablishmentError {
@@ -156,7 +162,8 @@ impl ClaudeEstablishmentError {
             | Self::Port(_)
             | Self::Rebind(_)
             | Self::ConversationUnreadable { .. }
-            | Self::Closed => RecoveryCondition::RecoveryNeeded,
+            | Self::Closed
+            | Self::CommandChannel(_) => RecoveryCondition::RecoveryNeeded,
         }
     }
 }
@@ -175,7 +182,8 @@ impl From<ClaudeEstablishmentError> for DriverError {
             | ClaudeEstablishmentError::Port(_)
             | ClaudeEstablishmentError::Rebind(_)
             | ClaudeEstablishmentError::ConversationUnreadable { .. }
-            | ClaudeEstablishmentError::Closed) => Self::Internal(Box::new(error)),
+            | ClaudeEstablishmentError::Closed
+            | ClaudeEstablishmentError::CommandChannel(_)) => Self::Internal(Box::new(error)),
         }
     }
 }
@@ -202,6 +210,8 @@ pub(crate) struct ClaudeSpawnSources {
     pub(crate) home_folder: PathBuf,
     /// Which process runs each session.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// Every session's command channel.
+    pub(crate) command_channels: Arc<ClaudeCommandChannels>,
     /// The handles the daemon registers after the drivers.
     pub(crate) ports: Arc<DriverPorts>,
 }
@@ -272,7 +282,7 @@ struct ClaudeSessionStart {
     conversation: ClaudeConversationStart,
     legs: ClaudeSpawnBoundLegs,
     callback_tools: ClaudeCallbackBinding,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     session_mode: SessionMode,
     output_speed: Option<String>,
     establishment: ClaudeUsageEstablishment,
@@ -316,7 +326,7 @@ pub(crate) struct ClaudeSpawnRequest {
     /// Takes the tool servers' live status.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
     /// The account the process runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The Settings values the app stored for the provider.
     pub(crate) row_values: ProviderRowValues,
     /// The Ultracode value the agent asked for; `None` keeps Claude Code's own.
@@ -356,27 +366,65 @@ impl ClaudeSessionEstablishment {
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
         };
-        let start = self
-            .compose_start(
-                claim,
-                request,
-                provider_session_id.clone(),
-                ClaudeConversationStart::New {
-                    provider_session_id: provider_session_id.clone(),
-                },
-                (
-                    SessionMode::Build,
-                    params.output_speed.map(FreeFormText::into_string),
-                ),
-                ClaudeUsageEstablishment::Fresh,
-            )
-            .await?;
-        self.bring_up(start).await?;
+        let output_speed = params.output_speed.map(FreeFormText::into_string);
+        self.spawn_on_command_channel(session_id, async |command_channel| {
+            let start = self
+                .compose_start(
+                    claim,
+                    request,
+                    command_channel,
+                    provider_session_id.clone(),
+                    ClaudeConversationStart::New {
+                        provider_session_id: provider_session_id.clone(),
+                    },
+                    (SessionMode::Build, output_speed),
+                    ClaudeUsageEstablishment::Fresh,
+                )
+                .await?;
+            self.bring_up(start).await
+        })
+        .await?;
         // Claude Code resumes by the conversation's id, so the handle is that id.
         Ok(ProviderSessionHandle {
             resume_handle: provider_session_id.clone(),
             provider_session_id,
         })
+    }
+
+    // Runs `spawn` on the session's command channel, opened first: one opened for this spawn is
+    // closed should the spawn fail, and one the session held from an earlier spawn is kept.
+    async fn spawn_on_command_channel<Spawn, Spawned>(
+        &self,
+        session_id: SessionId,
+        spawn: Spawn,
+    ) -> Result<Spawned, ClaudeEstablishmentError>
+    where
+        Spawn: AsyncFnOnce(
+            Option<Arc<ClaudeCommandChannel>>,
+        ) -> Result<Spawned, ClaudeEstablishmentError>,
+    {
+        let channels = &self.sources.command_channels;
+        let opening = channels
+            .open(session_id)
+            .await
+            .map_err(ClaudeEstablishmentError::CommandChannel)?;
+        let spawned = spawn(
+            opening
+                .as_ref()
+                .map(|opening| Arc::clone(opening.channel())),
+        )
+        .await;
+        if spawned.is_err()
+            && matches!(opening, Some(ClaudeSessionChannel::Opened(_)))
+            && let Err(error) = channels.close(session_id).await
+        {
+            tracing::error!(
+                %session_id,
+                error = &error as &(dyn Error + 'static),
+                "a failed spawn's command channel could not be removed"
+            );
+        }
+        spawned
     }
 
     // The start of a create or resume: the context resolved, the legs and callback tools bound,
@@ -385,6 +433,7 @@ impl ClaudeSessionEstablishment {
         &self,
         claim: ClaudeSlotClaim,
         request: ClaudeSpawnRequest,
+        command_channel: Option<Arc<ClaudeCommandChannel>>,
         provider_session_id: String,
         conversation: ClaudeConversationStart,
         (session_mode, output_speed): (SessionMode, Option<String>),
@@ -417,6 +466,7 @@ impl ClaudeSessionEstablishment {
                 output_schema: request.output_schema,
                 on_mcp_server_status: request.on_mcp_server_status,
                 provider_account_id: request.provider_account_id,
+                command_channel,
                 context,
             },
             &ClaudeSpawnLegServices::of(sources),
@@ -526,6 +576,7 @@ impl ClaudeSessionEstablishment {
                 CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
             ),
             accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
+            usage_tally: ClaudeThreadUsageTally::default(),
         };
         self.routing.bind_session_thread(
             &mut band,
@@ -635,6 +686,7 @@ impl ClaudeSessionEstablishment {
             process_exit: OnceLock::new(),
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
+            messaging_socket: OnceLock::new(),
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
             requested_spawn,
@@ -661,6 +713,9 @@ impl ClaudeSessionEstablishment {
         started: &ClaudeStartedSession,
     ) {
         let session_id = live.session_id;
+        self.task_services.idle_sleep.note_awake(session_id);
+        let inboxes = Arc::clone(&self.task_services.inboxes);
+        tokio::spawn(async move { inboxes.bind(session_id).await });
         self.streams.insert(Arc::clone(&stream));
         // A resume reuses its predecessor's conversation id, which a held record would match.
         self.handshakes.forget_handshake(session_id);

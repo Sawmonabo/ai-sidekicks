@@ -45,21 +45,21 @@ const CLAUDE_NAMING_MODEL: &str = "haiku";
 const CLAUDE_NAMING_DEADLINE: Duration = CLAUDE_REQUEST_DEADLINE;
 
 /// Names the session from its first exchange: Claude Code's title verb on `live` where it answers
-/// with a title, else a one-turn pass on `live`'s legs, or, with no live process, on the session's
-/// own folder and the home of `rest_account`, the account its stored leg ran on. `None` when both
-/// gave no title, `params.cancel` fired, or the pass ran past [`CLAUDE_NAMING_DEADLINE`], where
-/// its one-turn process is stopped as a cancel stops it. Fails as the one-turn pass fails.
+/// with a title, else a one-turn pass on `account`'s home (the account `live` runs on, else the one
+/// its stored leg ran on), on `live`'s legs or the session's own folder. `None` when both gave no
+/// title, `params.cancel` fired, or the pass ran past [`CLAUDE_NAMING_DEADLINE`], where its
+/// one-turn process is stopped as a cancel stops it. Fails as the one-turn pass fails.
 pub(crate) async fn name_claude_session(
     live: Option<&LiveClaudeSession>,
     starts: &dyn ClaudeProcessStarts,
     sources: &ClaudeSpawnSources,
-    rest_account: Option<ProviderAccountId>,
+    account: ProviderAccountId,
     params: NameSessionParams,
 ) -> Result<Option<String>, DriverError> {
     let cancel = params.cancel.clone();
     let deadline = Instant::now() + CLAUDE_NAMING_DEADLINE;
     run_naming_pass_until(&cancel, deadline, |stop| async move {
-        draw_claude_title(live, starts, sources, rest_account, params, &stop).await
+        draw_claude_title(live, starts, sources, account, params, &stop).await
     })
     .await
 }
@@ -69,7 +69,7 @@ async fn draw_claude_title(
     live: Option<&LiveClaudeSession>,
     starts: &dyn ClaudeProcessStarts,
     sources: &ClaudeSpawnSources,
-    rest_account: Option<ProviderAccountId>,
+    account: ProviderAccountId,
     params: NameSessionParams,
     stop: &CancellationToken,
 ) -> Result<Option<String>, DriverError> {
@@ -102,18 +102,11 @@ async fn draw_claude_title(
         origin: OutboundTextOrigin::DriverCommand,
     };
     let reply = if let Some(live) = live {
-        let legs = super::controls::one_turn_legs(live, None);
-        run_naming_turn(
-            starts,
-            &legs,
-            live.admitted_provider_account_id.clone(),
-            text,
-            stop,
-        )
-        .await
+        let legs = super::controls::one_turn_legs(live, None, None);
+        run_naming_turn(starts, &legs, account, text, stop).await
     } else {
-        let legs = compose_naming_legs(sources, params.session_id, rest_account.clone()).await?;
-        run_naming_turn(starts, &legs, rest_account, text, stop).await
+        let legs = compose_naming_legs(sources, params.session_id, account.clone()).await?;
+        run_naming_turn(starts, &legs, account, text, stop).await
     };
     match reply {
         Ok(reply) => Ok(clean_title(&reply)),
@@ -167,7 +160,7 @@ pub(crate) async fn tell_claude_session_name(
 pub(crate) async fn stored_claude_conversation(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     provider_session_id: String,
 ) -> Result<ClaudeEndedConversation, DriverError> {
     let legs = compose_naming_legs(sources, session_id, provider_account_id).await?;
@@ -183,7 +176,7 @@ pub(crate) async fn stored_claude_conversation(
 async fn compose_naming_legs(
     sources: &ClaudeSpawnSources,
     session_id: SessionId,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
 ) -> Result<ClaudeSpawnBoundLegs, DriverError> {
     let no_rows: ProviderRowValues = Record::default();
     let context = resolve_claude_spawn_context(
@@ -205,6 +198,7 @@ async fn compose_naming_legs(
             output_schema: None,
             on_mcp_server_status: None,
             provider_account_id,
+            command_channel: None,
             context,
         },
         &ClaudeSpawnLegServices::of(sources),
@@ -217,7 +211,7 @@ async fn compose_naming_legs(
 async fn run_naming_turn(
     starts: &dyn ClaudeProcessStarts,
     legs: &ClaudeSpawnBoundLegs,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     text: OutboundText,
     stop: &CancellationToken,
 ) -> Result<String, ClaudeLaunchError> {

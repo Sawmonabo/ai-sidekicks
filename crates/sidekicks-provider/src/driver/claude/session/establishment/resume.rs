@@ -97,39 +97,43 @@ impl ClaudeSessionEstablishment {
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
         };
-        let start = ClaudeSessionStart {
-            resumed_binding_id: Some(binding_id.clone()),
-            ..self
-                .compose_start(
-                    claim,
-                    request,
-                    resume_handle.clone(),
-                    ClaudeConversationStart::Resume {
-                        resume_handle: resume_handle.clone(),
-                    },
-                    (
-                        params.mode,
-                        params.output_speed.map(FreeFormText::into_string),
-                    ),
-                    ClaudeUsageEstablishment::Resume {
-                        prior_emitted_thread_id: resume_handle.clone(),
-                    },
-                )
-                .await?
-        };
-        // Where the conversation stood when it was resumed, read before the process adds to it.
-        let session_position =
-            match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
-                Ok(session_position) => session_position,
-                Err(source) => {
-                    start.callback_tools.roll_back();
-                    return Err(ClaudeEstablishmentError::ConversationUnreadable {
-                        resume_handle,
-                        source,
-                    });
-                }
-            };
-        let started = self.bring_up(start).await?;
+        let output_speed = params.output_speed.map(FreeFormText::into_string);
+        let (started, session_position) = self
+            .spawn_on_command_channel(session_id, async |command_channel| {
+                let start = ClaudeSessionStart {
+                    resumed_binding_id: Some(binding_id.clone()),
+                    ..self
+                        .compose_start(
+                            claim,
+                            request,
+                            command_channel,
+                            resume_handle.clone(),
+                            ClaudeConversationStart::Resume {
+                                resume_handle: resume_handle.clone(),
+                            },
+                            (params.mode, output_speed),
+                            ClaudeUsageEstablishment::Resume {
+                                prior_emitted_thread_id: resume_handle.clone(),
+                            },
+                        )
+                        .await?
+                };
+                // Where the conversation stood when it was resumed, read before the process adds
+                // to it.
+                let session_position =
+                    match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
+                        Ok(session_position) => session_position,
+                        Err(source) => {
+                            start.callback_tools.roll_back();
+                            return Err(ClaudeEstablishmentError::ConversationUnreadable {
+                                resume_handle: resume_handle.clone(),
+                                source,
+                            });
+                        }
+                    };
+                Ok((self.bring_up(start).await?, session_position))
+            })
+            .await?;
         Ok(ClaudeResumeAnswer {
             result: resumed(binding_id, session_position, resume_handle, started),
             has_started_process: true,

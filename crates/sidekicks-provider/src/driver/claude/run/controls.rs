@@ -12,12 +12,15 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::command::running_set::takes_no_input;
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
+use crate::driver::claude::ClaudeDriver;
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
 use crate::driver::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProviderDialogs};
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::reviewer::compose_claude_override_sentence;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
+use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -36,11 +39,14 @@ use crate::driver::claude::session::transport::user_message::{
 };
 use crate::driver::contract::{DriverError, RespondToRequestParams};
 use crate::driver::run_control::{
-    AnswerProviderChoiceParams, AnswerProviderChoiceResult, OverrideDenialParams, PauseRunParams,
-    ResumeRunParams, WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
+    AnswerProviderChoiceParams, AnswerProviderChoiceResult, HelperTokenLimitParams,
+    OverrideDenialParams, PauseRunParams, ResumeRunParams, WithdrawQueuedMessageParams,
+    WithdrawQueuedMessageResult,
 };
+use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 
 #[derive(Default, serde::Deserialize)]
 struct CancelAsyncMessageReply {
@@ -60,7 +66,7 @@ pub(crate) fn claude_dialog_session<'a>(
         channel: &*live.channel,
         running_model,
         offered_models: &live.initialize.models,
-        provider_account_id: live.admitted_provider_account_id.as_ref(),
+        provider_account_id: &live.admitted_provider_account_id,
     }
 }
 
@@ -183,7 +189,7 @@ impl ClaudeRunControls {
                 answer_claude_request(
                     &*live.channel,
                     &session_id,
-                    live.admitted_provider_account_id.as_ref(),
+                    &live.admitted_provider_account_id,
                     callback.request_id,
                     &callback.answer,
                 )
@@ -350,13 +356,57 @@ impl ClaudeRunControls {
             .await
     }
 
+    /// Stops a running command with Claude Code's `stop_task`, answering once Claude Code
+    /// acknowledged it; the command's row ends on the task's own notification. Fails
+    /// `NoLiveSession` and as Claude Code refuses or the request fails.
+    pub(crate) async fn stop_command(
+        &self,
+        params: &RunningCommandParams,
+    ) -> Result<(), DriverError> {
+        let live = self.start.live_session(params.session_id)?;
+        live.channel
+            .send_control_request(ClaudeControlRequest::StopTask {
+                task_id: params.command_id.as_str().to_owned(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    /// Moves a running command to the background through the tool call that started it, and
+    /// answers whether it moved: `false` for a command whose call Claude Code never named. Fails
+    /// as `background_task` fails.
+    pub(crate) async fn move_command_to_background(
+        &self,
+        params: &RunningCommandParams,
+    ) -> Result<bool, DriverError> {
+        let tool_use_id = self
+            .start
+            .streams
+            .get(params.session_id)
+            .and_then(|stream| stream.command_tool_use_id(params.command_id.as_str()));
+        let Some(tool_use_id) = tool_use_id else {
+            return Ok(false);
+        };
+        Ok(self
+            .background_task(params.session_id, &tool_use_id)
+            .await?)
+    }
+
+    /// Stops a helper at its token limit: its next tool use, and each after, is denied with the
+    /// reason it reads, so it reports and finishes while its lead goes on. Fails `NoLiveSession`.
+    pub(crate) fn stop_helper_at_token_limit(
+        &self,
+        params: &HelperTokenLimitParams,
+    ) -> Result<(), DriverError> {
+        self.start.live_session(params.session_id)?;
+        lock(&self.pauses)
+            .stop_helper_at_token_limit(params.session_id, params.subagent_id.as_str());
+        Ok(())
+    }
+
     /// Moves the foreground work one tool call started (a command, a helper) to the background
     /// and answers whether any moved: `false` when the call matched no foreground work. Fails
     /// `NoLiveSession` and as the request fails, refused where background tasks are turned off.
-    #[expect(
-        dead_code,
-        reason = "the `agent.command.background` handler moves foreground work through it"
-    )]
     pub(crate) async fn background_task(
         &self,
         session_id: SessionId,
@@ -396,17 +446,230 @@ impl ClaudeRunControls {
     }
 }
 
+impl ClaudeDriver {
+    /// Stops a running command once Claude Code acknowledges its `stop_task`. Fails
+    /// `NoLiveSession` and as the request fails.
+    pub(crate) async fn stop_command(
+        &self,
+        params: RunningCommandParams,
+    ) -> Result<(), DriverError> {
+        self.live_run_controls(params.session_id)?
+            .stop_command(&params)
+            .await
+    }
+
+    /// Moves a running command to the background, answering whether it moved. Fails
+    /// `NoLiveSession` and as the request fails.
+    pub(crate) async fn move_command_to_background(
+        &self,
+        params: RunningCommandParams,
+    ) -> Result<bool, DriverError> {
+        self.live_run_controls(params.session_id)?
+            .move_command_to_background(&params)
+            .await
+    }
+
+    /// Refuses the person's input to a running command: Claude Code's commands take none, so the
+    /// refusal is `agent.command.takesNoInput`.
+    pub(crate) fn write_command_input(
+        &self,
+        params: &WriteCommandInputParams,
+    ) -> Result<(), DriverError> {
+        Err(takes_no_input(&params.command.command_id).into())
+    }
+
+    /// What one of Claude Code's tool calls does to the agent's task list; `None` for a tool that
+    /// is no task-list tool.
+    pub(crate) fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
+        read_claude_task_list_change(call)
+    }
+
+    /// Stops a helper at its token limit by denying its tool uses from the next on. Fails
+    /// `NoLiveSession`.
+    pub(crate) fn stop_helper_at_token_limit(
+        &self,
+        params: &HelperTokenLimitParams,
+    ) -> Result<(), DriverError> {
+        self.live_run_controls(params.session_id)?
+            .stop_helper_at_token_limit(params)
+    }
+
+    // The run controls of a session that may be live; none are composed before any session is.
+    fn live_run_controls(&self, session_id: SessionId) -> Result<&ClaudeRunControls, DriverError> {
+        self.composed_parts()
+            .map(|parts| &parts.run_controls)
+            .ok_or_else(|| {
+                claude_session_unavailable(
+                    ClaudeSessionUnavailableReason::NoLiveSession,
+                    session_id,
+                    None,
+                )
+                .into()
+            })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use sidekicks_contracts::command::CommandId;
     use sidekicks_contracts::provider::driver::capabilities::{
         CredentialPolicyRef, ExecutionPosture,
     };
+    use sidekicks_contracts::run::subagent::SubagentId;
 
     use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
+    use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedWrite};
     use crate::driver::claude::session::scripted::daemon_services::PortCall;
-    use crate::driver::claude::session::scripted::{ScriptedSession, settle};
-    use crate::driver::run_control::OverrideDenialParams;
+    use crate::driver::claude::session::scripted::{
+        SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
+    };
+    use crate::driver::run_control::{
+        HELPER_TOKEN_LIMIT_REASON, HelperTokenLimitParams, OverrideDenialParams,
+    };
+    use crate::port::running_command_publisher::RunningCommandParams;
+
+    fn running_command(session: &ScriptedSession, command_id: &str) -> RunningCommandParams {
+        RunningCommandParams {
+            session_id: session.session_id,
+            binding_id: binding_id("lead"),
+            command_id: CommandId::new(command_id.to_owned()).expect("a command id"),
+        }
+    }
+
+    // Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
+    // done, and by a stop naming anything but the command's task.
+    #[tokio::test(start_paused = true)]
+    async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
+        let session = ScriptedSession::new().await;
+        let controls = &session.parts.run_controls;
+        session.channel.answer("stop_task", ScriptedAnswer::Refused);
+
+        let refused = controls
+            .stop_command(&running_command(&session, "task-1"))
+            .await;
+        let stopped = controls
+            .stop_command(&running_command(&session, "task-1"))
+            .await;
+
+        assert!(refused.is_err(), "a refused stop fails");
+        assert!(stopped.is_ok(), "an acknowledged stop answers");
+        let requests = session.channel.control_requests();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests
+                .iter()
+                .all(|request| request["subtype"] == "stop_task" && request["task_id"] == "task-1")
+        );
+    }
+
+    // Killed by moving a command to the background by its task id instead of the tool call that
+    // started it, which Claude Code's request matches, and by asking for a command it never named.
+    #[tokio::test(start_paused = true)]
+    async fn a_command_moves_to_the_background_through_the_call_that_started_it() {
+        let session = ScriptedSession::new().await;
+        session.hold_lead_turn("lead");
+        session.frame(&json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {
+                "id": "message-1",
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "call-b", "name": "Bash",
+                     "input": {"command": "sleep 100"}},
+                ],
+            },
+        }));
+        session.frame(&json!({
+            "type": "system",
+            "subtype": "task_started",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "task_id": "task-b",
+            "task_type": "local_bash",
+            "tool_use_id": "call-b",
+            "description": "sleep 100",
+        }));
+        settle().await;
+        let controls = &session.parts.run_controls;
+
+        let unnamed = controls
+            .move_command_to_background(&running_command(&session, "task-unnamed"))
+            .await
+            .expect("an unnamed command is answered");
+        let moved = controls
+            .move_command_to_background(&running_command(&session, "task-b"))
+            .await
+            .expect("the request is answered");
+
+        assert!(!unnamed, "a command Claude Code never named does not move");
+        assert!(moved, "the named command moves");
+        let requests = session.channel.control_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["subtype"], "background_tasks");
+        assert_eq!(requests[0]["tool_use_id"], "call-b");
+    }
+
+    // Killed by a token limit that leaves the helper's next tool use allowed, by one that stops
+    // the lead too, and by a denial that does not carry the reason the helper reads.
+    #[tokio::test(start_paused = true)]
+    async fn a_helper_at_its_token_limit_is_denied_its_next_tool_use() {
+        let session = ScriptedSession::new().await;
+        let lead = session.hold_lead_turn("lead");
+        let helper = session.bind_helper(lead, "helper");
+        session
+            .parts
+            .run_controls
+            .stop_helper_at_token_limit(&HelperTokenLimitParams {
+                session_id: session.session_id,
+                run_id: helper,
+                subagent_id: SubagentId::new("helper".to_owned()).expect("a subagent id"),
+            })
+            .expect("the session is live");
+        let before_tool = |agent_id: Option<&str>| {
+            let mut input = json!({
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_use_id": "call-1",
+                "tool_input": {"command": "ls"},
+            });
+            if let (Some(input), Some(agent_id)) = (input.as_object_mut(), agent_id) {
+                input.insert("agent_id".to_owned(), json!(agent_id));
+            }
+            json!({
+                "subtype": "hook_callback",
+                "callback_id": "sidekicks-pause-before-tool",
+                "input": input,
+            })
+        };
+
+        session.request("helper-tool", &before_tool(Some("helper")));
+        session.request("lead-tool", &before_tool(None));
+        settle().await;
+
+        let answers: Vec<_> = session
+            .channel
+            .writes()
+            .into_iter()
+            .filter_map(|write| match write {
+                ScriptedWrite::Answer { request_id, answer } => Some((request_id, answer)),
+                ScriptedWrite::Control(_) | ScriptedWrite::User(_) | ScriptedWrite::Terminate => {
+                    None
+                }
+            })
+            .collect();
+        let answer_to = |request_id: &str| {
+            answers
+                .iter()
+                .find(|(answered, _)| answered == request_id)
+                .map(|(_, answer)| answer.to_string())
+                .expect("the hook is answered")
+        };
+        let helper_answer = answer_to("helper-tool");
+        assert!(helper_answer.contains(r#""permissionDecision":"deny""#));
+        assert!(helper_answer.contains(HELPER_TOKEN_LIMIT_REASON));
+        assert!(!answer_to("lead-tool").contains("deny"));
+    }
 
     // Killed by attributing a helper's block to the lead run, and by writing the `Allow once` for
     // it into the lead's turn instead of handing it to the helper; and by writing the lead's

@@ -55,9 +55,7 @@ use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
 };
-use crate::port::running_command_publisher::{
-    RunningCommandParams, WriteCommandInputParams, command_act_unsupported,
-};
+use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
 mod attachments;
@@ -71,7 +69,7 @@ mod frame_routing;
 mod goals;
 mod handshake_register;
 mod hooks;
-mod inbox_address;
+mod inbox;
 mod intervention;
 mod lifecycle;
 mod output_speed;
@@ -496,24 +494,21 @@ impl ProviderDriver for ClaudeDriver {
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+        self.stop_command(params).boxed()
     }
 
     fn move_command_to_background(
         &self,
         params: RunningCommandParams,
     ) -> BoxFuture<'_, Result<bool, DriverError>> {
-        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+        self.move_command_to_background(params).boxed()
     }
 
     fn write_command_input(
         &self,
         params: WriteCommandInputParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(
-            command_act_unsupported(&params.command.command_id).into()
-        ))
-        .boxed()
+        ready(self.write_command_input(&params)).boxed()
     }
 
     fn idle_sleep_holds(
@@ -545,7 +540,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: HelperTokenLimitParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.stop_helper_at_token_limit(params).boxed()
+        ready(self.stop_helper_at_token_limit(&params)).boxed()
     }
 
     fn observed_output_speed_for(
@@ -645,6 +640,7 @@ mod tests {
     use crate::driver::contract::ProviderDriver;
     use crate::driver::run_control::PickedSkill;
     use crate::driver::test_registry::test_driver_services;
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     // Killed by answering no skill, which drops every pick from the stored message.
     #[tokio::test]
@@ -664,7 +660,7 @@ mod tests {
         let skills = driver
             .resolve_skill_picks(
                 session_id,
-                None,
+                test_provider_account_id(),
                 vec![
                     pick("review", "/skills/review"),
                     pick("deploy", "/skills/deploy"),

@@ -12,9 +12,11 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{resume_params, start_params};
+use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
@@ -118,12 +120,75 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
     ));
 }
 
+// Killed by a staged review whose process starts with no channel of its own, and by one that keeps
+// the session process's channel variables, which admit no party under the review's process.
+#[tokio::test]
+async fn the_staged_reviews_process_starts_on_a_channel_of_its_own() {
+    if !RUNS_COMMAND_WRAPPER {
+        return;
+    }
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let parts = fixture.driver.composed_parts().expect("composed");
+    let live = parts
+        .slots()
+        .live_session(session_id)
+        .expect("the session is live");
+    let session_channel = live
+        .spawn_bound_legs
+        .command_channel
+        .clone()
+        .expect("the session's process has a channel");
+
+    let (legs, review_channel) = parts
+        .session_controls
+        .compose_review_legs(&live, new_run_id(), fixture.work.clone())
+        .await
+        .expect("the review's legs compose");
+
+    let review_channel = review_channel.expect("the review has a channel of its own");
+    let review_variables = review_channel.environment();
+    assert!(
+        review_variables
+            .iter()
+            .all(|variable| legs.spawn_environment.contains(variable))
+    );
+    assert!(
+        session_channel
+            .environment()
+            .iter()
+            .filter(|variable| !review_variables.contains(variable))
+            .all(|variable| !legs.spawn_environment.contains(variable))
+    );
+    assert!(
+        legs.spawn_environment
+            .contains(&("GIT_TERMINAL_PROMPT".to_owned(), "0".to_owned()))
+    );
+    review_channel
+        .close()
+        .await
+        .expect("the review's channel is removed");
+}
+
 // Killed by running a side question in the session's own posture instead of plan mode, on the
-// alias instead of its full id, by refusing one on a session at rest, and by metering the copy's
-// whole figure, which counts the copied conversation again.
+// alias instead of its full id, by refusing one on a session at rest, by metering the copy's
+// whole figure, which counts the copied conversation again, and by a copy that keeps an askpass
+// or channel variable or sets only `GIT_TERMINAL_PROMPT` of the no-prompt environment.
 #[tokio::test(start_paused = true)]
 async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_own_turn() {
     let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
     fixture
         .starts
         .script_initialize(ClaudeInitializeDeclaration {
@@ -160,6 +225,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         .script_one_turn(one_turn_reply("at rest", Some(counts(150, 30))));
     let ask = |session_id, resume| AskSideQuestionParams {
         session_id,
+        binding_id: binding_id("lead"),
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
         question: "Why?".to_owned(),
         resume,
@@ -197,6 +263,37 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
             in_plan_mode(resume_params(resting_session).resume_handle),
         ]
     );
+    let prompt_variables = |environment: &[(String, String)]| -> Vec<(String, String)> {
+        let mut variables: Vec<_> = environment
+            .iter()
+            .filter(|(name, _)| {
+                name.contains("ASKPASS")
+                    || name.starts_with("SIDEKICKS_COMMAND")
+                    || [
+                        "GCM_INTERACTIVE",
+                        "GIT_TERMINAL_PROMPT",
+                        "CLAUDE_CODE_SHELL_PREFIX",
+                    ]
+                    .contains(&name.as_str())
+            })
+            .cloned()
+            .collect();
+        variables.sort();
+        variables
+    };
+    let no_prompt: Vec<_> = [
+        ("GCM_INTERACTIVE", "never"),
+        ("GIT_ASKPASS", ""),
+        ("GIT_TERMINAL_PROMPT", "0"),
+        ("SSH_ASKPASS_REQUIRE", "never"),
+    ]
+    .map(|(name, value)| (name.to_owned(), value.to_owned()))
+    .into();
+    let environments = fixture.starts.take_one_turn_environments();
+    assert_eq!(environments.len(), 2);
+    for environment in &environments {
+        assert_eq!(prompt_variables(environment), no_prompt);
+    }
     let metered: Vec<_> = fixture
         .usage
         .metered()

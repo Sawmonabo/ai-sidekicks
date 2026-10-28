@@ -20,7 +20,7 @@ use crate::driver::claude::session::reply_reserve::{
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
-    ClaudeControlRequest, ClaudeFlagSettings,
+    ClaudeContextUsageDetail, ClaudeControlRequest, ClaudeFlagSettings,
 };
 use crate::driver::claude::session::transport::declarations::ClaudeOfferedModel;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
@@ -131,12 +131,16 @@ async fn read_reply_reserve(
     };
     let steps = [
         environment(&[(CLAUDE_AUTO_COMPACT_WINDOW_KEY, &window)]),
-        ClaudeControlRequest::GetContextUsage {},
+        ClaudeControlRequest::GetContextUsage {
+            detail: ClaudeContextUsageDetail::Summary,
+        },
         environment(&[
             (CLAUDE_AUTO_COMPACT_WINDOW_KEY, &window),
             (CLAUDE_MAX_OUTPUT_TOKENS_KEY, &maximum_output),
         ]),
-        ClaudeControlRequest::GetContextUsage {},
+        ClaudeControlRequest::GetContextUsage {
+            detail: ClaudeContextUsageDetail::Summary,
+        },
         environment(&[
             (CLAUDE_AUTO_COMPACT_WINDOW_KEY, ""),
             (CLAUDE_MAX_OUTPUT_TOKENS_KEY, ""),
@@ -144,7 +148,7 @@ async fn read_reply_reserve(
     ];
     let mut reports = Vec::with_capacity(2);
     for step in steps {
-        let is_usage_read = matches!(step, ClaudeControlRequest::GetContextUsage {});
+        let is_usage_read = matches!(step, ClaudeControlRequest::GetContextUsage { .. });
         match short.process.send_control_request(step).await {
             Ok(answer) if is_usage_read => reports.push(answer.response),
             Ok(_) => {}

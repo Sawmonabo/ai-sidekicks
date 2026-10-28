@@ -8,7 +8,7 @@ mod sessions;
 #[cfg(test)]
 mod tests;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use sidekicks_contracts::machine::settings::EnvironmentRow;
@@ -22,9 +22,13 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
+use self::controls::ClaudeRegisteredPlacesAddresser;
+use crate::command::askpass::command_askpass_program_path;
+use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::answers::{
     ClaudeAnswerRules, read_claude_repository,
@@ -43,6 +47,7 @@ use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
+use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
@@ -53,15 +58,18 @@ use crate::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::arrivals::task::ClaudeSessionTaskServices;
+use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::{ClaudeCommandListReader, ClaudeSessionControls};
 use crate::driver::claude::session::establishment::figures::ClaudeHeldFigures;
 use crate::driver::claude::session::establishment::{
     ClaudeSessionEstablishment, ClaudeSpawnSources,
 };
+use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::restart::ClaudeSessionRestarts;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
+    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
+    compose_claude_process_environment,
 };
 use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
 use crate::driver::claude::spawn::launch::installed_build::{
@@ -72,18 +80,23 @@ use crate::driver::{DriverServices, ProviderAccountFolders};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::repository_reader::RepositoryReading;
 use crate::port::run_host::RunHost;
+use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::spawn_environment::SessionEnvironment;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
     starts: Arc<dyn ClaudeProcessStarts>,
     figures: Arc<ClaudeHeldFigures>,
-    sources: Arc<ClaudeSpawnSources>,
+    /// The daemon's services every session's process is started from.
+    pub(crate) sources: Arc<ClaudeSpawnSources>,
     attachments: Arc<dyn AttachmentResolver>,
     staged_changes: StagedChangesWorktrees,
     pending_compactions: PendingCompactionRegistry,
     shell_lines: Arc<ShellLineReadingBound>,
     usage_probe_models: Arc<ClaudeUsageProbeModels>,
+    inbox_addresser: Arc<ClaudeRegisteredPlacesAddresser>,
+    // One capability read at a time, since each makes and removes the same folder.
+    capability_read: tokio::sync::Mutex<()>,
     parts: OnceLock<Arc<ClaudeSessionParts>>,
 }
 
@@ -91,7 +104,8 @@ pub(crate) struct ClaudeDriver {
 pub(crate) struct ClaudeSessionParts {
     /// Brings sessions up and holds what their tasks share.
     pub(crate) establishment: Arc<ClaudeSessionEstablishment>,
-    restarts: Arc<ClaudeSessionRestarts>,
+    /// Relaunches, sleeps and wakes a session's process.
+    pub(crate) restarts: Arc<ClaudeSessionRestarts>,
     /// Starts runs on live sessions.
     pub(crate) run_start: ClaudeRunStart,
     /// Interrupts, pauses and answers live runs.
@@ -143,6 +157,16 @@ impl ClaudeDriver {
                 data_folder: services.data_folder.clone(),
                 home_folder: services.home_folder.clone(),
                 processes: Arc::clone(&services.processes),
+                command_channels: Arc::new(ClaudeCommandChannels::new(
+                    &services.data_folder,
+                    ClaudeCommandPrograms {
+                        wrapper_program: command_wrapper_program_path(&services.daemon_program),
+                        askpass_program: command_askpass_program_path(&services.daemon_program),
+                    },
+                    Arc::clone(&services.caller_processes),
+                    Arc::clone(&services.input_waits),
+                    Arc::clone(&services.ports.command_output),
+                )),
                 ports: Arc::clone(&services.ports),
             }),
             attachments: Arc::clone(&services.attachments),
@@ -150,6 +174,10 @@ impl ClaudeDriver {
             pending_compactions: services.pending_compactions.clone(),
             shell_lines: Arc::clone(&services.shell_lines),
             usage_probe_models: Arc::default(),
+            inbox_addresser: Arc::new(ClaudeRegisteredPlacesAddresser::new(Arc::clone(
+                &services.ports.session_places,
+            ))),
+            capability_read: tokio::sync::Mutex::default(),
             parts: OnceLock::new(),
         }
     }
@@ -171,7 +199,7 @@ impl ClaudeDriver {
 
     /// The session pieces, composed on first use. Fails while the run engine, its dispatch or the
     /// queue's binding of the daemon's own turns is not registered yet.
-    fn parts(&self) -> Result<&Arc<ClaudeSessionParts>, DriverError> {
+    pub(crate) fn parts(&self) -> Result<&Arc<ClaudeSessionParts>, DriverError> {
         if let Some(parts) = self.parts.get() {
             return Ok(parts);
         }
@@ -208,20 +236,16 @@ impl ClaudeDriver {
         read_claude_repository(&**repositories, working_folder).await
     }
 
-    /// The environment a process starts with on `account`'s home where the app manages it, else
-    /// on the person's own sign-in, with a session's environment rows where given. Fails as the
-    /// environment cannot be composed.
+    /// The environment a process starts with on `home`, with a session's environment rows where
+    /// given. Fails as the environment cannot be composed.
     fn process_environment(
         &self,
-        account: Option<(ProviderAccountFolders, &ProviderAccountId)>,
+        home: ClaudeProcessHome<'_>,
         every_project_rows: &[EnvironmentRow],
         project_rows: &[EnvironmentRow],
     ) -> Result<Vec<(String, String)>, DriverError> {
         let sources = &self.sources;
         let data_folder = sources.data_folder.to_string_lossy();
-        let account_folders = account
-            .as_ref()
-            .map(|(folders, _)| ClaudeAccountFolders::from(folders));
         compose_claude_process_environment(
             ClaudeProcessEnvironmentRequest {
                 session: SessionEnvironment {
@@ -232,35 +256,51 @@ impl ClaudeDriver {
                     rules: PathRules::NATIVE,
                 },
                 deny_env_vars: &[],
-                account_folders: account_folders.as_ref(),
+                home,
                 data_folder: &data_folder,
-                provider_account_id: account.map(|(_, id)| id),
             },
             &[],
         )
         .map_err(internal)
     }
 
+    /// The environment a process on `provider_account_id`'s home starts with, its folders as
+    /// `folders` give them. Fails as the environment cannot be composed.
+    fn account_process_environment(
+        &self,
+        folders: &ProviderAccountFolders,
+        provider_account_id: &ProviderAccountId,
+        every_project_rows: &[EnvironmentRow],
+        project_rows: &[EnvironmentRow],
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        let folders = ClaudeAccountFolders::from(folders);
+        self.process_environment(
+            ClaudeProcessHome::Account {
+                folders: &folders,
+                provider_account_id,
+            },
+            every_project_rows,
+            project_rows,
+        )
+    }
+
     /// The environment a process that keeps nothing starts with on `provider_account_id`'s home,
-    /// its folders read with no session, or on the person's own sign-in where `None`. Fails as the
-    /// account's folders cannot be read or the environment cannot be composed.
+    /// its folders read with no session. Fails `provider.account.notFound` or
+    /// `provider.account.credentialHome.unavailable` as the account's folders answer, and as they
+    /// cannot be read or the environment cannot be composed.
     async fn account_environment(
         &self,
-        provider_account_id: Option<&ProviderAccountId>,
+        provider_account_id: &ProviderAccountId,
     ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = match provider_account_id {
-            Some(provider_account_id) => self
-                .sources
-                .ports
-                .provider_accounts
-                .require_port()
-                .map_err(internal)?
-                .resolve_account_folders(provider_account_id.clone())
-                .await
-                .map_err(DriverError::Internal)?,
-            None => None,
-        };
-        self.process_environment(folders.zip(provider_account_id), &[], &[])
+        let folders = self
+            .sources
+            .ports
+            .provider_accounts
+            .require_port()
+            .map_err(internal)?
+            .resolve_account_folders(provider_account_id.clone())
+            .await?;
+        self.account_process_environment(&folders, provider_account_id, &[], &[])
     }
 
     // Every piece a session shares, wired over `engine` and its `dispatch`.
@@ -310,6 +350,11 @@ impl ClaudeDriver {
             },
         ));
         let message_taken = Arc::clone(&ports.message_taken);
+        let context_readings = Arc::new(ClaudeContextReadings::new(
+            Arc::clone(&ports.context_readings),
+            Arc::clone(dispatch),
+            Arc::clone(&streams),
+        ));
         let delivery = Arc::new(ClaudeDeliveryStream::new(ClaudeStreamDependencies {
             engine: Arc::clone(engine),
             dispatch: Arc::clone(dispatch),
@@ -325,6 +370,9 @@ impl ClaudeDriver {
             }),
             usage: Arc::clone(&ports.usage),
             usage_probe_models: Arc::clone(&self.usage_probe_models),
+            command_output: Arc::clone(&ports.command_output),
+            turn_readings: Arc::clone(&ports.turn_readings),
+            context: Arc::clone(&context_readings),
         }));
         let goals = Arc::new(ClaudeGoalCommands::default());
         let cuts = Arc::new(ClaudeConversationCuts {
@@ -348,6 +396,13 @@ impl ClaudeDriver {
                 Arc::clone(ports),
             );
             let slots = restarts.slots().clone();
+            let idle_sleep = Arc::new(ClaudeIdleSleep::default());
+            let inboxes = Arc::new(ClaudeSessionInboxes::new(
+                Arc::clone(&self.inbox_addresser) as Arc<dyn SessionInboxAddresser>,
+                Arc::clone(&ports.session_wakes),
+                slots.clone(),
+                Arc::clone(&idle_sleep),
+            ));
             let run_start = ClaudeRunStart {
                 slots: slots.clone(),
                 routes: Arc::clone(&routes),
@@ -358,6 +413,8 @@ impl ClaudeDriver {
                 dispatch: Arc::clone(dispatch),
                 attachments: Arc::clone(&self.attachments),
                 bindings,
+                idle_sleep: Arc::clone(&idle_sleep),
+                session_wakes: Arc::clone(&ports.session_wakes),
             };
             let interventions = Arc::new(ClaudeInterventions::new(
                 run_start.clone(),
@@ -373,6 +430,7 @@ impl ClaudeDriver {
                 Arc::clone(&ports.session_rules),
                 Arc::clone(&ports.in_process_tool_servers),
                 compose_command_list_reader(slots.clone(), Arc::clone(&handshakes), &routes),
+                Arc::clone(&self.sources.command_channels),
             ));
             let run_controls = ClaudeRunControls {
                 start: run_start.clone(),
@@ -413,6 +471,9 @@ impl ClaudeDriver {
                 processes: Arc::clone(&self.sources.processes),
                 restarts: Arc::clone(&restarts),
                 controls: Arc::clone(&session_controls),
+                idle_sleep,
+                inboxes,
+                context_readings,
             });
             composed = Some((
                 restarts,
@@ -453,7 +514,7 @@ impl ClaudeDriver {
 
 impl ClaudeSessionParts {
     /// Every session's slot.
-    fn slots(&self) -> &ClaudeSessionSlots {
+    pub(crate) fn slots(&self) -> &ClaudeSessionSlots {
         &self.establishment.slots
     }
 }
@@ -485,9 +546,4 @@ fn compose_command_list_reader(
 // A failure the caller cannot act on beyond reporting it.
 fn internal(error: impl std::error::Error + Send + Sync + 'static) -> DriverError {
     DriverError::Internal(Box::new(error))
-}
-
-// The home folder a person's own Claude Code settings sit under.
-fn person_settings_folder(home_folder: &std::path::Path) -> PathBuf {
-    home_folder.join(".claude")
 }

@@ -109,8 +109,8 @@ pub(crate) enum ClaudeOwnDelivery {
 pub(crate) struct ClaudeDeliveryPlace {
     /// The session whose task it is.
     session_id: SessionId,
-    /// The account the session's process runs on; `None` on the machine's own home.
-    provider_account_id: Option<ProviderAccountId>,
+    /// The account the session's process runs on.
+    provider_account_id: ProviderAccountId,
 }
 
 impl ClaudeDeliveryPlace {
@@ -133,7 +133,7 @@ pub(crate) fn deliver_in_session_order<'dispatch>(
     if let Ok(place) = CLAUDE_DELIVERY_PLACE.try_with(Clone::clone)
         && place.session_id == session_id
     {
-        let origin = claude_delivery_origin(place.provider_account_id, None);
+        let origin = claude_delivery_origin(Some(place.provider_account_id), None);
         return dispatch_delivery(dispatch, origin, delivery).boxed();
     }
     match streams.get(session_id) {
@@ -274,7 +274,7 @@ pub(crate) trait ClaudeSessionArrivalHandler: Send {
 pub(crate) async fn drain_claude_session_arrivals(
     mut receiver: ClaudeArrivalReceiver,
     handler: &mut impl ClaudeSessionArrivalHandler,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
 ) {
     let place = ClaudeDeliveryPlace {
         session_id: receiver.session_id,
@@ -414,6 +414,7 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::test_registry::new_session_id;
     use crate::run::delivery::InboundDelivery;
+    use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::thread_frame_router::ThreadFrameRoute;
 
     // Names each arrival as it is handled; a frame takes a second, so an arrival dispatched beside
@@ -467,6 +468,7 @@ mod tests {
             routed: ClaudeRoutedObservation {
                 route: ThreadFrameRoute::Project,
                 helper_lifecycle: Vec::new(),
+                metered: Vec::new(),
                 settled_output_speed: None,
             },
             is_turn_ending: false,
@@ -493,7 +495,7 @@ mod tests {
         drop(sender);
 
         let mut log = ArrivalLog::default();
-        drain_claude_session_arrivals(receiver, &mut log, None).await;
+        drain_claude_session_arrivals(receiver, &mut log, test_provider_account_id()).await;
 
         assert_eq!(dispatched.await, None);
         assert_eq!(

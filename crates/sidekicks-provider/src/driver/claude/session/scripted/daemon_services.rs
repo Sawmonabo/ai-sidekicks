@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
+use futures::future::ready;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
@@ -43,8 +44,8 @@ use crate::port::permission_ask::{
 };
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
-use crate::port::usage_sink::{ProviderQuotaWindow, UsageSink};
-use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
+use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// What reached the approval ports, in order.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -148,8 +149,8 @@ pub(super) fn register_scripted_ports(ports: &DriverPorts, recording: &Arc<Recor
 #[derive(Default)]
 pub(crate) struct RecordingUsage {
     reported: Mutex<UsageAxisCounts>,
-    metered: Mutex<Vec<(SessionId, MeteredUsageDelta)>>,
-    quota_windows: Mutex<Vec<(Option<ProviderAccountId>, Vec<ProviderQuotaWindow>)>>,
+    metered: Mutex<Vec<MeteredUsage>>,
+    quota_windows: Mutex<Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)>>,
 }
 
 impl RecordingUsage {
@@ -159,21 +160,23 @@ impl RecordingUsage {
     }
 
     /// Every set of quota windows taken so far, with its account, in order.
-    pub(crate) fn quota_windows(
-        &self,
-    ) -> Vec<(Option<ProviderAccountId>, Vec<ProviderQuotaWindow>)> {
+    pub(crate) fn quota_windows(&self) -> Vec<(ProviderAccountId, Vec<ProviderQuotaWindow>)> {
         lock(&self.quota_windows).clone()
     }
 
-    /// Every delta metered so far, with its session, in order.
-    pub(crate) fn metered(&self) -> Vec<(SessionId, MeteredUsageDelta)> {
+    /// Every delta metered so far, with where it came from, in order.
+    pub(crate) fn metered(&self) -> Vec<MeteredUsage> {
         lock(&self.metered).clone()
     }
 }
 
 impl UsageSink for RecordingUsage {
-    fn record_metered(&self, session_id: SessionId, delta: MeteredUsageDelta) {
-        lock(&self.metered).push((session_id, delta));
+    fn record_metered(
+        &self,
+        metered: MeteredUsage,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        lock(&self.metered).push(metered);
+        ready(Ok(())).boxed()
     }
 
     fn read_prior_emitted(
@@ -187,10 +190,11 @@ impl UsageSink for RecordingUsage {
     fn record_quota_windows(
         &self,
         _provider: ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         windows: Vec<ProviderQuotaWindow>,
-    ) {
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.quota_windows).push((provider_account_id, windows));
+        ready(Ok(())).boxed()
     }
 }
 

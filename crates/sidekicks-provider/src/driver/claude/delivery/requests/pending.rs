@@ -145,6 +145,13 @@ impl RequestTables {
         Some(closed)
     }
 
+    /// How many of the session's requests are open.
+    pub(super) fn open_count(&self, session_id: SessionId) -> usize {
+        self.by_session
+            .get(&session_id)
+            .map_or(0, |requests| requests.pending.len())
+    }
+
     /// A receiver told once the session's last open ask closes; `None` when none is open.
     pub(super) fn wait_closed(&mut self, session_id: SessionId) -> Option<oneshot::Receiver<()>> {
         let requests = self.by_session.get_mut(&session_id)?;

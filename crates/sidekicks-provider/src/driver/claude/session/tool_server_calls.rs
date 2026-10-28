@@ -36,7 +36,7 @@ pub(crate) struct ClaudeToolServerCallContext {
     /// The session whose servers take the call.
     pub(crate) session_id: SessionId,
     /// The account the process runs on, named if the answer cannot be written.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The process the call came from.
     pub(crate) channel: Arc<dyn ClaudeProcessChannel>,
     /// The servers, once the tool-server front registered them; without them every server is
@@ -67,7 +67,7 @@ impl ClaudeToolServerCalls {
             answer_claude_request(
                 &*context.channel,
                 &context.session_id,
-                context.provider_account_id.as_ref(),
+                &context.provider_account_id,
                 answered_id,
                 &answer,
             )
@@ -174,6 +174,7 @@ mod tests {
     use crate::port::in_process_tool_servers::{
         InProcessToolServerError, InProcessToolServerOutbound, InProcessToolServers,
     };
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     type Answers = Arc<Mutex<Vec<(String, String)>>>;
 
@@ -256,7 +257,7 @@ mod tests {
         ClaudeToolServerCallContext {
             session_id: SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d")
                 .expect("a valid session id"),
-            provider_account_id: None,
+            provider_account_id: test_provider_account_id(),
             channel: Arc::new(channel),
             servers,
         }

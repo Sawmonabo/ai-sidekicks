@@ -311,6 +311,7 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::SetMaxThinkingTokens
         | ClaudeControlSubtype::GetSettings
         | ClaudeControlSubtype::GetContextUsage
+        | ClaudeControlSubtype::StopTask
         | ClaudeControlSubtype::SetModel
         | ClaudeControlSubtype::GetBinaryVersion
         | ClaudeControlSubtype::McpMessage

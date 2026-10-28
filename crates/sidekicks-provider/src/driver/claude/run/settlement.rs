@@ -60,7 +60,7 @@ impl ClaudeTurnSettlement {
             answer_claude_request(
                 &*live.channel,
                 &session_id,
-                live.admitted_provider_account_id.as_ref(),
+                &live.admitted_provider_account_id,
                 request_id,
                 &ClaudeHookAnswer::Pass,
             )

@@ -7,3 +7,4 @@ pub(super) mod environment;
 pub(super) mod launch;
 pub(super) mod legs;
 pub(super) mod settings;
+pub(super) mod system_prompt;

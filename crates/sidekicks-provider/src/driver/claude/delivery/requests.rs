@@ -218,7 +218,7 @@ impl ClaudeInboundRequests {
                 session.tool_server_calls.start(
                     ClaudeToolServerCallContext {
                         session_id: session.stream.session_id(),
-                        provider_account_id: session.stream.provider_account_id().cloned(),
+                        provider_account_id: session.stream.provider_account_id().clone(),
                         channel: Arc::clone(&session.channel),
                         servers: session.tool_servers.clone(),
                     },
@@ -294,6 +294,11 @@ impl ClaudeInboundRequests {
     /// closes; the receiver fails when the session's process ends first. `None` when none is open.
     pub(crate) fn wait_asks_closed(&self, session_id: SessionId) -> Option<oneshot::Receiver<()>> {
         self.lock().wait_closed(session_id)
+    }
+
+    /// How many asks and questions the session holds open, each one a reason it stays awake.
+    pub(crate) fn open_request_count(&self, session_id: SessionId) -> u32 {
+        u32::try_from(self.lock().open_count(session_id)).unwrap_or(u32::MAX)
     }
 
     /// Forgets the requests of a session whose process is gone; each one a service holds is
@@ -646,8 +651,10 @@ impl ClaudeInboundRequests {
                 }),
             },
         };
-        let origin =
-            claude_delivery_origin(session.stream.provider_account_id().cloned(), Some(wire));
+        let origin = claude_delivery_origin(
+            Some(session.stream.provider_account_id().clone()),
+            Some(wire),
+        );
         let outcome = dispatch_delivery(&*self.dependencies.dispatch, origin, delivery).await;
         let is_admitted = outcome == Some(InboundOutcome::AskAdmitted);
         let mut tables = self.lock();
@@ -837,7 +844,7 @@ fn record_hand_off_failure(session_id: SessionId, kind: &str, error: &(dyn Error
 fn record_unattributed(session: &ClaudeRequestSession<'_>, subtype: &str, request_id: &str) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: session.stream.provider_account_id().cloned(),
+        provider_account_id: Some(session.stream.provider_account_id().clone()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(format!("control_request/{subtype}")),
         disposition_reason: "a request Claude Code holds no daemon run on, or of a kind the \

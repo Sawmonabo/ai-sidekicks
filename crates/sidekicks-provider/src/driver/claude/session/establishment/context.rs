@@ -61,7 +61,7 @@ pub(crate) async fn resolve_claude_spawn_context(
     spawn_contexts: &PortRegistration<Arc<dyn SessionSpawnContextResolver>>,
     pool: &DatabaseReadPool,
     session_id: SessionId,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     row_values: &ProviderRowValues,
 ) -> Result<ClaudeSpawnContext, ClaudeSpawnContextError> {
     let context = spawn_contexts
@@ -79,10 +79,7 @@ pub(crate) async fn resolve_claude_spawn_context(
         working_directory: context.working_directory,
         every_project_rows: context.every_project_rows,
         project_rows: context.project_rows,
-        account_folders: context
-            .account_folders
-            .as_ref()
-            .map(ClaudeAccountFolders::from),
+        account_folders: ClaudeAccountFolders::from(&context.account_folders),
         // Claude Code finds each folder's memory itself; the daemon names none beside them.
         memory_folders: Vec::new(),
         // The session's own advisor and style, else the ones the app keeps for new sessions.

@@ -28,7 +28,9 @@ use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::process::ClaudeProcessEnd;
-use crate::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
+use crate::driver::claude::session::slots::{
+    ClaudeCloseStart, ClaudeSessionSlots, ClaudeSlotClose,
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::ultracode::relaunch_claude_options;
 use crate::driver::contract::{DriverError, bound_failure_detail};
@@ -360,30 +362,74 @@ impl ClaudeSessionRestarts {
         Ok(())
     }
 
+    /// Starts `live`'s stop for the idle sleep and answers the resume that wakes it, which brings
+    /// its conversation back on the same account, folder, settings and level; `None`, with nothing
+    /// stopped, once the process is no longer the session's, the daemon stops, or the model it
+    /// runs on has no name a resume carries.
+    pub(crate) fn begin_sleep(
+        &self,
+        live: &Arc<LiveClaudeSession>,
+    ) -> Option<(ClaudeSlotClose, ResumeSessionParams)> {
+        let resume = compose_claude_relaunch(live)?;
+        Some((self.begin_own_close(live)?, resume))
+    }
+
+    /// Ends the process a sleep's `close` holds the way a close does, keeping its conversation:
+    /// its input closes, so Claude Code finishes writing it, and it settles once it exited.
+    pub(crate) async fn finish_sleep(&self, close: ClaudeSlotClose, live: &LiveClaudeSession) {
+        self.retire_keeping_conversation(close, live).await;
+    }
+
+    /// Wakes a sleeping session through `resume` and hands the session directory the result, so
+    /// it records the binding. Fails with the resume's failure, which the directory records too.
+    pub(crate) async fn wake(&self, resume: ResumeSessionParams) -> Result<(), DriverError> {
+        let session_id = resume.session_id;
+        let result = self.resume(Some(resume)).await;
+        let failure = match &result {
+            DriverResumeResult::Resumed { .. } => None,
+            DriverResumeResult::Failed {
+                provider_failure_detail,
+                ..
+            } => Some(DriverError::Internal(
+                provider_failure_detail.as_str().into(),
+            )),
+        };
+        self.report_relaunch(session_id, result).await?;
+        failure.map_or(Ok(()), Err)
+    }
+
     // Ends `live`'s process the way a close does and resumes its conversation; `None`, with
     // nothing ended, once the process is no longer the session's or the daemon stops.
     async fn relaunch(&self, live: &Arc<LiveClaudeSession>) -> Option<DriverResumeResult> {
-        let session_id = live.session_id;
-        let close = {
-            let is_own = self
-                .slots
-                .live_session(session_id)
-                .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
-            if lock(&self.table).is_stopped || !is_own {
-                return None;
-            }
-            match self.slots.begin_close(session_id) {
-                ClaudeCloseStart::Closing(close) => close,
-                // A create, resume or close took the session first and owns it now.
-                ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => return None,
-            }
-        };
+        let close = self.begin_own_close(live)?;
         let relaunch = compose_claude_relaunch(live);
+        self.retire_keeping_conversation(close, live).await;
+        Some(self.resume(relaunch).await)
+    }
+
+    // Takes `live`'s slot for a close that keeps its conversation; `None` once the process is no
+    // longer the session's or the daemon stops.
+    fn begin_own_close(&self, live: &Arc<LiveClaudeSession>) -> Option<ClaudeSlotClose> {
+        let is_own = self
+            .slots
+            .live_session(live.session_id)
+            .is_some_and(|held| Arc::ptr_eq(&held.channel, &live.channel));
+        if lock(&self.table).is_stopped || !is_own {
+            return None;
+        }
+        match self.slots.begin_close(live.session_id) {
+            ClaudeCloseStart::Closing(close) => Some(close),
+            // A create, resume or close took the session first and owns it now.
+            ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => None,
+        }
+    }
+
+    // Ends the process `close` holds, its conversation kept where a later read finds its file.
+    async fn retire_keeping_conversation(&self, close: ClaudeSlotClose, live: &LiveClaudeSession) {
         lock(&self.table)
             .ended_conversations
-            .insert(session_id, ended_conversation_of(live));
+            .insert(live.session_id, ended_conversation_of(live));
         close.retire_for_bring_up(&self.routes, &self.ports).await;
-        Some(self.resume(relaunch).await)
     }
 
     // The wait passed: the session resumes unless a create, resume or close reached it meanwhile.

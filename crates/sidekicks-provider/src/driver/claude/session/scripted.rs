@@ -66,7 +66,7 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
-use crate::runtime_binding::test_store::spawned_build;
+use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 fn scripted_staged_changes() -> StagedChangesWorktrees {
@@ -86,7 +86,7 @@ pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
 }
 
 /// A live session at Ask on the scripted process `channel`.
-pub(super) fn scripted_live_session(
+pub(crate) fn scripted_live_session(
     session_id: SessionId,
     channel: Arc<dyn ClaudeProcessChannel>,
 ) -> LiveClaudeSession {
@@ -122,10 +122,11 @@ pub(super) fn scripted_live_session(
             spawn_environment: Vec::new(),
             advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,
+            command_channel: None,
         },
         initialize: ClaudeInitializeDeclaration::default(),
         command_choices: async move { choices }.boxed().shared(),
-        admitted_provider_account_id: None,
+        admitted_provider_account_id: test_provider_account_id(),
         settings: Mutex::new(ClaudeLiveSettings {
             execution_posture: Some(execution_posture),
             session_mode: SessionMode::Build,
@@ -148,6 +149,7 @@ pub(super) fn scripted_live_session(
         process_exit: OnceLock::new(),
         task_ended: SetOnce::new(),
         served_bindings: Mutex::default(),
+        messaging_socket: OnceLock::new(),
     }
 }
 

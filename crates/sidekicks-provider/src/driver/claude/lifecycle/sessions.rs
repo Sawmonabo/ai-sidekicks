@@ -108,10 +108,10 @@ impl ClaudeDriver {
         }
     }
 
-    /// Closes the session: a restart waiting for it, its controls and its reviewer's blocks go,
-    /// then its process is disposed of, after any transition in flight settles, each run it still
-    /// held ends as the daemon's intended close, and the `Allow once` presses its bindings held
-    /// are let go; a session with no process needs nothing.
+    /// Closes the session: a restart waiting for it, its idle sleep, its inbox, its controls and
+    /// its reviewer's blocks go, then its process is disposed of, after any transition in flight
+    /// settles, each run it still held ends as the daemon's intended close, and the `Allow once`
+    /// presses its bindings held are let go; last its command channel is removed.
     pub(crate) async fn close_session(
         &self,
         params: CloseSessionParams,
@@ -121,11 +121,14 @@ impl ClaudeDriver {
         };
         let session_id = params.session_id;
         parts.restarts.forget_session(session_id);
+        let task_services = &parts.establishment.task_services;
+        task_services.idle_sleep.forget_session(session_id);
+        task_services.inboxes.release(session_id);
         parts.session_controls.forget_session(session_id).await;
         parts.reviewer.forget_session(session_id);
         loop {
             match parts.slots().begin_close(session_id) {
-                ClaudeCloseStart::Empty => return Ok(()),
+                ClaudeCloseStart::Empty => break,
                 ClaudeCloseStart::Wait(settled) => {
                     settled.wait().await;
                 }
@@ -162,9 +165,23 @@ impl ClaudeDriver {
                     }
                     session.release_served_presses(&self.sources.ports.reviewer_denials);
                     close.finish();
-                    return Ok(());
+                    break;
                 }
             }
+        }
+        self.close_command_channel(session_id).await;
+        Ok(())
+    }
+
+    // Removes the session's command channel once no process of it runs; a removal that fails is
+    // logged, and the close goes on.
+    async fn close_command_channel(&self, session_id: SessionId) {
+        if let Err(error) = self.sources.command_channels.close(session_id).await {
+            tracing::error!(
+                %session_id,
+                error = &error as &(dyn Error + 'static),
+                "a closed Claude Code session's command channel could not be removed"
+            );
         }
     }
 
@@ -178,6 +195,7 @@ impl ClaudeDriver {
             return Ok(());
         };
         parts.restarts.stop();
+        parts.establishment.task_services.inboxes.release_all();
         let closes = join_all(
             parts
                 .slots()
@@ -197,9 +215,9 @@ impl ClaudeDriver {
             .is_none_or(|parts| parts.slots().live_session(session_id).is_none())
     }
 
-    /// Names the session from its first exchange; see the naming pass. At rest the pass runs on
-    /// the account the session's stored leg ran on; a session that never ran answers `None`.
-    /// Fails as the stored leg cannot be read, and as the pass fails.
+    /// Names the session from its first exchange; see the naming pass. The pass runs on the live
+    /// process's account, else, at rest, on the one the session's stored leg ran on; a session that
+    /// never ran answers `None`. Fails as the stored leg cannot be read, and as the pass fails.
     pub(crate) async fn name_session(
         &self,
         params: NameSessionParams,
@@ -207,19 +225,20 @@ impl ClaudeDriver {
         let live = self
             .composed_parts()
             .and_then(|parts| parts.slots().live_session(params.session_id));
-        let rest_account = if live.is_some() {
-            None
-        } else {
-            let Some(leg) = self.read_session_leg(params.session_id).await? else {
-                return Ok(None);
-            };
-            leg.spawn_config.provider_account_id
+        let account = match &live {
+            Some(live) => live.admitted_provider_account_id.clone(),
+            None => {
+                let Some(leg) = self.read_session_leg(params.session_id).await? else {
+                    return Ok(None);
+                };
+                leg.spawn_config.provider_account_id
+            }
         };
         name_claude_session(
             live.as_deref(),
             &*self.starts,
             &self.sources,
-            rest_account,
+            account,
             params,
         )
         .await
@@ -310,19 +329,25 @@ impl ClaudeDriver {
     }
 
     /// Deletes Claude Code's own copy of each of the session's conversations from every home it
-    /// ran in; see the conversation purge.
+    /// ran in, its command channel removed first; see the conversation purge. A session with no
+    /// conversation has nothing to delete.
     pub(crate) async fn purge_session(
         &self,
         params: PurgeSessionParams,
     ) -> Result<(), DriverError> {
         let sources = &self.sources;
         let session_id = params.session_id;
+        self.close_command_channel(session_id).await;
+        // The session's folder is the same on every account it ran on.
+        let Some(first) = params.conversations.first() else {
+            return Ok(());
+        };
         let context = sources
             .ports
             .spawn_contexts
             .require_port()
             .map_err(internal)?
-            .resolve_spawn_context(session_id, None)
+            .resolve_spawn_context(session_id, first.provider_account_id.clone())
             .await
             .map_err(DriverError::Internal)?;
         let repository = self.read_repository(&context.working_directory).await;
@@ -345,7 +370,7 @@ impl ClaudeDriver {
     async fn session_environment(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> Result<Vec<(String, String)>, Box<dyn Error + Send + Sync>> {
         let sources = &self.sources;
         let context = sources
@@ -354,12 +379,16 @@ impl ClaudeDriver {
             .require_port()?
             .resolve_spawn_context(session_id, provider_account_id.clone())
             .await?;
-        let account = context.account_folders.zip(provider_account_id.as_ref());
-        Ok(self.process_environment(account, &context.every_project_rows, &context.project_rows)?)
+        Ok(self.account_process_environment(
+            &context.account_folders,
+            &provider_account_id,
+            &context.every_project_rows,
+            &context.project_rows,
+        )?)
     }
 
-    // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
-    async fn read_session_leg(
+    /// The session's stored leg, as the run engine reads it; `None` for a session that never ran.
+    pub(super) async fn read_session_leg(
         &self,
         session_id: SessionId,
     ) -> Result<Option<RuntimeBinding>, DriverError> {

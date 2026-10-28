@@ -52,8 +52,8 @@ const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
 pub(crate) struct ClaudeSessionSpawn<'a> {
     /// The legs the process starts with.
     pub(crate) legs: &'a ClaudeSpawnBoundLegs,
-    /// The account the process runs on; `None` on the person's own home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the process runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The session's own standing rules, carried in its `--settings`.
     pub(crate) session_rules: &'a [ProviderAskRule],
     /// The session's step bound, `None` where it sets none.
@@ -125,6 +125,7 @@ pub(crate) async fn bring_up_claude_process(
         legs.execution_posture.as_ref(),
         &legs.advisor,
         legs.output_style.as_deref(),
+        legs.command_channel.as_deref(),
     )?;
     let has_managed_mcp_file = has_readable_managed_mcp_file().await;
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
@@ -160,12 +161,15 @@ pub(crate) async fn bring_up_claude_process(
                 environment: executable.environment.clone(),
                 working_folder: legs.working_directory.clone(),
                 provider_session_id: request.provider_session_id,
-                provider_account_id: spawn.provider_account_id,
+                provider_account_id: Some(spawn.provider_account_id),
             },
             request.listener,
             request.turn_holds,
         )
         .await?;
+    if let Some(channel) = &legs.command_channel {
+        channel.follow(process.identity().process_id);
+    }
     match configure(&process, legs.subagent_policy.as_ref(), in_process_servers).await {
         Ok((initialize_response, settings_readback)) => Ok(ClaudeBroughtUp {
             initialize: initialize_reply::read_claude_initialize_declaration(

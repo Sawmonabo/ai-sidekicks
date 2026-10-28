@@ -403,9 +403,10 @@ impl ClaudeSlotClose {
         self.is_disposed = true;
     }
 
-    /// Closes the process for a bring-up that follows at once, keeping its runs bound for the next
-    /// process: closes its channel, retires its run routes after it, empties the slot, releases
-    /// the reviewer presses it served and tells the queue the process is gone.
+    /// Closes the process for a bring-up that follows, at once or at the session's wake, keeping
+    /// its runs bound for the next process: closes its channel, retires its run routes after it,
+    /// empties the slot, releases the reviewer presses it served and tells the queue the process
+    /// is gone.
     pub(crate) async fn retire_for_bring_up(self, routes: &ClaudeRunRoutes, ports: &DriverPorts) {
         let live = Arc::clone(&self.session);
         self.close_channel().await;

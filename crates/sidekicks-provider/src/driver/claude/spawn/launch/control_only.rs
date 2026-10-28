@@ -19,10 +19,13 @@ use crate::driver::claude::session::process::{
     ClaudeStreamFrame,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::driver::claude::session::transport::control::ClaudeControlRequest;
+use crate::driver::claude::session::transport::control::{
+    ClaudeContextUsageDetail, ClaudeControlRequest,
+};
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::claude::session::transport::readings::ClaudeModelCatalogReading;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::spawn::system_prompt::claude_appended_system_prompt_arguments;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The command line of a process that keeps nothing.
@@ -134,7 +137,11 @@ impl ClaudeShortProcess {
             Some(folder) => folder,
             None => launcher.control_only_folder().await?,
         };
-        let mut arguments: Vec<String> = CLAUDE_CONTROL_ONLY_ARGUMENTS.map(str::to_owned).into();
+        let mut arguments: Vec<String> = CLAUDE_CONTROL_ONLY_ARGUMENTS
+            .into_iter()
+            .chain(claude_appended_system_prompt_arguments())
+            .map(str::to_owned)
+            .collect();
         if let Some(model) = model {
             arguments.extend(["--model".to_owned(), model.to_owned()]);
         }
@@ -157,7 +164,9 @@ impl ClaudeShortProcess {
     ) -> Result<Option<Box<RawValue>>, ClaudeSessionError> {
         match self
             .process
-            .send_control_request(ClaudeControlRequest::GetContextUsage {})
+            .send_control_request(ClaudeControlRequest::GetContextUsage {
+                detail: ClaudeContextUsageDetail::Summary,
+            })
             .await
         {
             Ok(answer) => Ok(answer.response),

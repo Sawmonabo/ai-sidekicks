@@ -13,6 +13,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::events::{
     SessionNotice, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
 };
@@ -28,10 +29,12 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::process::NO_PROMPT_ENVIRONMENT;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeCommandChannels};
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
@@ -44,6 +47,7 @@ use crate::driver::claude::session::arrivals::deliver_in_session_order;
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
+use crate::driver::claude::session::idle_sleep::ClaudeSideQuestionHold;
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -65,7 +69,7 @@ use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAns
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::session_rules::SessionRulePort;
-use crate::port::usage_sink::UsageSink;
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
@@ -103,6 +107,7 @@ pub(crate) struct ClaudeSessionControls {
     session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
     in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
     read_commands: ClaudeCommandListReader,
+    command_channels: Arc<ClaudeCommandChannels>,
     tables: Arc<Mutex<ClaudeControlTables>>,
 }
 
@@ -111,15 +116,16 @@ pub(crate) struct ClaudeSessionControls {
 pub(crate) struct ClaudeSideQuestionCopy {
     /// The legs the copy starts on.
     pub(crate) legs: ClaudeSpawnBoundLegs,
-    /// The account it runs on; `None` on the person's own home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The conversation copied, whose emitted usage the copy's is metered less.
+    /// The account it runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// The conversation copied, which the copy resumes.
     pub(crate) parent_provider_session_id: String,
 }
 
 impl ClaudeSessionControls {
     /// The controls, which start the session's own runs through `run_start`, its one-turn
-    /// processes through `starts`, and read its command list through `read_commands`.
+    /// processes through `starts`, a staged review's on a channel of `command_channels`, and read
+    /// its command list through `read_commands`.
     pub(crate) fn new(
         run_start: ClaudeRunStart,
         starts: Arc<dyn ClaudeProcessStarts>,
@@ -127,6 +133,7 @@ impl ClaudeSessionControls {
         session_rules: Arc<PortRegistration<Arc<dyn SessionRulePort>>>,
         in_process_tool_servers: Arc<PortRegistration<Arc<dyn InProcessToolServers>>>,
         read_commands: ClaudeCommandListReader,
+        command_channels: Arc<ClaudeCommandChannels>,
     ) -> Self {
         Self {
             run_start,
@@ -135,6 +142,7 @@ impl ClaudeSessionControls {
             session_rules,
             in_process_tool_servers,
             read_commands,
+            command_channels,
             tables: Arc::new(Mutex::new(ClaudeControlTables::default())),
         }
     }
@@ -227,20 +235,26 @@ impl ClaudeSessionControls {
 
     /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
     /// plan mode that keeps nothing; returns at once. Its answer is appended as a row when it
-    /// comes, its usage metered on the session through `usage` less the copied conversation's own,
-    /// and a refusal or failure recorded.
+    /// comes, its turn's usage metered on the session's `binding_id` through `usage`, and a
+    /// refusal or failure recorded; `hold` keeps the session awake until then.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the question, where it is metered and the hold that keeps its session awake"
+    )]
     pub(crate) fn ask_side_question(
         self: &Arc<Self>,
         session_id: SessionId,
+        binding_id: RuntimeBindingId,
         side_question_id: SideQuestionId,
         question: String,
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
         usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+        hold: ClaudeSideQuestionHold,
     ) {
         let controls = Arc::clone(self);
         tokio::spawn(async move {
             let reply = controls
-                .run_side_question(copy, question.clone(), &usage)
+                .run_side_question(copy, question.clone(), &binding_id, &usage)
                 .await;
             let answered = match reply {
                 Ok(reply) => side_question_row(session_id, side_question_id, question, reply),
@@ -259,6 +273,7 @@ impl ClaudeSessionControls {
                     &std::io::Error::other(reason),
                 ),
             }
+            drop(hold);
         });
     }
 
@@ -372,10 +387,11 @@ impl ClaudeSessionControls {
         })
     }
 
-    /// Reads one frame of the session's own thread on its task: a new `system/init` gives the
-    /// followers the new list, and a `result` finishes a review running as the session's turn.
+    /// Reads one frame of the session's own thread on its task: a new `system/init` or a whole
+    /// `/` list sent again gives the followers the new list, and a `result` finishes a review
+    /// running as the session's turn.
     pub(crate) async fn observe_lead_frame(&self, session_id: SessionId, frame_kind: &str) {
-        if frame_kind == "system/init" {
+        if matches!(frame_kind, "system/init" | "system/commands_changed") {
             let listeners: Vec<_> = self
                 .lock()
                 .followers
@@ -509,11 +525,13 @@ impl ClaudeSessionControls {
         Ok(attached)
     }
 
-    // The side question's one turn on its copy, and its usage metered once the model answered.
+    // The side question's one turn on its copy, and its usage metered on `binding_id` once the
+    // model answered.
     async fn run_side_question(
         &self,
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
         question: String,
+        binding_id: &RuntimeBindingId,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
     ) -> Result<ClaudeOneTurnReply, Box<dyn Error + Send + Sync>> {
         let copy = copy.await?;
@@ -530,9 +548,10 @@ impl ClaudeSessionControls {
         meter_side_question(
             usage,
             copy.legs.session_id,
-            &copy.parent_provider_session_id,
+            binding_id,
             reply.usage.as_ref(),
-        );
+        )
+        .await;
         Ok(reply)
     }
 
@@ -541,7 +560,7 @@ impl ClaudeSessionControls {
     async fn run_one_turn(
         &self,
         legs: &ClaudeSpawnBoundLegs,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         resume_handle: Option<String>,
         permission_mode: Option<ClaudePermissionMode>,
         text: String,
@@ -608,20 +627,68 @@ impl ClaudeSessionControls {
 
 /// The legs a one-turn process of `live`'s session starts on: its own, at the level, advisor and
 /// style it runs with now, on the full id of the model it runs, in `working_directory` where one is
-/// given.
+/// given, its commands reaching `command_channel` where given. The session's own channel stays the
+/// session process's, since it admits only parties under that process, so its variables give way
+/// to `command_channel`'s, and a process given none runs its commands with no channel.
 pub(crate) fn one_turn_legs(
     live: &LiveClaudeSession,
     working_directory: Option<std::path::PathBuf>,
+    command_channel: Option<Arc<ClaudeCommandChannel>>,
 ) -> ClaudeSpawnBoundLegs {
     let settings = lock(&live.settings).clone();
+    let legs = &live.spawn_bound_legs;
+    let session_variables = legs
+        .command_channel
+        .as_deref()
+        .map_or(&[][..], ClaudeCommandChannel::environment);
+    let own_variables = command_channel
+        .as_deref()
+        .map_or(&[][..], ClaudeCommandChannel::environment);
     ClaudeSpawnBoundLegs {
+        spawn_environment: legs
+            .spawn_environment
+            .iter()
+            .filter(|variable| !session_variables.contains(variable))
+            .chain(own_variables)
+            .cloned()
+            .collect(),
+        command_channel,
         model: claude_full_model_id(&live.initialize, &settings.running_model),
         execution_posture: settings.execution_posture,
         advisor: settings.advisor,
         output_style: settings.output_style,
-        working_directory: working_directory
-            .unwrap_or_else(|| live.spawn_bound_legs.working_directory.clone()),
-        ..live.spawn_bound_legs.clone()
+        working_directory: working_directory.unwrap_or_else(|| legs.working_directory.clone()),
+        ..legs.clone()
+    }
+}
+
+/// The SSH askpass variable, which the no-prompt environment leaves unset rather than empty.
+const SSH_ASKPASS_VARIABLE: &str = "SSH_ASKPASS";
+
+/// `legs` for a process that may ask no one for a credential, a side question's copy: every
+/// askpass and prompt variable the session's environment carries gives way to the no-prompt
+/// environment, each of its pairs set once, so a git or ssh question fails at once.
+pub(crate) fn without_credential_prompts(legs: ClaudeSpawnBoundLegs) -> ClaudeSpawnBoundLegs {
+    let is_prompt_variable = |name: &str| {
+        name == SSH_ASKPASS_VARIABLE
+            || NO_PROMPT_ENVIRONMENT
+                .iter()
+                .any(|(prompt_name, _)| *prompt_name == name)
+    };
+    let spawn_environment = legs
+        .spawn_environment
+        .into_iter()
+        .filter(|(name, _)| !is_prompt_variable(name))
+        .chain(
+            NO_PROMPT_ENVIRONMENT
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned())),
+        )
+        .collect();
+    ClaudeSpawnBoundLegs {
+        spawn_environment,
+        command_channel: None,
+        ..legs
     }
 }
 
@@ -637,46 +704,42 @@ pub(crate) fn claude_full_model_id(
         .unwrap_or_else(|| model.to_owned())
 }
 
-// The copy's usage on the session less what the copied conversation already reported: the copy
-// meters as a resumed thread of its own whose base is the conversation's emitted sums. With no
-// usage record registered it goes nowhere; a base that cannot be read is recorded and nothing is
-// metered, since the copy's whole figure would count the conversation again.
-fn meter_side_question(
+// The copy's turn's own usage, metered on the session's `binding_id` as a thread of its own from
+// a zero base: the copy's process ran that one turn, so the turn's usage is all it spent. With no
+// usage record registered it goes nowhere; a refused record is reported.
+async fn meter_side_question(
     usage: &PortRegistration<Arc<dyn UsageSink>>,
     session_id: SessionId,
-    parent_provider_session_id: &str,
+    binding_id: &RuntimeBindingId,
     observed: Option<&ClaudeCumulativeUsageObservation>,
 ) {
     let (Some(observed), Some(sink)) = (observed, usage.port()) else {
         return;
     };
-    let base = match sink.read_prior_emitted(session_id, parent_provider_session_id) {
-        Ok(base) => base,
-        Err(error) => {
-            record_unheard_claude_failure(
-                DriverDiagnosticKind::UsageResumeBaseUnavailable,
-                session_id,
-                "the side question's usage base",
-                &*error,
-            );
-            return;
-        }
-    };
-    let thread_id = mint_uuid_v7().to_string();
+    let thread_id = binding_id.as_str().to_owned();
     let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
-    accountant.establish_thread(
-        thread_id.clone(),
-        ThreadBaseEstablishment::Resume {
-            prior_emitted_cumulative: base,
-        },
-    );
-    if let Some(metered) = accountant.meter_reading(CumulativeUsageReading {
+    accountant.establish_thread(thread_id.clone(), ThreadBaseEstablishment::Fresh);
+    let Some(delta) = accountant.meter_reading(CumulativeUsageReading {
         thread_id,
         named_turn_id: None,
         cumulative: observed.cumulative,
-        declared_per_turn: observed.declared_per_turn,
-    }) {
-        sink.record_metered(session_id, metered);
+        declared_per_turn: None,
+    }) else {
+        return;
+    };
+    let metered = MeteredUsage {
+        session_id,
+        binding_id: binding_id.clone(),
+        subagent_id: None,
+        delta,
+    };
+    if let Err(error) = sink.record_metered(metered).await {
+        record_unheard_claude_failure(
+            DriverDiagnosticKind::ProcessReportFailed,
+            session_id,
+            "the side question's usage",
+            &*error,
+        );
     }
 }
 

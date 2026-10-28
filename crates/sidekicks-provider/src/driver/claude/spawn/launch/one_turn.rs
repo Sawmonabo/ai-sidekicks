@@ -1,7 +1,9 @@
 //! The one-turn process: a session's process brought up over a copy of its conversation that
 //! Claude Code keeps no file of, sent one message, and read until its lead `result`. No one watches
 //! it, so every tool ask is denied, the daemon's hooks pass, its in-process tool servers answer as
-//! on the session's own process, and a stop ends it at once.
+//! on the session's own process, and a stop ends it at once. A process given a channel apart from
+//! the session's, a staged review's, makes each of its commands a row under its run, any left open
+//! ending with the process.
 
 use std::sync::Arc;
 
@@ -11,6 +13,7 @@ use sidekicks_contracts::run::failure_cause::RunFailureCause;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use tokio_util::sync::CancellationToken;
 
+use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::delivery::system::{
     read_claude_assistant_refusal, read_claude_refusal_without_fallback,
@@ -105,6 +108,10 @@ pub(crate) async fn run_claude_one_turn(
     let session_id = request.spawn.legs.session_id;
     let servers = request.spawn.in_process_servers.cloned();
     let provider_account_id = request.spawn.provider_account_id.clone();
+    let command_channel = request.spawn.legs.command_channel.clone();
+    let apart_run = command_channel
+        .as_deref()
+        .and_then(ClaudeCommandChannel::apart_run);
     let (listener, mut arrivals) = ForwardedArrivals::open();
     let brought_up = bring_up_claude_process(
         launcher,
@@ -133,6 +140,10 @@ pub(crate) async fn run_claude_one_turn(
         while let Some(arrival) = arrivals.recv().await {
             match arrival {
                 ClaudeShortProcessArrival::Frame(frame) => {
+                    // A helper's commands are rows under the run too.
+                    if let Some(apart_run) = apart_run {
+                        apart_run.read_frame(&frame.observation.frame_kind, &frame.text);
+                    }
                     if frame.observation.subagent_id.is_some() {
                         continue;
                     }
@@ -168,6 +179,9 @@ pub(crate) async fn run_claude_one_turn(
     };
     calls.cancel_all();
     end_process(&process, request.stop.is_cancelled()).await;
+    if let Some(apart_run) = apart_run {
+        apart_run.end();
+    }
     outcome
 }
 
@@ -186,7 +200,7 @@ async fn answer_unwatched(
     answer_claude_request(
         &*context.channel,
         &context.session_id,
-        context.provider_account_id.as_ref(),
+        &context.provider_account_id,
         asked.request_id,
         &answer,
     )

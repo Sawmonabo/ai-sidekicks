@@ -26,6 +26,10 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `system/init`.
     #[strum(serialize = "system/init")]
     SystemInit,
+    /// `system/commands_changed`: the whole `/` list again, which routing takes in place of the
+    /// list `system/init` declared; no row.
+    #[strum(serialize = "system/commands_changed")]
+    SystemCommandsChanged,
     /// `system/api_retry`.
     #[strum(serialize = "system/api_retry")]
     SystemApiRetry,
@@ -221,6 +225,17 @@ impl ClaudeWireFrameKind {
         )
     }
 
+    /// Whether the kind reports a task: its start, a move, its end or the whole background set.
+    pub(crate) const fn is_task(&self) -> bool {
+        matches!(
+            self,
+            Self::SystemTaskStarted
+                | Self::SystemTaskUpdated
+                | Self::SystemTaskNotification
+                | Self::SystemBackgroundTasksChanged
+        )
+    }
+
     // The family the thread-frame router reads the kind as.
     fn routing_family(&self) -> ThreadFrameFamilyClass {
         match self {
@@ -230,6 +245,7 @@ impl ClaudeWireFrameKind {
             | Self::SystemApiError
             | Self::RateLimitEvent
             | Self::SystemInit
+            | Self::SystemCommandsChanged
             | Self::SystemWorkerShuttingDown
             | Self::ControlRequestCanUseTool
             | Self::ControlRequestElicitation

@@ -4,12 +4,10 @@
 use serde_json::json;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::machine::settings::ProviderRowValue;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderRow, ProviderSettingControl, ProviderValueText,
 };
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::ProviderAccountFolders;
@@ -18,6 +16,7 @@ use crate::driver::claude::session::transport::readings::{
     ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
 };
 use crate::driver::session_control::StartingLevelParams;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A figures read whose build offers the advisors `opus` and `sonnet`.
 fn figures_offering_advisors() -> ClaudeCreationFiguresReading {
@@ -57,30 +56,30 @@ fn advisor_value(rows: &[ProviderRow]) -> Option<String> {
 }
 
 // Killed by offering Reviewed whatever the model's catalog says, or on a catalog that could not be
-// read: a person's `auto` starts at Reviewed only on a model Claude Code runs auto mode on; and by
-// reading an app-managed account's catalog on the person's own home.
+// read: an account home's `auto` starts at Reviewed only on a model Claude Code runs auto mode on;
+// and by reading the level or the catalog on the person's own `~/.claude` instead of the account's
+// own home, where only the account's settings name `auto`.
 #[tokio::test(start_paused = true)]
 async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() {
-    let account_folder = std::env::temp_dir().join("sidekicks-account");
+    let account_folder = tempfile::tempdir().expect("the test makes an account folder");
+    let config_folder = account_folder.path().join("config");
     let fixture = ScriptedDriver::with_account_folders(Some(ProviderAccountFolders {
-        configuration_folder: account_folder.join("config"),
-        credential_store_folder: account_folder.join("credentials"),
+        configuration_folder: config_folder.clone(),
+        credential_store_folder: account_folder.path().join("credentials"),
     }));
-    let settings = fixture.home.join(".claude");
-    std::fs::create_dir_all(&settings).expect("the settings folder is made");
+    std::fs::create_dir_all(&config_folder).expect("the account's config folder is made");
     std::fs::write(
-        settings.join("settings.json"),
+        config_folder.join("settings.json"),
         json!({"permissions": {"defaultMode": "auto"}}).to_string(),
     )
-    .expect("the person's settings are written");
-    let read_on = |model: &str, provider_account_id: Option<ProviderAccountId>| {
+    .expect("the account's settings are written");
+    let read = |model: &str| {
         fixture.driver.read_starting_level(StartingLevelParams {
             working_folder: fixture.work.clone(),
             model: ProviderToken::new(model.to_owned()).expect("the model fits"),
-            provider_account_id,
+            provider_account_id: test_provider_account_id(),
         })
     };
-    let read = |model: &str| read_on(model, None);
     fixture.starts.script_catalog(json!({"models": [
         {"value": "opus", "displayName": "Opus", "supportsAutoMode": true},
         {"value": "haiku", "displayName": "Haiku", "supportsAutoMode": false},
@@ -91,23 +90,37 @@ async fn a_new_session_starts_at_reviewed_only_on_a_model_that_runs_auto_mode() 
     ]}));
     let on_other_model = read("haiku").await.expect("the level reads");
     let unread_catalog = read("opus").await.expect("the level reads");
-    drop(fixture.starts.take_catalog_environments());
-    let account = ProviderAccountId::new(mint_uuid_v7().to_string()).expect("a UUID is an id");
-    let on_account = read_on("opus", Some(account)).await;
 
     assert_eq!(on_auto_model.level, PermissionLevel::Reviewed);
     assert_eq!(on_auto_model.session_mode, SessionMode::Build);
     assert_eq!(on_other_model.level, PermissionLevel::Ask);
     assert_eq!(unread_catalog.level, PermissionLevel::Ask);
-    assert!(on_account.is_ok(), "the level reads on the account");
-    let account_config = account_folder.join("config").display().to_string();
+    let account_config = config_folder.display().to_string();
     let environments = fixture.starts.take_catalog_environments();
     assert!(
         environments.iter().all(|environment| environment
             .contains(&("CLAUDE_CONFIG_DIR".to_owned(), account_config.clone()))),
         "the account's catalog is read on its own config folder"
     );
-    assert_eq!(environments.len(), 1);
+    assert_eq!(environments.len(), 3);
+}
+
+// Killed by removing the capability read's configuration folder only after a read that succeeded.
+#[tokio::test(start_paused = true)]
+async fn the_capability_read_s_configuration_folder_is_gone_after_a_failed_read() {
+    let fixture = ScriptedDriver::new();
+
+    let read = fixture.driver.get_capabilities().await;
+
+    assert!(read.is_err(), "the scripted build reads no capabilities");
+    assert!(
+        !fixture
+            .services
+            .data_folder
+            .join("claude-capability-read")
+            .exists(),
+        "the read's folder is removed"
+    );
 }
 
 // Killed by starting a process for each Settings read, where reads of one build share one.
