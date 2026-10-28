@@ -36,6 +36,7 @@ use sidekicks_workspace::working_folder::{
 use tokio::runtime::Handle;
 
 use crate::daemon::machine_settings::file::MachineSettingsFile;
+use crate::daemon::release_version::this_build_release_version;
 
 /// The folder of the run folder every shell's start writes its scripts and nonce files in.
 const SHELL_STARTUP_FOLDER_NAME: &str = "shell-startup";
@@ -123,7 +124,7 @@ pub(crate) async fn build_shell_table(
     Ok(ShellTable::new(ShellTableDeps {
         terminals,
         machine_device_id,
-        terminal_version: format!("sidekicks({})", env!("CARGO_PKG_VERSION")),
+        release_version: this_build_release_version().as_str().to_owned(),
         append_control_change: append_control_change(appender),
         read_working_folder: read_session_working_folder(Arc::clone(&reads)),
         read_shell_settings: read_shell_settings(reads, settings),
