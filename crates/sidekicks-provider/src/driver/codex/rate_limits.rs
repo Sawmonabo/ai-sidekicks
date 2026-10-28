@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::text::BoundedText;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::driver::SessionSpawnContextResolver;
+use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::GetAccountRateLimitsParams;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -28,8 +28,8 @@ use crate::driver::codex::usage_limit_signal::{
 };
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::registration::PortRegistration;
 use crate::run::delivery::{InboundDelivery, MachineScopedRow};
+use sidekicks_std::port_registration::PortRegistration;
 
 /// Reads and files an account's rate-limit readings. A clone files through the same record of what
 /// was filed, so a reading one clone filed is not filed again by another.
@@ -38,7 +38,7 @@ pub(crate) struct CodexRateLimitFiling {
     /// The run engine's dispatch, which files each row.
     dispatch: Arc<dyn InboundDispatch>,
     /// Reads the account's credential generation.
-    spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// What was last filed, shared by every clone. Never held across an await.
     filed: Arc<Mutex<FiledRateLimits>>,
     /// Held per account through each filing, shared by every clone.
@@ -54,15 +54,15 @@ struct FiledRateLimits {
 }
 
 impl CodexRateLimitFiling {
-    /// A filing through `dispatch` with the credential generations `spawn_contexts` reads, having
+    /// A filing through `dispatch` with the credential generations `provider_accounts` reads, having
     /// filed nothing yet.
     pub(crate) fn new(
         dispatch: Arc<dyn InboundDispatch>,
-        spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+        provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     ) -> Self {
         Self {
             dispatch,
-            spawn_contexts,
+            provider_accounts,
             filed: Arc::default(),
             filings: Arc::new(KeyedLock::new()),
         }
@@ -109,9 +109,9 @@ impl CodexRateLimitFiling {
         };
         // Held through the filing, so a reading one clone is filing is not filed again by another.
         let _filing = self.filings.acquire(provider_account_id.clone()).await;
-        let read = match self.spawn_contexts.require_port() {
-            Ok(spawn_contexts) => {
-                spawn_contexts
+        let read = match self.provider_accounts.require_port() {
+            Ok(provider_accounts) => {
+                provider_accounts
                     .read_credential_generation(provider_account_id.clone())
                     .await
             }

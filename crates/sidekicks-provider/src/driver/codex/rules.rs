@@ -34,8 +34,8 @@ use sidekicks_workspace::git::exclude::{ExcludeError, add_repository_exclude};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::asks::CodexProjectRules;
 use crate::driver::codex::rules::evaluator::RuleFileEvaluator;
-use crate::port::registration::PortRegistration;
 use crate::port::repository_reader::RepositoryReader;
+use sidekicks_std::port_registration::PortRegistration;
 
 // The folder a project keeps its Codex settings in, and in it and in every other folder Codex
 // reads settings from, the folder of rule files and the extension Codex reads.

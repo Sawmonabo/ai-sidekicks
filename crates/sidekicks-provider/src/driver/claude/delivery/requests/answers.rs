@@ -27,9 +27,9 @@ use crate::driver::question_answers::{QUESTION_UNSHOWN_REASON, read_question_ans
 use crate::port::permission_ask::{
     ProviderAnswerRule, ProviderAskAction, ProviderPermissionAnswer,
 };
-use crate::port::registration::{PortRegistration, PortRegistrationError};
 use crate::port::repository_reader::{RepositoryReader, RepositoryReading};
 use crate::port::session_rules::SessionRulePort;
+use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 
 // The input members a file tool names its file or folder by, in the order they are read.
 const CLAUDE_PATH_MEMBERS: [&str; 3] = ["file_path", "notebook_path", "path"];

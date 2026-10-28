@@ -1,4 +1,4 @@
-//! A port another part of the daemon registers once at run time, after the drivers that call it
+//! A port another part of the program registers once at run time, after the drivers that call it
 //! are built, so a driver reads the port when it needs it rather than when it is built.
 
 use std::sync::OnceLock;
@@ -34,7 +34,7 @@ impl<Port> PortRegistration<Port> {
     }
 
     /// The port's name, as its errors give it.
-    pub(crate) const fn port_name(&self) -> &'static str {
+    pub const fn port_name(&self) -> &'static str {
         self.port_name
     }
 

@@ -25,10 +25,10 @@ use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::contract::DriverError;
 use crate::driver::rewind::RewindConversationResult;
 use crate::lenient_json::{lenient_object, read_lenient};
-use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::port_registration::PortRegistration;
 
 // Why a run whose turn a cut took before Claude Code settled it ended failed.
 const CLAUDE_SUPERSEDED_RUN_DETAIL: &str = "The turn carrying this run's words was cut from the \

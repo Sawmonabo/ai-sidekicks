@@ -37,7 +37,6 @@ use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 use crate::driver::run_control::RunToolBoundary;
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher;
@@ -46,6 +45,7 @@ use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::terminal_emission_gate::TerminalEmissionGate;
 use crate::thread_frame_router::ThreadFrameRoute;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// What the rest of the Codex driver does for a frame, which the frame delivery cannot do itself.
 pub(crate) trait CodexFrameEffects: Send + Sync {

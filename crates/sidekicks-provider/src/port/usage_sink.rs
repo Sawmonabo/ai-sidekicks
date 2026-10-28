@@ -14,19 +14,19 @@ use crate::usage_delta_accountant::{MeteredUsageDelta, UsageAxisCounts};
 /// One quota window a provider reported for an account: the provider's own name for the limit, the
 /// window's length in minutes, the share of it used in percent, and when it resets where said.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ProviderQuotaWindow {
+pub struct ProviderQuotaWindow {
     /// The provider's own name for the limit.
-    pub(crate) limit_id: String,
+    pub limit_id: String,
     /// The window's length in minutes.
-    pub(crate) window_mins: i64,
+    pub window_mins: i64,
     /// The share of the window used, in percent.
-    pub(crate) used_percent: f64,
+    pub used_percent: f64,
     /// When the window resets, where the provider said.
-    pub(crate) resets_at: Option<Timestamp>,
+    pub resets_at: Option<Timestamp>,
 }
 
 /// The daemon's usage record as the drivers reach it, registered through a `PortRegistration`.
-pub(crate) trait UsageSink: Send + Sync {
+pub trait UsageSink: Send + Sync {
     /// Takes one metered per-turn delta of `session_id`.
     fn record_metered(&self, session_id: SessionId, delta: MeteredUsageDelta);
 

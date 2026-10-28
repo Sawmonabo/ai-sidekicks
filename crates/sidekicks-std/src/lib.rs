@@ -18,6 +18,7 @@ pub mod mutex_lock;
 pub mod output_tail;
 #[cfg(any(test, feature = "test-support"))]
 pub mod pause_point;
+pub mod port_registration;
 pub mod processor_bound;
 pub mod random_hex;
 pub mod retry;

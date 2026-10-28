@@ -41,10 +41,10 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;
-use crate::port::registration::PortRegistration;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
+use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 

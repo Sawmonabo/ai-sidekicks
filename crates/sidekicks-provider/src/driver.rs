@@ -480,43 +480,42 @@ pub struct DriverServices {
 /// session, as the daemon resolves them at every spawn; a provider's own settings for the session
 /// stay with its driver.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct SessionSpawnContext {
+pub struct SessionSpawnContext {
     /// The session's working folder, its worktree, absolute.
-    pub(crate) working_directory: PathBuf,
+    pub working_directory: PathBuf,
     /// The repository's git folder, the common one for a linked worktree; `None` outside one.
-    pub(crate) git_common_folder: Option<PathBuf>,
+    pub git_common_folder: Option<PathBuf>,
     /// The machine's `Every project` environment rows.
-    pub(crate) every_project_rows: Vec<EnvironmentRow>,
+    pub every_project_rows: Vec<EnvironmentRow>,
     /// The session's project's own environment rows, which win over an `Every project` row.
-    pub(crate) project_rows: Vec<EnvironmentRow>,
+    pub project_rows: Vec<EnvironmentRow>,
     /// The folders of the account the process runs on, where the app manages its home; `None` on
     /// the person's own sign-in.
-    pub(crate) account_folders: Option<ProviderAccountFolders>,
+    pub account_folders: Option<ProviderAccountFolders>,
     /// The session's own bound on the steps one turn may take; `None` where the person set none.
-    pub(crate) step_bound: Option<SafeInt<1>>,
+    pub step_bound: Option<SafeInt<1>>,
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
     /// off.
     #[expect(
         clippy::option_option,
         reason = "a session with no advisor of its own differs from one whose advisor is off"
     )]
-    pub(crate) advisor_model: Option<Option<String>>,
+    pub advisor_model: Option<Option<String>>,
 }
 
 /// The folders of an account whose home the app manages, each absolute: the configuration folder a
 /// session reads and the account's own credential store, kept apart from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct ProviderAccountFolders {
+pub struct ProviderAccountFolders {
     /// The configuration folder.
-    pub(crate) configuration_folder: PathBuf,
+    pub configuration_folder: PathBuf,
     /// The account's credential store.
-    pub(crate) credential_store_folder: PathBuf,
+    pub credential_store_folder: PathBuf,
 }
 
-/// Resolves where a session's provider process runs, and reads the accounts a provider runs on:
-/// an account's folders before any session runs on it, and its credential generation. The daemon
-/// registers it on [`DriverPorts::spawn_contexts`].
-pub(crate) trait SessionSpawnContextResolver: Send + Sync {
+/// Resolves where a session's provider process runs. The daemon registers it on
+/// [`DriverPorts::spawn_contexts`].
+pub trait SessionSpawnContextResolver: Send + Sync {
     /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
     /// sign-in when `None`. Fails when the session or its folders cannot be read.
     fn resolve_spawn_context(
@@ -524,7 +523,11 @@ pub(crate) trait SessionSpawnContextResolver: Send + Sync {
         session_id: SessionId,
         provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>>;
+}
 
+/// Reads the accounts a provider runs on: an account's folders before any session runs on it, and
+/// its credential generation. The daemon registers it on [`DriverPorts::provider_accounts`].
+pub trait ProviderAccountReader: Send + Sync {
     /// The folders of `provider_account_id`'s account where the app manages its home, `None`
     /// where it does not; read with no session, before one exists. Fails when the account or its
     /// folders cannot be read.

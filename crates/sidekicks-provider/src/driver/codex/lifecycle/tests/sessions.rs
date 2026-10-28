@@ -355,11 +355,17 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
 fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
     let engine = Arc::new(RecordingRunEngine::default());
     let mut services = test_driver_services();
+    let one_folder = Arc::new(OneFolder(folder.join("work")));
     services
         .ports
         .spawn_contexts
-        .register(Arc::new(OneFolder(folder.join("work"))))
+        .register(Arc::clone(&one_folder) as _)
         .expect("the spawn contexts register once");
+    services
+        .ports
+        .provider_accounts
+        .register(one_folder)
+        .expect("the provider accounts register once");
     services.execution_postures = Arc::new(ExecutionPostureService::new(
         folder,
         folder.join("session-token"),

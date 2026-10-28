@@ -252,7 +252,7 @@ impl ClaudeDriver {
             Some(provider_account_id) => self
                 .sources
                 .ports
-                .spawn_contexts
+                .provider_accounts
                 .require_port()
                 .map_err(internal)?
                 .resolve_account_folders(provider_account_id.clone())

@@ -23,8 +23,8 @@ use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::port::question::QuestionPort;
-use sidekicks_provider::port::registration::PortRegistration;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::client::connection::McpServerConnection;
 use crate::client::prompts::PromptWatchers;

@@ -63,19 +63,19 @@ pub(crate) enum UsageTokenAxis {
 /// Token counts by axis, each present only where the source carried it: a cumulative reading, a
 /// declared per-turn figure, a resume's prior-emitted sums or a reading's per-axis deltas.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct UsageAxisCounts {
+pub struct UsageAxisCounts {
     /// Uncached input, or input before the cached share is subtracted.
-    pub(crate) input: Option<u64>,
+    pub input: Option<u64>,
     /// Input read from the cache.
-    pub(crate) cached_input: Option<u64>,
+    pub cached_input: Option<u64>,
     /// Input written to the cache.
-    pub(crate) cache_write_input: Option<u64>,
+    pub cache_write_input: Option<u64>,
     /// Output.
-    pub(crate) output: Option<u64>,
+    pub output: Option<u64>,
     /// Output spent on reasoning.
-    pub(crate) reasoning_output: Option<u64>,
+    pub reasoning_output: Option<u64>,
     /// The provider's total.
-    pub(crate) total: Option<u64>,
+    pub total: Option<u64>,
 }
 
 impl UsageAxisCounts {
@@ -122,7 +122,7 @@ pub(crate) struct CumulativeUsageReading {
 
 /// Whether the cached input was subtracted from the normalized input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum UsageContainment {
+pub enum UsageContainment {
     /// The breakdown's sum identity showed the cached count inside input, so it was subtracted.
     ConfirmedSubtracted,
     /// No identity held, so input is the raw figure: an overstatement, surfaced by a diagnostic.
@@ -131,33 +131,33 @@ pub(crate) enum UsageContainment {
 
 /// The cache read and write deltas, kept beside the normalized figures for diagnostics.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct UsageDiagnosticBand {
+pub struct UsageDiagnosticBand {
     /// The cached-input delta, zero where the reading carried none.
-    pub(crate) cache_read_tokens_delta: u64,
+    pub cache_read_tokens_delta: u64,
     /// The cache-write delta, zero where the reading carried none.
-    pub(crate) cache_write_tokens_delta: u64,
+    pub cache_write_tokens_delta: u64,
 }
 
 /// The per-turn delta derived from one cumulative reading. The normalized input is uncached input
 /// where the containment identity confirmed the subtraction, and the raw input figure otherwise.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MeteredUsageDelta {
+pub struct MeteredUsageDelta {
     /// The provider the reading came from.
-    pub(crate) provider: ProviderId,
+    pub provider: ProviderId,
     /// The provider thread the reading is for.
-    pub(crate) thread_id: String,
+    pub thread_id: String,
     /// The turn the frame named, if any.
-    pub(crate) attributed_turn_id: Option<String>,
+    pub attributed_turn_id: Option<String>,
     /// Per-axis deltas against the thread's stream-ordered base registers.
-    pub(crate) axis_deltas: UsageAxisCounts,
+    pub axis_deltas: UsageAxisCounts,
     /// The input figure a usage row carries.
-    pub(crate) normalized_input_tokens: u64,
+    pub normalized_input_tokens: u64,
     /// The output figure a usage row carries.
-    pub(crate) normalized_output_tokens: u64,
+    pub normalized_output_tokens: u64,
     /// Whether the cached input was subtracted.
-    pub(crate) containment: UsageContainment,
+    pub containment: UsageContainment,
     /// The cache split, for diagnostics.
-    pub(crate) diagnostic_band: UsageDiagnosticBand,
+    pub diagnostic_band: UsageDiagnosticBand,
 }
 
 /// How a thread's base registers are established.

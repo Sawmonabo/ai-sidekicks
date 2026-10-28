@@ -14,7 +14,7 @@ use super::{
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
-use crate::port::registration::PortRegistration;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// A listed skill's name, description, scope and switch.
 type SkillFields<'entry> = (

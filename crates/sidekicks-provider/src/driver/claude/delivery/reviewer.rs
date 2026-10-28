@@ -22,9 +22,9 @@ use crate::driver::claude::delivery::system::read_provider_words;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::record_readers::read_non_empty_string;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The action as Claude Code's `PermissionDenied` hook received it, kept with the block so an
 /// `Allow once` still names it after a restart.

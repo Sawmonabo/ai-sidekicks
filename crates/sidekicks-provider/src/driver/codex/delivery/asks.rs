@@ -63,11 +63,11 @@ use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
     QuestionTurnError, take_question_in_turn,
 };
-use crate::port::registration::PortRegistration;
 use crate::project_rule_folders::write_into_project_folders;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::DeliveryOperation;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The two owners an admitted ask goes to, each registered at runtime.
 pub(crate) struct CodexAskOwners {

@@ -17,16 +17,16 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, TestCodexSession, fork_reply, no_turns, one_folder_spawn_contexts,
+    TEST_THREAD, TestCodexSession, fork_reply, no_turns, one_folder_provider_accounts,
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::test_registry::new_run_id;
-use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
+use sidekicks_std::port_registration::PortRegistration;
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
 // ends the run engine took before it.
@@ -118,7 +118,7 @@ fn test_recovery(
             session_relaunched,
             rate_limits: CodexRateLimitFiling::new(
                 Arc::clone(&session.engine) as _,
-                one_folder_spawn_contexts(folder.join("work")),
+                one_folder_provider_accounts(folder.join("work")),
             ),
             tasks: TaskTracker::new(),
         },

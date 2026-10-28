@@ -26,7 +26,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::test_fixture::{TestCodexSession, turn_reply};
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::session_control::AskSideQuestionParams;
-use crate::port::registration::PortRegistration;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// How long the test waits for the copy to be served and let go.
 const SERVE_WAIT: Duration = Duration::from_secs(10);

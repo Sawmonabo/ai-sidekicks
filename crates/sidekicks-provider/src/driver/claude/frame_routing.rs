@@ -26,7 +26,6 @@ use crate::driver::claude::session::transport::declarations;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::port::registration::PortRegistration;
 use crate::port::usage_sink::UsageSink;
 use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, SubagentLifecycleEmission,
@@ -35,6 +34,7 @@ use crate::thread_frame_router::{
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageAxisCounts,
 };
+use sidekicks_std::port_registration::PortRegistration;
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
 /// in order, and the output speed its handshake settled for the armed run.
