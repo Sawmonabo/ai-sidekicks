@@ -332,10 +332,6 @@ impl RunningCommand {
     /// Asks the command to stop, its step failing with `reason`, and after `grace` ends every
     /// process it started; answers once it has exited. A command already asked keeps the first
     /// ask. Fails with the system's error from the ask or the end.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "worktree removal and the daemon's stop")
-    )]
     pub(super) async fn end(
         &self,
         reason: &'static str,

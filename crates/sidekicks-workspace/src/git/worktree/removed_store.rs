@@ -62,6 +62,7 @@ use crate::git::worktree::claims::KeptCopyClaims;
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, LeftoverNamesInUse};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkEnd, held_answer, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KeptCopyRowWrites, KeptCopyTools, KeptWorktreeState, RowWriteError, delete_kept_copy,
     measure_kept_copy,
@@ -192,6 +193,21 @@ impl RemovedWorktreeStore {
     /// What live trees and put-backs under way hold, which no kept copy's removal takes.
     pub(crate) fn claims(&self) -> &KeptCopyClaims {
         &self.claims
+    }
+
+    /// The lock per kept copy, by its id, which every discard, repair, put-back and deletion of
+    /// one copy runs under.
+    pub(crate) fn kept_copy_lock(&self) -> &Arc<KeyedLock<RemovedWorktreeId>> {
+        &self.deps.kept_copy_lock
+    }
+
+    /// The copies under way and the leftover names in use, which every folder move of a kept
+    /// copy runs with.
+    pub(crate) fn folder_move_tools(&self) -> FolderMoveTools<'_> {
+        FolderMoveTools {
+            copies: &self.deps.copies,
+            leftover_names: &self.deps.leftover_names,
+        }
     }
 
     /// The row writes of one discard, for its move aside.
@@ -680,10 +696,7 @@ impl RemovedWorktreeStore {
             kept: KeptCopyTools {
                 git: &self.deps.git,
                 place,
-                folder_moves: FolderMoveTools {
-                    copies: &self.deps.copies,
-                    leftover_names: &self.deps.leftover_names,
-                },
+                folder_moves: self.folder_move_tools(),
             },
             claims: &self.claims,
         }
@@ -758,36 +771,12 @@ fn put_back_copy(kept: &RemovedWorktreeRow) -> WorktreeCopy {
     }
 }
 
-// What a call run under the kept copy's lock answered.
-fn held_answer<Answer>(
-    landed: Result<Option<Result<Answer, RemovedWorktreeStoreError>>, JoinError>,
-) -> Result<Answer, RemovedWorktreeStoreError> {
-    match landed {
-        Ok(Some(answer)) => answer,
-        // A held call skips its work only once its caller stopped waiting.
-        Ok(None) => Err(RemovedWorktreeStoreError::Unanswered),
-        Err(interrupted) => Err(RemovedWorktreeStoreError::Interrupted(interrupted)),
-    }
-}
-
-// Writes the outcome of a call under the kept copy's lock that ended after its caller stopped
-// waiting to the service log.
-fn log_landed_late<Answer: 'static>(
-    operation: &'static str,
-    removed_worktree_id: RemovedWorktreeId,
-) -> impl FnOnce(&Result<Answer, RemovedWorktreeStoreError>) + Send + 'static {
-    move |answer| match answer {
-        Ok(_) => tracing::info!(
-            removed_worktree_id = %removed_worktree_id,
-            operation,
-            "a kept worktree's call finished after its caller stopped waiting"
-        ),
-        Err(failure) => tracing::error!(
-            removed_worktree_id = %removed_worktree_id,
-            operation,
-            error = failure as &(dyn Error + 'static),
-            "a kept worktree's call failed after its caller stopped waiting"
-        ),
+impl From<HeldWorkEnd> for RemovedWorktreeStoreError {
+    fn from(end: HeldWorkEnd) -> Self {
+        match end {
+            HeldWorkEnd::Unanswered => Self::Unanswered,
+            HeldWorkEnd::Interrupted(interrupted) => Self::Interrupted(interrupted),
+        }
     }
 }
 

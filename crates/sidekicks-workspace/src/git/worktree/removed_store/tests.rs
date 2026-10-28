@@ -130,12 +130,8 @@ async fn delete_now_removes_the_kept_copy_no_cleanup_pass_touches() {
     let removed_worktree_id = fixture.discard(&tree).await;
     let kept_folder = fixture.kept_folder(&removed_worktree_id);
     let pin_prefix = format!("refs/sidekicks/removed/{removed_worktree_id}/");
-    let read_pins = || {
-        fixture.git(
-            &fixture.repository,
-            &["for-each-ref", "--format=%(refname)", &pin_prefix],
-        )
-    };
+    let pin_arguments = ["for-each-ref", "--format=%(refname)", pin_prefix.as_str()];
+    let read_pins = || fixture.git(&fixture.repository, &pin_arguments);
     let keeper = RecordingKeeper::default();
     fixture
         .worktrees

@@ -9,16 +9,18 @@
 //!
 //! A move aside writes the kept copy's row first, so a crash leaves nothing the row does not list.
 //! Beside that write it reads git's record of the tree, HEAD and `ORIG_HEAD`, the index's objects
-//! HEAD's tree lacks and where the repository keeps its LFS objects and its refs; then it copies the
-//! record (its location files and git's file-watch socket and cookies left out), packs the objects
-//! and keeps the LFS objects and the payload refs; then it pins the commits the copied record's
-//! state names and reads its branch. Every step of a stage settles before a failure cleans up, and
-//! the row goes only once that cleanup succeeded, so one that fails leaves the row for the repair.
-//! The row is then filled in with what the copy records, and the folder moves by one rename, or
-//! across volumes by a copy that keeps both when the original cannot be removed completely. The
-//! caller removes git's record, and the payload refs with it, once the move is recorded.
+//! HEAD's tree lacks and where the repository keeps its LFS objects and its refs; then it copies
+//! the record (its location files and git's file-watch socket and cookies left out), packs the
+//! objects and keeps the LFS objects and the payload refs; then it pins the commits the copied
+//! record's state names and reads its branch. Every step of a stage settles before a failure cleans
+//! up, and the row goes only once that cleanup succeeded, so one that fails leaves the row for the
+//! repair. The row is then filled in with what the copy records, and the folder moves by one
+//! rename, or across volumes by a copy that keeps both when the original cannot be removed
+//! completely. The caller removes git's record, and the payload refs with it, once the move is
+//! recorded.
 
 pub mod folder_move;
+pub(crate) mod held_work;
 pub(crate) mod pins;
 pub(crate) mod saved_state;
 

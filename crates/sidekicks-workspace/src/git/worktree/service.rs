@@ -9,7 +9,7 @@
 //! - A retirement touches nothing on disk; the sweep empties the folder later, and only a tree the
 //!   person retired loses it: a tree retired because its project was detached keeps its folder.
 
-pub(crate) mod cleanup;
+pub mod cleanup;
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -271,10 +271,6 @@ impl WorktreeService {
     /// The session whose agent runs in the tree, or `None` when none does: a run whose context
     /// names the tree, or whose root is the tree's folder or inside it, the folders compared
     /// resolved. Fails with `worktree.notFound` for an unknown id, or a read's failure.
-    #[expect(
-        dead_code,
-        reason = "worktree removal and the workspace's execution-root prepare"
-    )]
     pub(crate) async fn read_running_session(
         &self,
         worktree_id: &WorktreeId,
@@ -286,7 +282,6 @@ impl WorktreeService {
     /// Whether a worktree row in any state names `folder`, compared as stored: a tree's folder can
     /// be named like a leftover copy, and a detached project's trees stay on disk once cleaned.
     /// Fails with the read's failure.
-    #[expect(dead_code, reason = "the removed-worktrees store")]
     pub(crate) async fn is_worktree_folder(
         &self,
         folder: &Path,
@@ -304,10 +299,6 @@ impl WorktreeService {
 
     /// The attached mount, with its root and project. Fails with `repoMount.notFound` for a mount
     /// that is not attached, or the read's failure.
-    #[expect(
-        dead_code,
-        reason = "worktree creation and the workspace's execution-root prepare"
-    )]
     pub(crate) async fn require_attached_mount(
         &self,
         repo_mount_id: &RepoMountId,
@@ -438,7 +429,6 @@ impl WorktreeService {
     /// kept copy it came from, its move to `ready` with `worktree.bound`, and the statements
     /// `prelude_for` makes for the new id, so a failure keeps none of them. Returns the new row's
     /// id; fails with the write's failure.
-    #[expect(dead_code, reason = "the kept worktrees' put-back")]
     pub(crate) async fn record_restored_worktree(
         &self,
         restored: RestoredWorktree,
@@ -504,10 +494,6 @@ impl WorktreeService {
     /// Lists a retired tree's kept copy with `finish_kept_copy` and stamps the row cleaned in one
     /// write. Fails, keeping neither, when the row was already stamped, so a copy is never listed
     /// for a tree another pass settled, and with the write's other failures.
-    #[expect(
-        dead_code,
-        reason = "the kept worktrees' store keeps a retired tree aside"
-    )]
     pub(crate) async fn record_kept_aside(
         &self,
         worktree_id: &WorktreeId,

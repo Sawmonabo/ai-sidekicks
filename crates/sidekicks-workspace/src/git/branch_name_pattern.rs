@@ -22,15 +22,18 @@ pub(crate) const BRANCH_NAME_SESSION_PLACEHOLDER: &str = "{session}";
 
 /// What a branch-name pattern's placeholders are filled with.
 #[derive(Clone, Copy, Debug)]
-pub struct BranchNamePatternValues<'a> {
+pub(crate) struct BranchNamePatternValues<'a> {
     /// The tail derived from the session's title.
-    pub title: &'a str,
+    pub(crate) title: &'a str,
     /// The session's short id, the last 8 hex characters of its id.
-    pub session: &'a str,
+    pub(crate) session: &'a str,
 }
 
 /// The branch name `pattern` makes: `{title}` and every `{session}` replaced by their values.
-pub fn fill_branch_name_pattern(pattern: &str, values: BranchNamePatternValues<'_>) -> String {
+pub(crate) fn fill_branch_name_pattern(
+    pattern: &str,
+    values: BranchNamePatternValues<'_>,
+) -> String {
     pattern
         .replace(BRANCH_NAME_TITLE_PLACEHOLDER, values.title)
         .replace(BRANCH_NAME_SESSION_PLACEHOLDER, values.session)

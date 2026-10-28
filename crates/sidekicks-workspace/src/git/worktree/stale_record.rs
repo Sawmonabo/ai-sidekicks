@@ -72,10 +72,10 @@ fn at(path: &Path) -> impl FnOnce(io::Error) -> StaleRecordError {
 }
 
 /// Removes `record_folder`, git's record of the kept tree as named at the discard, only while it
-/// is the copy's own: it names `<original_path>/.git`, where no live row or `.git` claims it, and no
-/// put-back is making it, so another tree's record is never reached. First finishes this record's
-/// removals a crash cut short. Answers whether it is gone. Fails as a read, a rename or a removal
-/// does, a claim's read among them.
+/// is the copy's own: it names `<original_path>/.git`, where no live row or `.git` claims it, and
+/// no put-back is making it, so another tree's record is never reached. First finishes this
+/// record's removals a crash cut short. Answers whether it is gone. Fails as a read, a rename or a
+/// removal does, a claim's read among them.
 pub(crate) async fn remove_stale_tree_record(
     tools: StaleRecordTools<'_>,
     record_folder: &Path,

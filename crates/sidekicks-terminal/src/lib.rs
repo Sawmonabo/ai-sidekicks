@@ -372,6 +372,15 @@ impl Terminals {
             .collect()
     }
 
+    /// The process id of the program the terminal `handle` started, `None` once it exited or for a
+    /// terminal that is gone.
+    pub fn process_id(&self, handle: TerminalHandle) -> Option<u32> {
+        lock_live(&self.live)
+            .get(&handle)
+            .filter(|entry| !entry.control.has_child_exited())
+            .and_then(|entry| entry.control.process_id())
+    }
+
     /// Reads how much input waits on the console of the program `process_id`, through the console
     /// helper.
     fn console_input_read(&self, process_id: u32) -> ConsoleInputRead {

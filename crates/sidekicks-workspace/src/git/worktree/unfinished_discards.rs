@@ -7,12 +7,14 @@ use std::sync::LazyLock;
 use rusqlite::{Connection, Row};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::git::shared::GitRefName;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
+use crate::git::worktree::service::place_of;
 
 /// The statements `read_unfinished_discards` runs: the one listing read.
 pub const UNFINISHED_DISCARD_STATEMENT_CAPACITY: usize = 1;
@@ -22,7 +24,7 @@ static SELECT_UNFINISHED_SQL: LazyLock<String> = LazyLock::new(|| {
         "SELECT kept.id, kept.mount_id, kept.original_path, kept.kept_path,
        kept.record_folder, repo_mounts.canonical_root,
        tree.id AS worktree_id, tree.created_by_session_id, tree.branch_name, tree.base_ref,
-       tree.state
+       tree.state, repo_mounts.place
   FROM removed_worktrees AS kept
   JOIN repo_mounts ON repo_mounts.id = kept.mount_id
   LEFT JOIN worktrees AS tree
@@ -46,6 +48,8 @@ pub(crate) struct UnfinishedKeptWorktree {
     pub(crate) kept_folder: FilesystemPath,
     /// The repository's root folder.
     pub(crate) canonical_root: FilesystemPath,
+    /// Where the repository is, for its git calls; absent on macOS and Linux.
+    pub(crate) place: Option<Place>,
     /// Git's record of the tree as git named it, written with what the copy records just before
     /// the tree moves; `None` until then.
     pub(crate) record_folder: Option<FilesystemPath>,
@@ -71,6 +75,7 @@ fn unfinished_kept_worktree_of(row: &Row<'_>) -> rusqlite::Result<UnfinishedKept
         removed_worktree_id: text_column(row, 0, |text| RemovedWorktreeId::new(&text))?,
         kept_folder: text_column(row, 3, FilesystemPath::new)?,
         canonical_root: text_column(row, 5, FilesystemPath::new)?,
+        place: place_of(row, 11)?,
         record_folder: optional_text_column(row, 4, FilesystemPath::new)?,
         worktree: live_tree_of(row, &original_path)?,
         original_path,

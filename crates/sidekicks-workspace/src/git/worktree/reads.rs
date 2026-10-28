@@ -124,7 +124,7 @@ pub(crate) struct RefHead {
 
 /// Why the record of a linked tree could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LinkedTreeRecordError {
+pub enum LinkedTreeRecordError {
     /// git's read failed, or printed something other than three folders.
     #[error(transparent)]
     Git(#[from] GitError),
@@ -416,7 +416,6 @@ fn parse_upstream_track(track: &[u8]) -> Result<Option<(u64, u64)>, GitError> {
 /// exists in the repository at `repository_folder`, by full name; a ref that does not exist has
 /// no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this system
 /// cannot name.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn read_ref_heads(
     git: &GitRunner,
     place: Option<&Place>,
@@ -456,7 +455,6 @@ pub(crate) async fn read_ref_heads(
 
 /// Whether the repository at `repository_folder` has a local branch named `branch`. Fails as
 /// [`read_ref_heads`] does.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn has_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -473,7 +471,6 @@ pub(crate) async fn has_branch(
 
 /// Every local branch's name in the repository at `repository_folder`, in git's order, each read
 /// as UTF-8 with any other byte replaced. Fails as [`GitRunner::run`] does.
-#[expect(dead_code, reason = "worktree creation")]
 pub(crate) async fn read_branch_names(
     git: &GitRunner,
     place: Option<&Place>,
@@ -657,7 +654,6 @@ pub(crate) async fn read_tree_git_folder(
 
 /// The git common folder that holds `record_folder`, a linked tree's `<common>/worktrees/<name>`;
 /// `None` for a path too short to be one.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
     record_folder.parent().and_then(Path::parent)
 }
@@ -669,7 +665,6 @@ pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
 /// checkout's own `.git`), so a caller removing the record can never reach anything else. Fails
 /// with git's failure, a `Read` failure when git prints other than three folders, or the
 /// resolve's failure when a folder cannot be compared.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_linked_tree_record(
     git: &GitRunner,
     place: Option<&Place>,
@@ -733,7 +728,6 @@ pub(crate) async fn read_linked_tree_record(
 /// comparing it. `None` for a missing `.git`, a checkout's own `.git` folder, or a file that names
 /// none. Fails with the read's error, or on Windows with `InvalidData` for a record that is not
 /// UTF-8.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn read_record_named_by(git_file: &Path) -> io::Result<Option<PathBuf>> {
     // A folder is checked first, since reading one fails differently from system to system.
     let contents = match tokio::fs::metadata(git_file).await {

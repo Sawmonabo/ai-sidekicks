@@ -26,8 +26,7 @@ use crate::git::worktree::schema::BRANCH_RELEASING_STATE_LIST;
 /// The `worktrees` columns a removal reads: the row, its mount, creator, folder, branch and state,
 /// each parsed to its type where the row is read.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree removal"))]
-pub(crate) struct WorktreeRow {
+pub struct WorktreeRow {
     /// `worktrees.id`.
     pub(crate) id: WorktreeId,
     /// The mount the tree belongs to.
@@ -46,7 +45,6 @@ pub(crate) struct WorktreeRow {
 
 /// An `attached` repo mount, the only kind a worktree is made from, and its project.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[expect(dead_code, reason = "the worktree lifecycle")]
 pub(crate) struct AttachedMountRow {
     /// `repo_mounts.id`.
     pub(crate) id: RepoMountId,
@@ -60,7 +58,6 @@ pub(crate) struct AttachedMountRow {
 
 /// One run context whose run has not ended.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree retirement"))]
 pub(crate) struct UnreleasedRunRow {
     /// The session the run belongs to.
     pub(crate) session_id: SessionId,
@@ -72,7 +69,6 @@ pub(crate) struct UnreleasedRunRow {
 
 /// The values of a `creating` row's insert.
 #[derive(Clone, Debug)]
-#[expect(dead_code, reason = "worktree creation and a put-back tree's record")]
 pub(crate) struct NewWorktreeRow {
     /// The new tree.
     pub(crate) id: WorktreeId,
@@ -107,7 +103,6 @@ pub(crate) static LIVE_WORKTREE_STATE_PREDICATE: LazyLock<String> =
     LazyLock::new(|| live_worktree_state_predicate("worktrees"));
 
 /// `creating -> ready`, the one transition both a new tree and a put-back tree take.
-#[expect(dead_code, reason = "worktree creation and a put-back tree's record")]
 pub(crate) static MARK_READY_SQL: LazyLock<String> = LazyLock::new(|| {
     let ready = <&'static str>::from(WorktreeState::Ready);
     let creating = <&'static str>::from(WorktreeState::Creating);
@@ -119,7 +114,6 @@ pub(crate) static MARK_READY_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 // `state` is left to the column DEFAULT ('creating'); naming it would copy that fact.
-#[expect(dead_code, reason = "worktree creation and a put-back tree's record")]
 const INSERT_WORKTREE_SQL: &str = "INSERT INTO worktrees (
     id, repo_mount_id, created_by_session_id, created_by_run_id,
     branch_name, base_ref, fs_root, created_at, updated_at
@@ -129,7 +123,6 @@ const INSERT_WORKTREE_SQL: &str = "INSERT INTO worktrees (
   )";
 
 /// The `creating` row's insert, for a write that also appends its `worktree.created`.
-#[expect(dead_code, reason = "worktree creation and a put-back tree's record")]
 pub(crate) fn insert_worktree_statement(row: &NewWorktreeRow) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(INSERT_WORKTREE_SQL),
@@ -158,10 +151,6 @@ pub(crate) fn insert_worktree_statement(row: &NewWorktreeRow) -> WriteStatement 
 
 /// A transition statement `sql` on the worktree row `worktree_id`, binding `@worktree_id` and
 /// `@now`; the write is refused unless it changes `expected_row_count` rows, when one is given.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "worktree creation and retirement")
-)]
 pub(crate) fn transition_statement(
     sql: &'static str,
     worktree_id: &WorktreeId,
@@ -183,7 +172,6 @@ pub(crate) fn transition_statement(
 /// under either platform's separator. The retirement's write checks this inside its transaction;
 /// a run recorded under another spelling of the folder is caught before the write by the
 /// resolved-path read over [`UNRELEASED_RUNS_SQL`].
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree retirement"))]
 pub(crate) const UNRELEASED_RUN_IN_WORKTREE_SQL: &str = "SELECT run.session_id
     FROM worktrees
     JOIN run_execution_contexts AS run
@@ -198,7 +186,6 @@ pub(crate) const UNRELEASED_RUN_IN_WORKTREE_SQL: &str = "SELECT run.session_id
 
 /// Every run context whose run has not ended, oldest first, for a resolved-path comparison; its
 /// columns are [`UnreleasedRunRow`]'s, in order.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree retirement"))]
 pub(crate) const UNRELEASED_RUNS_SQL: &str = "SELECT session_id, worktree_id, execution_root
     FROM run_execution_contexts
    WHERE released_at IS NULL
@@ -206,7 +193,6 @@ pub(crate) const UNRELEASED_RUNS_SQL: &str = "SELECT session_id, worktree_id, ex
 
 /// The worktree row changes whose compare-and-swap a refusal names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[expect(dead_code, reason = "worktree creation and retirement")]
 pub(crate) enum WorktreeRowChange {
     /// The retirement's write.
     Retire,
@@ -231,7 +217,7 @@ impl fmt::Display for WorktreeRowChange {
     "cannot {change} worktree \"{worktree_id}\": it left its expected state before the write \
      committed"
 )]
-pub(crate) struct WorktreeRowRefusal {
+pub struct WorktreeRowRefusal {
     /// The worktree whose row moved.
     pub(crate) worktree_id: WorktreeId,
     /// The change that was refused.
@@ -244,10 +230,6 @@ pub(crate) struct WorktreeRowRefusal {
 impl WorktreeRowRefusal {
     /// What `failure` means for the `change` of `worktree_id`'s row: the refusal when the writer
     /// refused the write, else `failure` unchanged as the error.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "worktree creation and retirement")
-    )]
     pub(crate) fn explain(
         failure: WriteError,
         worktree_id: WorktreeId,

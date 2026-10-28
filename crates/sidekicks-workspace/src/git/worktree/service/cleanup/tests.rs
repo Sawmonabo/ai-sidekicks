@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
-use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_std::settle_all::SettleFailures;
@@ -20,14 +19,15 @@ use super::{
     stop_file_watch,
 };
 use crate::git::process::{
-    GitCall, GitError, GitRunner, find_git_executable, in_folder, test_git_runner,
-    test_git_runner_with_environment,
+    GitCall, GitError, GitRunner, StartedFileWatch, find_git_executable, in_folder,
+    test_git_runner, test_git_runner_with_environment,
 };
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
+use crate::git::worktree::test_rows::store_run_inside;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
@@ -80,60 +80,6 @@ fn store_retired_tree(connection: &Connection, mount: &str, folder: &Path) -> Wo
         )
         .expect("the worktree is stored");
     WorktreeId::new(&worktree_id).expect("a minted id is a worktree id")
-}
-
-// An unreleased run whose root is inside `tree` and names no tree, so only the resolved-path
-// comparison finds it there; its workspace stands at `repository`.
-fn store_run_inside(
-    connection: &Connection,
-    mount: &str,
-    repository: &Path,
-    tree: &Path,
-) -> String {
-    let workspace_id = new_id();
-    let branch_context_id = new_id();
-    let run_id = new_id();
-    connection
-        .execute(
-            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
-             state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-            params![
-                workspace_id,
-                new_id(),
-                mount,
-                <&'static str>::from(ExecutionMode::BoundRoot),
-                repository.to_string_lossy(),
-                <&'static str>::from(WorkspaceState::Ready),
-                PARENT_ROWS_AT,
-            ],
-        )
-        .expect("the workspace is stored");
-    connection
-        .execute(
-            "INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
-             created_at, updated_at) VALUES (?1, ?2, 'main', 'main', ?3, ?3)",
-            params![branch_context_id, workspace_id, PARENT_ROWS_AT],
-        )
-        .expect("the branch context is stored");
-    connection
-        .execute(
-            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
-             execution_mode, execution_root, checkout_root, git_common_dir, \
-             branch_context_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                run_id,
-                new_id(),
-                workspace_id,
-                <&'static str>::from(ExecutionMode::BoundRoot),
-                tree.join("nested").to_string_lossy(),
-                tree.to_string_lossy(),
-                repository.join(".git").to_string_lossy(),
-                branch_context_id,
-                PARENT_ROWS_AT,
-            ],
-        )
-        .expect("the run is stored");
-    run_id
 }
 
 fn cleaned_at(connection: &Connection, worktree_id: &WorktreeId) -> Option<String> {
@@ -424,31 +370,6 @@ async fn a_cut_short_removal_git_still_knows_keeps_new_work_aside() {
         fixture.repository.join(".git/worktrees/resumed").exists(),
         "git's record stays with the folder"
     );
-}
-
-// Stops the git file-watch daemon a test started in `folder` when dropped, so a failed assertion
-// leaves none running; where the test's own stop ended it, git answers that none runs.
-struct StartedFileWatch {
-    git: PathBuf,
-    folder: PathBuf,
-}
-
-impl Drop for StartedFileWatch {
-    fn drop(&mut self) {
-        // The test's body asserts its own stop, and a daemon already ended answers with a failed
-        // exit, which needs nothing; only a stop that could not run is logged.
-        if let Err(error) = std::process::Command::new(&self.git)
-            .arg("-C")
-            .arg(&self.folder)
-            .args(["fsmonitor--daemon", "stop"])
-            .output()
-        {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "the test's file-watch daemon could not be stopped"
-            );
-        }
-    }
 }
 
 // Kills the stop gated on the repository's `core.fsmonitor` setting, which a daemon started

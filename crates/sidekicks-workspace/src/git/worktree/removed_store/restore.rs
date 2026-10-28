@@ -19,10 +19,9 @@ use super::rows::{
     KeptCopyMount, RemovedWorktreeRow, clear_put_back_mark_statement, mark_put_back_statement,
     mark_restored_statement, query_is_uncleaned_retired_at, query_project_mount,
 };
-use super::{
-    RemovedWorktreeStore, RemovedWorktreeStoreError, held_answer, log_landed_late, put_back_copy,
-};
+use super::{RemovedWorktreeStore, RemovedWorktreeStoreError, put_back_copy};
 use crate::git::worktree::errors::WorktreeRefusal;
+use crate::git::worktree::kept_copy::held_work::{held_answer, log_landed_late};
 use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
 use crate::git::worktree::put_back::branch::{PutBackBranchInput, choose_put_back_branch};
 use crate::git::worktree::put_back::{

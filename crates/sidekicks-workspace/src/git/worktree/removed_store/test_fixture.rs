@@ -50,7 +50,8 @@ pub(crate) struct KeptCopyFixture {
     /// The test database.
     pub(crate) database: TestDatabase,
     _log: TestLog,
-    _scratch: TempDir,
+    // The scratch folder the fixture made for itself, removed when dropped.
+    _scratch: Option<TempDir>,
     /// The git runner every call goes through.
     pub(crate) git: GitRunner,
     /// The repository's main checkout, resolved.
@@ -68,13 +69,20 @@ pub(crate) struct KeptCopyFixture {
 }
 
 impl KeptCopyFixture {
-    /// The fixture, its repository made and its mount stored.
+    /// The fixture in a scratch folder of its own, its repository made and its mount stored.
     pub(crate) async fn new() -> Self {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let mut fixture = Self::in_folder(scratch.path()).await;
+        fixture._scratch = Some(scratch);
+        fixture
+    }
+
+    /// The fixture built under `root`, which the caller keeps and removes.
+    pub(crate) async fn in_folder(root: &Path) -> Self {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
-        let scratch = tempfile::tempdir().expect("a scratch folder");
         // Resolved, since git writes every record from the resolved path.
-        let scratch_path = real_path(scratch.path()).expect("the scratch folder resolves");
+        let scratch_path = real_path(root).expect("the scratch folder resolves");
         let git = test_git_runner();
         let repository = scratch_path.join("app");
         run_git(
@@ -137,7 +145,7 @@ impl KeptCopyFixture {
         Self {
             database,
             _log: log,
-            _scratch: scratch,
+            _scratch: None,
             git,
             repository,
             worktrees_folder,

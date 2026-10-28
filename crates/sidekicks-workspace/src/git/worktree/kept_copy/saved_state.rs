@@ -238,8 +238,8 @@ async fn list_conflict_stage_objects(
     Ok(objects)
 }
 
-/// Packs `objects` from the repository of `tree_folder` into `objects_folder` as one pack named as a
-/// repository's own `objects/pack/` names it, so a put-back moves it in as it is; nothing is made
+/// Packs `objects` from the repository of `tree_folder` into `objects_folder` as one pack named as
+/// a repository's own `objects/pack/` names it, so a put-back moves it in as it is; nothing is made
 /// for no objects. Fails with the folder's making or git's failure.
 pub(crate) async fn pack_objects(
     git: &GitRunner,
@@ -406,8 +406,8 @@ pub(crate) async fn keep_ref_store(
 /// Writes the kept refs in `kept_folder` back into `payload` under the name of the put-back's
 /// record `record_folder`, a fresh folder where the copy kept none, then writes the record's stubs
 /// as git writes them, its `HEAD` and `refs/heads` replacing the kept ones. Answers the refs folder
-/// written, which the put-back's undo removes. Fails with `AlreadyExists` when that folder is there,
-/// the record's name that is not text, or a write's failure.
+/// written, which the put-back's undo removes. Fails with `AlreadyExists` when that folder is
+/// there, the record's name that is not text, or a write's failure.
 pub(crate) async fn write_back_ref_store(
     payload: &RefStorePayload,
     kept_folder: &Path,

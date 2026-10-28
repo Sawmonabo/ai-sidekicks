@@ -260,8 +260,8 @@ pub(crate) fn sum_file_sizes(
     Ok(total)
 }
 
-/// Moves `from` to `to` as [`rename_or_copy_folder`] does, then, after a copy, removes the original;
-/// the complete copy is never deleted. Fails as that does, and with
+/// Moves `from` to `to` as [`rename_or_copy_folder`] does, then, after a copy, removes the
+/// original; the complete copy is never deleted. Fails as that does, and with
 /// [`FolderMoveError::Incomplete`] when the original could not be removed completely.
 pub(crate) async fn move_folder(
     tools: FolderMoveTools<'_>,
@@ -419,8 +419,8 @@ async fn begin_report(
             tracing::warn!(
                 error = &error as &(dyn Error + 'static),
                 folder = %from.display(),
-                "A folder's copy across volumes runs without its progress, since its size could not \
-                 be read"
+                "a folder's copy across volumes runs without its progress, since its size could \
+                 not be read"
             );
             return None;
         }

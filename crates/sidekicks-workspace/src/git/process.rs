@@ -831,5 +831,34 @@ fn git_environment(
         .collect()
 }
 
+/// Stops the git file-watch daemon a test started in `folder` when dropped, so a failed assertion
+/// leaves none running; where the test's own stop ended it, git answers that none runs.
+#[cfg(test)]
+pub(crate) struct StartedFileWatch {
+    /// The git program the test started the daemon with.
+    pub(crate) git: PathBuf,
+    /// The tree the daemon watches.
+    pub(crate) folder: PathBuf,
+}
+
+#[cfg(test)]
+impl Drop for StartedFileWatch {
+    fn drop(&mut self) {
+        // The test's body asserts its own stop, and a daemon already ended answers with a failed
+        // exit, which needs nothing; only a stop that could not run is logged.
+        if let Err(error) = std::process::Command::new(&self.git)
+            .arg("-C")
+            .arg(&self.folder)
+            .args(["fsmonitor--daemon", "stop"])
+            .output()
+        {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the test's file-watch daemon could not be stopped"
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

@@ -31,7 +31,6 @@ const WORKTREES_FOLDER_NAME: &str = "worktrees";
 
 /// The folder in each project's worktrees folder that holds its kept worktrees. A slug never
 /// starts with a dot, so it cannot be a project's folder.
-#[expect(dead_code, reason = "the kept worktrees' store and their put-back")]
 pub(crate) const REMOVED_WORKTREES_FOLDER_NAME: &str = ".removed";
 
 const SHORT_ID_LENGTH: usize = 8;
@@ -53,7 +52,6 @@ pub fn worktrees_folder(home_folder: &Path) -> PathBuf {
 }
 
 /// The last 8 hex characters of an id, hyphens stripped and lowercased: a v7 id's random tail.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 pub(crate) fn short_id_of(identifier: &str) -> String {
     let hex: Vec<char> = identifier
         .chars()
@@ -69,7 +67,6 @@ pub(crate) fn short_id_of(identifier: &str) -> String {
 /// last `fatal: ` line whole when it says a branch of that name exists, or that one exists the new
 /// branch would hold or sit inside, with or without the files backend's lock clause. `None` for any
 /// other failure.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation"))]
 pub(crate) fn read_taken_branch_line(stderr: &str) -> Option<&str> {
     let line = last_fatal_line(stderr)?;
     let words = strip_lock_clause(line.strip_prefix(GIT_FATAL_PREFIX)?);
@@ -152,7 +149,6 @@ fn collapse_repeats(tail: &str) -> String {
 /// The tail a session's title words suggest, as the naming sources read them: shaped as typed,
 /// repeated `-` and `.` collapsed, a trailing `-`, `.` or `.lock` trimmed, and cut at a word break
 /// within [`DERIVED_NAME_MAX_CODE_POINTS`]. Empty when no usable words remain.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 pub(crate) fn suggest_tail_for(title_words: &str) -> String {
     let collapsed = collapse_repeats(&shape_typed_tail(title_words));
     trim_tail_end(cut_at_word_break(
@@ -221,7 +217,6 @@ pub trait WorktreeNamingSources: Send + Sync {
 }
 
 /// One candidate name: the whole branch, the tree's folder, and the tail both were made from.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorktreeName {
     /// The branch.
@@ -233,7 +228,6 @@ pub(crate) struct WorktreeName {
 }
 
 /// What every plan for one session's tree on one project shares.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 pub(crate) struct WorktreeNameBase {
     /// The project's or the machine's pattern.
@@ -245,7 +239,6 @@ pub(crate) struct WorktreeNameBase {
 }
 
 // Where a plan's branch name comes from.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 enum PlannedBranch {
     // A tail the pattern fills in.
@@ -257,7 +250,6 @@ enum PlannedBranch {
 /// The names one tree can take, in collision order: ordinal 1 is the name itself, and ordinal `n`
 /// puts `-n` on the tail, so the branch and the folder stay in step. A tail too long to take its
 /// suffix within the folder name's bound is cut first.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 pub(crate) struct WorktreeNamePlan {
     base: WorktreeNameBase,
@@ -265,7 +257,6 @@ pub(crate) struct WorktreeNamePlan {
     folder_tail: String,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 impl WorktreeNamePlan {
     /// The plan for a tail the pattern fills in.
     pub(crate) fn for_tail(base: WorktreeNameBase, tail: String) -> Self {
@@ -358,7 +349,6 @@ impl WorktreeNamePlan {
 }
 
 // The pattern's text before and after `{title}`, each with `{session}` filled in.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 fn split_pattern(pattern: &BranchNamePattern, session_short_id: &str) -> (String, String) {
     let (before, after) = pattern
         .as_str()
@@ -396,9 +386,8 @@ pub(crate) fn is_named_worktree_folder(worktrees_folder: &Path, folder: &Path) -
 }
 
 /// Builds name plans from the project's and the machine's patterns.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone)]
-pub(crate) struct WorktreeNaming {
+pub struct WorktreeNaming {
     worktrees_folder: PathBuf,
     sources: Arc<dyn WorktreeNamingSources>,
 }
@@ -406,7 +395,7 @@ pub(crate) struct WorktreeNaming {
 #[expect(dead_code, reason = "worktree creation and status")]
 impl WorktreeNaming {
     /// Naming under the daemon's `worktrees_folder`, reading what other owners keep from `sources`.
-    pub(crate) fn new(worktrees_folder: PathBuf, sources: Arc<dyn WorktreeNamingSources>) -> Self {
+    pub fn new(worktrees_folder: PathBuf, sources: Arc<dyn WorktreeNamingSources>) -> Self {
         Self {
             worktrees_folder,
             sources,

@@ -47,12 +47,12 @@ use self::steps::{
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
+use crate::git::worktree::removal::FolderProcessOwner;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
 use crate::trust_envelope::is_contained_within;
 
 /// How long a command ended because its tree is being removed has after it is asked to stop
 /// before every process it started is ended: the grace terminal programs give a process they close.
-#[cfg_attr(test, expect(dead_code, reason = "worktree removal"))]
 const REMOVAL_END_GRACE: Duration = Duration::from_secs(5);
 
 /// What a command's step says when its tree was removed while it ran.
@@ -62,10 +62,6 @@ const REMOVED_END_REASON: &str = "Ended because its worktree was removed";
 const STOPPED_END_REASON: &str = "Ended because the background service stopped";
 
 /// Where a new tree is and the repository it was made from.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "worktree creation hands the setup its new tree")
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct MadeWorktree {
     /// The tree.
@@ -138,40 +134,42 @@ pub trait WorktreeSetupSources: Send + Sync {
 }
 
 /// What the setup runner reads, runs and holds; `W` is the system's file watch.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start makes the setup runner")
-)]
-pub(crate) struct WorktreeSetupRunnerDeps<W = RecommendedWatcher> {
+pub struct WorktreeSetupRunnerDeps<W = RecommendedWatcher> {
     /// The daemon's git, running the warm step with the repository's own config.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The thread every command is started from.
-    pub(crate) spawner: Spawner,
+    pub spawner: Spawner,
     /// The working-folder watch the warm step holds the tree on.
-    pub(crate) watcher: Arc<WorkingFolderWatcher<W>>,
+    pub watcher: Arc<WorkingFolderWatcher<W>>,
     /// The worktree's rows, its project's steps and its commands' environment.
-    pub(crate) sources: Arc<dyn WorktreeSetupSources>,
+    pub sources: Arc<dyn WorktreeSetupSources>,
     /// The shell every command line runs through, read once at the daemon's start
     /// (`sidekicks_platforms::command_shell`).
-    pub(crate) command_shell: PathBuf,
+    pub command_shell: PathBuf,
 }
 
 /// Called with a tree's whole card each time it changes.
 pub(crate) type WorktreeSetupListener = Arc<dyn Fn(WorktreeSetupStatus) + Send + Sync>;
 
 /// The setup card of every tree being set up since the daemon started, its runs and its retries.
-pub(crate) struct WorktreeSetupRunner<W = RecommendedWatcher> {
+pub struct WorktreeSetupRunner<W = RecommendedWatcher> {
     shared: Arc<RunnerShared<W>>,
 }
 
 /// Sends each change of one tree's card to its listener until it drops.
-#[expect(dead_code, reason = "the setup card's subscribe handler")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the setup card's subscribe handler")
+)]
 pub(crate) struct WorktreeSetupSubscription {
     // `None` for a tree with no card, which nothing changes.
     attached: Option<AttachedListener>,
 }
 
-#[expect(dead_code, reason = "the setup card's subscribe handler")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the setup card's subscribe handler")
+)]
 struct AttachedListener {
     state: Weak<Mutex<RunnerState>>,
     worktree_id: WorktreeId,
@@ -188,10 +186,6 @@ struct RunnerShared<W> {
 struct RunnerState {
     cards: HashMap<WorktreeId, Card>,
     // The commands of dropped cards still being ended, so the stop reaches them too.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "worktree removal and the daemon's stop")
-    )]
     ending: HashMap<u64, Arc<RunningCommand>>,
     next_id: u64,
     is_stopped: bool,
@@ -260,11 +254,7 @@ impl RunnerState {
 
 impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// A runner with no card.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start makes the setup runner")
-    )]
-    pub(crate) fn new(deps: WorktreeSetupRunnerDeps<W>) -> Self {
+    pub fn new(deps: WorktreeSetupRunnerDeps<W>) -> Self {
         Self {
             shared: Arc::new(RunnerShared {
                 deps,
@@ -275,7 +265,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
     /// Opens the card of a tree about to be made, its first step running; a card the tree had is
     /// replaced.
-    #[cfg_attr(not(test), expect(dead_code, reason = "worktree creation"))]
     pub(crate) fn begin(&self, worktree_id: WorktreeId) {
         let mut state = self.shared.lock();
         let id = state.next_id();
@@ -298,7 +287,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
     /// Marks the tree's making failed with git's `error`; the card stands failed. Fails with
     /// `worktree.notFound` when no card was begun for the tree.
-    #[expect(dead_code, reason = "worktree creation")]
     pub(crate) fn tree_failed(
         &self,
         worktree_id: WorktreeId,
@@ -321,10 +309,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// ends, succeeded or stopped at its failed step, a failed read of the project's steps among
     /// them, which a retry reads again. Fails with `worktree.notFound` when no card was begun for
     /// the tree.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "worktree creation hands the setup its new tree")
-    )]
     pub(crate) async fn tree_made(
         &self,
         made: MadeWorktree,
@@ -371,7 +355,10 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// A tree with no card, whose setup did not run since the daemon started, is called back once
     /// with `notRun` and no steps. Fails with `worktree.notFound` for a tree with no row, and with
     /// `Read` when its row cannot be read.
-    #[expect(dead_code, reason = "the setup card's subscribe handler")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the setup card's subscribe handler")
+    )]
     pub(crate) async fn subscribe(
         &self,
         worktree_id: WorktreeId,
@@ -502,7 +489,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// stop and ended after a grace, its step failing as removed; answers once each has exited.
     /// Run before the folder is moved or deleted. Fails with `Folder` when `folder` cannot be
     /// resolved, and with `CommandsNotEnded` naming each command that could not be ended.
-    #[expect(dead_code, reason = "worktree removal")]
     pub(crate) async fn end_processes_in_folder(
         &self,
         folder: &Path,
@@ -555,7 +541,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// Drops the tree's card, lets go of the watches its warm step holds and ends its running
     /// command with the removal's grace; run when the tree is removed or was never recorded. A
     /// command that cannot be ended is logged.
-    #[expect(dead_code, reason = "worktree removal")]
     pub(crate) fn forget(&self, worktree_id: &WorktreeId) {
         let mut state = self.shared.lock();
         let Some(card) = state.cards.remove(worktree_id) else {
@@ -612,6 +597,17 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             .read_project_setup(worktree_id)
             .await?;
         project_steps_of(&setup).map_err(|error| WorktreeSetupError::Read(Box::new(error)))
+    }
+}
+
+impl<W: Watcher + Send + 'static> FolderProcessOwner for WorktreeSetupRunner<W> {
+    fn end_processes_in_folder<'a>(
+        &'a self,
+        folder: &'a Path,
+    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
+        Box::pin(
+            async move { Ok(WorktreeSetupRunner::end_processes_in_folder(self, folder).await?) },
+        )
     }
 }
 
@@ -847,10 +843,6 @@ fn dropped_status(worktree_id: WorktreeId) -> WorktreeSetupStatus {
 }
 
 // Ends each of `commands` with `reason` and `grace` at once; fails naming each that could not be.
-#[cfg_attr(
-    test,
-    expect(dead_code, reason = "worktree removal and the daemon's stop")
-)]
 async fn end_all(
     commands: &[Arc<RunningCommand>],
     reason: &'static str,

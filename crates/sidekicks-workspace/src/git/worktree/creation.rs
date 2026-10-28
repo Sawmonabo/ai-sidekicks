@@ -112,7 +112,7 @@ pub trait LiveRunFolderReader: Send + Sync {
 /// How a new tree is named: a whole branch name the caller supplied, or a tail the branch-name
 /// pattern fills in.
 #[derive(Clone, Debug)]
-pub(crate) enum WorktreeNameRequest {
+pub enum WorktreeNameRequest {
     /// A whole branch name, kept as spelled when the pattern did not make it.
     BranchName(String),
     /// A tail the pattern fills in.
@@ -122,7 +122,7 @@ pub(crate) enum WorktreeNameRequest {
 /// What a taken name does: a supplied one is refused, a derived one takes the first ordinal git
 /// and the index both accept.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum NameCollision {
+pub enum NameCollision {
     /// Refused with `worktree.branchCollision`, `worktreeFolderTaken` or git's taken line.
     Refuse,
     /// `-2`, `-3` and on, on the branch and the folder together.
@@ -131,72 +131,72 @@ pub(crate) enum NameCollision {
 
 /// What [`WorktreeCreator::create`] makes.
 #[derive(Clone, Debug)]
-pub(crate) struct CreateWorktreeInput {
+pub struct CreateWorktreeInput {
     /// The mount to check out from; it must be attached.
-    pub(crate) repo_mount_id: RepoMountId,
+    pub repo_mount_id: RepoMountId,
     /// The session making the tree, recorded on its row and in its folder's short id.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The run making it; `None` for a prepare before any run.
-    pub(crate) run_id: Option<RunId>,
+    pub run_id: Option<RunId>,
     /// Its name.
-    pub(crate) name: WorktreeNameRequest,
+    pub name: WorktreeNameRequest,
     /// What a taken name does.
-    pub(crate) on_collision: NameCollision,
+    pub on_collision: NameCollision,
     /// The base its branch is cut from; `None` takes the mount's HEAD branch. A leading `-` is
     /// refused.
-    pub(crate) base_ref: Option<GitRefName>,
+    pub base_ref: Option<GitRefName>,
     /// The folder whose uncommitted work, untracked files included, the tree takes; refused unless
     /// the base is the branch that folder is on, and while another session's run is live there.
-    pub(crate) carry_uncommitted_from: Option<PathBuf>,
+    pub carry_uncommitted_from: Option<PathBuf>,
     /// The person's or agent's id that acted; `None` when the daemon did.
-    pub(crate) actor: Option<LifecycleActor>,
+    pub actor: Option<LifecycleActor>,
     /// The id that ties the tree's events to the operation that caused them.
-    pub(crate) correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    pub correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
 }
 
 /// A tree made and recorded `ready`.
 #[derive(Clone, Debug)]
-pub(crate) struct CreatedWorktree {
+pub struct CreatedWorktree {
     /// The tree.
-    pub(crate) worktree_id: WorktreeId,
+    pub worktree_id: WorktreeId,
     /// Its branch as made, any suffix included.
-    pub(crate) branch_name: GitRefName,
+    pub branch_name: GitRefName,
     /// Its folder.
-    pub(crate) fs_root: PathBuf,
+    pub fs_root: PathBuf,
     /// The base its branch was cut from, as given or resolved.
-    pub(crate) base_ref: GitRefName,
+    pub base_ref: GitRefName,
     /// The stash still holding the carried work, `None` when nothing was carried; the caller
     /// drops it with [`WorktreeCreator::drop_carried_stash`] once it has adopted the tree.
-    pub(crate) carried_stash: Option<CarriedStash>,
+    pub carried_stash: Option<CarriedStash>,
 }
 
 /// What the creator runs with; `W` is the setup card's file watch.
-pub(crate) struct WorktreeCreatorDeps<W = RecommendedWatcher> {
+pub struct WorktreeCreatorDeps<W = RecommendedWatcher> {
     /// The daemon's git.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The daemon's read pool.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The writer a failed tree's `failed` mark goes through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The seam the tree's events are appended through.
-    pub(crate) events: Arc<WorktreeEventEmitter>,
+    pub events: Arc<WorktreeEventEmitter>,
     /// The name plans.
-    pub(crate) naming: WorktreeNaming,
+    pub naming: WorktreeNaming,
     /// The attached mount a tree is cut from, and a failed tree's record removal.
-    pub(crate) worktrees: Arc<WorktreeService>,
+    pub worktrees: Arc<WorktreeService>,
     /// The setup card each tree is followed on.
-    pub(crate) setup: Arc<WorktreeSetupRunner<W>>,
+    pub setup: Arc<WorktreeSetupRunner<W>>,
     /// The folders other sessions' runs are live in.
-    pub(crate) live_run_folders: Arc<dyn LiveRunFolderReader>,
+    pub live_run_folders: Arc<dyn LiveRunFolderReader>,
     /// Held per checkout, keyed by its canonical folder, from a carry's last check for another
     /// session's run through its stash, and by the run gate's run-context write in that checkout.
-    pub(crate) checkout_lock: Arc<KeyedLock<PathBuf>>,
+    pub checkout_lock: Arc<KeyedLock<PathBuf>>,
 }
 
 /// Why a tree was not made. A refusal keeps its wire code; every other failure keeps its cause,
 /// and the failures of undoing what was made ride beside it.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeCreationError {
+pub enum WorktreeCreationError {
     /// A refusal the wire carries: `worktree.createFailed` or `worktree.branchCollision`.
     #[error(transparent)]
     Refused(#[from] WorktreeRefusal),
@@ -245,6 +245,7 @@ pub(crate) enum WorktreeCreationError {
 }
 
 /// A tree git made, at its name, with what its checkout hook printed when it failed.
+#[derive(Debug)]
 struct MadeTree {
     name: WorktreeName,
     hook_output: Option<String>,
@@ -252,13 +253,13 @@ struct MadeTree {
 
 /// Makes worktrees and answers the create form's suggestion, through one name plan. Each `UPDATE`
 /// carries its legal predecessor in its `WHERE`, so the transition table lives in the statements.
-pub(crate) struct WorktreeCreator<W = RecommendedWatcher> {
+pub struct WorktreeCreator<W = RecommendedWatcher> {
     deps: WorktreeCreatorDeps<W>,
 }
 
 impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
     /// A creator over `deps`.
-    pub(crate) fn new(deps: WorktreeCreatorDeps<W>) -> Self {
+    pub fn new(deps: WorktreeCreatorDeps<W>) -> Self {
         Self { deps }
     }
 
@@ -268,7 +269,7 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
     /// answering once it ends, a failed step included. A refusal of the name writes nothing; a
     /// failure after the row exists marks it `failed` and stands on the card. Fails as
     /// [`WorktreeCreationError`] says; a carry's stash is kept and answered, never dropped here.
-    pub(crate) async fn create(
+    pub async fn create(
         &self,
         input: CreateWorktreeInput,
     ) -> Result<CreatedWorktree, WorktreeCreationError> {
@@ -369,7 +370,7 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
     /// Drops a carry's stash once the caller has adopted `worktree_id`'s tree, its repository at
     /// `place`. The work then stands in the tree, so a stash that cannot be dropped only repeats
     /// it: the failure is logged, where the person can find the leftover, and never fails the tree.
-    pub(crate) async fn drop_carried_stash(
+    pub async fn drop_carried_stash(
         &self,
         carried: &CarriedStash,
         worktree_id: &WorktreeId,

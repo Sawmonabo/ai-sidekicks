@@ -63,8 +63,9 @@ impl NameWalk<'_> {
     /// under `Refuse`, each ordinal in turn under `Suffix`. Git's own check decides; the index,
     /// branch and folder reads only spare `Suffix` a refused git call. Fails with
     /// `worktree.createFailed` (`branchNameInvalid`, `branchNameTaken`, `worktreeFolderTaken`,
-    /// `executionRootUnavailable`, `gitInvocationFailed`), `worktree.branchCollision` for a supplied
-    /// name a live tree holds, or a read's failure; a tree git left behind is undone first.
+    /// `executionRootUnavailable`, `gitInvocationFailed`), `worktree.branchCollision` for a
+    /// supplied name a live tree holds, or a read's failure; a tree git left behind is undone
+    /// first.
     pub(super) async fn make_tree_at_first_free_name(
         &self,
         plan: &WorktreeNamePlan,

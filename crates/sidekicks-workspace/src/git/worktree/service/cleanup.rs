@@ -116,7 +116,7 @@ const MARK_CLEANUP_STARTED_SQL: &str = "UPDATE worktrees
   WHERE id = @worktree_id AND cleaned_at IS NULL AND cleanup_started_at IS NULL";
 
 /// Keeps a retired tree whose folder holds what the person could lose, for them to decide on.
-pub(crate) trait RetiredWorktreeKeeper: Send + Sync {
+pub trait RetiredWorktreeKeeper: Send + Sync {
     /// Moves the retired tree aside whole as a kept copy the removed list shows, its row stamped
     /// cleaned in the write that lists the copy. Fails with the move's or the write's failure.
     fn keep_retired_aside<'a>(
@@ -127,18 +127,18 @@ pub(crate) trait RetiredWorktreeKeeper: Send + Sync {
 
 /// What one cleanup pass did, in the order it did it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct WorktreeCleanupReport {
+pub struct WorktreeCleanupReport {
     /// Trees retired because their mount is no longer attached, their folders left on disk.
-    pub(crate) retired: Vec<WorktreeId>,
+    pub retired: Vec<WorktreeId>,
     /// Trees whose folder was removed and whose `cleaned_at` was stamped.
-    pub(crate) cleaned: Vec<WorktreeId>,
+    pub cleaned: Vec<WorktreeId>,
     /// Retired trees whose folder held something new, kept aside or left where they are.
-    pub(crate) kept: Vec<WorktreeId>,
+    pub kept: Vec<WorktreeId>,
 }
 
 /// Why cleaning one retired tree failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeCleanupError {
+pub enum WorktreeCleanupError {
     /// A row read or write, a retirement or a folder's resolve failed.
     #[error(transparent)]
     Service(#[from] WorktreeServiceError),
@@ -171,7 +171,7 @@ pub(crate) enum WorktreeCleanupError {
 
 /// One failure of a cleanup pass: the rows it would sweep could not be read, or one row failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeCleanupFailure {
+pub enum WorktreeCleanupFailure {
     /// The rows to sweep could not be read.
     #[error("the worktrees to clean up could not be read")]
     Rows(#[source] WorktreeServiceError),
@@ -214,11 +214,7 @@ impl WorktreeService {
     /// the others; once every row has been tried, every failure is returned together. The pass is
     /// idempotent and re-entrant, and once `cancel` is canceled it stops between rows, leaving the
     /// rest to the next pass.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's scheduled worktree cleanup")
-    )]
-    pub(crate) async fn cleanup_pass(
+    pub async fn cleanup_pass(
         &self,
         keeper: &dyn RetiredWorktreeKeeper,
         owners: &[Arc<dyn FolderProcessOwner>],
