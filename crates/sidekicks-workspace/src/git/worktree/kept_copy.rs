@@ -501,11 +501,16 @@ async fn keep_saved_state(
 
     let kept_record = kept_folder.join(KEPT_RECORD_ENTRY);
     // The branch's commit is read before the copy and again after it, so a commit landing between
-    // the two refuses the keep rather than pinning a commit the kept index was not made on.
+    // the two refuses the keep rather than pinning a commit the kept index was not made on. A
+    // detached HEAD names its commit in its own file, so its first read stands as the one before.
     let record_copied = async {
-        let before = read_tree_head_commit(git, place, tree_folder)
-            .await
-            .map_err(KeepStepError::State)?;
+        let before = if head.branch.is_some() {
+            read_tree_head_commit(git, place, tree_folder)
+                .await
+                .map_err(KeepStepError::State)?
+        } else {
+            head.commit.clone()
+        };
         copy_record(&record_folder, &kept_record).await?;
         Ok::<_, KeepStepError>(before)
     };
