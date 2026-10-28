@@ -62,7 +62,9 @@ use crate::git::worktree::claims::KeptCopyClaims;
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
-use crate::git::worktree::kept_copy::held_work::{HeldWorkEnd, held_answer, log_landed_late};
+use crate::git::worktree::kept_copy::held_work::{
+    HeldWorkEnd, HeldWorkSubject, held_answer, log_landed_late,
+};
 use crate::git::worktree::kept_copy::{
     KeptCopyRowWrites, KeptCopyTools, KeptWorktreeState, RowWriteError, delete_kept_copy,
     measure_kept_copy,
@@ -463,7 +465,10 @@ impl RemovedWorktreeStore {
                     let kept = store.require_row(removed_worktree_id).await?;
                     store.delete_kept(&kept).await
                 },
-                log_landed_late("deleting the kept worktree", removed_worktree_id),
+                log_landed_late(
+                    "deleting the kept worktree",
+                    HeldWorkSubject::KeptCopy(removed_worktree_id),
+                ),
             )
             .await;
         held_answer(landed)

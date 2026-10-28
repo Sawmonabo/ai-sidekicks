@@ -19,7 +19,7 @@ use super::{
 };
 use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::list_leftover_copies;
-use crate::git::worktree::kept_copy::held_work::{held_answer, log_landed_late};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, held_answer, log_landed_late};
 use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::removed_store::RemovedWorktreeStoreError;
 use crate::git::worktree::removed_store::rows::finish_statement;
@@ -252,7 +252,10 @@ impl RemovalShared {
                     held.finish_interrupted_discard_held(removed_worktree_id)
                         .await
                 },
-                log_landed_late("finishing an interrupted discard", removed_worktree_id),
+                log_landed_late(
+                    "finishing an interrupted discard",
+                    HeldWorkSubject::KeptCopy(removed_worktree_id),
+                ),
             )
             .await;
         let repair = held_answer(landed)?;

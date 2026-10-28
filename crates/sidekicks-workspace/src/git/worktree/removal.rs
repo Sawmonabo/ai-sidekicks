@@ -52,7 +52,9 @@ use crate::git::branch_name_pattern::last_fatal_line;
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveError;
-use crate::git::worktree::kept_copy::held_work::{HeldWorkEnd, held_answer, log_landed_late};
+use crate::git::worktree::kept_copy::held_work::{
+    HeldWorkEnd, HeldWorkSubject, held_answer, log_landed_late,
+};
 use crate::git::worktree::kept_copy::{
     KEPT_TREE_ENTRY, KeepFailure, KeptCopyTools, MoveAsideError, MovedAsideWorktree, WorktreeAside,
     move_worktree_aside,
@@ -337,7 +339,10 @@ impl WorktreeRemoval {
             .run_held(
                 request.worktree_id,
                 async move { shared.retire(&held_request).await },
-                log_landed_late("removing the worktree", request.worktree_id),
+                log_landed_late(
+                    "removing the worktree",
+                    HeldWorkSubject::Worktree(request.worktree_id),
+                ),
             )
             .await;
         held_answer(landed)
@@ -364,7 +369,10 @@ impl RetiredWorktreeKeeper for WorktreeRemoval {
                         let _process_holds = process_holds;
                         shared.keep_retired_aside(&held_row).await
                     },
-                    log_landed_late("keeping the retired worktree aside", row.id),
+                    log_landed_late(
+                        "keeping the retired worktree aside",
+                        HeldWorkSubject::Worktree(row.id),
+                    ),
                 )
                 .await;
             Ok(held_answer(landed)?)

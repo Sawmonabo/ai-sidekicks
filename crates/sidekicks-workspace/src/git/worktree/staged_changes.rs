@@ -58,6 +58,15 @@ pub enum StagedChangesError {
         #[source]
         source: io::Error,
     },
+    /// The repository's git common folder could not be resolved to hold its records.
+    #[error("the git common folder {} could not be resolved to hold its records", path.display())]
+    RecordsHold {
+        /// The git common folder.
+        path: PathBuf,
+        /// The file system's failure.
+        #[source]
+        source: io::Error,
+    },
     /// The system's random source could not name a worktree's folder.
     #[error("a staged-changes worktree's folder could not be named")]
     Naming(#[source] getrandom::Error),
@@ -334,13 +343,12 @@ impl StagedChangesWorktree {
         add.extend([self.folder.clone().into_os_string(), OsString::from("HEAD")]);
         let common_git_folder =
             read_git_common_folder(&self.git, place, &self.repository_root, None).await?;
-        let records_hold =
-            hold_records(&common_git_folder)
-                .await
-                .map_err(|source| TreeRecordRemovalError {
-                    path: common_git_folder.clone(),
-                    source,
-                })?;
+        let records_hold = hold_records(&common_git_folder).await.map_err(|source| {
+            StagedChangesError::RecordsHold {
+                path: common_git_folder.clone(),
+                source,
+            }
+        })?;
         self.git.run(place, GitCall::write(add)).await?;
         drop(records_hold);
         // `apply` refuses an empty patch, and with nothing staged the checkout is already the set.

@@ -96,7 +96,7 @@ impl Fixture {
         }
     }
 
-    // A repository on `main` with one commit holding `src/lib.rs` and a `.gitignore` of `build/`.
+    // A repository on `main` whose second commit holds `src/lib.rs` and a `.gitignore` of `build/`.
     async fn repository(&self, name: &str) -> PathBuf {
         let folder = make_test_repository(&self.git, self.scratch.path(), name).await;
         std::fs::create_dir_all(folder.join("src")).expect("the folders are made");

@@ -21,7 +21,7 @@ use super::rows::{
 };
 use super::{RemovedWorktreeStore, RemovedWorktreeStoreError, put_back_copy};
 use crate::git::worktree::errors::WorktreeRefusal;
-use crate::git::worktree::kept_copy::held_work::{held_answer, log_landed_late};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, held_answer, log_landed_late};
 use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
 use crate::git::worktree::put_back::branch::{PutBackBranchInput, choose_put_back_branch};
 use crate::git::worktree::put_back::{
@@ -60,7 +60,10 @@ impl RemovedWorktreeStore {
             .run_held(
                 removed_worktree_id,
                 async move { store.put_back(removed_worktree_id).await },
-                log_landed_late("putting the kept worktree back", removed_worktree_id),
+                log_landed_late(
+                    "putting the kept worktree back",
+                    HeldWorkSubject::KeptCopy(removed_worktree_id),
+                ),
             )
             .await;
         held_answer(landed)
