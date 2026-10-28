@@ -27,10 +27,11 @@ fn window(context_window: u64, max_context_window: u64) -> CodexModelWindow {
 }
 
 // A catalog read settles every listed model's default window and its larger one where it offers
-// one: on the same catalog only what is not known yet or failed, and every one once the catalog
-// changed.
+// one: on the catalog a limit settled on, nothing; on another, each known or failed limit again;
+// a limit under way never twice. Killed by a failed limit tried again on the same catalog, by a
+// limit under way settled again, and by a known limit kept across a changed catalog.
 #[test]
-fn a_catalog_read_settles_what_is_unknown_and_everything_once_the_catalog_changed() {
+fn a_catalog_read_settles_each_limit_once_per_catalog() {
     let catalog = CodexCatalogReading {
         dump: Arc::from("{}"),
         windows: Arc::new(HashMap::from([
@@ -48,16 +49,31 @@ fn a_catalog_read_settles_what_is_unknown_and_everything_once_the_catalog_change
             key("gpt-5.5", Some(1_000_000)),
         ]
     );
+    let read = blake3::hash(b"the catalog read before");
+    let changed = blake3::hash(b"the catalog read now");
 
     let limits = HashMap::from([
-        (key("gpt-5.4", None), CodexLimitState::Known(244_800)),
-        (key("gpt-5.5", None), CodexLimitState::Unknown),
+        (
+            key("gpt-5.4", None),
+            CodexLimitState::Known {
+                limit: 244_800,
+                digest: read,
+            },
+        ),
+        (
+            key("gpt-5.5", None),
+            CodexLimitState::Unknown { digest: Some(read) },
+        ),
         (key("gpt-5.5", Some(1_000_000)), CodexLimitState::Pending),
     ]);
     assert_eq!(
-        select_due_limits(&limits, keys.clone(), false),
-        [key("gpt-5.5", None)],
-        "only the failed limit is tried again on the same catalog"
+        select_due_limits(&limits, keys.clone(), read),
+        Vec::<CodexLimitKey>::new(),
+        "a failed limit is never tried again on the catalog it failed on"
     );
-    assert_eq!(select_due_limits(&limits, keys.clone(), true), keys);
+    assert_eq!(
+        select_due_limits(&limits, keys, changed),
+        [key("gpt-5.4", None), key("gpt-5.5", None)],
+        "another catalog settles each limit again but the one under way"
+    );
 }

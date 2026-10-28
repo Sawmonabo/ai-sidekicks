@@ -145,21 +145,16 @@ pub(super) struct CodexCalibrationCatalog {
     fallback_buffer_tokens: u64,
 }
 
-/// Reads `request`'s window and fallback buffer from `service`'s catalog. Fails when the catalog
-/// cannot be read or lists no window for the model.
-pub(super) async fn read_codex_calibration_catalog(
+/// `service`'s own catalog, as its build prints it. Fails when the catalog cannot be read.
+pub(super) async fn read_codex_service_catalog(
     service: &CodexService,
-    request: &CodexCalibrationRequest,
-) -> Result<CodexCalibrationCatalog, CodexCalibrationError> {
+) -> Result<CodexCatalogReading, CodexCalibrationError> {
     let dump = read_codex_model_catalog_dump(service).await?;
     let windows = read_codex_service_model_windows(Ok(&dump), service.home());
-    compose_codex_calibration_catalog(
-        &CodexCatalogReading {
-            dump: Arc::from(dump),
-            windows: Arc::new(windows),
-        },
-        request,
-    )
+    Ok(CodexCatalogReading {
+        dump: Arc::from(dump),
+        windows: Arc::new(windows),
+    })
 }
 
 /// `request`'s window and fallback buffer in `catalog`. Fails when the catalog lists no window for

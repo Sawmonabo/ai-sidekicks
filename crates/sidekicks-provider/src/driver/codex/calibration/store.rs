@@ -1,5 +1,6 @@
 //! The measured compaction limits in the `compaction_calibrations` table, keyed by Codex's version,
-//! the model and the window, so a limit is measured once per build and kept across restarts.
+//! the model and the window and read back only for the catalog digest they were measured on, so a
+//! limit is measured once per build and catalog and kept across restarts.
 
 use std::error::Error;
 use std::num::TryFromIntError;
@@ -24,31 +25,29 @@ pub(super) struct CodexMeasuredWindow {
     pub(super) model_id: String,
     /// The model's whole window the limit was measured on, in tokens.
     pub(super) window_tokens: u64,
+    /// The hex digest of the catalog the limit was measured against.
+    pub(super) catalog_digest: String,
 }
 
 /// The statements the calibration keeps prepared on a read connection: the one select.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's read pool sums it once the drivers' statement count reaches it"
-    )
-)]
 pub(crate) const CODEX_CALIBRATION_STATEMENT_CAPACITY: usize = 1;
 
 const SELECT_LIMIT_SQL: &str = "
   SELECT compaction_limit_tokens
     FROM compaction_calibrations
-   WHERE provider = ?1 AND provider_version = ?2 AND model_id = ?3 AND window_tokens = ?4";
+   WHERE provider = ?1 AND provider_version = ?2 AND model_id = ?3 AND window_tokens = ?4
+     AND catalog_digest = ?5";
 
-// A new measurement of one build, model and window replaces the one before it.
+// A new measurement of one build, model and window replaces the one before it, whatever catalog
+// that one was measured on.
 const UPSERT_LIMIT_SQL: &str = "
   INSERT INTO compaction_calibrations (provider, provider_version, model_id, window_tokens,
-                                       compaction_limit_tokens, measured_at)
-  VALUES (@provider, @provider_version, @model_id, @window_tokens, @compaction_limit_tokens,
-          @measured_at)
+                                       catalog_digest, compaction_limit_tokens, measured_at)
+  VALUES (@provider, @provider_version, @model_id, @window_tokens, @catalog_digest,
+          @compaction_limit_tokens, @measured_at)
   ON CONFLICT(provider, provider_version, model_id, window_tokens)
-    DO UPDATE SET compaction_limit_tokens = excluded.compaction_limit_tokens,
+    DO UPDATE SET catalog_digest          = excluded.catalog_digest,
+                  compaction_limit_tokens = excluded.compaction_limit_tokens,
                   measured_at             = excluded.measured_at";
 
 /// Why the stored limit could not be read.
@@ -92,6 +91,7 @@ fn query_stored_limit(
                 &measured.provider_version,
                 &measured.model_id,
                 window_tokens,
+                &measured.catalog_digest,
             ),
             |row| row.get::<_, i64>(0),
         )
@@ -112,6 +112,7 @@ pub(super) async fn store_codex_limit(
             text_binding("@provider", DESCRIPTOR.id),
             text_binding("@provider_version", &measured.provider_version),
             text_binding("@model_id", &measured.model_id),
+            text_binding("@catalog_digest", &measured.catalog_digest),
             (
                 "@window_tokens".into(),
                 Value::Integer(i64::try_from(measured.window_tokens)?),
@@ -143,15 +144,26 @@ mod tests {
     use crate::driver::schema::schema_parts;
 
     fn measured(version: &str, model: &str, window_tokens: u64) -> CodexMeasuredWindow {
+        measured_on(version, model, window_tokens, "catalog-a")
+    }
+
+    fn measured_on(
+        version: &str,
+        model: &str,
+        window_tokens: u64,
+        catalog_digest: &str,
+    ) -> CodexMeasuredWindow {
         CodexMeasuredWindow {
             provider_version: version.to_owned(),
             model_id: model.to_owned(),
             window_tokens,
+            catalog_digest: catalog_digest.to_owned(),
         }
     }
 
-    // A limit is read back only for the version, model and window it was measured for, and a new
-    // measurement of the same three replaces it.
+    // A limit is read back only for the version, model, window and catalog it was measured for,
+    // so a catalog changed while the daemon was down is measured again, and a new measurement of
+    // the same three replaces it. Killed by a read that ignores the catalog's digest.
     #[tokio::test]
     async fn reads_a_limit_back_only_for_its_own_version_model_and_window() {
         let database = TestDatabase::new(schema_parts());
@@ -171,6 +183,7 @@ mod tests {
             measured("codex-cli 0.164.0", "gpt-5.5", 272_000),
             measured("codex-cli 0.163.0", "gpt-5.4", 272_000),
             measured("codex-cli 0.163.0", "gpt-5.5", 1_000_000),
+            measured_on("codex-cli 0.163.0", "gpt-5.5", 272_000, "catalog-b"),
         ] {
             let read = read_stored_codex_limit(&reads, &other)
                 .await

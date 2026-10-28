@@ -67,7 +67,7 @@ mod account_home_logs;
 mod app_server_protocol;
 mod attachments;
 mod auth_status;
-mod calibration;
+pub(super) mod calibration;
 mod capabilities;
 mod capability_probe;
 mod commands;

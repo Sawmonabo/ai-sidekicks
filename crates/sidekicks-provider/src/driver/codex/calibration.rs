@@ -1,14 +1,15 @@
 //! Where Codex compacts each model on each window, which no request reports: measured by a
-//! calibration run for every model a service's catalog lists, at each read of a catalog its build
-//! has not printed before in this daemon run, stored by build, model and window, and answered from
-//! memory. A limit failed is tried again at the next catalog read, and one a session asks for that
-//! no read measured is read from the store, else measured, on its first ask. A reading made
-//! meanwhile falls back to Codex's default point.
+//! calibration run for every model a service's catalog lists, at each catalog read, stored by
+//! build, model, window and the catalog's digest, and answered from memory. A limit is settled
+//! once per catalog: one that failed is tried again only once its build prints another catalog,
+//! or in the next daemon run, and a settle whose catalog was replaced meanwhile is done again on
+//! the newer one. A limit a session asks for that no read settled is settled on its first ask. A
+//! reading made meanwhile falls back to Codex's default point.
 
 mod log_reading;
 mod measurement;
 mod stand_in;
-mod store;
+pub(in crate::driver) mod store;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -21,7 +22,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::calibration::measurement::{
     CodexCalibrationRequest, compose_codex_calibration_catalog, measure_codex_compaction_limit,
-    read_codex_calibration_catalog, remove_left_calibration_folder,
+    read_codex_service_catalog, remove_left_calibration_folder,
 };
 use crate::driver::codex::calibration::store::{
     CodexMeasuredWindow, read_stored_codex_limit, store_codex_limit,
@@ -40,12 +41,13 @@ struct CodexLimitKey {
 /// Where one limit stands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CodexLimitState {
-    /// Read or measured now.
+    /// Read or measured now, by the one settle the key runs at a time.
     Pending,
-    /// Known, in tokens.
-    Known(u64),
-    /// Its read and measurement failed; it stays unknown until the next catalog read.
-    Unknown,
+    /// Known, in tokens, for the catalog of `digest`.
+    Known { limit: u64, digest: blake3::Hash },
+    /// Its read and measurement failed on the catalog of `digest`, `None` where no catalog could
+    /// be read; it stays unknown until its build prints another catalog.
+    Unknown { digest: Option<blake3::Hash> },
 }
 
 /// The Codex compaction limits of one driver, shared by every session.
@@ -54,8 +56,8 @@ pub(crate) struct CodexCompactionLimits {
     writer: Arc<PortRegistration<Arc<DatabaseWriter>>>,
     tasks: TaskTracker,
     limits: Mutex<HashMap<CodexLimitKey, CodexLimitState>>,
-    // The digest of the catalog each build last printed in this daemon run.
-    catalog_digests: Mutex<HashMap<String, blake3::Hash>>,
+    // The catalog each build last printed in this daemon run, with its digest.
+    catalogs: Mutex<HashMap<String, (blake3::Hash, CodexCatalogReading)>>,
     // The one removal, per daemon run, of the scratch a former run left, done before any run.
     sweep: tokio::sync::OnceCell<()>,
     // Held through each run, since every run takes the one scratch folder.
@@ -75,7 +77,7 @@ impl CodexCompactionLimits {
             writer,
             tasks,
             limits: Mutex::default(),
-            catalog_digests: Mutex::default(),
+            catalogs: Mutex::default(),
             sweep: tokio::sync::OnceCell::new(),
             runs: tokio::sync::Mutex::default(),
         }
@@ -101,19 +103,19 @@ impl CodexCompactionLimits {
         };
         let mut limits = lock(&self.limits);
         match limits.get(&key) {
-            Some(CodexLimitState::Known(limit)) => return Some(*limit),
-            Some(CodexLimitState::Pending | CodexLimitState::Unknown) => return None,
+            Some(CodexLimitState::Known { limit, .. }) => return Some(*limit),
+            Some(CodexLimitState::Pending | CodexLimitState::Unknown { .. }) => return None,
             None => {}
         }
         limits.insert(key.clone(), CodexLimitState::Pending);
         drop(limits);
-        self.settle(service, key, None);
+        self.settle(service, key);
         None
     }
 
     /// Measures where `service`'s build compacts every model `catalog` lists, on its default
-    /// window and on its larger one, in the background: each limit not known yet, or failed, and
-    /// every one again when the build printed another catalog before in this daemon run.
+    /// window and on its larger one, in the background: each limit not settled yet, and each one
+    /// settled on another catalog, the one a settle under way runs aside.
     pub(crate) fn calibrate_catalog(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
@@ -121,87 +123,109 @@ impl CodexCompactionLimits {
         catalog: &CodexCatalogReading,
     ) {
         let digest = blake3::hash(catalog.dump.as_bytes());
-        let is_catalog_changed = lock(&self.catalog_digests)
-            .insert(provider_version.to_owned(), digest)
-            .is_some_and(|before| before != digest);
+        lock(&self.catalogs).insert(provider_version.to_owned(), (digest, catalog.clone()));
         let mut limits = lock(&self.limits);
         let due = select_due_limits(
             &limits,
             list_catalog_keys(provider_version, catalog),
-            is_catalog_changed,
+            digest,
         );
         for key in &due {
             limits.insert(key.clone(), CodexLimitState::Pending);
         }
         drop(limits);
         for key in due {
-            // A changed catalog's limits are measured again rather than read from the store,
-            // which keeps the former catalog's under the same build, model and window.
-            let source = CodexCatalogSource {
-                catalog: catalog.clone(),
-                is_store_current: !is_catalog_changed,
-            };
-            self.settle(service, key, Some(source));
+            self.settle(service, key);
         }
     }
 
-    // Reads or measures `key`'s limit in the background and keeps what came of it.
-    fn settle(
-        self: &Arc<Self>,
-        service: &Arc<CodexService>,
-        key: CodexLimitKey,
-        source: Option<CodexCatalogSource>,
-    ) {
+    // Reads or measures `key`'s limit in the background on its build's newest catalog and keeps
+    // what came of it; a result whose catalog was replaced meanwhile is dropped and the limit
+    // settled again on the newer one.
+    fn settle(self: &Arc<Self>, service: &Arc<CodexService>, key: CodexLimitKey) {
         let compaction_limits = Arc::clone(self);
         let service = Arc::clone(service);
         self.tasks.spawn(async move {
             // The first ask of a daemon run clears what a crashed run left.
             compaction_limits.sweep_left_scratch(&service).await;
-            let state = match compaction_limits
-                .read_or_measure(&service, &key, source)
-                .await
-            {
-                Ok(limit) => CodexLimitState::Known(limit),
-                Err(error) => {
-                    tracing::warn!(
-                        error = &*error as &(dyn std::error::Error + 'static),
-                        model = %key.request.model_id,
-                        version = %key.provider_version,
-                        "the codex compaction limit could not be read or measured"
-                    );
-                    CodexLimitState::Unknown
+            loop {
+                let (digest, state) = compaction_limits.read_or_measure(&service, &key).await;
+                let current = lock(&compaction_limits.catalogs)
+                    .get(&key.provider_version)
+                    .map(|(current, _catalog)| *current);
+                if digest.is_none() || digest == current {
+                    lock(&compaction_limits.limits).insert(key, state);
+                    return;
                 }
-            };
-            lock(&compaction_limits.limits).insert(key, state);
+            }
         });
     }
 
-    // The stored limit of `key`'s build, model and window where the store is current, else one
-    // measured now and stored; on `source`'s catalog where one was read, else the service's own.
+    // The stored limit of `key`'s build, model and window on its build's newest catalog, the
+    // service's own read now where none was, else one measured now and stored, with the digest of
+    // the catalog it settled on; a failure is logged and settles the limit unknown.
     async fn read_or_measure(
         &self,
         service: &CodexService,
         key: &CodexLimitKey,
-        source: Option<CodexCatalogSource>,
-    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
-        let (catalog, is_store_current) = match source {
-            Some(source) => (
-                compose_codex_calibration_catalog(&source.catalog, &key.request)?,
-                source.is_store_current,
-            ),
-            None => (
-                read_codex_calibration_catalog(service, &key.request).await?,
-                true,
-            ),
+    ) -> (Option<blake3::Hash>, CodexLimitState) {
+        let catalog = match self.catalog_of(service, &key.provider_version).await {
+            Ok(catalog) => catalog,
+            Err(error) => {
+                report_unsettled(key, &*error);
+                return (None, CodexLimitState::Unknown { digest: None });
+            }
         };
+        let digest = blake3::hash(catalog.dump.as_bytes());
+        let state = match self
+            .read_or_measure_on(service, key, &catalog, digest)
+            .await
+        {
+            Ok(limit) => CodexLimitState::Known { limit, digest },
+            Err(error) => {
+                report_unsettled(key, &*error);
+                CodexLimitState::Unknown {
+                    digest: Some(digest),
+                }
+            }
+        };
+        (Some(digest), state)
+    }
+
+    // The newest catalog `provider_version` printed, read from `service` and kept where no read
+    // gave one yet.
+    async fn catalog_of(
+        &self,
+        service: &CodexService,
+        provider_version: &str,
+    ) -> Result<CodexCatalogReading, Box<dyn std::error::Error + Send + Sync>> {
+        if let Some((_digest, catalog)) = lock(&self.catalogs).get(provider_version) {
+            return Ok(catalog.clone());
+        }
+        let catalog = read_codex_service_catalog(service).await?;
+        let digest = blake3::hash(catalog.dump.as_bytes());
+        Ok(lock(&self.catalogs)
+            .entry(provider_version.to_owned())
+            .or_insert((digest, catalog))
+            .1
+            .clone())
+    }
+
+    async fn read_or_measure_on(
+        &self,
+        service: &CodexService,
+        key: &CodexLimitKey,
+        catalog: &CodexCatalogReading,
+        digest: blake3::Hash,
+    ) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> {
+        let catalog = compose_codex_calibration_catalog(catalog, &key.request)?;
         let measured = CodexMeasuredWindow {
             provider_version: key.provider_version.clone(),
             model_id: key.request.model_id.clone(),
             window_tokens: catalog.window_tokens,
+            catalog_digest: digest.to_hex().to_string(),
         };
-        if is_store_current
-            && let Some(limit) = read_stored_codex_limit(&self.reads, &measured).await?
-        {
+        if let Some(limit) = read_stored_codex_limit(&self.reads, &measured).await? {
             return Ok(limit);
         }
         self.sweep_left_scratch(service).await;
@@ -221,10 +245,14 @@ impl CodexCompactionLimits {
     }
 }
 
-/// A catalog read a limit is settled on, and whether the store still holds its build's limits.
-struct CodexCatalogSource {
-    catalog: CodexCatalogReading,
-    is_store_current: bool,
+// Logs why `key`'s limit stays unknown.
+fn report_unsettled(key: &CodexLimitKey, error: &(dyn std::error::Error + 'static)) {
+    tracing::warn!(
+        error,
+        model = %key.request.model_id,
+        version = %key.provider_version,
+        "the codex compaction limit could not be read or measured"
+    );
 }
 
 // Every limit `catalog` lists for `provider_version`: each model's default window, and its larger
@@ -247,17 +275,21 @@ fn list_catalog_keys(provider_version: &str, catalog: &CodexCatalogReading) -> V
         .collect()
 }
 
-// The limits of `keys` a catalog read settles: each not known yet or failed, and every one when
-// the catalog changed.
+// The limits of `keys` a read of the catalog of `digest` settles: each never settled, and each
+// settled, known or failed, on another catalog; one under way is left to its settle.
 fn select_due_limits(
     limits: &HashMap<CodexLimitKey, CodexLimitState>,
     keys: Vec<CodexLimitKey>,
-    is_catalog_changed: bool,
+    digest: blake3::Hash,
 ) -> Vec<CodexLimitKey> {
     keys.into_iter()
         .filter(|key| match limits.get(key) {
-            None | Some(CodexLimitState::Unknown) => true,
-            Some(CodexLimitState::Pending | CodexLimitState::Known(_)) => is_catalog_changed,
+            None => true,
+            Some(CodexLimitState::Pending) => false,
+            Some(CodexLimitState::Known {
+                digest: settled, ..
+            }) => *settled != digest,
+            Some(CodexLimitState::Unknown { digest: settled }) => *settled != Some(digest),
         })
         .collect()
 }

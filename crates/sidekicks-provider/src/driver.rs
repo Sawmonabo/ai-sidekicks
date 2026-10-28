@@ -423,6 +423,11 @@ pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
 pub const PROVIDERS: &[&ProviderDescriptor] =
     &descriptors_of::<{ PROVIDER_REGISTRATIONS.len() }>(PROVIDER_REGISTRATIONS);
 
+/// The statements the drivers keep prepared on a read connection of the daemon's pool, which the
+/// pool's capacity counts.
+pub const DRIVERS_STATEMENT_CAPACITY: usize =
+    codex::calibration::store::CODEX_CALIBRATION_STATEMENT_CAPACITY;
+
 const _: () = assert!(
     has_valid_ids(PROVIDERS),
     "a provider id breaks the id pattern"
