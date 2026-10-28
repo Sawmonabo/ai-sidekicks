@@ -41,12 +41,8 @@ const GIT_TRUE: &[u8] = b"true";
 /// A record name from a tree folder's name as git's `sanitize_refname_component` makes it, so a
 /// record's refs are addressable as `worktrees/<name>/…`: a control character, a space, `:`, `?`,
 /// `[`, `\`, `^`, `~`, `*` and the `{` of `@{` become `-`; `..` becomes `.`; a leading `.` becomes
-/// `-`; a trailing `.lock` is stripped as often as it repeats; a trailing `.` stays. A lone `@`
-/// becomes `-`.
+/// `-`; a trailing `.lock` is stripped as often as it repeats; a trailing `.` stays.
 pub(super) fn sanitize_record_name(name: &str) -> String {
-    if name == "@" {
-        return "-".to_owned();
-    }
     let mut sanitized = String::with_capacity(name.len());
     let mut last = '\0';
     for character in name.chars() {

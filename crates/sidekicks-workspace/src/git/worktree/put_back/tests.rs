@@ -265,7 +265,6 @@ async fn relative_linking_files_are_written_when_the_repository_asks() {
 #[case::a_double_dot_and_a_lock_suffix("a..b.lock", "a.b")]
 #[case::the_brace_of_an_at_brace("x@{y", "x@-y")]
 #[case::a_star("star*name", "star-name")]
-#[case::a_lone_at("@", "-")]
 #[case::a_leading_dot(".hidden", "-hidden")]
 #[case::a_trailing_dot("trailing.", "trailing.")]
 #[case::each_refused_character("sp ace:q?[b\\c^d~", "sp-ace-q--b-c-d-")]
