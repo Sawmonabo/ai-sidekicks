@@ -101,25 +101,24 @@ pub(crate) async fn clone_repositories(
 }
 
 // The submodules the index of `repository` (resolved) records, in its order, each resolved and
-// kept only when it lies inside `repository` and is checked out.
+// kept only when it lies inside `repository` and is checked out. The index is listed entry by
+// entry, only its gitlinks kept, since a large one lists past what one read of git may hold.
 async fn checked_out_submodules(
     git: &GitRunner,
     place: Option<&Place>,
     repository: &Path,
 ) -> Result<Vec<PathBuf>, LargeFilesReadError> {
-    let listing = git
-        .run(
-            place,
-            GitCall::read(background_read(repository, &["ls-files", "-z", "--stage"])),
-        )
-        .await?
-        .stdout;
+    let mut gitlink_paths = Vec::new();
+    git.run_by_entry(
+        place,
+        GitCall::read(background_read(repository, &["ls-files", "-z", "--stage"])),
+        0,
+        |entry| gitlink_paths.extend(gitlink_path(entry).map(<[u8]>::to_vec)),
+    )
+    .await?;
     let mut submodules = Vec::new();
-    for entry in listing.split(|byte| *byte == 0) {
-        let Some(path) = gitlink_path(entry) else {
-            continue;
-        };
-        let path = path_from_program_output(path.to_vec()).map_err(GitError::PathText)?;
+    for path in gitlink_paths {
+        let path = path_from_program_output(path).map_err(GitError::PathText)?;
         let folder = match resolve_real_path(&repository.join(path)).await {
             Ok(folder) => folder,
             Err(error) if is_missing_entry(&error) => continue,
@@ -179,7 +178,8 @@ mod tests {
 
     use super::{clone_repositories, keeps_large_files};
     use crate::git::process::{
-        GitCall, GitRunner, in_folder, strip_line_end, test_git_runner, write_link,
+        GIT_OUTPUT_MAX_BYTES, GitCall, GitRunner, in_folder, strip_line_end, test_git_runner,
+        write_link,
     };
 
     // The test's own identity and the local submodule clone, never the person's config.
@@ -268,5 +268,46 @@ mod tests {
                 .await
                 .expect("the attributes are read")
         );
+    }
+
+    // An index whose listing passes what one git read may hold still lists the submodule recorded
+    // after it. Killed by the listing read whole under the output bound: the read fails, or a cut
+    // listing loses the submodule at its end.
+    #[tokio::test]
+    async fn an_index_listed_past_the_output_bound_lists_every_submodule() {
+        let git = test_git_runner();
+        let temporary = tempfile::tempdir().expect("the temporary folder is made");
+        let outer = real_path(temporary.path()).expect("the temporary folder resolves");
+        let top = outer.join("top");
+        let source = outer.join("source");
+        make_repository(&git, &source, "").await;
+        run_in(&git, &source, &["add", ".gitattributes"]).await;
+        run_in(&git, &source, &["commit", "-m", "first"]).await;
+        make_repository(&git, &top, "").await;
+        let source_text = source.to_str().expect("the temporary path is Unicode");
+        // Sorted after every file below, so a listing cut at the bound loses it.
+        run_in(&git, &top, &["submodule", "add", source_text, "zz/sub"]).await;
+        let blob =
+            strip_line_end(run_in(&git, &top, &["hash-object", "-w", ".gitattributes"]).await);
+        let blob = String::from_utf8(blob).expect("an id is ASCII");
+        let folder = vec!["a".repeat(200); 4].join("/");
+        let entry_bytes = format!("100644 {blob} 0\tfiles/{folder}/00000000\0").len();
+        let mut index_info = Vec::new();
+        for ordinal in 0..=GIT_OUTPUT_MAX_BYTES / entry_bytes {
+            index_info.extend(format!("100644 {blob}\tfiles/{folder}/{ordinal:08}\n").into_bytes());
+        }
+        let arguments = SETTINGS
+            .iter()
+            .map(OsString::from)
+            .chain(in_folder(&top, &["update-index", "--index-info"]));
+        git.run(None, GitCall::read(arguments).with_input(index_info))
+            .await
+            .expect("the files are staged");
+
+        let repositories = clone_repositories(&git, None, &top)
+            .await
+            .expect("the clone's repositories are listed");
+
+        assert_eq!(repositories, [top.clone(), top.join("zz").join("sub")]);
     }
 }
