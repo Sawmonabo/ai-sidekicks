@@ -40,7 +40,7 @@ use crate::run::engine::test_fixture::insert_running_run;
 const READ_STATEMENT_CAPACITY: usize = 16;
 
 /// Past the idle limit, from the check that starts the idle clock.
-const PAST_IDLE_LIMIT: Duration = Duration::from_secs(31 * 60);
+const PAST_IDLE_LIMIT: Duration = Duration::from_mins(31);
 
 struct DroppedEndings;
 

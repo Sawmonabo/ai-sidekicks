@@ -716,7 +716,7 @@ fn a_read_past_its_cap_of_task_list_stretches_continues_empty_after_them() {
     };
     let rest = read_after(serde_json::to_value(&capped.next_cursor).expect("a cursor writes"));
 
-    assert!(capped.entries.as_slice().is_empty());
+    assert_eq!(capped.entries.as_slice(), []);
     assert_eq!(
         Some(capped.next_cursor),
         encode_event_cursor(last_task_list_event).ok()

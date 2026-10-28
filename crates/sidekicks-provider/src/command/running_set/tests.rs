@@ -766,5 +766,5 @@ async fn after_the_input_ends_a_commands_later_prompts_answer_empty_at_once() {
             (72, String::new())
         ]
     );
-    assert!(acts.asked().is_empty());
+    assert_eq!(acts.asked(), Vec::<&str>::new());
 }

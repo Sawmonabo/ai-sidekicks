@@ -354,7 +354,7 @@ async fn a_row_the_dispatch_does_not_write_fails_the_record() {
         failure.downcast_ref::<UsageRecordError>(),
         Some(UsageRecordError::Dispatch(InboundDispatchError::Cursor(_)))
     ));
-    assert!(harness.stored(RECORDED, "inputTokens").is_empty());
+    assert_eq!(harness.stored(RECORDED, "inputTokens"), []);
 }
 
 // Killed by counting a side question's usage toward the lead (it would pass the limit at once), by
@@ -404,7 +404,7 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
             (helper.clone(), Some(subagent_id.as_str().to_owned()))
         ]
     );
-    assert!(harness.stored(REACHED, "runId").is_empty());
+    assert_eq!(harness.stored(REACHED, "runId"), []);
     assert_eq!(harness.interrupts.calls.load(Ordering::SeqCst), 0);
 
     // The helper's 120 passes its limit: its reached event, no interrupt, and its driver asked,

@@ -63,10 +63,10 @@ use crate::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 6;
 
 /// How often the one check looks at every awake session.
-const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const CHECK_INTERVAL: Duration = Duration::from_mins(5);
 
 /// How long a session stays idle, nothing holding it, before its process is stopped.
-const IDLE_LIMIT: Duration = Duration::from_secs(30 * 60);
+const IDLE_LIMIT: Duration = Duration::from_mins(30);
 
 /// The check's name in the program's log.
 const CHECK_JOB: &str = "idle sleep check";

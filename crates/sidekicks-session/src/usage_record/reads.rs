@@ -253,24 +253,23 @@ pub(super) fn read_tally_seed(
         .optional()?
         .map(TokensPerRun);
     // An unlimited run is never held to a count.
-    let token_count = match token_limit {
-        None => 0,
-        Some(_) => {
-            let count: i64 = reader.prepare_cached(&SELECT_TOKEN_COUNT_SQL)?.query_row(
-                named_params! {
-                    "@session_id": session.as_str(),
-                    "@run_id": run_id.text().as_str(),
-                },
-                |row| row.get(0),
-            )?;
-            u64::try_from(count).map_err(|error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    0,
-                    rusqlite::types::Type::Integer,
-                    Box::new(error),
-                )
-            })?
-        }
+    let token_count = if token_limit.is_none() {
+        0
+    } else {
+        let count: i64 = reader.prepare_cached(&SELECT_TOKEN_COUNT_SQL)?.query_row(
+            named_params! {
+                "@session_id": session.as_str(),
+                "@run_id": run_id.text().as_str(),
+            },
+            |row| row.get(0),
+        )?;
+        u64::try_from(count).map_err(|error| {
+            rusqlite::Error::FromSqlConversionFailure(
+                0,
+                rusqlite::types::Type::Integer,
+                Box::new(error),
+            )
+        })?
     };
     Ok(Some(RunUsageTally {
         token_limit,

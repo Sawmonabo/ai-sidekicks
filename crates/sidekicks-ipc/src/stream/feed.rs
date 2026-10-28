@@ -42,7 +42,7 @@ pub trait ChangeRecord: Send + Sync {
         &self,
         cursor: &Self::Cursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<RecordPage<Self::Cursor, Self::Change>, Self::Error>>;
+    ) -> RecordPageRead<'_, Self::Cursor, Self::Change, Self::Error>;
 
     /// The change signal: a count of the changes appended to the record, which grows by one per
     /// change once that change is readable, so a reader can count the changes signaled since it
@@ -53,6 +53,10 @@ pub trait ChangeRecord: Send + Sync {
     /// finished rather than as a fault.
     fn is_store_closed(error: &Self::Error) -> bool;
 }
+
+/// A read of one page of a change record, answering the page or the record's error.
+pub type RecordPageRead<'a, Cursor, Change, Error> =
+    BoxFuture<'a, Result<RecordPage<Cursor, Change>, Error>>;
 
 /// One read of a change record: its changes, where it read through, and whether it stopped at its
 /// count or at one frame's bytes, so more may be stored.

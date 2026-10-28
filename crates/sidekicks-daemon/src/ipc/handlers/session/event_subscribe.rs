@@ -913,7 +913,7 @@ mod tests {
             .collect();
         assert_eq!(sent, ["session.created", "session.pinned"]);
         assert_eq!(whole.read_through, Some(through_task_list.clone()));
-        assert!(tail.changes.is_empty());
+        assert_eq!(tail.changes, []);
         assert_eq!(tail.read_through, Some(through_task_list));
         assert!(tail.is_cut_short);
     }
