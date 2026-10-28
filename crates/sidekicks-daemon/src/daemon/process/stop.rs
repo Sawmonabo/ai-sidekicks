@@ -152,7 +152,8 @@ pub(crate) async fn stop_work(
     }
     if let Some(repo) = &mut process.repo {
         repo.folder_watch.stop().await;
-        if let Some(broker) = repo.askpass.take()
+        // Taken, so a stop run again finds no broker to close.
+        if let Ok(broker) = std::mem::replace(&mut repo.askpass, Err(String::new()))
             && let Err(failure) = broker.close().await
         {
             failures.push(failure.into());

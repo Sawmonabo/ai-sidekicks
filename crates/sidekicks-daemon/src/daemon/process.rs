@@ -204,8 +204,7 @@ pub(crate) enum DaemonStartError {
     /// The providers' registration ended abnormally.
     #[error("the providers' registration ended abnormally")]
     ProvidersRegistration(#[source] JoinError),
-    /// The repository services could not be built, another daemon's askpass socket among the
-    /// reasons.
+    /// The repository services could not be built: another daemon binds the askpass socket.
     #[error(transparent)]
     RepoServices(#[from] RepoServiceStartError),
     /// The repository services' background work could not begin.
