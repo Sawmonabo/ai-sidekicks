@@ -128,6 +128,7 @@ impl RemovedWorktreeStore {
                 removed_worktree_id: &kept.removed_worktree_id,
                 branch: kept.branch.as_str(),
                 is_on_branch: kept.is_on_branch,
+                head_commit: &kept.head_commit,
                 kept_folder,
                 record_folder: Path::new(kept.record_folder.as_str()),
                 original_path,

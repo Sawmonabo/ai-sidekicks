@@ -17,10 +17,13 @@ use sidekicks_contracts::worktree::removed::{
 };
 use tokio_util::sync::CancellationToken;
 
+use super::RemovedWorktreeStoreError;
 use super::put_back_copy;
 use super::restore::KeptCopyPutBackMarks;
 use super::test_fixture::KeptCopyFixture;
 use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
+use crate::git::worktree::kept_copy::pins::KeptPin;
+use crate::git::worktree::put_back::branch::BranchChoiceError;
 use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{
     PutBackAtFreeNameInput, PutBackBranchChoice, put_worktree_back_at_free_name,
@@ -308,4 +311,43 @@ async fn a_cleanup_removes_the_names_a_put_back_cut_short_before_its_mark_left()
 
     assert!(!original_path.exists(), "the empty folder is left");
     assert!(!record.exists(), "the locked record is left");
+}
+
+// Kills a put-back that reads the commit the tree stood on from its pin alone, which anything
+// outside the daemon can move off the commit the kept index was made on.
+#[tokio::test]
+async fn a_put_back_refuses_a_head_pin_moved_off_the_recorded_commit() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let kept_folder = fixture.kept_folder(&removed_worktree_id);
+    fixture.commit(&fixture.repository, "elsewhere").await;
+    let elsewhere = fixture
+        .git(&fixture.repository, &["rev-parse", "HEAD"])
+        .await;
+    fixture
+        .git(
+            &fixture.repository,
+            &[
+                "update-ref",
+                &KeptPin::Head.ref_name(&removed_worktree_id),
+                &elsewhere,
+            ],
+        )
+        .await;
+
+    let answer = fixture.store.restore(removed_worktree_id).await;
+
+    let Err(RemovedWorktreeStoreError::Failed(failure)) = answer else {
+        panic!("the put-back fails, got {answer:?}");
+    };
+    assert!(
+        matches!(
+            failure.downcast_ref::<BranchChoiceError>(),
+            Some(BranchChoiceError::MovedPin { pinned, .. }) if pinned.as_str() == elsewhere
+        ),
+        "the moved pin is named, got {failure:?}"
+    );
+    assert_eq!(listed_ids(&fixture).await, vec![removed_worktree_id]);
+    assert!(kept_folder.join(KEPT_TREE_ENTRY).is_dir());
 }

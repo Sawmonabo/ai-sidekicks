@@ -1,11 +1,13 @@
 //! Which branch a kept tree goes back on: its own while it still points at the recorded commit
 //! (in a rebase, the recorded `orig-head`), no tree git lists has it checked out but the kept
 //! copy's own stale record, and no live row or other put-back claims it; otherwise a new numbered
-//! `<branch>-restored` at the recorded commit.
+//! `<branch>-restored` at the recorded commit. A `head` pin moved off the commit the row records
+//! refuses the put-back, since the kept index was never on the commit it names.
 
 use std::io;
 use std::path::Path;
 
+use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::worktree::lifecycle::RemovedWorktreeId;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
@@ -28,6 +30,8 @@ pub(crate) struct PutBackBranchInput<'a> {
     pub(crate) branch: &'a str,
     /// Whether `branch` is the one the kept HEAD names; `false` for a detached HEAD.
     pub(crate) is_on_branch: bool,
+    /// The commit the kept HEAD stood on, as the row records it.
+    pub(crate) head_commit: &'a GitObjectId,
     /// The kept copy's folder.
     pub(crate) kept_folder: &'a Path,
     /// Git's record of the tree as git named it at the discard.
@@ -66,6 +70,21 @@ pub(crate) enum BranchChoiceError {
         /// The kept copy.
         removed_worktree_id: RemovedWorktreeId,
     },
+    /// The pin of the commit the tree stood on names another commit than the row records.
+    #[error(
+        "kept worktree {removed_worktree_id}'s pin of the commit it stood on names {}, not the \
+         recorded {}",
+        pinned.as_str(),
+        recorded.as_str()
+    )]
+    MovedPin {
+        /// The kept copy.
+        removed_worktree_id: RemovedWorktreeId,
+        /// The commit the pin names.
+        pinned: GitObjectId,
+        /// The commit the row records.
+        recorded: GitObjectId,
+    },
     /// A folder could not be resolved to compare it.
     #[error("a tree's folder could not be resolved to compare it")]
     Resolve(#[source] io::Error),
@@ -77,6 +96,7 @@ pub(crate) enum BranchChoiceError {
 /// Chooses whether a kept tree goes back on its own branch or a new one at the recorded commit, as
 /// this module describes, removing the tree's old record beside the read when it is still the kept
 /// copy's own, so git never counts it a duplicate of the tree put back. Fails with
+/// [`BranchChoiceError::MovedPin`] when the `head` pin names another commit than `head_commit`,
 /// [`BranchChoiceError::LostPin`] when the recorded commit's pin is gone, and as each read does.
 pub(crate) async fn choose_put_back_branch(
     tools: PutBackTools<'_>,
@@ -121,10 +141,19 @@ pub(crate) async fn choose_put_back_branch(
         ),
         "reading the kept worktree",
     )?;
+    let pins = pick_pins(&refs, kept.removed_worktree_id);
+    if let Some(pinned) = pins.commit(KeptPin::Head)
+        && pinned != kept.head_commit
+    {
+        return Err(BranchChoiceError::MovedPin {
+            removed_worktree_id: *kept.removed_worktree_id,
+            pinned: pinned.clone(),
+            recorded: kept.head_commit.clone(),
+        });
+    }
     if !kept.is_on_branch {
         return Ok(PutBackBranchChoice::OwnBranch);
     }
-    let pins = pick_pins(&refs, kept.removed_worktree_id);
     let recorded_pin = if rebase_folder.is_some() {
         KeptPin::RebaseOrigHead
     } else {
