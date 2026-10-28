@@ -87,7 +87,7 @@ pub(crate) enum ShellWriter {
 }
 
 /// Records one change of holder; a failure fails the act that made the change.
-pub(crate) type LeaseBroadcast = Arc<
+pub type LeaseBroadcast = Arc<
     dyn Fn(TerminalControlChangedPayload) -> BoxFuture<'static, Result<(), DomainError>>
         + Send
         + Sync,

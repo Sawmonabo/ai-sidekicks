@@ -16,6 +16,7 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::live_folders::{
     LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
 };
+use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::worktree_naming::worktrees_folder;
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
@@ -99,6 +100,9 @@ pub(crate) struct RepoServices {
     /// A repository's branches, for the new-worktree form.
     #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) branches: Arc<BranchListReader>,
+    /// Each session's review notes, read against its live working folder.
+    #[expect(dead_code, reason = "the daemon's method tables")]
+    pub(crate) review_notes: Arc<SessionReviewNoteStore>,
     /// Every worktree transition and worktree-scoped git call.
     #[expect(dead_code, reason = "the worktree methods")]
     pub(crate) worktrees: Arc<WorktreeService>,
@@ -191,6 +195,7 @@ pub(crate) fn build_repo_services(
         watcher: Arc::clone(&folder_watch),
         fetch: Arc::clone(&fetch),
     }));
+    let review_notes = Arc::new(live_folders.review_note_store(Arc::clone(&writer)));
     let worktrees_folder = worktrees_folder(&home_folder);
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
@@ -219,6 +224,7 @@ pub(crate) fn build_repo_services(
         folder_watch,
         fetch,
         live_folders,
+        review_notes,
         worktrees,
         snapshots,
         mount_health,

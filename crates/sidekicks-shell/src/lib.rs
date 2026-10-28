@@ -8,7 +8,7 @@ pub mod console;
 pub mod control_lease;
 pub(crate) mod flow_control;
 pub mod input_lookup;
-pub(crate) mod integration;
+pub mod integration;
 pub(crate) mod list;
 pub mod mode;
 pub mod orphan;

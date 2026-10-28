@@ -207,13 +207,6 @@ pub struct SessionReviewNoteStore {
 impl SessionReviewNoteStore {
     /// The store reading through `pool`, writing through `writer`, and reading and following each
     /// session's working folder through `folders`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the worktree's live session folders build the store with their folder reads"
-        )
-    )]
     pub(crate) fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,

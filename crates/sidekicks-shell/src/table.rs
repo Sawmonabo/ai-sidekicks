@@ -59,55 +59,55 @@ use crate::resize::{ShellResizeError, ShellSize};
 
 /// Reads a session's shape and working folder; refuses a session this daemon does not hold
 /// `session.notFound`.
-pub(crate) type ReadSessionWorkingFolder = Arc<
+pub type ReadSessionWorkingFolder = Arc<
     dyn Fn(SessionId) -> BoxFuture<'static, Result<SessionWorkingFolder, HandlerError>>
         + Send
         + Sync,
 >;
 
 /// Reads, at each shell's start, what the shell takes from the machine's settings file.
-pub(crate) type ReadShellSettings =
+pub type ReadShellSettings =
     Arc<dyn Fn(SessionId) -> BoxFuture<'static, Result<ShellSettings, HandlerError>> + Send + Sync>;
 
 /// What a session's shell takes from the machine's settings file, read at its start.
-pub(crate) struct ShellSettings {
+pub struct ShellSettings {
     /// Whether `Simplify for a screen reader` is on.
-    pub(crate) is_screen_reader_mode_on: bool,
+    pub is_screen_reader_mode_on: bool,
     /// The `Every project` rows.
-    pub(crate) every_project_rows: Vec<EnvironmentRow>,
+    pub every_project_rows: Vec<EnvironmentRow>,
     /// The session's project's rows.
-    pub(crate) project_rows: Vec<EnvironmentRow>,
+    pub project_rows: Vec<EnvironmentRow>,
 }
 
 /// What the shell table is built from.
-pub(crate) struct ShellTableDeps {
+pub struct ShellTableDeps {
     /// The daemon's terminals.
-    pub(crate) terminals: Arc<Terminals>,
+    pub terminals: Arc<Terminals>,
     /// This machine's own device id, which a run's hold names.
-    pub(crate) machine_device_id: DeviceId,
+    pub machine_device_id: DeviceId,
     /// What each shell's terminal answers a program asking its name and version.
-    pub(crate) terminal_version: String,
+    pub terminal_version: String,
     /// Appends one change of a shell's holder to its session's event log.
-    pub(crate) append_control_change: LeaseBroadcast,
+    pub append_control_change: LeaseBroadcast,
     /// Reads a session's shape and working folder.
-    pub(crate) read_working_folder: ReadSessionWorkingFolder,
+    pub read_working_folder: ReadSessionWorkingFolder,
     /// Reads what a shell takes from the machine's settings file.
-    pub(crate) read_shell_settings: ReadShellSettings,
+    pub read_shell_settings: ReadShellSettings,
     /// The login shell's environment captured at the daemon's start.
-    pub(crate) base_environment: Vec<(String, String)>,
+    pub base_environment: Vec<(String, String)>,
     /// The names a person's row may not set.
-    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
+    pub reserved_names: Arc<ReservedEnvironmentNames>,
     /// The variables each provider reads as the screen-reader switch.
-    pub(crate) screen_reader_environment_names: Vec<&'static str>,
+    pub screen_reader_environment_names: Vec<&'static str>,
     /// The folders every shell's start writes its scripts and nonce file in.
-    pub(crate) startup_folders: ShellStartupFolders,
+    pub startup_folders: ShellStartupFolders,
     /// The daemon's `shell` mode with its arguments.
-    pub(crate) shell_mode: CommandLine,
+    pub shell_mode: CommandLine,
     /// The registry of terminal children a crash could leave behind.
-    pub(crate) orphan_guard: Arc<OrphanGuard>,
+    pub orphan_guard: Arc<OrphanGuard>,
     /// The daemon's runtime, which every task a shell starts runs on, so work started from a drop
     /// after the runtime stopped is dropped rather than panicking.
-    pub(crate) runtime: Handle,
+    pub runtime: Handle,
 }
 
 /// One session's shells, in tab order, and who follows its list.
@@ -135,11 +135,7 @@ pub struct ShellTable {
 
 impl ShellTable {
     /// The table over `deps`, holding no shell.
-    #[cfg_attr(
-        not(any(test, feature = "test-support")),
-        expect(dead_code, reason = "the daemon's start builds the shell table")
-    )]
-    pub(crate) fn new(deps: ShellTableDeps) -> Self {
+    pub fn new(deps: ShellTableDeps) -> Self {
         let record_deps = Arc::new(ShellRecordDeps {
             terminals: Arc::clone(&deps.terminals),
             machine_device_id: deps.machine_device_id.clone(),

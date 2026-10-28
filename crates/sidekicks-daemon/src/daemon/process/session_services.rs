@@ -147,6 +147,10 @@ pub(crate) struct SessionServices {
     pub(crate) chat_versions: Arc<ChatFileVersions>,
     /// The queue; the stop waits for its work.
     pub(crate) queue: Arc<RunQueue>,
+    /// Each session's provider process, which the session controls move.
+    pub(crate) provider_sessions: Arc<ProviderSessions>,
+    /// Appends to a session's log, which the shell table's changes of holder go through.
+    pub(crate) appender: Arc<SessionEventAppender>,
     /// The queues' change signals.
     pub(crate) signals: Arc<QueueChangeSignals>,
     /// Records, accepts and dispatches interventions.
@@ -253,6 +257,8 @@ pub(crate) fn build_session_services(
         Arc::clone(&event_log),
         SESSION_EVENT_VERSION.clone(),
     ));
+    // Taken before the watch moves on, so the file search hears every folder's change.
+    let folder_changes = working_folders.on_folder_change();
     let approval_start = ApprovalStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -319,7 +325,7 @@ pub(crate) fn build_session_services(
         signals: Arc::clone(&signals),
         engine: Arc::clone(&engine),
         providers: Arc::clone(&providers),
-        provider_sessions,
+        provider_sessions: Arc::clone(&provider_sessions),
         memory_gate,
         processes,
         pauses: Arc::clone(&pauses),
@@ -375,6 +381,7 @@ pub(crate) fn build_session_services(
         chat_version_recording: Some(chat_version_recording),
         chat_versions,
         queue,
+        provider_sessions,
         signals,
         interventions,
         pauses,
@@ -382,7 +389,11 @@ pub(crate) fn build_session_services(
         binding_cursors,
         inbound_dispatch,
         run_safety_holds,
-        file_search: Arc::new(FileSearchService::new(Arc::clone(&reads), git)),
+        file_search: Arc::new(FileSearchService::new(
+            Arc::clone(&reads),
+            git,
+            folder_changes,
+        )),
         sessions: Arc::new(SessionService::new(
             Arc::clone(&reads),
             read_damaged_from_sequence,
@@ -414,7 +425,8 @@ pub(crate) fn build_session_services(
             Arc::clone(&engine),
             providers,
         )),
-        plans: Arc::new(PlansService::new(publisher, appender, reads)),
+        plans: Arc::new(PlansService::new(publisher, Arc::clone(&appender), reads)),
+        appender,
         engine,
         approvals,
     })

@@ -1,7 +1,8 @@
 //! A Claude Code process that ended on its own: its runs end through the run engine, then the
 //! session resumes after its crash window's next wait, or, once the window fills, the restarts stop
 //! and the person is told. A new provider build relaunches each session the same way, an idle one
-//! at once and a busy one when its turn settles.
+//! at once and a busy one when its turn settles. Until a relaunch has composed its start, the
+//! ended process's settings are held, so a level or mode moved meanwhile starts with it.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -19,6 +20,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
+use tokio::sync::SetOnce;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::crash_window::{CrashOutcome, CrashWindow};
@@ -29,7 +31,9 @@ use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
 use crate::driver::claude::session::process::ClaudeProcessEnd;
 use crate::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
-use crate::driver::claude::session::state::LiveClaudeSession;
+use crate::driver::claude::session::state::{
+    ClaudeLiveSettings, ClaudeSlotSettled, LiveClaudeSession,
+};
 use crate::driver::claude::session::ultracode::relaunch_claude_options;
 use crate::driver::contract::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::dispatch_delivery;
@@ -45,17 +49,43 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
 
-// Every session's crash window and what waits to start it again.
+// Every session's crash window and the sessions the driver brings back itself.
 #[derive(Default)]
 struct ClaudeRestartTable {
     crash_windows: HashMap<SessionId, CrashWindow>,
-    pending_restarts: HashMap<SessionId, AbortOnDropHandle<()>>,
+    restarting: HashMap<SessionId, ClaudeRestartStage>,
     // The build each busy session moves to once its turn settles.
     pending_build_moves: HashMap<SessionId, ProviderBuildChange>,
     // The conversation each session's last ended process wrote, until the session closes.
     ended_conversations: HashMap<SessionId, ClaudeEndedConversation>,
     // Set once the daemon stops: from then on no session is started again.
     is_stopped: bool,
+}
+
+// Where a session the driver brings back itself stands.
+enum ClaudeRestartStage {
+    // Its process ended and no relaunch has composed its start: the ended process's settings,
+    // which the relaunch composes from, and the crash window's wait once one is set.
+    Held {
+        ended: Arc<LiveClaudeSession>,
+        wait: Option<AbortOnDropHandle<()>>,
+    },
+    // A relaunch composed its start and brings the process up; set once it is done.
+    Relaunching {
+        settled: ClaudeSlotSettled,
+    },
+}
+
+/// Where a session's process stands for a control that moves its level or mode.
+pub(crate) enum ClaudeSessionStanding {
+    /// A process serves the session.
+    Live(Arc<LiveClaudeSession>),
+    /// The process ended and the driver brings it back from these settings, which a move writes.
+    Held(Arc<LiveClaudeSession>),
+    /// A process comes up without the daemon's open; the move waits for this, then looks again.
+    Settling(ClaudeSlotSettled),
+    /// No process serves the session and none comes back until the daemon opens it.
+    Down,
 }
 
 /// The conversation an ended process wrote, where its file is found again.
@@ -129,14 +159,36 @@ impl ClaudeSessionRestarts {
     ) {
         let session_id = live.session_id;
         let runs = self.routes.bound_runs_on(session_id);
-        {
+        // Decided before anything awaits, so a read of the session's state from here on, the
+        // queue's on hearing the process gone among them, sees whether it comes back.
+        let outcome = {
             let mut table = lock(&self.table);
             // The restart resumes on the build installed now, so a move that waited is done.
             table.pending_build_moves.remove(&session_id);
             table
                 .ended_conversations
                 .insert(session_id, ended_conversation_of(&live));
-        }
+            if table.is_stopped {
+                None
+            } else {
+                let outcome = table
+                    .crash_windows
+                    .entry(session_id)
+                    .or_insert_with(CrashWindow::provider)
+                    .record_crash(SystemTime::now());
+                if matches!(outcome, CrashOutcome::RestartAfter(_)) {
+                    // Held from the exit on, so a move while its runs end reaches the restart.
+                    table.restarting.insert(
+                        session_id,
+                        ClaudeRestartStage::Held {
+                            ended: Arc::clone(&live),
+                            wait: None,
+                        },
+                    );
+                }
+                Some(outcome)
+            }
+        };
         self.routes.retire_run_routes(session_id);
         self.routes.retire_child_routes(session_id);
         for run in &runs {
@@ -159,30 +211,30 @@ impl ClaudeSessionRestarts {
         if let Some(process_gone) = self.ports.process_gone.port() {
             process_gone.process_gone(session_id);
         }
-        let outcome = {
-            let mut table = lock(&self.table);
-            if table.is_stopped {
-                return;
-            }
-            table
-                .crash_windows
-                .entry(session_id)
-                .or_insert_with(CrashWindow::provider)
-                .record_crash(SystemTime::now())
-        };
         match outcome {
-            CrashOutcome::CrashLoop => self.report_crash_loop(session_id, &exit).await,
-            CrashOutcome::RestartAfter(wait) => {
+            None => {}
+            Some(CrashOutcome::CrashLoop) => self.report_crash_loop(session_id, &exit).await,
+            Some(CrashOutcome::RestartAfter(wait)) => {
+                // Spawned under the lock its wait is kept under, so the wait cannot end before it
+                // is kept.
+                let mut table = lock(&self.table);
+                let Some(ClaudeRestartStage::Held {
+                    ended,
+                    wait: kept_wait,
+                }) = table.restarting.get_mut(&session_id)
+                else {
+                    // The person's restart, a close or the daemon's stop took the session.
+                    return;
+                };
+                if !Arc::ptr_eq(ended, &live) {
+                    return;
+                }
                 let restarts = Arc::clone(self);
                 let pending = tokio::spawn(async move {
                     tokio::time::sleep(wait).await;
-                    // Held to the end, so dropping it aborts nothing of this run.
-                    let _own = lock(&restarts.table).pending_restarts.remove(&session_id);
-                    restarts.restart(&live).await;
+                    restarts.restart(live).await;
                 });
-                lock(&self.table)
-                    .pending_restarts
-                    .insert(session_id, AbortOnDropHandle::new(pending));
+                *kept_wait = Some(AbortOnDropHandle::new(pending));
             }
         }
     }
@@ -191,7 +243,12 @@ impl ClaudeSessionRestarts {
     /// waiting; the person's own restart.
     pub(crate) fn clear_crash_window(&self, session_id: SessionId) {
         let mut table = lock(&self.table);
-        table.pending_restarts.remove(&session_id);
+        if matches!(
+            table.restarting.get(&session_id),
+            Some(ClaudeRestartStage::Held { .. })
+        ) {
+            table.restarting.remove(&session_id);
+        }
         if let Some(window) = table.crash_windows.get_mut(&session_id) {
             window.clear();
         }
@@ -200,7 +257,7 @@ impl ClaudeSessionRestarts {
     /// Forgets a closed session's crash window and anything it had waiting.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         let mut table = lock(&self.table);
-        table.pending_restarts.remove(&session_id);
+        table.restarting.remove(&session_id);
         table.crash_windows.remove(&session_id);
         table.pending_build_moves.remove(&session_id);
         table.ended_conversations.remove(&session_id);
@@ -252,8 +309,51 @@ impl ClaudeSessionRestarts {
     pub(crate) fn stop(&self) {
         let mut table = lock(&self.table);
         table.is_stopped = true;
-        table.pending_restarts.clear();
+        table
+            .restarting
+            .retain(|_, stage| matches!(stage, ClaudeRestartStage::Relaunching { .. }));
         table.pending_build_moves.clear();
+    }
+
+    /// Where the session's process stands: live, held by a restart that has not composed its
+    /// start, coming up without the daemon's open (a relaunch, or a fork that replaces it), or
+    /// down. A read of what the driver holds.
+    pub(crate) fn standing(&self, session_id: SessionId) -> ClaudeSessionStanding {
+        match lock(&self.table).restarting.get(&session_id) {
+            Some(ClaudeRestartStage::Held { ended, .. }) => {
+                return ClaudeSessionStanding::Held(Arc::clone(ended));
+            }
+            Some(ClaudeRestartStage::Relaunching { settled }) => {
+                return ClaudeSessionStanding::Settling(Arc::clone(settled));
+            }
+            None => {}
+        }
+        if let Some(live) = self.slots.live_session(session_id) {
+            return ClaudeSessionStanding::Live(live);
+        }
+        match self.slots.establishing_settled(session_id) {
+            Some(settled) => ClaudeSessionStanding::Settling(settled),
+            None => ClaudeSessionStanding::Down,
+        }
+    }
+
+    /// Writes `write` into the settings `ended`'s restart composes its start from, while they are
+    /// still held for it; `false` once the relaunch composed it or the session left the restart.
+    pub(crate) fn write_held_settings(
+        &self,
+        ended: &Arc<LiveClaudeSession>,
+        write: impl FnOnce(&mut ClaudeLiveSettings),
+    ) -> bool {
+        // Written under the table's lock, which the relaunch takes before it composes.
+        let table = lock(&self.table);
+        let is_held = matches!(
+            table.restarting.get(&ended.session_id),
+            Some(ClaudeRestartStage::Held { ended: held, .. }) if Arc::ptr_eq(held, ended)
+        );
+        if is_held {
+            write(&mut lock(&ended.settings));
+        }
+        is_held
     }
 
     /// Moves every live session onto the build that replaced the running one: an idle one at once,
@@ -378,6 +478,7 @@ impl ClaudeSessionRestarts {
                 ClaudeCloseStart::Empty | ClaudeCloseStart::Wait(_) => return None,
             }
         };
+        let _relaunching = self.mark_relaunching(session_id);
         let relaunch = compose_claude_relaunch(live);
         lock(&self.table)
             .ended_conversations
@@ -386,13 +487,30 @@ impl ClaudeSessionRestarts {
         Some(self.resume(relaunch).await)
     }
 
-    // The wait passed: the session resumes unless a create, resume or close reached it meanwhile.
-    async fn restart(&self, live: &LiveClaudeSession) {
+    // The wait passed: the session resumes from the settings held for it unless a create, resume
+    // or close reached it meanwhile.
+    async fn restart(&self, live: Arc<LiveClaudeSession>) {
         let session_id = live.session_id;
-        if lock(&self.table).is_stopped || self.slots.holds_slot(session_id) {
-            return;
-        }
-        let result = self.resume(compose_claude_relaunch(live)).await;
+        // Its own wait is taken out with its stage and kept to the end, so dropping it aborts
+        // nothing of this restart.
+        let (_own_wait, _relaunching) = {
+            let mut table = lock(&self.table);
+            let wait = match table.restarting.remove(&session_id) {
+                Some(ClaudeRestartStage::Held { ended, wait }) if Arc::ptr_eq(&ended, &live) => {
+                    wait
+                }
+                Some(stage) => {
+                    table.restarting.insert(session_id, stage);
+                    return;
+                }
+                None => return,
+            };
+            if table.is_stopped || self.slots.holds_slot(session_id) {
+                return;
+            }
+            (wait, self.mark_relaunching_in(&mut table, session_id))
+        };
+        let result = self.resume(compose_claude_relaunch(&live)).await;
         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
         if let Err(error) = self.report_relaunch(session_id, result).await {
             record_unheard_claude_failure(
@@ -494,6 +612,58 @@ impl ClaudeSessionRestarts {
             )
             .await,
         );
+    }
+}
+
+// A relaunch marked as its session's stage; dropping it takes the mark out and settles whoever
+// waits for the relaunch.
+struct ClaudeRelaunchMark<'restarts> {
+    restarts: &'restarts ClaudeSessionRestarts,
+    session_id: SessionId,
+    settled: ClaudeSlotSettled,
+}
+
+impl Drop for ClaudeRelaunchMark<'_> {
+    fn drop(&mut self) {
+        {
+            let mut table = lock(&self.restarts.table);
+            let is_own = matches!(
+                table.restarting.get(&self.session_id),
+                Some(ClaudeRestartStage::Relaunching { settled })
+                    if Arc::ptr_eq(settled, &self.settled)
+            );
+            if is_own {
+                table.restarting.remove(&self.session_id);
+            }
+        }
+        drop(self.settled.set(()));
+    }
+}
+
+impl ClaudeSessionRestarts {
+    // Marks the session relaunching until the mark drops.
+    fn mark_relaunching(&self, session_id: SessionId) -> ClaudeRelaunchMark<'_> {
+        self.mark_relaunching_in(&mut lock(&self.table), session_id)
+    }
+
+    // Marks the session relaunching in `table`, which the caller holds locked.
+    fn mark_relaunching_in(
+        &self,
+        table: &mut ClaudeRestartTable,
+        session_id: SessionId,
+    ) -> ClaudeRelaunchMark<'_> {
+        let settled: ClaudeSlotSettled = Arc::new(SetOnce::new());
+        table.restarting.insert(
+            session_id,
+            ClaudeRestartStage::Relaunching {
+                settled: Arc::clone(&settled),
+            },
+        );
+        ClaudeRelaunchMark {
+            restarts: self,
+            session_id,
+            settled,
+        }
     }
 }
 

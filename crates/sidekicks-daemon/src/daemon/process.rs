@@ -12,6 +12,7 @@ mod projections;
 pub(crate) mod providers;
 mod repo_services;
 mod session_services;
+mod shell_table;
 pub(crate) mod start_options;
 pub(crate) mod stop;
 mod stored_data;
