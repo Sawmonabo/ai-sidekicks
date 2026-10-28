@@ -3,8 +3,10 @@
 //! of the unstaged or untracked work, removed with its own git record by its `close`. The folder's
 //! own checkout and index are only read. Each tree sits in a folder of its own beside a file
 //! naming its repository, written before git runs, so one a stopped daemon left behind is removed
-//! at the next start with its record, even when git was ended before the tree had its `.git`. A record is removed by name, never by a repository-wide prune, which would also drop the
-//! records of the person's trees whose folders are missing, such as one on an unplugged drive.
+//! at the next start with its record, even when git was ended before the tree had its `.git`; that
+//! folder stays until its tree and records are gone. A record is removed by name, never by a
+//! repository-wide prune, which would also drop the records of the person's trees whose folders
+//! are missing, such as one on an unplugged drive.
 
 use std::ffi::OsString;
 use std::io;
@@ -20,6 +22,7 @@ use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
+use crate::git::worktree::reads::GIT_FILE_NAME;
 use crate::git::worktree::service::remove_folder as remove_tree_folder;
 use crate::git::worktree::tree_records::{TreeRecordRemovalError, remove_records_naming};
 
@@ -168,8 +171,9 @@ impl StagedChangesWorktrees {
     }
 
     /// Removes every worktree a stopped daemon left in the staged-changes folder, each from its
-    /// repository's records too, before any review opens one. Every entry is tried; the answer is
-    /// every failure, empty when all went.
+    /// repository's records too, before any review opens one. Every entry is tried, and one whose
+    /// read or removal failed keeps its folder, the file naming its repository included, for the
+    /// next start to try again; the answer is every failure, empty when all went.
     pub async fn sweep_left_worktrees(&self) -> Vec<StagedChangesError> {
         let names = match read_folder_names(&self.folder).await {
             Ok(names) => names,
@@ -183,45 +187,68 @@ impl StagedChangesWorktrees {
         let mut failures = Vec::new();
         for name in names {
             let holder = self.folder.join(name);
-            let folder = holder.join(TREE_FOLDER_NAME);
-            // Read before the tree goes: its `.git` file names the repository, and the file beside
-            // it does for a tree git was ended before writing one.
-            let common_git_folder = match self.read_left_common_folder(&holder, &folder).await {
-                Ok(common_git_folder) => Some(common_git_folder),
-                Err(failure) => {
-                    failures.push(failure);
-                    None
-                }
-            };
-            if let Err(failure) = remove_folder(folder.clone()).await {
+            let holder_failures = self.remove_left_worktree(&holder).await;
+            if holder_failures.is_empty()
+                && let Err(failure) = remove_folder(holder).await
+            {
                 failures.push(failure);
             }
-            if let Some(common_git_folder) = common_git_folder {
-                failures.extend(
-                    remove_records_naming(&common_git_folder, &folder)
-                        .await
-                        .into_iter()
-                        .map(StagedChangesError::from),
-                );
-            }
-            if let Err(failure) = remove_folder(holder).await {
+            failures.extend(holder_failures);
+        }
+        failures
+    }
+
+    // Removes the tree a stopped daemon left in `holder` and the records naming it, leaving the
+    // holder itself; answers each step's failure.
+    async fn remove_left_worktree(&self, holder: &Path) -> Vec<StagedChangesError> {
+        let folder = holder.join(TREE_FOLDER_NAME);
+        let mut failures = Vec::new();
+        // Read before the tree goes: its `.git` file names the repository, and the file beside it
+        // does for a tree git was ended before writing one.
+        let common_git_folder = match self.read_left_common_folder(holder, &folder).await {
+            Ok(common_git_folder) => common_git_folder,
+            Err(failure) => {
                 failures.push(failure);
+                None
             }
+        };
+        if let Err(failure) = remove_folder(folder.clone()).await {
+            failures.push(failure);
+        }
+        if let Some(common_git_folder) = common_git_folder {
+            failures.extend(
+                remove_records_naming(&common_git_folder, &folder)
+                    .await
+                    .into_iter()
+                    .map(StagedChangesError::from),
+            );
         }
         failures
     }
 
     // The git common folder of the tree a stopped daemon left at `folder` in `holder`: from its
-    // `.git`, else from the repository the file beside it names. The daemon's own folder is on this
-    // computer, never in a WSL 2 distribution.
+    // `.git` while it has one, else from the repository the file beside it names, and `None` when
+    // neither names one, as before git ran. git is asked in the tree only while its `.git` stands,
+    // since in a folder without one it answers whatever repository holds the daemon's folder. The
+    // daemon's own folder is on this computer, never in a WSL 2 distribution.
     async fn read_left_common_folder(
         &self,
         holder: &Path,
         folder: &Path,
-    ) -> Result<PathBuf, StagedChangesError> {
-        let git_file_failure = match read_git_common_folder(&self.git, None, folder, None).await {
-            Ok(common_git_folder) => return Ok(common_git_folder),
-            Err(failure) => failure,
+    ) -> Result<Option<PathBuf>, StagedChangesError> {
+        let git_file = folder.join(GIT_FILE_NAME);
+        let git_file_failure = if tokio::fs::try_exists(&git_file).await.map_err(|source| {
+            StagedChangesError::Folder {
+                path: git_file.clone(),
+                source,
+            }
+        })? {
+            match read_git_common_folder(&self.git, None, folder, None).await {
+                Ok(common_git_folder) => return Ok(Some(common_git_folder)),
+                Err(failure) => Some(failure),
+            }
+        } else {
+            None
         };
         let root_file = holder.join(REPOSITORY_ROOT_FILE_NAME);
         let Some(root) = tokio::fs::read(&root_file)
@@ -232,11 +259,16 @@ impl StagedChangesWorktrees {
                 source,
             })?
         else {
-            return Err(git_file_failure.into());
+            return match git_file_failure {
+                Some(failure) => Err(failure.into()),
+                None => Ok(None),
+            };
         };
         let repository_root = path_from_program_output(root)
             .map_err(|failure| StagedChangesError::from(GitError::PathText(failure)))?;
-        Ok(read_git_common_folder(&self.git, None, &repository_root, None).await?)
+        Ok(Some(
+            read_git_common_folder(&self.git, None, &repository_root, None).await?,
+        ))
     }
 }
 
@@ -297,7 +329,8 @@ impl StagedChangesWorktree {
     // `--force` because the worktree holds the staged changes, which git would otherwise refuse
     // to discard; a worktree whose making failed has no `.git` git could find its record by, so
     // its folder goes and the records naming it are removed by name, as they are after a removal
-    // git left unfinished. Every step runs whatever failed before it.
+    // git left unfinished. Every step runs whatever failed before it, and the holder, with the
+    // file naming its repository, stays after any failure, so the next start's sweep tries again.
     async fn remove(&self, is_worktree_made: bool) -> Vec<StagedChangesError> {
         let place = self.place.as_ref();
         let mut failures = Vec::new();
@@ -323,7 +356,9 @@ impl StagedChangesWorktree {
             }
             Err(failure) => failures.push(failure.into()),
         }
-        if let Err(failure) = remove_folder(self.holder.clone()).await {
+        if failures.is_empty()
+            && let Err(failure) = remove_folder(self.holder.clone()).await
+        {
             failures.push(failure);
         }
         failures
