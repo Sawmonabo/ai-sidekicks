@@ -517,15 +517,7 @@ impl RunningCommandSets {
             output: OutputRing::default(),
             stop_answer: None,
         };
-        if let Some(index) = commands.unpaired.iter().position(|unpaired| {
-            is_channel_row(&row, unpaired.apart_run, &commands.apart_runs)
-                && row_runs(&row, &unpaired.command)
-        }) {
-            let unpaired = commands.unpaired.remove(index);
-            row.wrapper = RowWrapper::Paired(unpaired.party);
-            row.facts = unpaired.facts;
-            unpaired.paired.send_replace(true);
-        }
+        commands.pair_waiting_wrapper(&mut row);
         commands.rows.push(row);
         commands.publish_commands();
     }
@@ -593,7 +585,15 @@ impl RunningCommandPublisher for RunningCommandSets {
     fn command_started(&self, start: CommandStart) {
         let mut sessions = self.lock();
         let commands = sessions.entry(start.session_id).or_default();
-        if commands.row(&start.command_id).is_some() {
+        if let Some(index) = commands.index(&start.command_id) {
+            // A row the background list showed first takes what only the start names, so its
+            // wrapper can pair with it.
+            let mut row = commands.rows.remove(index);
+            row.start.line = row.start.line.take().or(start.line);
+            row.start.process_id = row.start.process_id.take().or(start.process_id);
+            commands.pair_waiting_wrapper(&mut row);
+            commands.rows.insert(index, row);
+            commands.publish_commands();
             return;
         }
         let state = if start.is_backgrounded {
@@ -700,6 +700,23 @@ impl SessionCommands {
         self.unpaired
             .iter_mut()
             .find(|unpaired| unpaired.party == party)
+    }
+
+    // Pairs `row`, while it waits for its wrapper, with an unpaired wrapper of its channel that
+    // runs it, taking the wrapper's facts so far.
+    fn pair_waiting_wrapper(&mut self, row: &mut CommandRow) {
+        if row.wrapper != RowWrapper::Waiting {
+            return;
+        }
+        if let Some(index) = self.unpaired.iter().position(|unpaired| {
+            is_channel_row(row, unpaired.apart_run, &self.apart_runs)
+                && row_runs(row, &unpaired.command)
+        }) {
+            let unpaired = self.unpaired.remove(index);
+            row.wrapper = RowWrapper::Paired(unpaired.party);
+            row.facts = unpaired.facts;
+            unpaired.paired.send_replace(true);
+        }
     }
 
     // Marks the set changed, so every feed sends it.

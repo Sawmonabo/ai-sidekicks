@@ -709,6 +709,34 @@ async fn a_wrapper_pairs_only_with_a_row_of_its_own_channels_process() {
     );
 }
 
+// Fails when a task the background list showed before its start keeps no line, so the wrapper
+// running it never pairs and its output, exit and prompts reach no row. Mutation: the early
+// return in `command_started` for a row it holds.
+#[tokio::test]
+async fn a_task_listed_before_its_start_pairs_with_its_wrapper_at_the_start() {
+    let fixture = fixture();
+    let listed = CommandStart {
+        line: None,
+        is_backgrounded: true,
+        ..start("task-1", "npm test")
+    };
+    fixture
+        .sets
+        .commands_listed(session(), ReseedScope::BackgroundCommands, vec![listed]);
+    let paired = fixture.sets.wrapper_started(
+        session(),
+        31,
+        None,
+        WrapperCommand::Line("npm test".to_owned()),
+    );
+    assert!(!*paired.borrow());
+    fixture.sets.command_started(start("task-1", "npm test"));
+    assert_eq!(
+        fixture.sets.paired_wrapper(session(), &command("task-1")),
+        Some(31)
+    );
+}
+
 // Fails when a prompt after the person ended the command's input opens again, so each of ssh's
 // retries raises a new prompt, or when an answer with text ends the prompts too. Mutations: the
 // ended-input check dropped from `prompt_opened`; `is_input_ended` set true on every answer.
