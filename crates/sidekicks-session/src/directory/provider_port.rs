@@ -495,6 +495,14 @@ impl SessionDirectoryProviderPort {
             }
             return Err(SessionDirectoryProviderPortError::NoLeg { session_id });
         };
+        // A process already up on the leg's own binding, which another resume recorded, is
+        // answered with that binding: nothing new is opened or recorded.
+        if predecessor.id == binding_id {
+            if let Some(opened) = opened {
+                self.deps.binding_cursors.forget_binding(&opened);
+            }
+            return Ok(());
+        }
         // A binding the opening did not open is opened now, and the one it did is never recorded.
         if opened.as_ref() != Some(&binding_id) {
             if let Some(opened) = opened {
@@ -623,6 +631,7 @@ mod tests {
     use rusqlite::Connection;
     use sidekicks_contracts::machine::settings::MachineSettings;
     use sidekicks_contracts::project::ProjectId;
+    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::NonEmptyText;
@@ -678,21 +687,18 @@ mod tests {
         }
     }
 
-    // Killed by the handle comparison inverted, which records the conversation the leg still runs
-    // on as left, or none for one it left; and by a relaunch whose binding is not recorded.
-    #[rstest]
-    #[case::moved_to_a_new_conversation("conversation-2", Some("conversation-1"))]
-    #[case::kept_its_conversation("conversation-1", None)]
-    #[tokio::test]
-    async fn a_relaunch_records_its_binding_and_the_conversation_it_left(
-        #[case] resumed_handle: &str,
-        #[case] left: Option<&str>,
+    // A port over a session whose leg runs on `conversation-1`, with the leg's binding id.
+    async fn port_over_a_leg(
+        database: &TestDatabase,
+        session_id: SessionId,
+    ) -> (
+        SessionDirectoryProviderPort,
+        Arc<DatabaseReadPool>,
+        RuntimeBindingId,
     ) {
-        let database = TestDatabase::new(schema_parts());
-        let store = open_store(&database).await;
-        let session_id = test_session_id();
+        let store = open_store(database).await;
         let run_id = test_run_id();
-        insert_running_run(&database, session_id, run_id);
+        insert_running_run(database, session_id, run_id);
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
             SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
@@ -706,15 +712,16 @@ mod tests {
                 NonZeroUsize::new(8).expect("the cap is not zero"),
             ))),
         ));
-        // The leg the relaunch replaces, on `conversation-1`.
+        let leg = CreateRuntimeBindingInput {
+            run_id,
+            ..binding_input(
+                RuntimeBindingSpawnConfig::default(),
+                spawned_build("1.0.0", "/opt/provider/bin"),
+            )
+        };
+        let leg_id = leg.id.clone();
         binding_cursors
-            .create(CreateRuntimeBindingInput {
-                run_id,
-                ..binding_input(
-                    RuntimeBindingSpawnConfig::default(),
-                    spawned_build("1.0.0", "/opt/provider/bin"),
-                )
-            })
+            .create(leg)
             .await
             .expect("the leg is recorded");
         let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
@@ -726,23 +733,40 @@ mod tests {
             project_records: Arc::new(ProjectRecords::new(Arc::clone(&pool), Arc::new(Unread))),
             provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
         });
+        (port, pool, leg_id)
+    }
+
+    // A relaunch's `Resumed` on `binding_id`, running conversation `resume_handle`.
+    fn resumed_on(binding_id: RuntimeBindingId, resume_handle: &str) -> DriverResumeResult {
+        DriverResumeResult::Resumed {
+            binding_id,
+            session_position: SafeInt::new(1).expect("a position"),
+            resume_handle: NonEmptyText::new(resume_handle.to_owned()).expect("a resume handle"),
+            spawned_version: spawned_build("1.1.0", "/opt/provider/bin"),
+        }
+    }
+
+    // Killed by the handle comparison inverted, which records the conversation the leg still runs
+    // on as left, or none for one it left; and by a relaunch whose binding is not recorded.
+    #[rstest]
+    #[case::moved_to_a_new_conversation("conversation-2", Some("conversation-1"))]
+    #[case::kept_its_conversation("conversation-1", None)]
+    #[tokio::test]
+    async fn a_relaunch_records_its_binding_and_the_conversation_it_left(
+        #[case] resumed_handle: &str,
+        #[case] left: Option<&str>,
+    ) {
+        let database = TestDatabase::new(schema_parts());
+        let session_id = test_session_id();
+        let (port, pool, _) = port_over_a_leg(&database, session_id).await;
         let binding_id = mint_runtime_binding_id();
 
         port.open_relaunch_binding(session_id, binding_id.clone())
             .await
             .expect("the relaunch's cursor opens");
-        port.session_relaunched(
-            session_id,
-            DriverResumeResult::Resumed {
-                binding_id: binding_id.clone(),
-                session_position: SafeInt::new(1).expect("a position"),
-                resume_handle: NonEmptyText::new(resumed_handle.to_owned())
-                    .expect("a resume handle"),
-                spawned_version: spawned_build("1.1.0", "/opt/provider/bin"),
-            },
-        )
-        .await
-        .expect("the relaunch is recorded");
+        port.session_relaunched(session_id, resumed_on(binding_id.clone(), resumed_handle))
+            .await
+            .expect("the relaunch is recorded");
 
         let leg = read_session_leg(&pool, session_id)
             .await
@@ -760,6 +784,34 @@ mod tests {
                 .map(|record| record.conversation.conversation_id.as_str())
                 .collect::<Vec<_>>(),
             left.into_iter().collect::<Vec<_>>(),
+        );
+    }
+
+    // Killed by the leg check dropped: the leg's binding, already open, is opened again and the
+    // relaunch fails, or it is recorded a second time.
+    #[tokio::test]
+    async fn a_relaunch_answered_by_the_process_already_up_on_the_leg_records_nothing() {
+        let database = TestDatabase::new(schema_parts());
+        let session_id = test_session_id();
+        let (port, pool, leg_id) = port_over_a_leg(&database, session_id).await;
+
+        port.open_relaunch_binding(session_id, mint_runtime_binding_id())
+            .await
+            .expect("the relaunch's cursor opens");
+        port.session_relaunched(session_id, resumed_on(leg_id.clone(), "conversation-1"))
+            .await
+            .expect("a process already up on the leg is answered");
+
+        let leg = read_session_leg(&pool, session_id)
+            .await
+            .expect("the leg reads")
+            .expect("the session has a leg");
+        assert_eq!(leg.id, leg_id, "the leg stays the session's leg");
+        assert!(
+            read_left_conversations(&database.reader(), &session_id)
+                .expect("the left conversations read")
+                .is_empty(),
+            "no conversation is left"
         );
     }
 }

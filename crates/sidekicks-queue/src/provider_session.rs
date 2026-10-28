@@ -561,6 +561,8 @@ impl ProviderSessions {
                     });
                 }
             };
+        // A process already up on the leg's own binding has its cursor and its row.
+        let is_leg_binding = binding_id == leg.id;
         // A provider that continued the conversation in a new one left the old one behind.
         let left_conversations = leg
             .resume_handle
@@ -573,21 +575,23 @@ impl ProviderSessions {
             })
             .into_iter()
             .collect();
-        // The driver minted the resume's binding; its cursor carries on where the leg's stands.
-        self.deps
-            .binding_cursors
-            .open_relaunch(session_id, binding_id.clone())
-            .await?;
-        self.deps
-            .binding_cursors
-            .record_relaunch(RuntimeBindingRelaunch {
-                predecessor_id: leg.id.clone(),
-                binding_id,
-                resume_handle: resume_handle.as_str().to_owned(),
-                spawned_version,
-                left_conversations,
-            })
-            .await?;
+        if !is_leg_binding {
+            // The driver minted the resume's binding; its cursor carries on where the leg's stands.
+            self.deps
+                .binding_cursors
+                .open_relaunch(session_id, binding_id.clone())
+                .await?;
+            self.deps
+                .binding_cursors
+                .record_relaunch(RuntimeBindingRelaunch {
+                    predecessor_id: leg.id.clone(),
+                    binding_id,
+                    resume_handle: resume_handle.as_str().to_owned(),
+                    spawned_version,
+                    left_conversations,
+                })
+                .await?;
+        }
         let opened = OpenedSession {
             provider: leg.provider_name,
             execution_posture,
