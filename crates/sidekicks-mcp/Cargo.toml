@@ -28,6 +28,7 @@ rmcp.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
 sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-std.workspace = true
