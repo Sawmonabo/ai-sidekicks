@@ -497,10 +497,28 @@ impl CodexServiceRecovery {
                 .settle_resume(session_id, generation);
         }
         let claim = claimed.ok()?;
+        let outcome = self.resume_claimed(service, inbound, writer_left).await?;
+        Some(self.settle_resumed(service, inbound, claim, outcome).await)
+    }
+
+    // What follows a resume run under `claim` on `service`, one rule for a recovery's resume and a
+    // build move's: a conversation the live service refused, or whose binding could not be
+    // opened, lets the session's record go, so it reads down, while one the service went down
+    // under keeps it for that service's next recovery; the relaunch is reported under the claim;
+    // and once the claim is let go, a failed resume tells the queue once that the session's
+    // process is gone, so its next run opens it again. Answers the resume's result.
+    async fn settle_resumed(
+        &self,
+        service: &CodexService,
+        inbound: &CodexSessionInboundSender,
+        claim: CodexSessionClaim<'_>,
+        outcome: CodexInPlaceOutcome,
+    ) -> DriverResumeResult {
+        let session_id = inbound.session_id();
         let CodexInPlaceOutcome {
             result,
             is_service_lost,
-        } = self.resume_claimed(service, inbound, writer_left).await?;
+        } = outcome;
         let is_failed = matches!(result, DriverResumeResult::Failed { .. });
         if is_failed && !is_service_lost {
             let_go_codex_session_record(inbound, CodexRecordExit::SessionContinues).await;
@@ -512,7 +530,7 @@ impl CodexServiceRecovery {
         if is_failed && let Some(listener) = self.dependencies.process_gone.port() {
             listener.process_gone(session_id);
         }
-        Some(result)
+        result
     }
 
     // The resume itself, the session's slot already claimed, under a binding whose cursor the

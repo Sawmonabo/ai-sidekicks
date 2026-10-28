@@ -21,8 +21,8 @@ use crate::driver::codex::service::supervisor::test_service::start_scripted_code
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::test_fixture::{
-    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, TestCodexSession, fork_reply, no_turns,
-    one_folder_provider_accounts,
+    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, TestCodexSession, TestCodexTask, fork_reply,
+    no_turns, one_folder_provider_accounts,
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -620,57 +620,80 @@ async fn a_relaunch_whose_record_is_refused_lets_its_conversation_go() {
     .expect("the recovery ends within the bound");
 }
 
+// Runs a build move on `session`'s account service: the old process's connection, set aside as
+// it leaves, serves the new one, which `serve` answers on its own task once the supervisor's start
+// is under way. Answers the move and the session's task.
+async fn move_account_service_build<Served>(
+    session: TestCodexSession,
+    recovery: &Arc<CodexServiceRecovery>,
+    serve: impl FnOnce(ScriptedService) -> Served,
+) -> (Result<(), CodexError>, TestCodexTask)
+where
+    Served: Future<Output = ()> + Send + 'static,
+{
+    let TestCodexSession {
+        scripted, mut task, ..
+    } = session;
+    let service = Arc::clone(&scripted.service);
+    let change = ProviderBuildChange {
+        from_version: "0.163.0".to_owned(),
+        to_version: "0.164.0".to_owned(),
+    };
+    let connection = scripted.publish_reconnecting();
+    let mut restarting = std::pin::pin!(recovery.restart_service(&service, Some(change)));
+    task.drive(async {
+        tokio::select! {
+            restarted = &mut restarting => {
+                panic!("the restart waits for its new process: {restarted:?}")
+            }
+            () = scripted.publish_up_once_starting(connection) => {}
+        }
+    })
+    .await;
+    let service_side = tokio::spawn(serve(scripted.script));
+    let moved = task.drive(restarting).await;
+    service_side.abort();
+    (moved, task)
+}
+
+// An account service's session on a service whose own start waits, its recovery's ports the
+// stand-ins above.
+async fn account_build_move_session() -> (
+    TestCodexSession,
+    tempfile::TempDir,
+    Arc<Steps>,
+    Arc<CodexServiceRecovery>,
+) {
+    let session =
+        TestCodexSession::start_on(start_scripted_codex_service_whose_start_waits()).await;
+    session.scripted.report_version("codex-cli 0.163.0");
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let steps = Arc::new(Steps::new(&session));
+    let recovery = test_recovery(
+        &session,
+        folder.path(),
+        &steps,
+        RefusedRelaunchStep::Nothing,
+    );
+    (session, folder, steps, recovery)
+}
+
 // Killed by a build move whose in-place resume on an account's service records no relaunch: the
 // conversation resumes under a binding the session directory opened first, and that binding is
-// the one recorded. Real time under a bound, the service answering on its own task once its new
-// process is published up.
+// the one recorded. Real time under a bound.
 #[tokio::test]
 async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it_opened() {
     tokio::time::timeout(Duration::from_secs(30), async {
-        let mut session =
-            TestCodexSession::start_on(start_scripted_codex_service_whose_start_waits()).await;
-        session.scripted.report_version("codex-cli 0.163.0");
-        let folder = tempfile::tempdir().expect("the test makes a folder");
-        let steps = Arc::new(Steps::new(&session));
-        let recovery = test_recovery(
-            &session,
-            folder.path(),
-            &steps,
-            RefusedRelaunchStep::Nothing,
-        );
-        let service = Arc::clone(&session.scripted.service);
+        let (session, _folder, steps, recovery) = account_build_move_session().await;
         let settings = session.task.record.thread_settings.clone();
-        let change = ProviderBuildChange {
-            from_version: "0.163.0".to_owned(),
-            to_version: "0.164.0".to_owned(),
-        };
-        // The old process's connection, set aside as it leaves, serves the new one.
-        let connection = session.scripted.publish_reconnecting();
-        let mut restarting = std::pin::pin!(recovery.restart_service(&service, Some(change)));
+        let serving = Arc::clone(&steps);
 
-        let scripted = &session.scripted;
-        session
-            .task
-            .drive(async {
-                tokio::select! {
-                    restarted = &mut restarting => {
-                        panic!("the restart waits for its new process: {restarted:?}")
-                    }
-                    () = scripted.publish_up_once_starting(connection) => {}
-                }
-            })
-            .await;
-        let service_side = tokio::spawn(serve_resumes(
-            session.scripted.script,
-            settings,
-            Arc::clone(&steps),
-        ));
-        session
-            .task
-            .drive(restarting)
-            .await
-            .expect("the build move resumes the conversation");
+        let (moved, _task) = move_account_service_build(session, &recovery, |script| {
+            serve_resumes(script, settings, serving)
+        })
+        .await;
 
+        moved.expect("the build move resumes the conversation");
         let relaunch = relaunch_steps(&steps);
         assert_eq!(relaunch.len(), 3, "{relaunch:?}");
         let opened = relaunch[0]
@@ -678,8 +701,47 @@ async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it
             .expect("the relaunch opens its binding first");
         assert_eq!(relaunch[1], "resume", "{relaunch:?}");
         assert_eq!(relaunch[2], format!("relaunched Some({opened})"));
-        service_side.abort();
     })
     .await
     .expect("the build move ends within the bound");
+}
+
+// Killed by a build move that leaves a resume the new build refused unsettled: the session's
+// record stays, so it reads live on a conversation no service holds, and the queue is never told
+// its process is gone. The record is let go and the queue told once, the slot empty. Real time
+// under a bound.
+#[tokio::test]
+async fn an_account_service_s_build_move_its_new_build_refuses_lets_the_record_go() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let (session, _folder, steps, recovery) = account_build_move_session().await;
+
+        let (moved, task) = move_account_service_build(session, &recovery, refuse_resumes).await;
+
+        moved.expect("the build move ends");
+        assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
+        assert_eq!(
+            steps.holders_at_gone(),
+            [None],
+            "the queue hears once, the slot empty"
+        );
+    })
+    .await
+    .expect("the build move ends within the bound");
+}
+
+// Refuses, as the service, every conversation it is asked to resume, as Codex refuses one it has
+// no rollout of.
+async fn refuse_resumes(mut script: ScriptedService) {
+    loop {
+        let sent = script.next_sent().await;
+        match sent["method"].as_str() {
+            Some("thread/resume") => script.send(&json!({
+                "jsonrpc": "2.0",
+                "id": sent["id"],
+                "error": {"code": -32600, "message": "no rollout found for the thread"},
+            })),
+            Some("account/rateLimits/read") => script.answer(&sent, &json!({"rateLimits": null})),
+            _ => script.answer(&sent, &json!({})),
+        }
+    }
 }
