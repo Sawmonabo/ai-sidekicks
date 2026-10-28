@@ -1,5 +1,6 @@
 //! One path written relative to another the way git writes a linked tree's `.git` file and its
-//! record's `gitdir` file, so the files the daemon writes read exactly as git's own.
+//! record's `gitdir` file, so the files the daemon writes read as git's own; on Windows the
+//! output keeps the input's separators after the `../` climbs.
 
 use crate::path::rules::PathRules;
 
