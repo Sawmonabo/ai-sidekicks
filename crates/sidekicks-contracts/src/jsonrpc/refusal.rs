@@ -649,6 +649,9 @@ refusal_codes! {
     /// own limit, so none of it reached the conversation (`data.fields`:
     /// `SessionMessageTooLargeDetails`).
     SessionMessageTooLarge = "session.message.tooLarge" (ResourceExhausted, 413);
+    /// A mode the session's provider refused to move to, sent on `session.mode.update`: the mode
+    /// stays where it was.
+    SessionModeNotOffered = "session.mode.notOffered" (InvalidArgument, 422);
     /// Session does not exist.
     SessionNotFound = "session.notFound" (NotFound, 404);
     /// A permission level the session's provider, its account or its model cannot run, sent on
