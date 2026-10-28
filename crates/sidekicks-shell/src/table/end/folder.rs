@@ -2,16 +2,19 @@
 //! started is judged by its own working folder: a shell working inside is ended with its tree, and
 //! under a shell outside each process working inside is ended with every process under it, while
 //! the shell lives. A shell whose program the `shell` mode starts as its child, keeping its own
-//! folder, is judged by the folder it was told to start in. A process that left its shell's tree, as a daemonized server does, is found by
-//! the shell's nonce in its environment and judged the same way.
+//! folder, is judged by the folder it was told to start in. A process that left its shell's tree,
+//! as a daemonized server does, is found by the shell's nonce in its environment and judged the
+//! same way. The close holds back the opens of the sessions working in the folder until its hold
+//! drops, so no shell starts there before the move lands.
 
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use futures::future::{BoxFuture, join_all};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     DOES_SHELL_MODE_KEEP_ITS_FOLDER, end_processes, process_table, tree_under,
@@ -21,11 +24,31 @@ use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::worktree::removal::FolderProcessOwner;
 use sidekicks_workspace::trust_envelope::is_contained_within;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
+use tokio::sync::watch;
 use tokio::task::JoinError;
 
 use crate::orphan::nonce_search::find_processes_carrying_nonces;
 use crate::record::ShellRecord;
-use crate::table::ShellTable;
+use crate::table::{FolderHold, ShellTable, TableShared};
+
+/// Holds back the opens of the sessions working in a folder whose shells were closed, those begun
+/// after the close, until it drops: once the folder's move has landed.
+pub(crate) struct FolderShellsClosed {
+    table: Weak<TableShared>,
+    sequence: u64,
+    // Dropped after the hold leaves the table, which wakes each open it held back.
+    _released: watch::Sender<()>,
+}
+
+impl Drop for FolderShellsClosed {
+    fn drop(&mut self) {
+        if let Some(table) = self.table.upgrade() {
+            table
+                .lock_folder_holds()
+                .retain(|hold| hold.sequence != self.sequence);
+        }
+    }
+}
 
 /// Why what the shells run in a folder was not all ended.
 #[derive(Debug, thiserror::Error)]
@@ -48,20 +71,50 @@ impl ShellTable {
     /// Ends what the shells, whoever holds them, run in `folder` or inside it, each process judged
     /// by its own working folder: a shell working inside is closed and its tree ended, and under a
     /// shell outside each process working inside is ended with every process under it, the shell
-    /// living. Shells still opening are waited for first. Answers once each ended program has
-    /// exited; fails with what will not end, everything else still ended.
-    async fn close_shells_in_folder(&self, folder: &Path) -> Result<(), FolderShellsCloseError> {
+    /// living. The opens of the sessions working in the folder begun from here on wait until the
+    /// answered hold drops, and those already under way are waited for first. Answers once each
+    /// ended program has exited; fails with what will not end, everything else still ended, the
+    /// opens no longer held back.
+    async fn close_shells_in_folder(
+        &self,
+        folder: &Path,
+    ) -> Result<FolderShellsClosed, FolderShellsCloseError> {
         let folder_key = canonical_folder_path(folder)
             .await
             .map_err(FolderShellsCloseError::Folder)?;
-        let opening: Vec<_> = self
-            .shared
-            .lock_sessions()
-            .values()
-            .flat_map(|session| session.opening.values().cloned())
-            .collect();
-        for mut waiting in opening {
-            while waiting.changed().await.is_ok() {}
+        let (released, released_reader) = watch::channel(());
+        let (sequence, opening): (u64, Vec<_>) = {
+            let sessions = self.shared.lock_sessions();
+            let sequence = self.shared.next_sequence();
+            self.shared.lock_folder_holds().push(FolderHold {
+                sequence,
+                folder_key: folder_key.clone(),
+                released: released_reader,
+            });
+            let opening = sessions
+                .iter()
+                .filter(|(_, session)| !session.opening.is_empty())
+                .map(|(session_id, session)| {
+                    (
+                        *session_id,
+                        session.opening.values().cloned().collect::<Vec<_>>(),
+                    )
+                })
+                .collect();
+            (sequence, opening)
+        };
+        let hold = FolderShellsClosed {
+            table: Arc::downgrade(&self.shared),
+            sequence,
+            _released: released,
+        };
+        for (session_id, waiting) in opening {
+            if self.is_session_outside(session_id, &folder_key).await {
+                continue;
+            }
+            for mut waiting in waiting {
+                while waiting.changed().await.is_ok() {}
+            }
         }
         let terminals = &self.shared.deps.terminals;
         let shells: Vec<(Arc<ShellRecord>, u32)> = self
@@ -72,7 +125,7 @@ impl ShellTable {
             .filter_map(|shell| Some((Arc::clone(shell), terminals.process_id(shell.handle()?)?)))
             .collect();
         if shells.is_empty() {
-            return Ok(());
+            return Ok(hold);
         }
         let roots = shells
             .iter()
@@ -102,7 +155,50 @@ impl ShellTable {
             self.shared.forget_if_idle(&shell.session_id);
         }
         settle_all(ended, "closing the shells working in the folder")?;
-        Ok(())
+        Ok(hold)
+    }
+
+    // Whether the session works outside the folder whose key is `folder_key`: `false` for a
+    // session whose folder cannot be read, so its open is waited for.
+    async fn is_session_outside(&self, session_id: SessionId, folder_key: &Path) -> bool {
+        let Ok(session) = (self.shared.deps.read_working_folder)(session_id).await else {
+            return false;
+        };
+        let Some(working_folder) = session.working_folder else {
+            return true;
+        };
+        match canonical_folder_path(&working_folder).await {
+            Ok(key) => !is_contained_within(&key, folder_key),
+            Err(_) => false,
+        }
+    }
+}
+
+impl TableShared {
+    /// Waits for the folder hold taken before the open `open_sequence` over the session's working
+    /// `folder`, if one is in force; answers whether it waited, so the open reads its folder again.
+    /// Fails as a fault when the folder cannot be resolved.
+    pub(in crate::table) async fn wait_for_folder_hold(
+        &self,
+        folder: &Path,
+        open_sequence: u64,
+    ) -> Result<bool, HandlerError> {
+        let folder_key = canonical_folder_path(folder)
+            .await
+            .map_err(|error| HandlerError::Internal(Box::new(error)))?;
+        let released = self
+            .lock_folder_holds()
+            .iter()
+            .find(|hold| {
+                hold.sequence < open_sequence && is_contained_within(&folder_key, &hold.folder_key)
+            })
+            .map(|hold| hold.released.clone());
+        let Some(mut released) = released else {
+            return Ok(false);
+        };
+        // The hold never sends; its sender drops as the hold does.
+        while released.changed().await.is_ok() {}
+        Ok(true)
     }
 }
 
@@ -111,7 +207,12 @@ impl FolderProcessOwner for ShellTable {
         &'a self,
         folder: &'a Path,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        Box::pin(async move { Ok(self.close_shells_in_folder(folder).await?) })
+        // The hold drops here, before the removal's move: holding it until the move lands needs
+        // the owner's answer to carry it.
+        Box::pin(async move {
+            drop(self.close_shells_in_folder(folder).await?);
+            Ok(())
+        })
     }
 }
 
@@ -283,8 +384,15 @@ mod tests {
 
     use std::collections::HashSet;
 
+    use std::sync::Arc;
+
+    use sidekicks_contracts::terminal::TerminalOpenRequest;
+    use sidekicks_contracts::wire::id::ClientUuid;
+    use tokio::sync::watch;
+
     use super::end_processes_inside;
     use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
+    use crate::test_table::{session, table_fixture};
 
     // Set on a stand-in's start, so the harness running ignored tests leaves the stand-in idle.
     const STAND_IN_VARIABLE: &str = "SIDEKICKS_TEST_FOLDER_STAND_IN";
@@ -521,5 +629,48 @@ mod tests {
             "the process that left the tree is ended"
         );
         assert!(shell.is_running(), "the shell outside lives");
+    }
+
+    // Kills dropping the folder hold: an open begun after the close waits while the hold lasts,
+    // so no shell of its session starts in the folder, and goes on once the hold drops.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_open_begun_after_a_folder_close_waits_until_the_hold_drops() {
+        let (_gate, gate_reader) = watch::channel(true);
+        let fixture = table_fixture(gate_reader).await;
+        let request = TerminalOpenRequest {
+            session_id: session(),
+            client_idempotency_key: ClientUuid::new(
+                "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0001".to_owned(),
+            )
+            .expect("a client UUID"),
+        };
+
+        let hold = fixture
+            .table
+            .close_shells_in_folder(&fixture.working_folder)
+            .await
+            .expect("the folder's shells close");
+        let mut opening = tokio::spawn({
+            let table = Arc::clone(&fixture.table);
+            async move { table.open(request).await }
+        });
+        let is_held = tokio::time::timeout(Duration::from_millis(300), &mut opening)
+            .await
+            .is_err();
+        let shell_count_while_held = fixture
+            .table
+            .shared
+            .lock_sessions()
+            .get(&session())
+            .map_or(0, |session| session.shells.len());
+        drop(hold);
+        let opened = opening.await.expect("the open's task ends");
+
+        assert!(is_held, "the open waits while the hold lasts");
+        assert_eq!(
+            shell_count_while_held, 0,
+            "no shell starts while the hold lasts"
+        );
+        opened.expect("the open goes on once the hold drops");
     }
 }
