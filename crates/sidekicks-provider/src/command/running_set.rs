@@ -4,7 +4,7 @@
 //! the whole set, a command's output is kept only as its live tail, and each command's ending is
 //! appended once on the session's binding at the time it ends, so a fork move changes nothing.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -12,10 +12,11 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::json;
 use sidekicks_contracts::command::{
-    AgentCommandEndedPayload, CommandEnding, CommandId, CommandPrompt, ExitCode, RunningCommand,
+    AgentCommandEndedPayload, CommandEnding, CommandId, ExitCode, RunningCommand,
 };
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -35,15 +36,22 @@ use crate::port::running_command_publisher::{
 };
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 
+mod drawing;
 mod feed;
+mod refusals;
 
+use drawing::drawn_row;
 use feed::OutputRing;
 pub(crate) use feed::RunningCommandFeed;
 #[cfg(test)]
 pub(crate) use feed::{next_sent_frame, next_sent_set_where};
+use refusals::not_in_foreground;
+pub(crate) use refusals::takes_no_input;
 
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
+#[cfg(any(test, feature = "test-support"))]
+pub use test_support::unbound_running_command_sets;
 #[cfg(test)]
 mod tests;
 
@@ -151,6 +159,9 @@ struct SessionCommands {
     commands_version: u64,
     /// Raised on every change, the set's or a command's output, waking each feed.
     changed: watch::Sender<()>,
+    /// The runs of the session's processes apart from its own, such as a staged review's, whose
+    /// rows its own process's whole list and its end leave alone.
+    apart_runs: HashSet<RunId>,
 }
 
 impl Default for SessionCommands {
@@ -160,6 +171,7 @@ impl Default for SessionCommands {
             unpaired: Vec::new(),
             commands_version: 0,
             changed: watch::Sender::new(()),
+            apart_runs: HashSet::new(),
         }
     }
 }
@@ -569,8 +581,38 @@ impl RunningCommandSets {
             .map_or(0, |commands| commands.unpaired.len())
     }
 
+    /// The wrapper that runs `command_id` in `session_id`; `None` before one pairs with its row
+    /// and once it ended.
+    pub(crate) fn paired_wrapper(
+        &self,
+        session_id: SessionId,
+        command_id: &CommandId,
+    ) -> Option<PartyId> {
+        match self.lock().get(&session_id)?.row(command_id)?.wrapper {
+            RowWrapper::Paired(party) => Some(party),
+            RowWrapper::Waiting | RowWrapper::Ended => None,
+        }
+    }
+
     /// Forgets the wrapper `party`, whose command ended or whose process did, so a later process
     /// that reuses its id reaches no row of its.
+    /// Marks `run_id` as a process of `session_id` apart from its own, whose rows the session's
+    /// own whole list and process end leave alone until `apart_run_ended`.
+    pub(crate) fn apart_run_started(&self, session_id: SessionId, run_id: RunId) {
+        self.lock()
+            .entry(session_id)
+            .or_default()
+            .apart_runs
+            .insert(run_id);
+    }
+
+    /// Clears the mark `apart_run_started` set, once the apart process ended its rows.
+    pub(crate) fn apart_run_ended(&self, session_id: SessionId, run_id: RunId) {
+        if let Some(commands) = self.lock().get_mut(&session_id) {
+            commands.apart_runs.remove(&run_id);
+        }
+    }
+
     pub(crate) fn wrapper_ended(&self, session_id: SessionId, party: PartyId) {
         let mut sessions = self.lock();
         if let Some(commands) = sessions.get_mut(&session_id) {
@@ -757,16 +799,17 @@ impl RunningCommandPublisher for RunningCommandSets {
         let commands = sessions.entry(session_id).or_default();
         let mut index = 0;
         while let Some(row) = commands.rows.get(index) {
-            let is_covered = match scope {
-                ReseedScope::EveryCommand => true,
-                ReseedScope::BackgroundCommands => matches!(
-                    row.state,
-                    RowState::Background
-                        | RowState::Stopping {
-                            was_foreground: false
-                        }
-                ),
-            };
+            let is_covered = !commands.apart_runs.contains(&row.start.run_id)
+                && match scope {
+                    ReseedScope::EveryCommand => true,
+                    ReseedScope::BackgroundCommands => matches!(
+                        row.state,
+                        RowState::Background
+                            | RowState::Stopping {
+                                was_foreground: false
+                            }
+                    ),
+                };
             let is_listed = listed
                 .iter()
                 .any(|start| start.command_id == row.start.command_id);
@@ -788,8 +831,13 @@ impl RunningCommandPublisher for RunningCommandSets {
         let Some(commands) = sessions.get_mut(&session_id) else {
             return;
         };
-        while !commands.rows.is_empty() {
-            self.end_row(commands, 0, RowEnd::ProviderExited);
+        let mut index = 0;
+        while let Some(row) = commands.rows.get(index) {
+            if commands.apart_runs.contains(&row.start.run_id) {
+                index += 1;
+            } else {
+                self.end_row(commands, index, RowEnd::ProviderExited);
+            }
         }
     }
 }
@@ -832,55 +880,10 @@ impl SessionCommands {
     }
 }
 
-// The row every device draws for `row`.
-fn drawn_row(row: &CommandRow) -> RunningCommand {
-    let is_foreground = match row.state {
-        RowState::Foreground => true,
-        RowState::Background => false,
-        RowState::Stopping { was_foreground } => was_foreground,
-    };
-    let waiting = row.facts.waiting.unwrap_or(WaitingState {
-        is_waiting: false,
-        is_echo_off: false,
-    });
-    let prompt = row.facts.prompt.as_ref();
-    RunningCommand {
-        command_id: row.start.command_id.clone(),
-        run_id: row.start.run_id,
-        name: row.start.name.clone(),
-        started_at: row.start.started_at.clone(),
-        waiting_in_foreground: is_foreground,
-        can_move_to_background: row.state == RowState::Foreground
-            && row.start.can_move_to_background,
-        accepts_input: row.start.accepts_input,
-        waiting_for_input: waiting.is_waiting || prompt.is_some(),
-        echo_off: waiting.is_echo_off || prompt.is_some_and(|prompt| prompt.is_masked),
-        prompt: prompt.map(|prompt| CommandPrompt {
-            text: prompt.text.clone(),
-        }),
-    }
-}
-
 // Whether `row` is the command a wrapper reports running.
 fn row_runs(row: &CommandRow, command: &WrapperCommand) -> bool {
     match command {
         WrapperCommand::Line(line) => row.start.line.as_deref() == Some(line),
         WrapperCommand::Process(process) => row.start.process_id.as_deref() == Some(process),
     }
-}
-
-fn not_in_foreground(command_id: &CommandId) -> DomainError {
-    DomainError::new(
-        "The agent is not waiting on this command.",
-        RefusalCode::AgentCommandNotInForeground,
-    )
-    .with_detail(json!({ "commandId": command_id }))
-}
-
-fn takes_no_input(command_id: &CommandId) -> DomainError {
-    DomainError::new(
-        "This command takes no input and has no prompt open.",
-        RefusalCode::AgentCommandTakesNoInput,
-    )
-    .with_detail(json!({ "commandId": command_id }))
 }

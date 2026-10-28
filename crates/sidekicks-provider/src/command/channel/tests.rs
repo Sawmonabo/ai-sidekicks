@@ -10,8 +10,8 @@ use sidekicks_platforms::{harness_test_name, pin_running_process};
 
 use super::{
     AdmittedParty, ChannelKem, ChannelPrivateKey, ChannelPublicKey, CommandChannel, Direction,
-    PARTY_KEY_ARGUMENT_PREFIX, PartyId, PartyRecord, REQUESTS_FOLDER, public_key_hex,
-    record_context, record_name, seal, write_record,
+    PARTY_KEY_ARGUMENT_PREFIX, PartyId, PartyRecord, REQUESTS_FOLDER, command_channel_root,
+    public_key_hex, record_context, record_name, remove_channel_folders, seal, write_record,
 };
 
 /// The process a test starts as a party: it prints `ready <its id>`, starts a party of its own
@@ -97,13 +97,22 @@ pub(super) fn sealed(
     seal(keys, &channel.keys.1, &context, &plaintext).expect("it seals")
 }
 
-pub(super) fn open_channel(folder: &Path, provider: u32) -> CommandChannel {
-    CommandChannel::open(
-        folder.join(provider.to_string()),
-        provider,
+/// A channel in its own folder under `folder`, bound to `provider` where one is given.
+pub(super) fn open_channel_bound_to(folder: &Path, provider: Option<u32>) -> CommandChannel {
+    let name = provider.map_or_else(|| "unbound".to_owned(), |provider| provider.to_string());
+    let channel = CommandChannel::open(
+        folder.join(name),
         Arc::new(ProcessTableReader::for_this_program().expect("a reader")) as _,
     )
-    .expect("the channel opens")
+    .expect("the channel opens");
+    if let Some(provider) = provider {
+        channel.bind(provider);
+    }
+    channel
+}
+
+pub(super) fn open_channel(folder: &Path, provider: u32) -> CommandChannel {
+    open_channel_bound_to(folder, Some(provider))
 }
 
 pub(super) fn names_in(folder: &Path) -> Vec<String> {
@@ -167,11 +176,12 @@ fn a_record_opens_only_under_its_own_context_key_and_a_rising_number() {
 }
 
 // Fails when a party's place under the provider's process goes unchecked, so a process outside
-// it that holds a key is admitted, or when a refused askpass is left waiting with no answer.
-// Mutations: admit without `parent.id() == self.provider_process_id`; drop the
-// `answer_refused_askpass` call.
+// it that holds a key is admitted, when a channel no provider's process is bound to yet admits
+// one, or when a refused askpass is left waiting with no answer. Mutations: admit without
+// `parent.id() == provider_process_id`; walk an unbound channel with the daemon's own process
+// read as the provider's; drop the `answer_refused_askpass` call.
 #[tokio::test]
-async fn a_party_outside_the_providers_process_is_refused_and_its_prompt_answered_empty() {
+async fn a_party_outside_the_providers_process_or_before_the_bind_is_refused_and_answered_empty() {
     let folder = tempfile::tempdir().expect("a folder");
     let keys = ChannelKem::gen_keypair();
     let mut party = party_command(&keys, None)
@@ -183,21 +193,25 @@ async fn a_party_outside_the_providers_process_is_refused_and_its_prompt_answere
         .arg("30")
         .spawn()
         .expect("a process outside the party's tree starts");
-    for (provider, is_admitted) in [(outsider.id(), false), (std::process::id(), true)] {
-        let channel = open_channel(folder.path(), provider);
+    for (provider, is_admitted) in [
+        (Some(outsider.id()), false),
+        (None, false),
+        (Some(std::process::id()), true),
+    ] {
+        let channel = open_channel_bound_to(folder.path(), provider);
         let asking = sealed(&channel, &keys, party_id, 1, &PartyRecord::Asking {});
         let opened = channel
             .open_record(party_id, 1, &asking)
             .await
             .expect("the party's place reads");
-        assert_eq!(opened.is_some(), is_admitted, "provider {provider}");
+        assert_eq!(opened.is_some(), is_admitted, "provider {provider:?}");
         let answered = names_in(&channel.folder.join(REQUESTS_FOLDER));
         let expected = if is_admitted {
             Vec::new()
         } else {
             vec![record_name(party_id, 1)]
         };
-        assert_eq!(answered, expected, "provider {provider}");
+        assert_eq!(answered, expected, "provider {provider:?}");
     }
     end_party(party);
     outsider.kill().expect("the test's own child ends");
@@ -364,4 +378,23 @@ fn a_party_process_waits_for_its_input_to_end() {
     if let Some(nested) = nested {
         end_party(nested);
     }
+}
+
+// Fails when the start's sweep leaves a channel folder a previous run left, or reaches past the
+// channels' root into the rest of the data folder. Mutations: return before the loop; read the
+// data folder itself.
+#[tokio::test]
+async fn the_start_removes_left_channel_folders_and_nothing_else() {
+    let data_folder = tempfile::tempdir().expect("a folder");
+    let left = command_channel_root(data_folder.path()).join("session-1");
+    std::fs::create_dir_all(left.join(REQUESTS_FOLDER)).expect("a left channel folder");
+    let kept = data_folder.path().join("artifacts");
+    std::fs::create_dir_all(&kept).expect("another data folder");
+
+    remove_channel_folders(data_folder.path())
+        .await
+        .expect("the sweep removes the folders");
+
+    assert!(!left.exists());
+    assert!(kept.exists());
 }

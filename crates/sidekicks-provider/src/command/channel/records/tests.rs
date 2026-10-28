@@ -27,27 +27,13 @@ use crate::command::channel::{
 };
 use crate::command::running_set::{
     CommandEndingAppender, CommandInput, RunningCommandFeed, RunningCommandSets, WrapperCommand,
-    next_sent_frame, next_sent_set_where,
+    next_sent_frame, next_sent_set_where, unbound_running_command_sets,
 };
 use crate::command::waiting_checks::InputWaitReader;
 use crate::driver::contract::MockProviderDriver;
 use crate::port::running_command_publisher::{CommandStart, RunningCommandPublisher as _};
 
 const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
-
-/// Endings no test here reads.
-struct DroppedEndings;
-
-impl CommandEndingAppender for DroppedEndings {
-    fn append(
-        &self,
-        _binding_id: RuntimeBindingId,
-        _ending: AgentCommandEndedPayload,
-        _summary: Option<String>,
-    ) -> BoxFuture<'_, ()> {
-        async {}.boxed()
-    }
-}
 
 /// Endings handed to the test as they are appended.
 struct SentEndings(tokio::sync::mpsc::UnboundedSender<AgentCommandEndedPayload>);
@@ -85,13 +71,6 @@ impl InputWaitReader for NoTerminals {
 
 fn session() -> SessionId {
     SessionId::new(SESSION).expect("a session id")
-}
-
-fn sets() -> Arc<RunningCommandSets> {
-    Arc::new(RunningCommandSets::new(
-        Arc::new(|_session: &SessionId| None),
-        Arc::new(DroppedEndings),
-    ))
 }
 
 /// The start of a row `id` whose line runs `id`.
@@ -184,7 +163,7 @@ async fn tail_ends(tail: tokio::task::JoinHandle<()>) {
 // each read lossily on its own.
 #[tokio::test]
 async fn the_output_tail_reads_every_byte_written_before_the_exit() {
-    let sets = sets();
+    let sets = unbound_running_command_sets();
     let mut feed = sets.subscribe(session());
     let mut row = tailed_row(&sets, "cmd", 7);
     row.file.write_all(b"first \xE2\x82").expect("written");
@@ -221,7 +200,7 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
     let mut lines = BufReader::new(party.stdout.take().expect("its output")).lines();
     let party_id = ready_parties(&mut lines, 1)[0];
     let channel = Arc::new(open_channel(folder.path(), std::process::id()));
-    let sets = sets();
+    let sets = unbound_running_command_sets();
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
@@ -271,7 +250,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
         .find(|id| **id != outer_id)
         .expect("the nested party is ready");
     let channel = Arc::new(open_channel(folder.path(), std::process::id()));
-    let sets = sets();
+    let sets = unbound_running_command_sets();
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
@@ -323,7 +302,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
 async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
     let folder = tempfile::tempdir().expect("a folder");
     let channel = Arc::new(open_channel(folder.path(), std::process::id()));
-    let sets = sets();
+    let sets = unbound_running_command_sets();
     let mut feed = sets.subscribe(session());
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(

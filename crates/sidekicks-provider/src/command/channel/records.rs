@@ -59,10 +59,6 @@ type EndedParty = (PartyId, u64);
 /// Follows `channel`'s records, which `watch` made before the provider started reports, into
 /// `session_id`'s rows in `set`, the waiting checks reading through `waits`, until the watch fails,
 /// with its error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver follows its conversations' channels")
-)]
 pub(crate) async fn follow_channel_records(
     session_id: SessionId,
     channel: Arc<CommandChannel>,

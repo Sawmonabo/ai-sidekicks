@@ -42,7 +42,7 @@ pub(crate) const PARTY_SECRET_VARIABLE: &str = "SIDEKICKS_COMMAND_PARTY_SECRET";
 const PARTY_KEY_ARGUMENT_PREFIX: &str = "party-key=";
 
 /// The folder inside a channel's folder that only the daemon writes.
-const REQUESTS_FOLDER: &str = "requests";
+pub(crate) const REQUESTS_FOLDER: &str = "requests";
 
 /// The context string every seal and open binds, ahead of the record's own context.
 const SEALING_INFO: &[u8] = b"sidekicks command channel";
@@ -56,6 +56,11 @@ const RECORD_MODE: u32 = 0o600;
 type ChannelKem = X25519HkdfSha256;
 type ChannelPrivateKey = <ChannelKem as hpke::Kem>::PrivateKey;
 type ChannelPublicKey = <ChannelKem as hpke::Kem>::PublicKey;
+
+/// The folder every conversation's command channel opens under, in the daemon's data folder.
+pub(crate) fn command_channel_root(data_folder: &Path) -> PathBuf {
+    data_folder.join("command-channels")
+}
 
 /// A party: the process id of the wrapper or askpass that writes records.
 pub(crate) type PartyId = u32;
@@ -315,46 +320,52 @@ pub(crate) struct ReceivedRecord {
 }
 
 /// A conversation's channel as the daemon holds it: its folder, its key pair, the provider process
-/// every party must sit under, and the parties admitted so far.
+/// every party must sit under once one is bound, and the parties admitted so far.
 pub(crate) struct CommandChannel {
     folder: PathBuf,
     keys: (ChannelPrivateKey, ChannelPublicKey),
-    provider_process_id: u32,
+    /// The provider's process, bound once its spawn returns; `None` before, when no party is
+    /// admitted.
+    provider_process_id: Mutex<Option<u32>>,
     reader: Arc<dyn CallerProcessReader>,
     parties: Mutex<HashMap<PartyId, AdmittedParty>>,
 }
 
 impl CommandChannel {
     /// Opens the channel in `folder`, made private with its `requests` folder, for the parties
-    /// that sit under `provider_process_id`, read through `reader`; a new key pair each time.
-    /// Blocks; fails with the system's error when a folder cannot be made.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "each driver opens its conversations' channels")
-    )]
-    pub(crate) fn open(
-        folder: PathBuf,
-        provider_process_id: u32,
-        reader: Arc<dyn CallerProcessReader>,
-    ) -> io::Result<Self> {
+    /// read through `reader`; a new key pair each time. It admits no party until [`Self::bind`]
+    /// names the provider's process, so it opens before the provider starts and its
+    /// [`Self::environment`] goes into the provider's. Blocks; fails with the system's error when
+    /// a folder cannot be made.
+    pub(crate) fn open(folder: PathBuf, reader: Arc<dyn CallerProcessReader>) -> io::Result<Self> {
         create_private_folder(&folder.join(REQUESTS_FOLDER))?;
         Ok(Self {
             folder,
             keys: ChannelKem::gen_keypair(),
-            provider_process_id,
+            provider_process_id: Mutex::new(None),
             reader,
             parties: Mutex::new(HashMap::new()),
         })
     }
 
+    /// Binds the channel to the provider's process once its spawn returned, so the parties under
+    /// it are admitted; a later process of the same conversation binds in its place.
+    pub(crate) fn bind(&self, provider_process_id: u32) {
+        *lock(&self.provider_process_id) = Some(provider_process_id);
+    }
+
+    /// The channel's folder, which a provider's command sandbox lets commands write in.
+    pub(crate) fn folder(&self) -> &Path {
+        &self.folder
+    }
+
+    /// The folder inside the channel's folder that only the daemon writes, which a provider's
+    /// command sandbox keeps commands from writing in.
+    pub(crate) fn requests_folder(&self) -> PathBuf {
+        self.folder.join(REQUESTS_FOLDER)
+    }
+
     /// The variables a provider's commands carry so their parties reach this channel.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "each driver hands its provider the channel's variables"
-        )
-    )]
     pub(crate) fn environment(&self) -> [(&'static str, OsString); 2] {
         [
             (
@@ -371,13 +382,6 @@ impl CommandChannel {
     /// A watch on the channel's records, made before the provider starts so no record lands
     /// before it, since the records already in the folder are no arrivals. Fails with the system's
     /// error when the folder cannot be watched.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "each driver watches its conversation's channel before it starts the provider"
-        )
-    )]
     pub(crate) async fn watch(&self) -> io::Result<FolderArrivalWatch> {
         FolderArrivalWatch::watch(&self.folder).await
     }
@@ -497,13 +501,6 @@ impl CommandChannel {
     /// Closes the channel once its conversation ended, removing its folder and everything in it,
     /// while its follower and its open prompts still hold it. Fails with the system's error when
     /// the folder cannot be removed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "each driver closes a conversation's channel at its end"
-        )
-    )]
     pub(crate) async fn close(&self) -> io::Result<()> {
         tokio::fs::remove_dir_all(&self.folder).await
     }
@@ -583,7 +580,8 @@ impl CommandChannel {
     /// Admits `party` by the key its first argument holds when it sits under the provider's
     /// process, noting the nearest admitted wrapper above it and whether any party is, admitted or
     /// holding a party's key in its own arguments; refused, with the key where it holds one, when
-    /// it does not, holds no key or has ended. Fails when the system refuses a read.
+    /// it does not, holds no key, has ended or no provider's process is bound yet. Fails when the
+    /// system refuses a read.
     async fn admit(&self, party: PartyId) -> io::Result<Admission> {
         let read = tokio::task::spawn_blocking(move || {
             Ok::<_, io::Error>((read_process_start(party)?, pin_running_process(party)?))
@@ -601,6 +599,9 @@ impl CommandChannel {
         else {
             return Ok(Admission::Refused(None));
         };
+        let Some(provider_process_id) = *lock(&self.provider_process_id) else {
+            return Ok(Admission::Refused(Some(public_key)));
+        };
         let first_argument = start.arguments.get(2).cloned();
         let mut wrapper = None;
         let mut is_nested = false;
@@ -612,7 +613,7 @@ impl CommandChannel {
                     return Ok(Admission::Refused(Some(public_key)));
                 }
             };
-            if parent.id() == self.provider_process_id {
+            if parent.id() == provider_process_id {
                 return Ok(Admission::Admitted(AdmittedParty {
                     public_key,
                     last_sequence: 0,
@@ -675,11 +676,10 @@ fn remove_party_requests(requests: &Path, party: PartyId) -> io::Result<()> {
     Ok(())
 }
 
-/// Removes every conversation's channel folder under `root`, where the daemon opens them, at its
-/// start, when none is open. Fails with the system's error when one cannot be removed.
-#[expect(dead_code, reason = "the daemon's start, which the composition wires")]
-pub(crate) async fn remove_channel_folders(root: &Path) -> io::Result<()> {
-    let mut entries = match tokio::fs::read_dir(root).await {
+/// Removes every conversation's channel folder a previous run left in `data_folder`, at the
+/// daemon's start, before any opens. Fails with the system's error when one cannot be removed.
+pub async fn remove_channel_folders(data_folder: &Path) -> io::Result<()> {
+    let mut entries = match tokio::fs::read_dir(command_channel_root(data_folder)).await {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),

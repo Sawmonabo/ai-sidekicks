@@ -97,14 +97,16 @@ fn write_stand_in(folder: &Path, is_output_dropped: bool) -> std::path::PathBuf 
     path
 }
 
-/// A channel this test answers as the daemon, for wrappers it starts.
+/// A channel this test answers as the daemon, for wrappers it starts, bound to this test's process,
+/// the provider's place here.
 fn open_channel(folder: &Path) -> CommandChannel {
-    CommandChannel::open(
+    let channel = CommandChannel::open(
         folder.join("channel"),
-        std::process::id(),
         Arc::new(ProcessTableReader::for_this_program().expect("a reader")) as _,
     )
-    .expect("the channel opens")
+    .expect("the channel opens");
+    channel.bind(std::process::id());
+    channel
 }
 
 /// The id of a provider that runs its commands through a shell prefix, from the providers' table.

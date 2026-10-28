@@ -9,6 +9,7 @@
 //! thread per copy; what it could not do goes to the daemon as a record, and on standard error
 //! where it changes how the command runs.
 
+use std::env::consts::EXE_SUFFIX;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -34,6 +35,11 @@ use crate::driver::shell_prefix_command_of;
 
 /// The name of the link a provider runs every shell command through, which reaches this mode.
 pub const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";
+
+/// The command wrapper's link beside `daemon_program`, the running daemon's own program.
+pub(crate) fn command_wrapper_program_path(daemon_program: &Path) -> PathBuf {
+    daemon_program.with_file_name(format!("{COMMAND_WRAPPER_PROGRAM_NAME}{EXE_SUFFIX}"))
+}
 
 /// The variable naming the provider whose shell prefix the wrapper serves, so it reads that
 /// provider's line shape.

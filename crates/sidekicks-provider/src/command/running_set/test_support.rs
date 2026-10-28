@@ -1,13 +1,41 @@
-//! A running command added straight to a session's set, for other crates' tests.
+//! A running set no session's binding or ending log is behind, and a running command added
+//! straight to a session's set, for this crate's and other crates' tests.
 
-use sidekicks_contracts::command::CommandId;
+use std::sync::Arc;
+
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use sidekicks_contracts::command::{AgentCommandEndedPayload, CommandId};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 
-use super::{RowState, RunningCommandSets};
+use super::{CommandEndingAppender, RowState, RunningCommandSets};
 use crate::port::running_command_publisher::CommandStart;
+
+/// A running set whose sessions run on no binding, their commands' endings appended nowhere.
+pub fn unbound_running_command_sets() -> Arc<RunningCommandSets> {
+    Arc::new(RunningCommandSets::new(
+        Arc::new(|_session: &SessionId| None),
+        Arc::new(DroppedEndings),
+    ))
+}
+
+// Endings no test reads.
+struct DroppedEndings;
+
+impl CommandEndingAppender for DroppedEndings {
+    fn append(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _ending: AgentCommandEndedPayload,
+        _summary: Option<String>,
+    ) -> BoxFuture<'_, ()> {
+        async {}.boxed()
+    }
+}
 
 impl RunningCommandSets {
     /// Adds a background command of `run_id` to `session_id`'s set, as a provider's report of one

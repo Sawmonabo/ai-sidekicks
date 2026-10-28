@@ -187,7 +187,7 @@ impl CheckSchedule {
 
 /// Reads whether a command waits on its terminal: the cheap read that may rule a wait out, and the
 /// full read.
-pub(crate) trait InputWaitReader: Send + Sync {
+pub trait InputWaitReader: Send + Sync {
     /// Whether the command may wait on `terminal`; `false` rules a wait out. Fails when the system
     /// refuses a read.
     fn may_wait<'a>(&'a self, terminal: &'a InputTerminal) -> BoxFuture<'a, io::Result<bool>>;
@@ -200,13 +200,9 @@ pub(crate) trait InputWaitReader: Send + Sync {
 }
 
 /// The reads the platforms crate makes, its helper programs started on the daemon's one spawner.
-#[expect(
-    dead_code,
-    reason = "the daemon's start hands it to each conversation's channel"
-)]
-pub(crate) struct SystemInputWaitReader {
+pub struct SystemInputWaitReader {
     /// The thread every helper program starts from.
-    pub(crate) spawner: Spawner,
+    pub spawner: Spawner,
 }
 
 impl InputWaitReader for SystemInputWaitReader {

@@ -11,6 +11,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::callback_tools::host::CallbackToolHost;
 use crate::command::running_set::RunningCommandSets;
@@ -28,6 +29,7 @@ use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::session_wake::SessionWaker;
 use crate::port::tool_server_route::ToolServerRoute;
@@ -138,6 +140,11 @@ pub struct DriverPorts {
     /// The idle sleep's wake of a sleeping session for a message its inbox received; a driver that
     /// finds it unregistered refuses the message.
     pub session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
+    /// The stored resume and kept schedules of a sleeping session a driver holds nothing for in
+    /// memory; a driver that finds it unregistered fails the wake.
+    pub session_resumes: Arc<PortRegistration<Arc<dyn SessionResumeReader>>>,
+    /// The database writer the calibration stores its limits through.
+    pub database_writer: Arc<PortRegistration<Arc<DatabaseWriter>>>,
     /// The approval pipeline's intake of permission asks.
     pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
@@ -190,6 +197,8 @@ impl DriverPorts {
             turn_readings: Arc::new(PortRegistration::new("turn readings")),
             context_readings: Arc::new(PortRegistration::new("context readings")),
             session_wakes: Arc::new(PortRegistration::new("session wakes")),
+            session_resumes: Arc::new(PortRegistration::new("session resumes")),
+            database_writer: Arc::new(PortRegistration::new("database writer")),
             permission_asks: Arc::new(PortRegistration::new("permission asks")),
             questions: Arc::new(PortRegistration::new("questions")),
             plans: Arc::new(PortRegistration::new("plans")),

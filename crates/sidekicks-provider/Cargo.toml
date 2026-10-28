@@ -21,6 +21,8 @@ doctest = false
 [dependencies]
 alacritty_terminal.workspace = true
 anyhow.workspace = true
+# The loopback stand-in endpoint the compaction calibration runs a provider build against.
+axum = { workspace = true, features = ["http1", "tokio"] }
 base16ct.workspace = true
 base64.workspace = true
 blake3.workspace = true
@@ -30,6 +32,8 @@ diffy.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 hpke.workspace = true
+# The local socket each session's inbox listens on.
+interprocess.workspace = true
 jiff.workspace = true
 jsonc-parser.workspace = true
 lru.workspace = true
@@ -69,7 +73,6 @@ url.workspace = true
 zeroize.workspace = true
 
 [dev-dependencies]
-interprocess.workspace = true
 mockall.workspace = true
 proptest.workspace = true
 rstest.workspace = true
