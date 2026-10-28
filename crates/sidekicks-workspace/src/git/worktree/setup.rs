@@ -523,8 +523,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// Ends every running setup command, each asked to stop and ended within the daemon's stop
     /// window, and starts no step after; run when the daemon stops. Fails with `CommandsNotEnded`
     /// naming each command that could not be ended.
-    #[expect(dead_code, reason = "the daemon's stop")]
-    pub(crate) async fn stop(&self) -> Result<(), WorktreeSetupError> {
+    pub async fn stop(&self) -> Result<(), WorktreeSetupError> {
         let running: Vec<Arc<RunningCommand>> = {
             let mut state = self.shared.lock();
             state.is_stopped = true;

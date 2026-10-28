@@ -1,13 +1,11 @@
 //! The session directory's answers to the providers as the daemon's start builds them: the project
 //! records its reads share, the port that resolves each provider process's spawn context and
-//! records each relaunch, the queue's composer of a session's opening and the restart's read of
-//! where a session lands.
+//! records each relaunch, and the queue's composer of a session's opening.
 
 use std::error::Error;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::SessionSpawnContextResolver;
 use sidekicks_provider::driver::ports::{DriverPorts, SessionRelaunchListener};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
@@ -24,8 +22,6 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::project::records::ProjectRecords;
-
-use crate::ipc::handlers::session::restart::{RestartTargetReader, SessionRestartTarget};
 
 /// What the session directory's port is built from.
 pub(crate) struct ProviderPortStart<'start> {
@@ -51,8 +47,6 @@ pub(crate) struct ProviderPort {
     pub(crate) project_records: Arc<ProjectRecords>,
     /// Composes a session's opening from its lead, for the queue.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
-    /// Reads where a session's restart lands, for `session.restart`.
-    pub(crate) restart_targets: RestartTargetReader,
 }
 
 /// Builds the project records and the session directory's port over `start`, and registers the
@@ -93,8 +87,7 @@ pub(crate) fn build_provider_port(
         .register(Arc::clone(&port) as Arc<dyn SessionRelaunchListener>)?;
     Ok(ProviderPort {
         project_records,
-        compose_opening: compose_opening(Arc::clone(&port)),
-        restart_targets: restart_targets(port),
+        compose_opening: compose_opening(port),
     })
 }
 
@@ -111,23 +104,6 @@ fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOp
                 create_params: opening.create_params,
                 function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),
             })
-        }
-        .boxed()
-    })
-}
-
-// Where a session's restart lands as `port` reads it; a failed read is a fault in the daemon.
-fn restart_targets(port: Arc<SessionDirectoryProviderPort>) -> RestartTargetReader {
-    Arc::new(move |session_id| {
-        let port = Arc::clone(&port);
-        async move {
-            let target = port
-                .read_restart_target(session_id)
-                .await
-                .map_err(|error| HandlerError::Internal(Box::new(error)))?;
-            Ok::<_, HandlerError>(
-                target.map(|(provider, params)| SessionRestartTarget { provider, params }),
-            )
         }
         .boxed()
     })

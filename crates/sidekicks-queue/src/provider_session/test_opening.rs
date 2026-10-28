@@ -17,7 +17,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
 #[cfg(test)]
-use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
+use sidekicks_provider::driver::capabilities::{
+    DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
+};
 #[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
@@ -68,14 +70,15 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
     })
 }
 
-/// Records the first provider's capabilities in `providers`, so its contract version reads.
+/// Records the first provider's capabilities in `providers`, so its contract version reads and
+/// it resumes.
 #[cfg(test)]
 pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry) {
     providers
         .record_capabilities(
             &first_provider(),
             DriverCapabilities {
-                flags: DriverCapabilityFlags::from_fn(|_| false),
+                flags: DriverCapabilityFlags::from_fn(|flag| flag == DriverCapabilityFlag::Resume),
                 contract_version: FreeFormText::new("1.0.0".to_owned())
                     .expect("a contract version"),
             },

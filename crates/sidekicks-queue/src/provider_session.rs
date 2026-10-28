@@ -1,12 +1,13 @@
 //! A session's provider session, opened by its first admission: the driver's `create_session` and
 //! the runtime binding that records it, or, when the session already has a conversation from before
-//! the daemon started, the driver's `resume_session` of it and the binding the resume minted. Each
-//! run after that gets a binding of its own on the session's current leg. A session's opening, its
-//! run bindings, its level and mode moves and the forgetting of a process gone take the session's
-//! transition lock, so a process never opens at a level or in a mode a move is about to replace,
-//! two moves never store one level while the process runs at the other, and no process opens
-//! between a close's end of the provider leg and its `session.closed` write, nor after it: an
-//! opening under the lock refuses a closed session.
+//! the daemon started, the driver's `resume_session` of it and the binding the resume minted; a
+//! process that ended and stayed down comes back the same way through the driver's
+//! `restart_session`. Each run after that gets a binding of its own on the session's current leg.
+//! A session's opening and restart, its run bindings, its level and mode moves and the forgetting
+//! of a process gone take the session's transition lock, so a process never opens at a level or in
+//! a mode a move is about to replace, two moves never store one level while the process runs at
+//! the other, and no process opens between a close's end of the provider leg and its
+//! `session.closed` write, nor after it: an opening under the lock refuses a closed session.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -28,6 +29,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::{
     DriverError, ProviderDriver, SessionProcessState, SpawnedVersionBindingCarriers,
 };
@@ -146,6 +148,8 @@ pub enum ProviderSessionError {
     ResumeRefused {
         /// The session.
         session_id: SessionId,
+        /// The provider that refused.
+        provider: ProviderId,
         /// Why the resume needs recovery.
         recovery_condition: RecoveryCondition,
         /// The provider's own words.
@@ -343,6 +347,14 @@ struct ResumeOpening {
     git_folder: FilesystemPath,
 }
 
+// Which of the driver's verbs brings a session's conversation back in a fresh process: the resume
+// of a session's first admission, or the restart of a process that ended and stayed down.
+#[derive(Clone, Copy)]
+enum Relaunch {
+    Resume,
+    Restart,
+}
+
 // One opened session: the provider it runs on, the posture its process runs at, which each of its
 // runs is requested at, and the git folder each level's posture is built on.
 #[derive(Clone)]
@@ -435,6 +447,29 @@ impl ProviderSessions {
             Some(SessionState::Provisioning | SessionState::Active | SessionState::Archived)
             | None => Ok(()),
         }
+    }
+
+    /// Starts the session's provider process again after it ended and stayed down, its newest
+    /// conversation brought back through the driver's restart as an opening's resume brings it
+    /// back, and keeps the session open in this process. Fails with
+    /// [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for an ended
+    /// session, [`ProviderSessionError::NoConversation`] for one with none to resume,
+    /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
+    /// resume, the driver never called, [`ProviderSessionError::ResumeRefused`] for a restart the
+    /// provider refused, and as the composition, the driver or the binding's record fails.
+    pub async fn restart(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
+        let leg = read_session_leg(&self.deps.pool, session_id)
+            .await?
+            .ok_or(ProviderSessionError::NoConversation { session_id })?;
+        self.deps.providers.lookup(&leg.provider_name)?;
+        self.deps
+            .providers
+            .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)?;
+        let opened = self.relaunch(session_id, leg, Relaunch::Restart).await?;
+        self.lock_opened().insert(session_id, opened);
+        Ok(())
     }
 
     /// Forgets a session's provider session whose process ended: closed, or gone with no restart
@@ -572,15 +607,34 @@ impl ProviderSessions {
     }
 
     // The session ran before this daemon started: its conversation is resumed in a fresh process
-    // under a binding minted here, whose cursor carries on where the leg's stands, opened before
-    // the driver runs, since the resumed provider delivers under it at once; the run gets a
-    // binding of its own.
+    // and the run gets a binding of its own.
     async fn resume(
         &self,
         hold: &KeyHold<'_, SessionId>,
         session_id: SessionId,
         leg: RuntimeBinding,
         run_id: RunId,
+    ) -> Result<OpenedSession, ProviderSessionError> {
+        let opened = self.relaunch(session_id, leg, Relaunch::Resume).await?;
+        // The resumed leg sits on the run it was first opened for; this run gets its own.
+        self.lock_opened().insert(session_id, opened.clone());
+        if let Err(error) = self.bind_run(hold, run_id).await {
+            self.forget(session_id);
+            return Err(error);
+        }
+        Ok(opened)
+    }
+
+    // Brings `leg`'s conversation back in a fresh process through `relaunch`, under a binding
+    // minted here whose cursor carries on where the leg's stands, opened before the driver runs,
+    // since the provider delivers under it at once, and recorded once the driver answers; a
+    // process whose record fails is closed. A process already up that answers on its own binding
+    // records nothing.
+    async fn relaunch(
+        &self,
+        session_id: SessionId,
+        leg: RuntimeBinding,
+        relaunch: Relaunch,
     ) -> Result<OpenedSession, ProviderSessionError> {
         let minted_id = mint_runtime_binding_id();
         let ResumeOpening {
@@ -595,7 +649,11 @@ impl ProviderSessions {
             .binding_cursors
             .open_relaunch(&leg, minted_id.clone())
             .await?;
-        let answer = match driver.resume_session(params).await {
+        let answered = match relaunch {
+            Relaunch::Resume => driver.resume_session(params).await,
+            Relaunch::Restart => driver.restart_session(params).await,
+        };
+        let answer = match answered {
             Ok(answer) => answer,
             Err(error) => {
                 self.deps.binding_cursors.forget_binding(&minted_id);
@@ -616,6 +674,7 @@ impl ProviderSessions {
                 self.deps.binding_cursors.forget_binding(&minted_id);
                 return Err(ProviderSessionError::ResumeRefused {
                     session_id,
+                    provider: leg.provider_name,
                     recovery_condition,
                     provider_failure_detail,
                 });
@@ -653,18 +712,11 @@ impl ProviderSessions {
             // cursor and its row.
             self.deps.binding_cursors.forget_binding(&minted_id);
         }
-        let opened = OpenedSession {
+        Ok(OpenedSession {
             provider: leg.provider_name,
             execution_posture,
             git_folder,
-        };
-        // The resumed leg sits on the run it was first opened for; this run gets its own.
-        self.lock_opened().insert(session_id, opened.clone());
-        if let Err(error) = self.bind_run(hold, run_id).await {
-            self.forget(session_id);
-            return Err(error);
-        }
-        Ok(opened)
+        })
     }
 
     // What a resume of `leg` under `binding_id` opens with: the session's opening as its lead

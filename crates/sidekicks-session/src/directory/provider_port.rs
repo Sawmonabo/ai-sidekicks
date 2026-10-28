@@ -1,8 +1,8 @@
 //! The session directory's answer to the provider side: where and as whom each of a session's
 //! provider processes runs and the folder its runs work in, what its provider session opens with,
-//! the resume a restart opens, and the binding each resume a driver started on its own minted. The
-//! lead is read from the session's log; a session opens and resumes at the permission level stored
-//! on it, at the posture that level runs at in the session's repository.
+//! and the binding each resume a driver started on its own minted. The lead is read from the
+//! session's log; a session opens and resumes at the permission level stored on it, at the posture
+//! that level runs at in the session's repository.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -26,19 +26,14 @@ use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
-use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, ResumeSessionParams,
-};
+use sidekicks_provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use sidekicks_provider::driver::{
     ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::run::posture::compose_execution_posture;
-use sidekicks_provider::runtime_binding::resume::{
-    ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
-};
 use sidekicks_provider::runtime_binding::store::{
-    RuntimeBindingRelaunch, RuntimeBindingStoreError, mint_runtime_binding_id,
+    RuntimeBindingRelaunch, RuntimeBindingStoreError,
 };
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
@@ -146,9 +141,6 @@ pub enum SessionDirectoryProviderPortError {
     /// The session's bindings could not be read.
     #[error(transparent)]
     Bindings(#[from] RuntimeBindingStoreError),
-    /// The session's leg has no conversation to resume.
-    #[error(transparent)]
-    NotResumable(#[from] RuntimeBindingNotResumable),
 }
 
 /// What a session's provider session opens with, composed from its lead as the session's log and
@@ -183,7 +175,7 @@ pub struct SessionDirectoryProviderPortDeps {
 }
 
 /// The session directory's reads and records that the provider side calls: the spawn context of
-/// each process, a session's opening and restart target, and each relaunch's binding.
+/// each process, a session's opening, and each relaunch's binding.
 pub struct SessionDirectoryProviderPort {
     deps: SessionDirectoryProviderPortDeps,
 }
@@ -249,40 +241,6 @@ impl SessionDirectoryProviderPort {
             },
             provider: binding.provider_name,
         })
-    }
-
-    /// The provider `session_id` ran on and the resume that brings its leg back on the model its
-    /// lead runs on now, in the mode it was last moved to and at the posture of the level it
-    /// stands at, under a binding minted for it; `None` for a session with no lead or no
-    /// conversation to resume. Fails as the reads, git or the settings file fail.
-    pub async fn read_restart_target(
-        &self,
-        session_id: SessionId,
-    ) -> Result<Option<(ProviderId, ResumeSessionParams)>, SessionDirectoryProviderPortError> {
-        let Some(lead) = self.read_lead(session_id).await? else {
-            return Ok(None);
-        };
-        let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
-            return Ok(None);
-        };
-        let standing = self.read_standing_opening(session_id).await?;
-        let params = compose_resume_session_params(
-            session_id,
-            lead.agent_id,
-            &leg,
-            mint_runtime_binding_id(),
-            lead.running_model,
-            lead.binding.larger_window,
-            standing.mode,
-            standing.execution_posture,
-            lead.binding
-                .options
-                .map(|options| options.as_slice().to_vec())
-                .unwrap_or_default(),
-            row_values_of(&standing.provider_settings, &leg.provider_name),
-            ResumeFunctionLegs::default(),
-        )?;
-        Ok(Some((leg.provider_name, params)))
     }
 
     async fn read_lead(

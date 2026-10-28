@@ -103,8 +103,9 @@ pub(crate) struct RepoServices {
     /// Each session's review notes, read against its live working folder.
     pub(crate) review_notes: Arc<SessionReviewNoteStore>,
     /// Every worktree transition and worktree-scoped git call.
-    #[expect(dead_code, reason = "the worktree methods")]
     pub(crate) worktrees: Arc<WorktreeService>,
+    /// The seam each worktree's events are appended through.
+    pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
     pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
@@ -200,7 +201,7 @@ pub(crate) fn build_repo_services(
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer,
-        events: worktree_events,
+        events: Arc::clone(&worktree_events),
         occupancy,
         worktrees_folder,
     }));
@@ -220,6 +221,7 @@ pub(crate) fn build_repo_services(
         live_folders,
         review_notes,
         worktrees,
+        worktree_events,
         snapshots,
         mount_health,
         scheduler,

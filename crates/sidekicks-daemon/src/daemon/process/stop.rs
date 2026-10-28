@@ -11,6 +11,7 @@ use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_session::search::index::live::LiveIndexCloseError;
 use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
+use sidekicks_workspace::git::worktree::setup::WorktreeSetupError;
 use tokio::task::JoinError;
 
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
@@ -51,6 +52,9 @@ pub(crate) enum DaemonStopFailure {
     /// The clone service's askpass broker ended abnormally at its close.
     #[error(transparent)]
     Askpass(#[from] AskpassBrokerError),
+    /// A worktree's setup command could not be ended.
+    #[error(transparent)]
+    WorktreeSetup(#[from] WorktreeSetupError),
 }
 
 /// A service's background task, a follow of the log among them, that ended abnormally at the stop.
@@ -87,10 +91,11 @@ pub(crate) enum CrashMonitorEndFailure {
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the capability
 /// refresh, the providers' registration, the run queue, the clone service with its askpass broker,
-/// the repository services' background work, the session services' follows with the chats' write
-/// watch and file recount, the renames' name pushes, the highlighter, the terminals, the
-/// scheduler, the working-folder watch, the projects list, the search index, the drivers and the
-/// git trees a failed call left. Answers each step's failure, every step having run.
+/// the worktrees' setup commands, the repository services' background work, the session services'
+/// follows with the chats' write watch and file recount, the renames' name pushes, the
+/// highlighter, the terminals, the scheduler, the working-folder watch, the projects list, the
+/// search index, the drivers and the git trees a failed call left. Answers each step's failure,
+/// every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -137,6 +142,12 @@ pub(crate) async fn stop_work(
     // taken, so a stop run again finds no broker to close.
     if let Some(clones) = process.clones.take()
         && let Err(failure) = clones.close(remaining()).await
+    {
+        failures.push(failure.into());
+    }
+    // Before the working-folder watch, on which a setup's warm step holds its tree.
+    if let Some(worktree_setup) = process.worktree_setup.take()
+        && let Err(failure) = worktree_setup.stop().await
     {
         failures.push(failure.into());
     }

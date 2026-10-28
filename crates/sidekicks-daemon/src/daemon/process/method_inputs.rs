@@ -1,10 +1,11 @@
 //! What the daemon's start builds over its store, its providers and its repository services for the
 //! serving socket: the session directory's port, the session services, the terminals' table, the
-//! project and clone services, the recovery services and the stored data's methods, then every
-//! method table registered over them; it hands back the parts the start runs next and the stop
-//! ends.
+//! project and clone services, the worktree creator and its setup card, the recovery services and
+//! the stored data's methods, then every method table registered over them; it hands back the
+//! parts the start runs next and the stop ends.
 
 use std::error::Error;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -20,7 +21,7 @@ use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
-    physical_memory, read_process_peak_bytes,
+    command_shell, physical_memory, read_process_peak_bytes,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -37,9 +38,11 @@ use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::epochs::{ExecutionEpochs, MAX_ASSOCIATIONS_PER_BINDING};
+use sidekicks_session::run::folders::SessionLiveRunFolders;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::credential_store::items::SecretItems;
@@ -47,7 +50,9 @@ use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::clone::service::{CloneService, CloneServiceDeps};
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::process::GitRunner;
-use sidekicks_workspace::git::worktree::naming::worktrees_folder;
+use sidekicks_workspace::git::worktree::creation::{WorktreeCreator, WorktreeCreatorDeps};
+use sidekicks_workspace::git::worktree::naming::{WorktreeNaming, worktrees_folder};
+use sidekicks_workspace::git::worktree::setup::{WorktreeSetupRunner, WorktreeSetupRunnerDeps};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::managed_workspaces_folder;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
@@ -77,6 +82,7 @@ use crate::daemon::process::shell_table::{
 };
 use crate::daemon::process::stored_data::{StoredDataMethodsStart, build_stored_data_methods};
 use crate::daemon::process::supervision::ProcessStateTracker;
+use crate::daemon::process::worktree_sources::WorktreeSources;
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 use crate::daemon::status_methods::StatusMethodsDeps;
 use crate::data_acts::erase::{DataErase, DataEraseDeps, EraseStep};
@@ -171,6 +177,10 @@ pub(crate) struct MethodInputs {
     /// The clone service, which owns the askpass broker and closes it at the stop; `None` when it
     /// could not start.
     pub(crate) clones: Option<Arc<CloneService>>,
+    /// The setup card of every worktree made, whose running commands the stop ends.
+    pub(crate) worktree_setup: Arc<WorktreeSetupRunner>,
+    /// Makes worktrees and answers the new-worktree form's suggestion.
+    pub(crate) worktree_creator: Arc<WorktreeCreator>,
 }
 
 /// Why the method tables' services could not be built.
@@ -200,6 +210,9 @@ pub(crate) enum MethodInputsError {
         /// The socket's path.
         path: PathBuf,
     },
+    /// The shell a worktree's setup commands run under could not be read.
+    #[error("the shell setup commands run under could not be read")]
+    CommandShell(#[source] io::Error),
     /// A folder's path cannot be reported on the wire.
     #[error("the folder path {} cannot be reported", path.display())]
     FolderPathText {
@@ -276,6 +289,32 @@ pub(crate) async fn register_method_inputs(
         plan_holds: plan_holds.as_ref(),
         ports: &providers.ports,
     })?;
+    let worktree_sources = Arc::new(WorktreeSources {
+        reads: Arc::clone(&reads),
+        records: Arc::clone(&port.project_records),
+        worktrees: Arc::clone(&repo.worktrees),
+        settings: Arc::clone(&settings_reader),
+        base_environment: Arc::clone(&base_environment),
+        reserved_names: Arc::clone(&providers.reserved_names),
+    });
+    let worktree_setup = Arc::new(WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
+        git: git.clone(),
+        spawner: spawner.clone(),
+        watcher: Arc::clone(&repo.folder_watch),
+        sources: Arc::clone(&worktree_sources) as _,
+        command_shell: command_shell().map_err(MethodInputsError::CommandShell)?,
+    }));
+    let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
+        git: git.clone(),
+        reads: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        events: Arc::clone(&repo.worktree_events),
+        naming: WorktreeNaming::new(worktrees_folder(home_folder), worktree_sources),
+        worktrees: Arc::clone(&repo.worktrees),
+        setup: Arc::clone(&worktree_setup),
+        live_run_folders: Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads))),
+        checkout_lock: Arc::new(KeyedLock::new()),
+    }));
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -373,7 +412,8 @@ pub(crate) async fn register_method_inputs(
             settings: settings_reader,
             home_folder: home_folder.to_path_buf(),
             git: git.clone(),
-            // No session waits on a clone in this build, so none is told one attached.
+            // The session create's listener, which finishes the sessions a clone holds, registers
+            // here.
             clone_attached: Arc::new(PortRegistration::new("clone attached")),
         })
         .await
@@ -504,10 +544,6 @@ pub(crate) async fn register_method_inputs(
                 signals: Arc::clone(&session.signals),
                 read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
             },
-            providers: registry,
-            restart_targets: port.restart_targets,
-            restart_state_pool: reads,
-            session_transition_lock: Arc::clone(session.changes.transition_lock()),
             event_log: Arc::clone(&database.event_log),
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
@@ -549,6 +585,8 @@ pub(crate) async fn register_method_inputs(
         recovery,
         project_list_feed,
         clones: clones.ok(),
+        worktree_setup,
+        worktree_creator,
     })
 }
 

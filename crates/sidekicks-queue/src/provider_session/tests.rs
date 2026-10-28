@@ -164,11 +164,13 @@ impl Opening {
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
-        let mut driver = MockProviderDriver::new();
-        driver.expect_resume_session().returning({
+        let on_resume: Arc<dyn Fn() + Send + Sync> = Arc::from(on_resume);
+        // The resume and the restart answer alike.
+        let answer_relaunch = || {
             let (epochs, store) = (Arc::clone(&epochs), Arc::clone(&store));
             let (came_up_on, is_row_taken) = (Arc::clone(&came_up_on), Arc::clone(&is_row_taken));
-            move |params| {
+            let on_resume = Arc::clone(&on_resume);
+            move |params: ResumeSessionParams| {
                 assert_eq!(params.resume_handle, "conversation-1");
                 assert!(
                     lock(&epochs).binding(&params.binding_id).is_ok(),
@@ -196,7 +198,10 @@ impl Opening {
                 }
                 .boxed()
             }
-        });
+        };
+        let mut driver = MockProviderDriver::new();
+        driver.expect_resume_session().returning(answer_relaunch());
+        driver.expect_restart_session().returning(answer_relaunch());
         driver.expect_close_session().returning({
             let closes = Arc::clone(&closes);
             move |_params| {
@@ -298,21 +303,33 @@ async fn take_row(store: &RuntimeBindingStore, binding_id: RuntimeBindingId, run
         .expect("the test takes the binding's row");
 }
 
-// Opening a session whose conversation an earlier daemon left resumes it, records the binding the
-// resume minted on its predecessor's run, and records the opening run's own binding on it, all
-// under the one hold the open took. Killed by the run's binding taking the session's lock again
-// inside the open (the test times out), or by the relaunch left unrecorded.
+// Opening a session whose conversation an earlier daemon left resumes it, and a restart of its
+// process brings it back the same way: each records the binding it minted on its predecessor's run,
+// the binding's cursor open while the driver runs (the fixture's driver checks), and an opening
+// also records its run's own binding, all under the one hold it took. Killed by the run's binding
+// taking the session's lock again inside the open (the test times out), by the relaunch left
+// unrecorded, and by a restart that opens no cursor before its process runs.
+#[rstest]
+#[case::open(false)]
+#[case::restart(true)]
 #[tokio::test]
-async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
+async fn a_resume_or_a_restart_records_its_binding_under_its_own_hold(#[case] is_restart: bool) {
     let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |_, _| {}).await;
 
-    timeout(
-        WAIT,
-        opening.sessions.open(opening.session_id, opening.run_id),
-    )
-    .await
-    .expect("the open takes its own lock once")
-    .expect("the conversation resumes");
+    if is_restart {
+        timeout(WAIT, opening.sessions.restart(opening.session_id))
+            .await
+            .expect("the restart takes its own lock once")
+            .expect("the conversation comes back");
+    } else {
+        timeout(
+            WAIT,
+            opening.sessions.open(opening.session_id, opening.run_id),
+        )
+        .await
+        .expect("the open takes its own lock once")
+        .expect("the conversation resumes");
+    }
 
     let bindings: Vec<(String, String)> = opening
         .database
@@ -323,7 +340,11 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
         .expect("the bindings read")
         .collect::<Result<_, _>>()
         .expect("each binding reads");
-    assert_eq!(bindings.len(), 3, "{bindings:?}");
+    assert_eq!(
+        bindings.len(),
+        if is_restart { 2 } else { 3 },
+        "{bindings:?}"
+    );
     assert!(
         bindings
             .iter()
@@ -332,10 +353,11 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
         "the relaunch is recorded on its predecessor's run: {bindings:?}"
     );
     assert!(
-        bindings
-            .iter()
-            .any(|(id, bound_run_id)| id != opening.predecessor_id.as_str()
-                && bound_run_id == opening.run_id.text().as_str()),
+        is_restart
+            || bindings
+                .iter()
+                .any(|(id, bound_run_id)| id != opening.predecessor_id.as_str()
+                    && bound_run_id == opening.run_id.text().as_str()),
         "the opening run has its own binding: {bindings:?}"
     );
 }
@@ -506,11 +528,11 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
     );
 }
 
-// A closed session and one being deleted take no process, no run binding and no level change:
-// each is refused under the session's hold and no process comes up. Killed by any of the three
-// paths no longer reading the session's state.
+// A closed session and one being deleted take no process, no restart, no run binding and no level
+// change: each is refused under the session's hold and no process comes up. Killed by any of the
+// four paths no longer reading the session's state.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
+async fn an_ended_session_is_refused_an_opening_a_restart_a_binding_and_a_level_change() {
     for state in [SessionState::Closed, SessionState::PurgeRequested] {
         let resumes = Arc::new(AtomicUsize::new(0));
         let opening = Opening::new(
@@ -549,6 +571,11 @@ async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
         assert!(
             opened.as_ref().is_err_and(refused),
             "the open is refused for the {state:?} session: {opened:?}"
+        );
+        let restarted = opening.sessions.restart(session_id).await;
+        assert!(
+            restarted.as_ref().is_err_and(refused),
+            "the restart is refused for the {state:?} session: {restarted:?}"
         );
         let bound = opening.sessions.open_run_binding(run_id, session_id).await;
         assert!(

@@ -22,6 +22,7 @@ mod stored_data;
 pub(crate) mod supervision;
 #[cfg(test)]
 mod tests;
+mod worktree_sources;
 
 use std::error::Error;
 use std::sync::{Arc, OnceLock};
@@ -63,6 +64,8 @@ use sidekicks_store::database::connection::writer_open::{
 use sidekicks_store::machine::local::read_or_mint_local_machine;
 use sidekicks_workspace::clone::service::CloneService;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
+use sidekicks_workspace::git::worktree::creation::WorktreeCreator;
+use sidekicks_workspace::git::worktree::setup::WorktreeSetupRunner;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
@@ -180,6 +183,10 @@ pub(crate) struct DaemonProcess {
     pub(crate) clones: Option<Arc<CloneService>>,
     /// The live projects list, closed by the stop.
     pub(crate) project_list_feed: Option<Arc<ProjectListFeed>>,
+    /// The setup card of every worktree made, whose running commands the stop ends.
+    pub(crate) worktree_setup: Option<Arc<WorktreeSetupRunner>>,
+    /// Makes worktrees and answers the new-worktree form's suggestion.
+    pub(crate) worktree_creator: Option<Arc<WorktreeCreator>>,
 }
 
 // What a failed start's release is called in its error.
@@ -235,6 +242,8 @@ impl DaemonProcess {
             session_attachments: None,
             clones: None,
             project_list_feed: None,
+            worktree_setup: None,
+            worktree_creator: None,
         };
         let started = process.run_start(options).await;
         match started {
@@ -521,6 +530,8 @@ impl DaemonProcess {
         let recovery = inputs.recovery;
         self.project_list_feed = Some(inputs.project_list_feed);
         self.clones = inputs.clones;
+        self.worktree_setup = Some(inputs.worktree_setup);
+        self.worktree_creator = Some(inputs.worktree_creator);
         let session = self.session.insert(inputs.session);
         let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(

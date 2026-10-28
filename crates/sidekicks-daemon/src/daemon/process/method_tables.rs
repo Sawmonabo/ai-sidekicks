@@ -5,11 +5,9 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
-use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
@@ -24,8 +22,6 @@ use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
 use sidekicks_shell::table::ShellTable;
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_workspace::clone::service::CloneService;
 use sidekicks_workspace::folder::list::FolderListService;
@@ -69,7 +65,7 @@ use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
-use crate::ipc::handlers::session::restart::{RestartTargetReader, register_session_restart};
+use crate::ipc::handlers::session::restart::register_session_restart;
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
 use crate::ipc::handlers::session::search::{SessionSearchMethods, register_session_search};
 use crate::ipc::handlers::session::tags::register_session_tags;
@@ -102,14 +98,6 @@ pub(crate) struct MethodTableServices {
     pub(crate) run_control: RunControlServices,
     /// The run queue methods' inputs.
     pub(crate) run_queue: RunQueueMethods,
-    /// Every driver, which a session's restart goes through.
-    pub(crate) providers: Arc<ProviderRegistry>,
-    /// Reads where a session's restart lands.
-    pub(crate) restart_targets: RestartTargetReader,
-    /// The read pool a session's restart reads the session's state through.
-    pub(crate) restart_state_pool: Arc<DatabaseReadPool>,
-    /// The session-wide transition lock a session's restart runs under.
-    pub(crate) session_transition_lock: Arc<KeyedLock<SessionId>>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
     /// Each session's live safety holds.
@@ -197,17 +185,14 @@ pub(crate) fn register_method_tables(
     register_session_changes(builder, services.session_changes)?;
     register_session_review_notes(builder, services.review_notes)?;
     register_session_search(builder, services.session_search)?;
+    register_session_restart(
+        builder,
+        Arc::clone(&services.session_controls.provider_sessions),
+    )?;
     register_session_controls(builder, services.session_controls)?;
     register_session_tags(builder, services.tags)?;
     register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;
-    register_session_restart(
-        builder,
-        services.providers,
-        services.restart_targets,
-        services.restart_state_pool,
-        services.session_transition_lock,
-    )?;
     register_session_recovery_methods(builder, services.damaged_history)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;

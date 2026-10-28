@@ -257,11 +257,7 @@ impl WorktreeService {
 
     /// The row of a worktree. Fails with `worktree.notFound` for an unknown id, or the read's
     /// failure.
-    #[expect(
-        dead_code,
-        reason = "worktree removal and the workspace's execution-root prepare"
-    )]
-    pub(crate) async fn require_worktree(
+    pub async fn require_worktree(
         &self,
         worktree_id: &WorktreeId,
     ) -> Result<WorktreeRow, WorktreeServiceError> {
