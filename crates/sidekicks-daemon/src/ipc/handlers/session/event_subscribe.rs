@@ -3,12 +3,12 @@
 //! cursor and, for an event of a run, the run stamp its transcript row carries. A tool call the
 //! session's driver reads as a change to the agent's task list is left out, as the transcript
 //! leaves it, and the stream reads on past it; the driver is the lead's provider's, resolved again
-//! when the lead moves to another provider. The stream reads its first frame when the call is
-//! taken and every later one from the log at its cursor only once the subscription's lane has
-//! credit and the connection has room, so the catch-up goes at the connection's pace and nothing
-//! is dropped. A session the daemon does not hold, a cursor it cannot
-//! read, or a first frame that cannot be read is refused before anything opens, and a read that
-//! fails later ends the subscription with the failure.
+//! when the lead moves to another provider. The stream reads its first frame when the call is taken
+//! and every later one from the log at its cursor only once the subscription's lane has credit and
+//! the connection has room, so the catch-up goes at the connection's pace and nothing is dropped. A
+//! session the daemon does not hold, a cursor it cannot read, or a first frame that cannot be read
+//! is refused before anything opens, and a read that fails later ends the subscription with the
+//! failure.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
