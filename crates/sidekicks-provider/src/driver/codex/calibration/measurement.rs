@@ -8,9 +8,9 @@
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::ready;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sidekicks_platforms::{create_private_folder, wrap_child_command};
@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::codex::calibration::log_reading::{CodexTurnLimit, read_codex_turn_limit};
 use crate::driver::codex::calibration::stand_in::ModelEndpointStandIn;
 use crate::driver::codex::lifecycle::naming::lockdown::write_exec_overrides;
-use crate::driver::codex::model_windows::read_codex_service_model_windows;
+use crate::driver::codex::model_windows::{CodexCatalogReading, read_codex_service_model_windows};
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -139,7 +139,7 @@ struct StartedEntity {
 /// What a run measures on: the catalog Codex's own service printed, the whole window the
 /// session runs and the fallback buffer the model's token budget adds to the logged limit.
 pub(super) struct CodexCalibrationCatalog {
-    dump: String,
+    dump: Arc<str>,
     /// The model's whole window the session runs, in tokens.
     pub(super) window_tokens: u64,
     fallback_buffer_tokens: u64,
@@ -152,24 +152,37 @@ pub(super) async fn read_codex_calibration_catalog(
     request: &CodexCalibrationRequest,
 ) -> Result<CodexCalibrationCatalog, CodexCalibrationError> {
     let dump = read_codex_model_catalog_dump(service).await?;
-    let windows =
-        read_codex_service_model_windows(ready(Ok::<_, CodexError>(dump.clone())), service.home())
-            .await;
+    let windows = read_codex_service_model_windows(Ok(&dump), service.home());
+    compose_codex_calibration_catalog(
+        &CodexCatalogReading {
+            dump: Arc::from(dump),
+            windows: Arc::new(windows),
+        },
+        request,
+    )
+}
+
+/// `request`'s window and fallback buffer in `catalog`. Fails when the catalog lists no window for
+/// the model.
+pub(super) fn compose_codex_calibration_catalog(
+    catalog: &CodexCatalogReading,
+    request: &CodexCalibrationRequest,
+) -> Result<CodexCalibrationCatalog, CodexCalibrationError> {
     // The window a session runs without a choice: the default, else the largest, as Codex
     // resolves it.
     let window_tokens = request
         .requested_window
         .or_else(|| {
-            windows
+            catalog
+                .windows
                 .get(&request.model_id)
                 .and_then(|window| window.whole_window(None))
         })
         .ok_or(CodexCalibrationError::WindowNotListed)?;
-    let fallback_buffer_tokens = read_fallback_buffer(&dump, &request.model_id);
     Ok(CodexCalibrationCatalog {
-        dump,
+        dump: Arc::clone(&catalog.dump),
         window_tokens,
-        fallback_buffer_tokens,
+        fallback_buffer_tokens: read_fallback_buffer(&catalog.dump, &request.model_id),
     })
 }
 

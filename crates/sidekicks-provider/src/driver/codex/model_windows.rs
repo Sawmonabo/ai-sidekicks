@@ -2,11 +2,10 @@
 //! `model/list` carries no window, while each catalog row carries the model's default window, the
 //! largest one it can be set to, the share of it Codex leaves usable and its own compaction point.
 //! The windows a home's catalog gave its running build are kept, so a session's reading runs no
-//! dump of its own.
+//! dump of its own, and each read hands the catalog to the calibration.
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::future::Future;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -17,6 +16,7 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::calibration::CodexCompactionLimits;
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::home::CodexServiceHome;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -78,16 +78,35 @@ impl CodexModelWindow {
             (point, limit) => point.or(limit),
         }
     }
+
+    /// The model's largest window, only where it exceeds the default.
+    pub(crate) fn larger_window(&self) -> Option<u64> {
+        let (Some(context_window), Some(max_context_window)) =
+            (self.context_window, self.max_context_window)
+        else {
+            return None;
+        };
+        (max_context_window > context_window).then_some(max_context_window)
+    }
 }
 
 /// Each model's windows by its slug.
 pub(crate) type CodexModelWindows = HashMap<String, CodexModelWindow>;
 
+/// One read of a home's catalog: the dump as Codex printed it and each model's windows in it.
+#[derive(Clone)]
+pub(crate) struct CodexCatalogReading {
+    /// The dump, as `codex debug models` printed it.
+    pub(crate) dump: Arc<str>,
+    /// Each model's windows the dump gives.
+    pub(crate) windows: Arc<CodexModelWindows>,
+}
+
 /// The windows each Codex home's catalog last gave, kept for the build that printed them.
-#[derive(Default)]
 pub(crate) struct CodexModelWindowCache {
     /// Never held across an await.
     readings: Mutex<HashMap<PathBuf, CachedModelWindows>>,
+    compaction_limits: Arc<CodexCompactionLimits>,
 }
 
 struct CachedModelWindows {
@@ -96,6 +115,14 @@ struct CachedModelWindows {
 }
 
 impl CodexModelWindowCache {
+    /// No windows kept yet; each catalog read is handed to `compaction_limits` to calibrate.
+    pub(crate) fn new(compaction_limits: Arc<CodexCompactionLimits>) -> Self {
+        Self {
+            readings: Mutex::default(),
+            compaction_limits,
+        }
+    }
+
     /// The windows kept for `service`'s home and running build, `None` before a read of them.
     pub(crate) fn cached(&self, service: &CodexService) -> Option<Arc<CodexModelWindows>> {
         let provider_version = service.version_reading()?.report.raw_version;
@@ -107,7 +134,7 @@ impl CodexModelWindowCache {
 
     /// The windows kept for `service`, else read from its catalog now and kept. Never fails, as
     /// [`read_codex_service_model_windows`].
-    pub(crate) async fn read(&self, service: &CodexService) -> Arc<CodexModelWindows> {
+    pub(crate) async fn read(&self, service: &Arc<CodexService>) -> Arc<CodexModelWindows> {
         match self.cached(service) {
             Some(windows) => windows,
             None => self.refresh(service).await,
@@ -115,27 +142,37 @@ impl CodexModelWindowCache {
     }
 
     /// The windows `service`'s catalog gives now, kept in place of an earlier read for a running
-    /// build. A read that gave none is not kept, so the next asks again. Never fails, as
-    /// [`read_codex_service_model_windows`].
-    pub(crate) async fn refresh(&self, service: &CodexService) -> Arc<CodexModelWindows> {
-        let windows = Arc::new(
-            read_codex_service_model_windows(
-                read_codex_model_catalog_dump(service),
-                service.home(),
-            )
-            .await,
-        );
-        if let Some(version) = service.version_reading()
-            && !windows.is_empty()
-        {
-            lock(&self.readings).insert(
-                service.home().codex_home.clone(),
-                CachedModelWindows {
-                    provider_version: version.report.raw_version,
-                    windows: Arc::clone(&windows),
-                },
-            );
+    /// build, and the catalog handed to the calibration. A read that gave none is not kept, so the
+    /// next asks again. Never fails, as [`read_codex_service_model_windows`].
+    pub(crate) async fn refresh(&self, service: &Arc<CodexService>) -> Arc<CodexModelWindows> {
+        let dump = read_codex_model_catalog_dump(service).await;
+        let windows = Arc::new(read_codex_service_model_windows(
+            dump.as_deref()
+                .map_err(|error| error as &(dyn Error + 'static)),
+            service.home(),
+        ));
+        let (Ok(dump), Some(version)) = (dump, service.version_reading()) else {
+            return windows;
+        };
+        if windows.is_empty() {
+            return windows;
         }
+        let provider_version = version.report.raw_version;
+        lock(&self.readings).insert(
+            service.home().codex_home.clone(),
+            CachedModelWindows {
+                provider_version: provider_version.clone(),
+                windows: Arc::clone(&windows),
+            },
+        );
+        self.compaction_limits.calibrate_catalog(
+            service,
+            provider_version,
+            CodexCatalogReading {
+                dump: Arc::from(dump),
+                windows: Arc::clone(&windows),
+            },
+        );
         windows
     }
 }
@@ -152,16 +189,16 @@ struct ModelWindowReading {
     rejected_rows: Vec<RejectedModelRow>,
 }
 
-/// Each model's windows from the service's own catalog dump, which `dump` reads by running
-/// `codex debug models`. Never fails: a failed read, or a row that could not be read, is reported
-/// as `modelWindowReadFailed` and leaves those models without a window.
-pub(crate) async fn read_codex_service_model_windows(
-    dump: impl Future<Output = Result<String, impl Error + 'static>>,
+/// Each model's windows from the service's own catalog dump, as `codex debug models` printed it
+/// or failed to. Never fails: a failed read, or a row that could not be read, is reported as
+/// `modelWindowReadFailed` and leaves those models without a window.
+pub(crate) fn read_codex_service_model_windows(
+    dump: Result<&str, &(dyn Error + 'static)>,
     home: &CodexServiceHome,
 ) -> CodexModelWindows {
-    let reading = match dump.await {
-        Ok(dump) => read_model_windows(&dump).map_err(|error| describe_error(&error)),
-        Err(error) => Err(describe_error(&error)),
+    let reading = match dump {
+        Ok(dump) => read_model_windows(dump).map_err(|error| describe_error(&error)),
+        Err(error) => Err(describe_error(error)),
     };
     let reading = match reading {
         Ok(reading) => reading,
@@ -195,7 +232,7 @@ pub(crate) fn join_codex_model_windows(
                 return vec![model];
             };
             let larger_window = window
-                .and_then(|window| find_larger_window(*window))
+                .and_then(CodexModelWindow::larger_window)
                 .and_then(SafeInt::new);
             let default_row = ProviderModel {
                 context_window: Some(context_window),
@@ -237,7 +274,7 @@ pub(crate) fn read_codex_larger_window(
     Ok(reading
         .windows
         .get(model_id)
-        .and_then(|window| find_larger_window(*window)))
+        .and_then(CodexModelWindow::larger_window))
 }
 
 // Reads the dump row by row: a row that fails is left out among the rejected rows, and a row with
@@ -321,16 +358,6 @@ fn read_usable_percent(row: &Map<String, Value>) -> Result<u64, String> {
                 "`effective_context_window_percent` is not a whole percent from 1 to 100".to_owned()
             }),
     }
-}
-
-// A model's largest window, only where it exceeds the default.
-fn find_larger_window(window: CodexModelWindow) -> Option<u64> {
-    let (Some(context_window), Some(max_context_window)) =
-        (window.context_window, window.max_context_window)
-    else {
-        return None;
-    };
-    (max_context_window > context_window).then_some(max_context_window)
 }
 
 fn catalog_unreadable(detail: &str) -> ModelCatalogUnreadable {

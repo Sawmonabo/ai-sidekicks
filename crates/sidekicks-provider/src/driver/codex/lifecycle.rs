@@ -226,6 +226,11 @@ impl CodexDriver {
                 source_views.command_source(session_id)
             }),
         );
+        let compaction_limits = Arc::new(CodexCompactionLimits::new(
+            Arc::clone(&services.pool),
+            Arc::clone(&services.ports.database_writer),
+            tasks.clone(),
+        ));
         Self {
             base_environment: Arc::clone(&services.base_environment),
             reserved_names: Arc::clone(&services.reserved_names),
@@ -254,12 +259,8 @@ impl CodexDriver {
             run_routes: Arc::new(CodexRunRoutes::default()),
             provider_commands,
             views,
-            compaction_limits: Arc::new(CodexCompactionLimits::new(
-                Arc::clone(&services.pool),
-                Arc::clone(&services.ports.database_writer),
-                tasks.clone(),
-            )),
-            model_windows: Arc::default(),
+            model_windows: Arc::new(CodexModelWindowCache::new(Arc::clone(&compaction_limits))),
+            compaction_limits,
             rate_limits_read: Mutex::default(),
             capability_read: tokio::sync::Mutex::default(),
             tasks,
