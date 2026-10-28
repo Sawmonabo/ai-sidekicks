@@ -72,7 +72,7 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    record_first_provider_capabilities, test_opening_composer,
+    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
@@ -237,7 +237,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     insert_lead(&database, session_id, PROVIDERS[0].id);
     let process = Arc::new(ProcessStandIn::default());
-    let queue = queue_over(&database, &log, &home, driver, Arc::clone(&process) as _);
+    let queue = queue_over(
+        &database,
+        &log,
+        &home,
+        driver,
+        Arc::clone(&process) as _,
+        CurrentProviderAccount::Current(test_provider_account_id()),
+    );
     Fixture {
         database,
         log,
@@ -249,13 +256,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
-/// provider answered by `driver` and its process read from `processes`.
+/// provider answered by `driver`, its process read from `processes` and its account by `account`.
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
     home: &TempDir,
     driver: MockProviderDriver,
     processes: Arc<dyn ProviderProcessIds>,
+    account: CurrentProviderAccount,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -283,6 +291,7 @@ fn queue_over(
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),
         transition_lock: Arc::new(KeyedLock::new()),
+        process_follower: Arc::new(RecordedProcessFollowing::default()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
@@ -308,9 +317,7 @@ fn queue_over(
         pauses: Arc::new(RunPauseControl::new(pool, engine, providers)),
         followers: Arc::clone(&log.followers),
         read_damaged_from_sequence,
-        provider_accounts: registered_test_accounts(CurrentProviderAccount::Current(
-            test_provider_account_id(),
-        )),
+        provider_accounts: registered_test_accounts(account),
         token_limits: {
             let token_limits = PortRegistration::new("run token limits");
             token_limits

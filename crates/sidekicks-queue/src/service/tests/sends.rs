@@ -1,5 +1,6 @@
 //! A person's send: into a paused run, which it resumes, into a session whose lead run changes
-//! between the send's read and its write, and with a skill its provider does not list.
+//! between the send's read and its write, with a skill its provider does not list, and repeated
+//! under its key after its account was removed.
 
 use std::sync::Arc;
 
@@ -7,15 +8,19 @@ use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::run::queue::{
+    AgentQueueItemCreateRequest, AgentQueueItemCreateResponse, QueuedSkillPick,
+};
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::CurrentProviderAccount;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::RecordedQueueItemState;
 use tokio::time::timeout;
 
-use super::{DriverCalls, WAIT, fixture, recording_driver};
+use super::{DriverCalls, WAIT, fixture, queue_over, recording_driver};
 use crate::error::QueueError;
 
 // A send into a paused run resumes it with the message, which the provider is handed on the
@@ -178,4 +183,54 @@ async fn a_new_lead_run_is_admitted_with_the_configured_token_limit() {
         )
         .expect("the test reads the run's creation record");
     assert_eq!(token_limit, Some(500_000));
+}
+
+// A send repeated under its key answers what the first send saved, though no account of its
+// provider is registered any more. Killed by resolving the account before reading the saved send
+// (the repeat is refused `provider.account.notRegistered`).
+#[tokio::test]
+async fn a_send_repeated_after_its_account_was_removed_answers_the_saved_one() {
+    let fixture = fixture(MockProviderDriver::new()).await;
+    let run_id = fixture.insert_run("queued");
+    let item_id = fixture.queue_message(run_id).await;
+    let key = fixture
+        .stored_item(item_id)
+        .client_idempotency_key
+        .expect("the saved send keeps its key");
+    let queue = queue_over(
+        &fixture.database,
+        &fixture.log,
+        &fixture.home,
+        MockProviderDriver::new(),
+        Arc::clone(&fixture.process) as _,
+        CurrentProviderAccount::NoneRegistered,
+    );
+
+    let answer = queue
+        .create(
+            AgentQueueItemCreateRequest {
+                session_id: fixture.session_id,
+                to: None,
+                workspace_id: None,
+                client_idempotency_key: key,
+                content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                attachments: None,
+                skills: None,
+                replaces_queue_item_id: None,
+                answers_question_id: None,
+                output_speed_for_turn: None,
+            },
+            DeviceId::new("device-1".to_owned()).expect("a test device id"),
+        )
+        .await
+        .expect("the repeated send answers the saved one");
+
+    assert!(
+        matches!(
+            answer,
+            AgentQueueItemCreateResponse::Queued { queue_item_id, .. } if queue_item_id == item_id
+        ),
+        "{answer:?}"
+    );
+    assert_eq!(fixture.count_items(), 1);
 }

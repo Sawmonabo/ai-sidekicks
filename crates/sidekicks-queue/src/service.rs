@@ -267,23 +267,24 @@ impl RunQueue {
     /// `replaces_queue_item_id` edits a waiting message, or sends one not delivered again. Refuses
     /// a session the daemon does not hold, one whose provider has no account to run on
     /// (`provider.account.notRegistered`, `provider.account.current.notSet`), one closed
-    /// (`session.alreadyClosed`) or being purged (`session.changeRefused`), an edit of a message the agent has taken or its provider did not
-    /// give back, a retry in other words, a skill pick the provider does not list or whose read
-    /// waited past the delivery timeout, a send the store cannot keep and one whose lead run kept
-    /// moving under it, writing nothing.
+    /// (`session.alreadyClosed`) or being purged (`session.changeRefused`), an edit of a message
+    /// the agent has taken or its provider did not give back, a retry in other words, a skill pick
+    /// the provider does not list or whose read waited past the delivery timeout, a send the store
+    /// cannot keep and one whose lead run kept moving under it, writing nothing.
     pub async fn create(
         &self,
         request: AgentQueueItemCreateRequest,
         device_id: DeviceId,
     ) -> Result<AgentQueueItemCreateResponse, QueueError> {
         let session_id = request.to.unwrap_or(request.session_id);
-        let (provider, provider_account_id, driver) =
-            self.admission.admit_session_account(session_id).await?;
-        let run_config = self.admission.lead_run_config(session_id)?;
         let key = request.client_idempotency_key.clone();
+        // A repeated send answers what the first one saved, whatever its account or limit is now.
         if let Some(saved) = self.read_saved(session_id, &key).await? {
             return Ok(created_response_of(saved));
         }
+        let (provider, provider_account_id, driver) =
+            self.admission.admit_session_account(session_id).await?;
+        let run_config = self.admission.lead_run_config(session_id)?;
         let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
