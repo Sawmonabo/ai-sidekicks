@@ -15,7 +15,7 @@ pub mod managed;
 pub(crate) mod project;
 pub(crate) mod projector;
 pub mod repo;
-pub(crate) mod row_guards;
+pub mod row_guards;
 pub mod run_setup_gates;
 pub mod schema;
 #[cfg(any(test, feature = "test-support"))]

@@ -214,6 +214,7 @@ impl SetupFixture {
                 repo_mount_id: RepoMountId::new(&mint_uuid_v7().to_string())
                     .expect("a minted id is a mount id"),
                 place: None,
+                hook_output: None,
             })
             .await
             .expect("the setup runs");

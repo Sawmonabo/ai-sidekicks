@@ -396,7 +396,7 @@ pub(crate) fn is_named_worktree_folder(worktrees_folder: &Path, folder: &Path) -
 }
 
 /// Builds name plans from the project's and the machine's patterns.
-#[expect(dead_code, reason = "worktree creation and status")]
+#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone)]
 pub(crate) struct WorktreeNaming {
     worktrees_folder: PathBuf,
@@ -445,6 +445,21 @@ impl WorktreeNaming {
             session_short_id: short_id_of(session_id.text().as_str()),
             project_folder: self.worktrees_folder.join(project.slug),
         })
+    }
+
+    /// The tail `session_id`'s title words suggest, shaped by [`suggest_tail_for`]; the words are
+    /// those of `fallback_message` when the session has neither a name nor a first message yet.
+    /// Empty when no usable words remain. Fails when the session is unknown or its read fails.
+    pub(crate) async fn read_suggested_tail(
+        &self,
+        session_id: &SessionId,
+        fallback_message: Option<&str>,
+    ) -> Result<String, WorktreeNamingError> {
+        let title_words = self
+            .sources
+            .read_session_title_words(session_id, fallback_message)
+            .await?;
+        Ok(suggest_tail_for(&title_words))
     }
 }
 

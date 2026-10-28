@@ -42,7 +42,7 @@ use tokio::time::Instant;
 pub use self::steps::SetupCommandEndError;
 use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
-    keep_succeeded_steps, project_steps_of, run_command, step_error,
+    keep_succeeded_steps, output_text, project_steps_of, run_command, step_error,
 };
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
@@ -78,6 +78,9 @@ pub(crate) struct MadeWorktree {
     pub(crate) repo_mount_id: RepoMountId,
     /// Where the repository is, for its git calls; absent on macOS and Linux.
     pub(crate) place: Option<Place>,
+    /// What the tree's checkout hook printed when it failed, shown on the make-tree step; `None`
+    /// when it passed.
+    pub(crate) hook_output: Option<String>,
 }
 
 /// Why a setup call failed.
@@ -334,6 +337,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             if let Some(make_tree) = card.steps.first_mut() {
                 make_tree.step.state = WorktreeSetupStepState::Succeeded;
                 make_tree.step.elapsed_ms = Some(elapsed_ms);
+                make_tree.step.output = made.hook_output.as_deref().map(output_text);
             }
             card.made = Some(made.clone());
             card.emit(worktree_id);
