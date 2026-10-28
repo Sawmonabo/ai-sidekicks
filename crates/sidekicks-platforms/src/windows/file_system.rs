@@ -179,6 +179,14 @@ const EVERYONE_READ_DENIAL: &str = "*S-1-1-0:(RD,R)";
 #[cfg(any(test, feature = "test-support"))]
 pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = true;
 
+/// Whether a folder holding a file another handle keeps open, as [`create_held_file`] holds one,
+/// refuses a rename until the file is closed: always on Windows, which keeps a folder in place
+/// while a file inside it is open.
+///
+/// [`create_held_file`]: crate::create_held_file
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_HELD_FILE_REFUSE_RENAME: bool = true;
+
 /// A file or folder no one may read, or list, until this is dropped, when its deny entry is
 /// removed.
 #[cfg(any(test, feature = "test-support"))]

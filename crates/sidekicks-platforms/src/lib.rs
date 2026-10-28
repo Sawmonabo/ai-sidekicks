@@ -18,7 +18,8 @@
               `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
               lasting child's start on Windows (`CreateProcessW` with its attribute list, its \
               job's creation and access list, the handles it inherits and the wait for its exit), \
-              the user-namespace check's `unshare` and map writes, the boot id's `sysctl`, the \
+              the user-namespace check's and the scratch volume's `unshare` and map writes, the \
+              scratch volume's `mount`, the boot id's `sysctl`, the \
               Windows host-name, free-room, volume-root (`GetVolumePathNameW`, `GetDriveTypeW`) \
               and file-information calls, the Windows replacing rename's `MoveFileExW`, the caller \
               reads (Linux's peer process descriptor and `pidfd_open`, macOS's audit token, \
@@ -92,11 +93,14 @@ mod posix;
 mod process_containment;
 mod process_identity;
 mod process_start;
+mod process_tree;
 mod program_install_folders;
 mod program_start;
 mod recreate_link;
 mod run_folder;
 mod running_program;
+#[cfg(any(test, feature = "test-support"))]
+mod scratch_volume;
 mod session_child;
 mod shell_folder_start;
 mod shell_line_command;
@@ -154,7 +158,7 @@ pub use credential_store::{
 pub use entry_identity::{EntryIdentity, IdentifiedEntry, NotAnEntryIdentity};
 pub use executable_search::{find_executables, is_path_command, user_programs_folder};
 pub use file_facts::FileFacts;
-pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
+pub use file_watch::{DOES_WATCH_OUTLIVE_TREE_MOVE, WATCHES_TREES, inotify_watch_ceiling};
 #[cfg(any(test, feature = "test-support"))]
 pub use footprint::ProcessFootprint;
 pub use held_file::{create_held_file, is_held, remove_unless_held};
@@ -250,6 +254,7 @@ pub use own_root::become_own_root;
 #[cfg(any(test, feature = "test-support"))]
 pub use own_root::run_test_as_own_root;
 pub use path::program_output::path_from_program_output;
+pub use path::relative::relative_path;
 pub use path::resolution::{resolve_path, resolve_path_against};
 pub use path::rules::{PathRules, ShellWordRefused};
 pub use pinned_process::ProcessRecord;
@@ -293,6 +298,8 @@ pub use posix::error_codes::{
 };
 #[cfg(unix)]
 pub use posix::file_facts::{entry_changed_at, file_facts};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,
@@ -383,11 +390,14 @@ pub use process_containment::{
 };
 pub use process_identity::process_identity;
 pub use process_start::ProcessStart;
+pub use process_tree::{process_table, tree_under};
 pub use program_install_folders::{ProgramFolder, program_install_folders};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
+#[cfg(any(test, feature = "test-support"))]
+pub use scratch_volume::{ScratchVolume, scratch_volume};
 pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
@@ -470,6 +480,8 @@ pub use windows::error_codes::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::{entry_changed_at, file_facts};
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::file_system::DOES_HELD_FILE_REFUSE_RENAME;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::file_system::{
     CAN_OPEN_INSIDE_UNREADABLE_FOLDER, UnreadableEntry, UnremovableFile, UnwritableEntry,

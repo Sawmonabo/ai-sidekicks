@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use sidekicks_daemon::daemon::schema::schema_parts;
-use sidekicks_platforms::{PinnedProcess, pin_child_process};
+use sidekicks_platforms::{PinnedProcess, pin_child_process, process_table};
 use sidekicks_session::search::index::live::test_services::TestDaemonServices;
 use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
 use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
@@ -79,9 +79,7 @@ fn find_build_process(system: &mut System, index_folder: &Path) -> Option<Pid> {
 /// Waits for the build's process to appear and pins it, so its exit can be read after the close
 /// has ended it.
 async fn pin_build_process(index_folder: &Path) -> PinnedProcess {
-    // On Linux the process table would otherwise keep each process's `stat` file open.
-    sysinfo::set_open_files_limit(0);
-    let mut system = System::new();
+    let mut system = process_table();
     loop {
         if let Some(build) = find_build_process(&mut system, index_folder) {
             return pin_child_process(build.as_u32()).expect("the build's process is pinned");

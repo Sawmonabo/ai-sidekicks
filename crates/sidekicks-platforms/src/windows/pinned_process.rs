@@ -442,7 +442,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use rstest::rstest;
-    use sysinfo::{Pid, ProcessesToUpdate, System};
+    use sysinfo::{Pid, ProcessesToUpdate};
 
     use super::{PinnedProcess, count_active_processes, read_exit_code};
     use crate::child_command::ChildEnd;
@@ -629,7 +629,7 @@ mod tests {
     // A child of process `parent`, pinned, once one has started; fails the test after ten seconds.
     fn find_child_of(parent: u32) -> PinnedProcess {
         let give_up_at = Instant::now() + Duration::from_secs(10);
-        let mut system = System::new();
+        let mut system = crate::process_table();
         loop {
             system.refresh_processes(ProcessesToUpdate::All, true);
             let found = system
