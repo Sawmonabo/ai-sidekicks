@@ -55,6 +55,7 @@ use crate::output::screen::{ShellScreenAppearance, cut_title};
 use crate::record::{ShellRecord, ShellRecordDeps};
 use crate::refusals::terminal_not_found;
 use crate::resize::{ShellResizeError, ShellSize};
+use crate::start::SHELL_TERMINAL_PROGRAM;
 
 /// Reads a session's shape and working folder; refuses a session this daemon does not hold
 /// `session.notFound`.
@@ -84,9 +85,8 @@ pub(crate) struct ShellTableDeps {
     pub(crate) terminals: Arc<Terminals>,
     /// This machine's own device id, which a run's hold names.
     pub(crate) machine_device_id: DeviceId,
-    /// What each shell's terminal answers a program asking its name and version.
-    pub(crate) terminal_version: String,
-    /// This build's release version, which each shell reads as `TERM_PROGRAM_VERSION`.
+    /// This build's release version, which each shell reads as `TERM_PROGRAM_VERSION` and its
+    /// terminal answers a program asking its name and version with.
     pub(crate) release_version: String,
     /// Appends one change of a shell's holder to its session's event log.
     pub(crate) append_control_change: LeaseBroadcast,
@@ -144,7 +144,7 @@ impl ShellTable {
         let record_deps = Arc::new(ShellRecordDeps {
             terminals: Arc::clone(&deps.terminals),
             machine_device_id: deps.machine_device_id.clone(),
-            terminal_version: deps.terminal_version.clone(),
+            terminal_version: format!("{SHELL_TERMINAL_PROGRAM}({})", deps.release_version),
             append_control_change: Arc::clone(&deps.append_control_change),
             console_colors: Arc::new(Mutex::new(None)),
             runtime: deps.runtime.clone(),

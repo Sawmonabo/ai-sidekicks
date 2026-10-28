@@ -41,8 +41,9 @@ const SHELL_TERMINAL_NAME: &str = "xterm-256color";
 /// The color depth a shell's `COLORTERM` names: every pane draws 24-bit color.
 const SHELL_COLOR_DEPTH: &str = "truecolor";
 
-/// The terminal program a shell's `TERM_PROGRAM` names.
-const SHELL_TERMINAL_PROGRAM: &str = "sidekicks";
+/// The terminal program a shell's `TERM_PROGRAM` names, and the name its terminal answers a
+/// program asking its name and version with.
+pub(crate) const SHELL_TERMINAL_PROGRAM: &str = "sidekicks";
 
 /// The `LANG` a shell gets where neither its environment nor the person's settings name a locale
 /// with a region.
