@@ -77,13 +77,22 @@ macro_rules! status_notice {
 status_notice! {
     /// `mcp.server.status.changed`, the live notice of a status change on `mcp.subscribe`,
     /// written to no log, tagged on `origin`: a `sessionFeed` observation names the session and
-    /// the live leg it came from; a `machineProbe` observation has neither.
+    /// the live leg it came from; a `sessionEnded` notice names the session whose leg left, its
+    /// `status` the aggregate over the legs that remain; a `machineProbe` observation has neither.
     pub enum McpServerStatusChangedNotice {
         /// A session's live leg saw the change.
         SessionFeed {
             /// The session.
             session_id: SessionId,
             /// The live leg.
+            binding_id: RuntimeBindingId,
+        },
+        /// A session ended and its live leg left the aggregate; a page drops that leg and reads
+        /// nothing again.
+        SessionEnded {
+            /// The session that ended.
+            session_id: SessionId,
+            /// The leg that left.
             binding_id: RuntimeBindingId,
         },
         /// The daemon's own probe saw the change.

@@ -13,7 +13,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use strum::VariantArray;
+use strum::{IntoStaticStr, VariantArray};
 
 use crate::provider::driver::length_limits::{
     PROVIDER_MCP_SERVER_NAME_MAX_LEN, PROVIDER_TOOL_NAME_MAX_LEN,
@@ -102,9 +102,20 @@ impl McpApplicationGrade {
 
 /// The normalized approval vocabulary a tool override may pin.
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, VariantArray,
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
 )]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum McpApprovalMode {
     /// Every call runs without asking.
     Auto,
@@ -119,12 +130,27 @@ pub enum McpApprovalMode {
 /// Where a server binding applies: `user` in all projects, `project` in one project with its
 /// declaration in the repository, `local` in one project with its declaration outside the
 /// repository, `plugin` for a server an installed plugin carries, and, on a provider that brings
-/// servers itself, `connector` for a connector of its account and `managed` for an organization's
-/// server. The first three are writable on every provider; where a provider has no per-project
-/// layer outside the repository, the daemon emulates `local` with a user entry that is off by
-/// default and switched on in that project's sessions. The last two are read-only.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// servers itself, `connector` for a connector of its account and `managed` for a server an
+/// administrator layer declares (an organization's managed settings, or a provider's system-wide
+/// or managed-device configuration). The first three are writable on every provider; where a
+/// provider has no per-project layer outside the repository, the daemon emulates `local` with a
+/// user entry that is off by default and switched on in that project's sessions. The last two are
+/// read-only.
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum McpBindingScope {
     /// In all projects.
     User,
@@ -136,7 +162,7 @@ pub enum McpBindingScope {
     Plugin,
     /// A connector of one provider account.
     Connector,
-    /// An organization's server.
+    /// A server an administrator layer declares.
     Managed,
 }
 
