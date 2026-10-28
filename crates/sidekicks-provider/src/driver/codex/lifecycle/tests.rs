@@ -6,6 +6,7 @@ mod caller_check;
 mod capability_read;
 mod commands;
 mod intake;
+mod rule_revoke;
 mod sessions;
 mod terminal_reach;
 mod usage;
