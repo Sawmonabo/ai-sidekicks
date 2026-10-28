@@ -349,7 +349,7 @@ impl StartupRecovery {
             Err(ProjectionRebuildError::ProjectionFailure(failures)) => {
                 tracing::warn!(
                     session_id = %session_id,
-                    error = &failures as &(dyn Error + 'static),
+                    error = &*failures as &(dyn Error + 'static),
                     "a session's projections could not be rebuilt; the pass heals it"
                 );
                 self.heal(failures.original(), heal, tally, stop).await

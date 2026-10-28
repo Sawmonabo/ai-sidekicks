@@ -241,11 +241,6 @@ impl RecoveryStatusTracker {
         }
     }
 
-    /// The daemon's overall state: the most severe of its own and every damaged session's.
-    pub(crate) fn read_overall(&self) -> DaemonRecoveryState {
-        self.lock().overall()
-    }
-
     /// The `recovery` member of the status read: the overall state and every damaged session. The
     /// sessions the pass has yet to rebuild are left out; the daemon reads rebuilding while it
     /// runs.

@@ -111,7 +111,7 @@ pub enum ProjectionRebuildError {
     /// The log cannot be folded into rows; the session's cursor was marked stale, and the failure
     /// of marking it rides beside when that failed too.
     #[error("a session's projections were not rebuilt from its log")]
-    ProjectionFailure(#[source] CleanupFailures<ProjectionFailure, WriteError>),
+    ProjectionFailure(#[source] Box<CleanupFailures<ProjectionFailure, WriteError>>),
     /// The stop token was canceled before a page; the cursor is left `rebuilding`, so the next pass
     /// rebuilds the session.
     #[error("the rebuild was stopped before its next page")]
@@ -538,11 +538,11 @@ impl ProjectionRebuildService {
                 vec![error]
             }
         };
-        ProjectionRebuildError::ProjectionFailure(CleanupFailures::new(
+        ProjectionRebuildError::ProjectionFailure(Box::new(CleanupFailures::new(
             failure,
             cleanup_failures,
             "marking the session's projections stale",
-        ))
+        )))
     }
 
     // Tells the watch of a failure on its way to the caller; only a damaged file counts.
