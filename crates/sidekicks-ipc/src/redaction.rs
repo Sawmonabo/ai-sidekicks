@@ -136,7 +136,7 @@ pub fn scrub_credentials(raw_detail: &str) -> String {
 
 /// `text` with the query of every `scheme://` URL in it replaced by `?***`, keeping the scheme,
 /// host, path and fragment: a query's names and values are treated as credentials.
-pub(crate) fn strip_url_queries(text: &str) -> String {
+pub fn strip_url_queries(text: &str) -> String {
     URL_QUERY
         .replace_all(text, |captures: &Captures<'_>| {
             format!("{}?{CREDENTIAL_REDACTION}", &captures[1])

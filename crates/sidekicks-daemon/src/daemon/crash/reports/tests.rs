@@ -36,6 +36,7 @@ const SESSION_ID: &str = "0199f3a1-7c2e-7b44-9a51-3f0e6d2c8b17";
 const PRIVATE_FOLDER: &str = "/Users/someone/private project/src";
 const PLANTED_API_KEY: &str = "sk-plantedkey0123456789";
 const PLANTED_BEARER_TOKEN: &str = "x.y.z";
+const PLANTED_QUERY_TOKEN: &str = "plantedquery0123456789";
 
 // Runs as the crashing child: connects to the monitor, attaches the crash handler and crashes
 // as asked, a panic through the service's own hook or a bad read.
@@ -58,7 +59,8 @@ fn crash_as_the_child(crash: &str) -> ! {
         send_panics_to_monitor(client);
         panic!(
             "session {SESSION_ID} failed reading {PRIVATE_FOLDER}/main.rs:12:5 with key \
-             {PLANTED_API_KEY} and Authorization: Bearer {PLANTED_BEARER_TOKEN} ({})",
+             {PLANTED_API_KEY} and Authorization: Bearer {PLANTED_BEARER_TOKEN} from \
+             https://host.example/mcp?access={PLANTED_QUERY_TOKEN} ({})",
             std::hint::black_box(&held).len()
         );
     }
@@ -117,7 +119,8 @@ fn crash_a_child(crash: &str, data_folder: &Path) {
 // no report holds the secret the child's dump does; each dump is deleted once built. While
 // `Keep crash reports` is off, no report is built and every dump, report and panic record
 // goes. Killed by a path kept whole or cut at a space, by an unkeyed or raw id, by the
-// credential scrub dropped from the report or either raw record, by a dump left behind, by the
+// credential scrub or the query strip dropped from either raw record, by the credential scrub
+// dropped from the report, by a dump left behind, by the
 // monitor not writing, by the switch not read, and by the raw record kept while it is off.
 #[tokio::test]
 async fn crashes_become_stripped_reports_and_none_while_off() {
@@ -167,6 +170,7 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
     );
     assert!(!monitor_records[0].contains(PLANTED_API_KEY));
     assert!(!monitor_records[0].contains(PLANTED_BEARER_TOKEN));
+    assert!(!monitor_records[0].contains(PLANTED_QUERY_TOKEN));
     let settings = Arc::new(MachineSettingsFile::new(
         data_folder.join("machine-settings.json"),
     ));
@@ -195,6 +199,7 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
     assert!(!report_text.contains(SESSION_ID));
     assert!(!report_text.contains(PLANTED_API_KEY));
     assert!(!report_text.contains(PLANTED_BEARER_TOKEN));
+    assert!(!report_text.contains(PLANTED_QUERY_TOKEN));
     let raw_records = panic_records(&data_folder);
     assert_eq!(raw_records.len(), 1, "the panic's hook wrote its record");
     let raw_record = fs::read_to_string(&raw_records[0]).expect("the record reads");
@@ -204,6 +209,7 @@ async fn crashes_become_stripped_reports_and_none_while_off() {
     );
     assert!(!raw_record.contains(PLANTED_API_KEY));
     assert!(!raw_record.contains(PLANTED_BEARER_TOKEN));
+    assert!(!raw_record.contains(PLANTED_QUERY_TOKEN));
     for report in &reports {
         assert!(!report.stack.as_ref().is_empty(), "each report has a stack");
     }
