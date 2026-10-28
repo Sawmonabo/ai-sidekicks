@@ -45,7 +45,7 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
     ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
@@ -569,10 +569,6 @@ impl ProviderDriver for ClaudeDriver {
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
         self.ask_side_question(params).boxed()
-    }
-
-    fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.start_review(params).boxed()
     }
 
     fn subscribe_provider_commands(

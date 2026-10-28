@@ -29,7 +29,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
+    PermissionLevel, SessionMode, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -343,16 +343,6 @@ pub struct AskSideQuestionParams {
     /// The session's newest resume material, composed as a resume's is, which the copy is forked
     /// from when no live process runs the session; `None` for a session with no conversation yet.
     pub resume: Option<ResumeSessionParams>,
-}
-
-/// Params of `start_review`: the provider's own review of `target`, bracketed by the
-/// `reviewStarted` and `reviewFinished` notices.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StartReviewParams {
-    /// The session.
-    pub session_id: SessionId,
-    /// What the review covers.
-    pub target: SessionReviewTarget,
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.

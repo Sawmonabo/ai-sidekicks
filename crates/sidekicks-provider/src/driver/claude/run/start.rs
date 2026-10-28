@@ -41,8 +41,8 @@ use crate::run::start_request::DaemonTurnStartRequest;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
 /// files a person's message carries, written to the session's own process under the message id a
-/// later cut names; a turn run apart from that process, started once its run is bound; or the turn
-/// Claude Code started by itself, which its run takes with nothing written.
+/// later cut names; or the turn Claude Code started by itself, which its run takes with nothing
+/// written.
 pub(crate) enum ClaudeDaemonTurnOpening {
     /// Words written to the session's process.
     Text {
@@ -52,11 +52,6 @@ pub(crate) enum ClaudeDaemonTurnOpening {
         message_id: String,
         /// The blocks of its files, in staging order.
         attachment_blocks: Vec<ClaudeUserContentBlock>,
-    },
-    /// A turn run apart from the session's process.
-    Apart {
-        /// Starts the turn once its run is bound.
-        start: Arc<dyn Fn(ClaudeBoundRun) + Send + Sync>,
     },
     /// The turn Claude Code started by itself.
     Provider,
@@ -190,7 +185,6 @@ impl ClaudeRunStart {
                     )
                 })?;
         let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
-        let is_apart = matches!(opening, ClaudeDaemonTurnOpening::Apart { .. });
         if matches!(opening, ClaudeDaemonTurnOpening::Text { .. })
             && self.routes.is_turn_held(session_id)
         {
@@ -210,7 +204,7 @@ impl ClaudeRunStart {
             admitted_provider_account_id: live.admitted_provider_account_id.clone(),
             execution_posture,
             is_provider_started,
-            is_apart,
+            is_apart: false,
             start_turn: Box::new(move |run_id| {
                 let start = start.clone();
                 let opening = lock(&opening).take();
@@ -250,7 +244,6 @@ impl ClaudeRunStart {
             binding_id: binding.binding_id,
         };
         match opening {
-            Some(ClaudeDaemonTurnOpening::Apart { start }) => start(run),
             Some(ClaudeDaemonTurnOpening::Provider) => {
                 self.routes
                     .hold_turn(run_id, session_id, run.binding_id.clone())

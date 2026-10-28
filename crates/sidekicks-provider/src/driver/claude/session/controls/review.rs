@@ -1,7 +1,6 @@
 //! Claude Code's own review of the session's changes with its bundled `code-review` skill, between
-//! the `reviewStarted` and `reviewFinished` notices: a turn the daemon starts on the session
-//! itself, or the turn of a run the queue admitted. The staged set alone is reviewed by a one-turn
-//! process apart from the session's own.
+//! the `reviewStarted` and `reviewFinished` notices, as the turn of the run the queue admitted. The
+//! staged set alone is reviewed by a one-turn process apart from the session's own.
 
 use std::future::Future;
 use std::sync::Arc;
@@ -9,11 +8,10 @@ use std::sync::Arc;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 
 use super::{ClaudeReviewProgress, ClaudeSessionControls};
 use crate::driver::claude::run::routes::ClaudeBoundRun;
-use crate::driver::claude::run::start::{ClaudeDaemonTurnOpening, claude_session_unavailable};
+use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::errors::ClaudeSessionUnavailableReason;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::contract::{DriverError, StartRunParams};
@@ -23,38 +21,11 @@ use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";
 
 impl ClaudeSessionControls {
-    /// Starts Claude Code's own review of `target` as the session's own run: a turn on the
-    /// session's process for the working tree or the branch, and for the staged set a one-turn
-    /// process in a worktree holding only the staged changes, which a stop ends. Returns once it
-    /// has started; fails `ReviewSkillAbsent` when the build lists no such skill, and as the run's
-    /// start fails.
-    pub(crate) async fn start_review(
-        self: &Arc<Self>,
-        live: &Arc<LiveClaudeSession>,
-        target: SessionReviewTarget,
-    ) -> Result<(), DriverError> {
-        let session_id = live.session_id;
-        self.require_review_skill(live)?;
-        if target == SessionReviewTarget::Staged {
-            return self.start_staged_review(live).await;
-        }
-        let opening = ClaudeDaemonTurnOpening::Text {
-            text: review_text(target),
-            message_id: mint_uuid_v7().to_string(),
-            attachment_blocks: Vec::new(),
-        };
-        self.run_review(session_id, target, async {
-            self.run_start
-                .start_daemon_turn(session_id, opening)
-                .await
-                .map(drop)
-        })
-        .await
-    }
-
     /// Starts Claude Code's own review of `target` as the turn of the run the queue admitted in
-    /// `params`, which ends as the review ends; the staged set is reviewed apart from the session's
-    /// process under that run. Fails as `start_review` does.
+    /// `params`, which ends as the review ends: a turn on the session's process for the working
+    /// tree or the branch, and for the staged set a one-turn process in a worktree holding only the
+    /// staged changes, which the run's stop ends. Returns once it has started; fails
+    /// `ReviewSkillAbsent` when the build lists no such skill, and as the run's start fails.
     pub(crate) async fn start_queued_review(
         self: &Arc<Self>,
         params: &StartRunParams,

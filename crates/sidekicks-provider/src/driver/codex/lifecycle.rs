@@ -315,7 +315,6 @@ impl CodexDriver {
             config_forks: Arc::clone(&self.config_forks),
             run_routes: Arc::clone(&self.run_routes),
             engine: Arc::clone(&engine),
-            daemon_turn_bindings: Arc::clone(&daemon_turn_bindings),
             attachments: Arc::clone(&self.attachments),
             dispatch: Arc::clone(&dispatch),
         }));

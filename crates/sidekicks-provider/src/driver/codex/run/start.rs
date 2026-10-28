@@ -43,7 +43,6 @@ use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::thread::view::{TURN_START_METHOD, read_turn_id};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::contract::{RunOpeningItem, StartRunParams};
-use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 
@@ -59,11 +58,8 @@ pub(crate) struct CodexRunStartDependencies {
     pub(crate) config_forks: Arc<CodexConfigForks>,
     /// The driver's run routes.
     pub(crate) run_routes: Arc<CodexRunRoutes>,
-    /// The run engine, which opens a turn the daemon starts as the session's own run and takes
-    /// each run's settled output speed.
+    /// The run engine, which takes each run's settled output speed.
     pub(crate) engine: Arc<dyn RunHost>,
-    /// Opens the binding of a turn the daemon starts.
-    pub(crate) daemon_turn_bindings: Arc<dyn DaemonTurnBindingResolver>,
     /// Binds a message's staged files.
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
     /// The run engine's dispatch, which records a review's start.

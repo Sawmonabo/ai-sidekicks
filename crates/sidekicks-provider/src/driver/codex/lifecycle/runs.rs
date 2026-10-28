@@ -1,6 +1,6 @@
 //! A Codex run's calls: its start, interrupt, steer, pause and continue, a retry of its held turn
 //! on a faster model, the answer to an ask it raised, `Allow once` on a block of Codex's own
-//! reviewer, Codex's own review, and the skills a person picked for its message.
+//! reviewer, and the skills a person picked for its message.
 
 use std::path::Path;
 
@@ -9,7 +9,6 @@ use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
-use crate::driver::codex::run::start::daemon_turns::CodexDaemonTurnError;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::{DriverError, RespondToRequestParams, StartRunParams};
 use crate::driver::run_control::{
@@ -17,7 +16,6 @@ use crate::driver::run_control::{
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
     ResumeRunParams,
 };
-use crate::driver::session_control::StartReviewParams;
 
 impl CodexDriver {
     /// Starts one run's turn on its session's conversation; see the run start.
@@ -92,20 +90,6 @@ impl CodexDriver {
         params: OverrideDenialParams,
     ) -> Result<(), DriverError> {
         Ok(self.parts()?.controls.override_denial(params).await?)
-    }
-
-    /// Starts Codex's own review as the session's own run.
-    pub(crate) async fn start_review(&self, params: StartReviewParams) -> Result<(), DriverError> {
-        let started = self
-            .parts()?
-            .run_start
-            .start_review(params.session_id, params.target)
-            .await;
-        match started {
-            Ok(()) => Ok(()),
-            Err(CodexDaemonTurnError::Codex(error)) => Err(error.into()),
-            Err(CodexDaemonTurnError::Engine(error)) => Err(DriverError::Internal(error)),
-        }
     }
 
     /// The skills `picks` names as Codex lists them for the session, each by its name and the

@@ -65,9 +65,9 @@ use crate::driver::ports::SessionPlace;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
     DriverAuthProbeStatus, ProviderCommandsListener, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, StartReviewParams, StartingLevel, StartingLevelParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
-    build_auth_probe_result, permission_level_not_offered,
+    SessionCommandAnswer, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
+    permission_level_not_offered,
 };
 use crate::port::registration::PortRegistration;
 use crate::port::session_inbox_address::SessionInboxAddresser;
@@ -513,16 +513,6 @@ impl ClaudeDriver {
                 copy,
                 &self.sources.ports.usage,
             )
-            .await
-    }
-
-    /// Starts Claude Code's own review; resolves once it has started.
-    pub(crate) async fn start_review(&self, params: StartReviewParams) -> Result<(), DriverError> {
-        let parts = self.parts()?;
-        let live = parts.run_start.live_session(params.session_id)?;
-        parts
-            .session_controls
-            .start_review(&live, params.target)
             .await
     }
 

@@ -67,7 +67,7 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
     ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
@@ -523,9 +523,6 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
-
-    /// Starts the provider's own review; resolves once it has started.
-    fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// Follows the session's live command list (gated on `providerCommands`): `listener` gets the
     /// current list and each change until the returned subscription drops.

@@ -37,7 +37,7 @@ use crate::driver::contract::{DriverError, ProviderDriver, RunOpeningItem};
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
-    StartReviewParams, UpdateSessionModeParams,
+    UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -89,44 +89,24 @@ fn offer_review_skill(fixture: &ScriptedDriver, session_id: SessionId) {
     );
 }
 
-// Killed by a stop that does not reach the review's run apart from the session's process, whether
-// the daemon started the run or the queue admitted it: the review would go on to open its worktree
-// and fail instead of ending interrupted.
-#[rstest]
-#[case::started_by_the_daemon(false)]
-#[case::queued(true)]
+// Killed by a stop that does not reach the review's run apart from the session's process: the
+// review would go on to open its worktree and fail instead of ending interrupted.
 #[tokio::test(start_paused = true)]
-async fn a_stop_ends_the_staged_review_apart_from_the_session_process(#[case] is_queued: bool) {
+async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
     let fixture = ScriptedDriver::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     offer_review_skill(&fixture, session_id);
 
-    let run_id = if is_queued {
-        let run_id = new_run_id();
-        let mut params = start_params(session_id, run_id);
-        params.opening.item = RunOpeningItem::Review {
-            target: SessionReviewTarget::Staged,
-        };
-        fixture
-            .driver
-            .start_run(params)
-            .await
-            .expect("the review starts");
-        run_id
-    } else {
-        fixture
-            .driver
-            .start_review(StartReviewParams {
-                session_id,
-                target: SessionReviewTarget::Staged,
-            })
-            .await
-            .expect("the review starts");
-        fixture
-            .engine
-            .first_daemon_turn_run()
-            .expect("the review's run was started")
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
     };
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
     fixture
         .driver
         .interrupt_run(InterruptRunRequest {

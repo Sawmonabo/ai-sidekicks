@@ -219,8 +219,6 @@ impl TestCodexSession {
             config_forks,
             run_routes: Arc::clone(&run_routes),
             engine: Arc::clone(&engine) as _,
-            daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
-                as Arc<dyn DaemonTurnBindingResolver>,
             attachments: Arc::new(NoAttachments),
             dispatch: Arc::clone(&engine) as _,
         }));

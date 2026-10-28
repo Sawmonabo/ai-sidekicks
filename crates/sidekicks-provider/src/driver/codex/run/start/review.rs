@@ -1,6 +1,6 @@
-//! Codex's own review of a set of changes, started with `review/start` as the turn of a run: one
-//! the daemon starts on the session itself, or the run the queue admitted. Its start is recorded
-//! once Codex took the request; its end once Codex leaves review mode.
+//! Codex's own review of a set of changes, started with `review/start` as the turn of the run the
+//! queue admitted. Its start is recorded once Codex took the request; its end once Codex leaves
+//! review mode.
 
 use std::sync::Arc;
 
@@ -12,9 +12,7 @@ use sidekicks_contracts::session::id::SessionId;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::{ReviewStartParams, ReviewTarget};
 use crate::driver::codex::run::routes::CodexRunBinding;
-use crate::driver::codex::run::start::daemon_turns::{
-    CodexDaemonTurnError, CodexDaemonTurnOpening,
-};
+use crate::driver::codex::run::start::daemon_turns::CodexDaemonTurnOpening;
 use crate::driver::codex::run::start::{
     CODEX_TURN_START_TIMEOUT, CodexRunStart, wait_out_stopped_turns,
 };
@@ -29,17 +27,6 @@ use crate::run::delivery::InboundDelivery;
 const REVIEW_START_METHOD: &str = "review/start";
 
 impl CodexRunStart {
-    /// Starts Codex's own review of `target` in the session's conversation as the session's own
-    /// run and records its start. Fails as [`Self::start_daemon_turn`] does.
-    pub(crate) async fn start_review(
-        self: &Arc<Self>,
-        session_id: SessionId,
-        target: SessionReviewTarget,
-    ) -> Result<(), CodexDaemonTurnError> {
-        let opening = self.review_opening(session_id, target);
-        self.start_daemon_turn(session_id, opening).await.map(drop)
-    }
-
     /// Starts Codex's own review of `target` as the turn of the run the queue admitted in
     /// `params`, on the binding the daemon opened for it, after a config fork in flight and once
     /// every turn the daemon is stopping ended, within one turn-start deadline. A run whose review
