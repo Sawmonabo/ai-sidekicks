@@ -366,7 +366,7 @@ impl ScheduledJobHandle {
     /// arm the wall-clock timer for it, which drops the job, or `None` once it ran, was canceled or
     /// the scheduler stopped. A job set a delay away, or a second call, settles at once with
     /// `None`.
-    pub(crate) async fn refusal(&mut self) -> Option<ScheduleError> {
+    pub async fn refusal(&mut self) -> Option<ScheduleError> {
         self.refusal.take()?.await.ok()
     }
 
