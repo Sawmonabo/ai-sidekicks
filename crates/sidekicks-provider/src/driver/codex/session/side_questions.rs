@@ -1,5 +1,7 @@
 //! A side question on Codex: a throwaway, read-only copy of the session's conversation answers it
-//! in one turn, and the answer is delivered as `session.sideQuestion.answered`. The copy runs under
+//! in one turn, the answer is delivered as `session.sideQuestion.answered`, and the ask is answered
+//! once the copy's turn ended: with the answer delivered, refused where Codex's policy refused the
+//! turn, else failed with why no answer came. The copy runs under
 //! the daemon's read-only profile, which keeps the credential denies, asks nothing and reaches no
 //! tool server. On a live session it is forked on the session's service and its frames are
 //! diverted before the session's own routing; on a resting one it is forked from the stored
@@ -12,8 +14,12 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Deserialize;
+use serde_json::Value;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
+use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
+use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::session::controls::events::SessionSideQuestionAnsweredPayload;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SideQuestionId, SideQuestionText,
@@ -21,13 +27,15 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
-use tokio::sync::mpsc;
+use sidekicks_std::text_cut::cut_to_code_points;
+use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::{AskForApproval, ThreadForkParams};
 use crate::driver::codex::attachments::compose_codex_text_input;
+use crate::driver::codex::delivery::memory::read_codex_error_kind;
 use crate::driver::codex::event_normalizer::{
     CODEX_ITEM_COMPLETED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
 };
@@ -49,9 +57,10 @@ use crate::driver::codex::thread::view::{
 };
 use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
+use crate::driver::contract::{DriverError, bound_failure_detail};
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::error_causes::{UNSPECIFIED_PROVIDER_FAILURE_DETAIL, side_question_refusal};
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::registration::PortRegistration;
@@ -68,6 +77,13 @@ const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
 
 /// Why a copy's turn gave no answer when Codex named no error.
 const NO_ANSWER_DETAIL: &str = "The copy's turn ended with no answer.";
+
+/// The `codexErrorInfo` arms of a turn Codex's policy refused.
+const CODEX_POLICY_REFUSALS: [&str; 2] = ["cyberPolicy", "misalignmentPolicyViolation"];
+
+/// What came of a side question whose copy was forked: answered with its answer delivered, or why
+/// none came. It closes unanswered when a close or the driver's shutdown stopped the copy.
+pub(crate) type CodexSideQuestionAnswer = oneshot::Receiver<Result<(), CodexError>>;
 
 /// The cost one frame of a side question's copy metered, for the session's account.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -94,7 +110,11 @@ struct CodexSideQuestion {
     provider_account_id: Option<ProviderAccountId>,
     side_question_id: SideQuestionId,
     question: SideQuestionText,
+    // The model the copy runs, which a refusal names.
+    model: String,
     answer: Option<String>,
+    // Where what came of the question goes.
+    answered: oneshot::Sender<Result<(), CodexError>>,
     // Fresh for the copy, so its cost never takes the session's own counts as its base.
     accountant: UsageDeltaAccountant,
     // Fires once the copy's session closed or the driver shut down before its turn ended.
@@ -120,12 +140,7 @@ struct CopyItem {
 #[derive(Deserialize)]
 struct CopyTurn {
     status: Option<String>,
-    error: Option<CopyTurnError>,
-}
-
-#[derive(Deserialize)]
-struct CopyTurnError {
-    message: Option<String>,
+    error: Option<Value>,
 }
 
 /// What one frame of a copy did.
@@ -137,14 +152,15 @@ enum CopyFrameTaken {
 }
 
 impl CodexSideQuestion {
-    // The question asked as `params` on `service`'s copy `copy_thread_id`, its cost based fresh,
-    // stopped through `stop`.
+    // The question asked as `params` on `service`'s copy `copy_thread_id` of a conversation on
+    // `model`, its cost based fresh, stopped through `stop`, what came of it sent on `answered`.
     fn new(
         service: Arc<CodexService>,
         provider_account_id: Option<ProviderAccountId>,
         params: &AskSideQuestionParams,
-        copy_thread_id: &str,
+        (copy_thread_id, model): (&str, String),
         stop: CancellationToken,
+        answered: oneshot::Sender<Result<(), CodexError>>,
     ) -> Self {
         let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
         accountant.establish_thread(copy_thread_id.to_owned(), ThreadBaseEstablishment::Fresh);
@@ -157,7 +173,9 @@ impl CodexSideQuestion {
                 FreeFormText::new(params.question.clone())
                     .expect("a side question's text was checked where it came in"),
             ),
+            model,
             answer: None,
+            answered,
             accountant,
             stop,
             turn_id: None,
@@ -238,20 +256,22 @@ impl CodexSideQuestions {
         }
     }
 
-    /// Asks `params`' question on a read-only copy of `record`'s conversation and answers once
-    /// Codex took its turn; a copy whose session closed while it was forked is let go with no turn
-    /// started, one stopped while its turn started has the turn stopped, and one asked for after
-    /// the driver stopped every copy is never forked; each answers `Ok`. Fails as the fork or the
-    /// turn's request fails, and with `CodexError::Transport` when the copy does not run
-    /// read-only; the copy is let go either way.
+    /// Asks `params`' question on a read-only copy of `record`'s conversation and answers, once
+    /// Codex took its turn, where what came of it will go; it is never awaited on the session's
+    /// task, which reads the copy's frames. A copy whose session closed while it was forked is let
+    /// go with no turn started, one stopped while its turn started has the turn stopped, and one
+    /// asked for after the driver stopped every copy is never forked; each closes its answer
+    /// unanswered. Fails as the fork or the turn's request fails, and with
+    /// `CodexError::Transport` when the copy does not run read-only; the copy is let go either way.
     pub(crate) async fn ask(
         &self,
         record: &CodexSessionRecord,
         params: &AskSideQuestionParams,
-    ) -> Result<(), CodexError> {
+    ) -> Result<CodexSideQuestionAnswer, CodexError> {
+        let (answered, answer) = oneshot::channel();
         let stop = self.enter_copy(params);
         if stop.is_cancelled() {
-            return Ok(());
+            return Ok(answer);
         }
         let service = Arc::clone(&record.service);
         let (fork, read_only_profile) =
@@ -276,13 +296,14 @@ impl CodexSideQuestions {
             Arc::clone(&service),
             record.provider_account_id.clone(),
             params,
-            &copy_thread_id,
+            (&copy_thread_id, record.thread_settings.model.clone()),
             stop,
+            answered,
         );
         if !self.hand_over_live_copy(params.side_question_id, &copy_thread_id, question) {
             drop(claim);
             let_go_codex_thread(&service, &copy_thread_id).await;
-            return Ok(());
+            return Ok(answer);
         }
         service.register_thread(copy_thread_id.clone(), params.session_id);
         drop(claim);
@@ -305,28 +326,29 @@ impl CodexSideQuestions {
             }
         };
         self.keep_live_turn(&copy_thread_id, turn_id).await;
-        Ok(())
+        Ok(answer)
     }
 
     /// Asks `params`' question on a read-only copy of the resting session's stored conversation,
     /// which `resume` names with the session's settings and account: forked on the account's
-    /// service, started now, over a connection of its own, and answered once Codex took its turn,
-    /// its cost filed through `usage`. The copy is let go with its connection once its turn ended,
-    /// or once [`Self::forget_session`] or [`Self::stop_every_copy`] stopped it, its turn stopped
-    /// where it started; a copy stopped before its turn answers `Ok`. Fails as `establishment`
-    /// cannot compose
-    /// the settings or start the service, as the connection, the fork or the turn's request fails,
-    /// and with `CodexError::Transport` when the copy does not run read-only.
+    /// service, started now, over a connection of its own, its cost filed through `usage`; answers,
+    /// once Codex took its turn, where what came of it will go. The copy is let go with its
+    /// connection once its turn ended, or once [`Self::forget_session`] or
+    /// [`Self::stop_every_copy`] stopped it, its turn stopped where it started; a copy stopped
+    /// closes its answer unanswered. Fails as `establishment` cannot compose the settings or start
+    /// the service, as the connection, the fork or the turn's request fails, and with
+    /// `CodexError::Transport` when the copy does not run read-only.
     pub(crate) async fn ask_at_rest(
         &self,
         establishment: &CodexSessionEstablishment,
         resume: &ResumeSessionParams,
         params: &AskSideQuestionParams,
         usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
-    ) -> Result<(), CodexError> {
+    ) -> Result<CodexSideQuestionAnswer, CodexError> {
+        let (answered, answer) = oneshot::channel();
         let stop = self.enter_copy(params);
         if stop.is_cancelled() {
-            return Ok(());
+            return Ok(answer);
         }
         // A stop before the copy's turn is asked for drops the connection, which ends the copy.
         let forked = stop
@@ -338,7 +360,7 @@ impl CodexSideQuestions {
                 self.remove_copy_stop(params.side_question_id);
                 return Err(error);
             }
-            None => return Ok(()),
+            None => return Ok(answer),
         };
         let started = {
             let start = start_turn(&copy.connection, &copy.thread_id, &params.question);
@@ -349,7 +371,7 @@ impl CodexSideQuestions {
                 // Once asked for, the turn starts whatever the stop: wait for its id, then stop it.
                 () = stop.cancelled() => {
                     stop_detached_turn(&copy.connection, &copy.thread_id, start).await;
-                    return Ok(());
+                    return Ok(answer);
                 }
             }
         };
@@ -364,8 +386,9 @@ impl CodexSideQuestions {
             service,
             resume.provider_account_id.clone(),
             params,
-            &copy.thread_id,
+            (&copy.thread_id, copy.model.clone()),
             stop,
+            answered,
         );
         question.turn_id = Some(turn_id.clone());
         self.tasks.spawn(answer_at_rest(
@@ -376,7 +399,7 @@ impl CodexSideQuestions {
             turn_id,
             Arc::clone(&self.copy_stops),
         ));
-        Ok(())
+        Ok(answer)
     }
 
     /// Takes a frame of a side question's copy, `None` when it belongs to none. The copy's reply
@@ -591,20 +614,22 @@ async fn fork_resting_copy(
             connection,
             frames,
             thread_id,
+            model: settings.model,
         },
     ))
 }
 
 /// A resting session's copy: the connection of its own it runs on, where that connection's
-/// notifications arrive, and its conversation.
+/// notifications arrive, its conversation and the model it runs.
 struct CodexRestingCopy {
     connection: CodexAppServerConnection,
     frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
     thread_id: String,
+    model: String,
 }
 
 // Reads a resting session's copy's frames until its turn ended and delivers its answer, its cost
-// filed through `usage`; once its connection dropped it is reported unanswered, and once the
+// filed through `usage`; once its connection dropped the ask fails with no answer, and once the
 // question's stop fired its turn is stopped and nothing is delivered. The copy leaves `copy_stops`
 // and is let go with its connection.
 async fn answer_at_rest(
@@ -686,54 +711,118 @@ async fn finish(
     let_go_codex_thread(&service, &thread_id).await;
 }
 
-// Delivers the copy's answer when its turn completed with one, else reports why none came. A NUL
-// the answer holds is dropped, since the row's text carries none.
+// Delivers the copy's answer when its turn completed with one, and answers the ask with what came
+// of it. A NUL the answer holds is dropped, since the row's text carries none.
 async fn deliver_answer(
     dispatch: &dyn InboundDispatch,
     question: CodexSideQuestion,
     turn: Option<CopyTurn>,
 ) {
-    let answer = question
-        .answer
-        .and_then(|answer| FreeFormText::new(answer.replace('\0', "")).ok());
+    let CodexSideQuestion {
+        session_id,
+        provider_account_id,
+        side_question_id,
+        question,
+        model,
+        answer,
+        answered,
+        ..
+    } = question;
+    let answer = answer.and_then(|answer| FreeFormText::new(answer.replace('\0', "")).ok());
     let is_completed = turn.as_ref().is_some_and(|turn| {
         turn.status.as_deref().and_then(CodexTurnStatus::read) == Some(CodexTurnStatus::Completed)
     });
-    match answer {
+    let outcome = match answer {
         Some(answer) if is_completed => {
             Box::pin(dispatch_delivery(
                 dispatch,
                 DeliveryOrigin {
                     provider: DESCRIPTOR.provider_id(),
-                    provider_account_id: question.provider_account_id.clone(),
+                    provider_account_id,
                     raw_wire_type: Some(CODEX_TURN_COMPLETED_METHOD),
                 },
                 InboundDelivery::SessionEvent {
                     row: SessionScopedRow::SideQuestionAnswered(
                         SessionSideQuestionAnsweredPayload {
-                            session_id: question.session_id,
-                            side_question_id: question.side_question_id,
-                            question: question.question,
+                            session_id,
+                            side_question_id,
+                            question,
                             answer,
                         },
                     ),
                 },
             ))
             .await;
+            Ok(())
         }
-        Some(_) | None => {
-            let detail = turn
-                .and_then(|turn| turn.error)
-                .and_then(|error| error.message)
-                .filter(|message| !message.trim().is_empty())
-                .unwrap_or_else(|| NO_ANSWER_DETAIL.to_owned());
-            CodexTransportDiagnostic::SideQuestionUnanswered {
-                session_id: question.session_id,
-                error: detail.into(),
-            }
-            .report();
-        }
+        Some(_) | None => Err(unanswered(
+            session_id,
+            side_question_id,
+            &model,
+            turn.and_then(|turn| turn.error).as_ref(),
+        )),
+    };
+    // An ask whose caller stopped waiting has no one left to tell.
+    let _unheard = answered.send(outcome);
+}
+
+// Why a copy's turn on `model` gave no answer: refused `session.sideQuestion.refused` with Codex's
+// error as the cause where Codex's policy refused the turn, else a failure in Codex's words.
+fn unanswered(
+    session_id: SessionId,
+    side_question_id: SideQuestionId,
+    model: &str,
+    error: Option<&Value>,
+) -> CodexError {
+    let words = |member: &str| {
+        error
+            .and_then(|error| error.get(member))
+            .and_then(Value::as_str)
+            .filter(|words| !words.trim().is_empty())
+    };
+    let refusal = read_codex_error_kind(error)
+        .filter(|kind| CODEX_POLICY_REFUSALS.contains(&kind.as_str()))
+        .and_then(|kind| {
+            Some(RunFailureCause::Refused {
+                origin: RunRefusedOrigin::Provider,
+                model: wire_handle(model)?,
+                sentence: words("message").map(failure_detail),
+                explanation: words("additionalDetails").map(failure_detail),
+                safety_category: wire_handle(&kind),
+            })
+        });
+    match refusal {
+        Some(cause) => CodexError::Driver(DriverError::Refused(side_question_refusal(
+            session_id,
+            side_question_id,
+            &cause,
+        ))),
+        None => CodexError::Driver(DriverError::Internal(
+            words("message")
+                .unwrap_or(NO_ANSWER_DETAIL)
+                .to_owned()
+                .into(),
+        )),
     }
+}
+
+fn failure_detail(words: &str) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
+    bound_failure_detail(words, UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone())
+}
+
+// `text` cut to a wire handle's cap; `None` where it is blank.
+fn wire_handle(text: &str) -> Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>> {
+    FreeFormText::new(cut_to_code_points(text, PROVIDER_WIRE_HANDLE_MAX_LEN).to_owned()).ok()
+}
+
+/// Waits for what came of a side question: `Ok` once its answer was delivered, and once a close
+/// or the driver's shutdown stopped its copy, with nothing delivered. Fails as the copy's turn gave
+/// no answer: refused `session.sideQuestion.refused` where Codex's policy refused it.
+pub(crate) async fn wait_for_side_question_answer(
+    answer: CodexSideQuestionAnswer,
+) -> Result<(), CodexError> {
+    // A stopped copy drops its question unanswered.
+    answer.await.unwrap_or(Ok(()))
 }
 
 #[cfg(test)]

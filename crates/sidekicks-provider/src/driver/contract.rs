@@ -523,7 +523,8 @@ pub trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<SessionCommandAnswer, DriverError>>;
 
     /// Asks a side question on a throwaway copy of the conversation; resolves once it is answered,
-    /// and fails as the question's turn fails.
+    /// is refused `session.sideQuestion.refused` when the model refuses it, and fails as the
+    /// question's turn fails.
     fn ask_side_question(
         &self,
         params: AskSideQuestionParams,

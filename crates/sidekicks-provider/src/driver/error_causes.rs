@@ -1,8 +1,8 @@
 //! The typed causes a driver error carries where its caller acts on more than a code: a provider
 //! command that names no runnable build, a request the provider got with no answer back, a model
 //! catalog that cannot be read, and a provider axis set to a value the provider does not offer;
-//! the refusal every driver answers a provider's own failure with, and the one a run meets on a
-//! session whose process is not running.
+//! the refusals every driver answers a provider's own failure, a refused side question and a run
+//! on a session whose process is not running with.
 
 use std::error::Error;
 use std::io;
@@ -13,6 +13,8 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::failure_cause::RunFailureCause;
+use sidekicks_contracts::session::controls::methods::SideQuestionId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
@@ -58,6 +60,24 @@ pub fn session_process_unavailable(session_id: SessionId) -> DomainError {
         RefusalCode::ProviderUnavailable,
     )
     .with_detail(json!({ "sessionId": session_id }))
+}
+
+/// The refusal of a side question the model refused: `session.sideQuestion.refused`, naming the
+/// session and the question, with the refusal as the driver read it as `cause`.
+pub(crate) fn side_question_refusal(
+    session_id: SessionId,
+    side_question_id: SideQuestionId,
+    cause: &RunFailureCause,
+) -> DomainError {
+    DomainError::new(
+        "The model refused the side question",
+        RefusalCode::SessionSideQuestionRefused,
+    )
+    .with_detail(json!({
+        "sessionId": session_id,
+        "sideQuestionId": side_question_id,
+        "cause": cause,
+    }))
 }
 
 /// The configured provider command names no runnable build, or one whose real path cannot be

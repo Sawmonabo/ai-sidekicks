@@ -138,29 +138,60 @@ async fn open_copy(listener: &Listener, profile: &str) -> (CopySocket, Map<Strin
     (socket, fork)
 }
 
+/// How the copy's one turn ends.
+pub(crate) enum CopyTurnEnding {
+    /// Completed with [`ANSWER`].
+    Answered,
+    /// Failed, Codex's policy having refused it.
+    RefusedByPolicy,
+}
+
+/// The words Codex refuses a turn under its policy with.
+pub(crate) const POLICY_REFUSAL: &str = "This request was flagged by the cyber policy.";
+
 /// Serves the copy's connection as Codex: its start, a fork of the stored conversation under
-/// `profile`, one turn and its answer; answers the fork's params once the daemon let the
+/// `profile`, one turn ending as `ending` says; answers the fork's params once the daemon let the
 /// connection go.
-pub(super) async fn serve_copy(listener: Listener, profile: String) -> Map<String, Value> {
+pub(crate) async fn serve_copy(
+    listener: Listener,
+    profile: String,
+    ending: CopyTurnEnding,
+) -> Map<String, Value> {
     let (mut socket, fork) = open_copy(&listener, &profile).await;
-    send_on_socket(
-        &mut socket,
-        json!({"jsonrpc": "2.0", "method": "item/completed", "params": {
-            "threadId": COPY_THREAD,
-            "turnId": COPY_TURN,
-            "item": {"type": "agentMessage", "id": "item-1", "text": ANSWER},
-        }}),
-    )
-    .await;
+    let turn = match ending {
+        CopyTurnEnding::Answered => {
+            send_on_socket(
+                &mut socket,
+                json!({"jsonrpc": "2.0", "method": "item/completed", "params": {
+                    "threadId": COPY_THREAD,
+                    "turnId": COPY_TURN,
+                    "item": {"type": "agentMessage", "id": "item-1", "text": ANSWER},
+                }}),
+            )
+            .await;
+            json!({"id": COPY_TURN, "items": [], "status": "completed"})
+        }
+        CopyTurnEnding::RefusedByPolicy => json!({
+            "id": COPY_TURN,
+            "items": [],
+            "status": "failed",
+            "error": {
+                "message": POLICY_REFUSAL,
+                "codexErrorInfo": "cyberPolicy",
+                "additionalDetails": null,
+                "misalignment": null,
+            },
+        }),
+    };
     send_on_socket(
         &mut socket,
         json!({"jsonrpc": "2.0", "method": "turn/completed", "params": {
             "threadId": COPY_THREAD,
-            "turn": {"id": COPY_TURN, "items": [], "status": "completed"},
+            "turn": turn,
         }}),
     )
     .await;
-    // The copy is let go with its connection once it answered.
+    // The copy is let go with its connection once its turn ended.
     while let Some(Ok(_message)) = socket.next().await {}
     fork
 }

@@ -12,6 +12,7 @@ use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::session::calls::ask_codex_session;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
+use crate::driver::codex::session::side_questions::CodexSideQuestionAnswer;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::session_control::{AskSideQuestionParams, UpdatePermissionLevelParams};
 
@@ -49,8 +50,9 @@ pub(crate) enum CodexLifecycleCall {
     AskSideQuestion {
         /// The question.
         params: Box<AskSideQuestionParams>,
-        /// Where the ask's failure goes.
-        reply: oneshot::Sender<Result<(), CodexError>>,
+        /// Where what will come of the question goes once the copy's turn started, or the ask's
+        /// failure.
+        reply: oneshot::Sender<Result<CodexSideQuestionAnswer, CodexError>>,
     },
     /// Reads the conversation a compaction runs on.
     ReadCompaction {

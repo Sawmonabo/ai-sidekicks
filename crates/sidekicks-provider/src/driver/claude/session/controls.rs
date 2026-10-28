@@ -11,7 +11,6 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
-use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
@@ -29,7 +28,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
-use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -61,6 +59,7 @@ use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeO
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::{DriverError, ProviderCommandsSubscription};
 use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::error_causes::side_question_refusal;
 use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -606,17 +605,11 @@ fn side_question_row(
     reply: ClaudeOneTurnReply,
 ) -> Result<SessionScopedRow, DriverError> {
     if let Some(cause) = reply.refusal {
-        return Err(DriverError::Refused(
-            DomainError::new(
-                "The model refused the side question",
-                RefusalCode::SessionSideQuestionRefused,
-            )
-            .with_detail(json!({
-                "sessionId": session_id,
-                "sideQuestionId": side_question_id,
-                "cause": cause,
-            })),
-        ));
+        return Err(DriverError::Refused(side_question_refusal(
+            session_id,
+            side_question_id,
+            &cause,
+        )));
     }
     let unstorable = |error: TextError| DriverError::Internal(Box::new(error));
     let question = FreeFormText::new(question).map_err(unstorable)?;

@@ -8,6 +8,7 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -26,14 +27,16 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::side_questions::test_copies::{
-    COPY_THREAD, COPY_TURN, read_only_profile, resting_question, serve_unended_copy,
+    COPY_THREAD, COPY_TURN, CopyTurnEnding, POLICY_REFUSAL, read_only_profile, resting_question,
+    serve_copy, serve_unended_copy,
 };
+use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::{
     OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
 };
-use crate::driver::contract::SessionProcessState;
+use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::ports::ProcessGoneListener;
 use crate::driver::session_control::CloseSessionParams;
@@ -338,13 +341,28 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         read_only_profile(folder.path()),
     ));
 
-    driver
-        .ask_side_question(resting_question(new_session_id(), folder.path()))
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let params = resting_question(new_session_id(), folder.path());
+    // Asked as the driver asks it, without waiting for the answer the stop drops.
+    let answer = parts
+        .side_questions
+        .ask_at_rest(
+            &parts.establishment,
+            params
+                .resume
+                .as_ref()
+                .expect("the question is asked at rest"),
+            &params,
+            Arc::clone(&parts.ports.usage),
+        )
         .await
         .expect("the copy takes the question");
     tokio::time::timeout(CLOSE_BOUND, driver.shutdown(DaemonStopIntent::Restart))
         .await
         .expect("the stop ends once the copy's turn is stopped");
+    wait_for_side_question_answer(answer)
+        .await
+        .expect("a stopped copy delivers nothing");
 
     let interrupt = tokio::time::timeout(CLOSE_BOUND, served)
         .await
@@ -354,6 +372,44 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         interrupt["params"],
         json!({"threadId": COPY_THREAD, "turnId": COPY_TURN})
     );
+}
+
+// Real time under a timeout, as above. Killed by answering the ask before the copy's turn ended,
+// which leaves the person neither an answer nor a refusal, and by failing a turn Codex's policy
+// refused as the driver's own failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_side_question_codexs_policy_refuses_is_refused_once_its_turn_ended() {
+    let scripted = start_scripted_codex_service();
+    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
+        return;
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let driver = driver_holding(&scripted, folder.path());
+    let served = tokio::spawn(serve_copy(
+        listener,
+        read_only_profile(folder.path()),
+        CopyTurnEnding::RefusedByPolicy,
+    ));
+    let params = resting_question(new_session_id(), folder.path());
+    let side_question_id = params.side_question_id;
+
+    let asked = tokio::time::timeout(CLOSE_BOUND, driver.ask_side_question(params))
+        .await
+        .expect("the ask answers once the copy's turn ended");
+    tokio::time::timeout(CLOSE_BOUND, served)
+        .await
+        .expect("the daemon lets the copy's connection go")
+        .expect("the service served the copy");
+
+    let Err(DriverError::Refused(refusal)) = asked else {
+        panic!("a refused turn refuses the question, not {asked:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::SessionSideQuestionRefused);
+    let detail = refusal.detail.expect("the refusal names its cause");
+    assert_eq!(detail["sideQuestionId"], json!(side_question_id));
+    assert_eq!(detail["cause"]["cause"], "refused");
+    assert_eq!(detail["cause"]["safetyCategory"], "cyberPolicy");
+    assert_eq!(detail["cause"]["sentence"], POLICY_REFUSAL);
 }
 
 // The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
