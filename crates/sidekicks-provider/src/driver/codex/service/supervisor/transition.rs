@@ -1,14 +1,16 @@
-//! The supervisor's states and the one function that moves them: given the state and an event, it
-//! answers the next state and the actions the supervisor's runner carries out whole before it
-//! reads the next event. It reads no clock and draws no random number: each event carries the
-//! instants it needs, and the runner draws the reconnect's jitter. Every launch, dial and wait
-//! takes a ticket of its own; an outcome whose ticket the state no longer names is stale, and one
-//! that carries a connection or a process is torn down, never dropped.
+//! The one function that moves a supervisor's state: given the state and an event, it answers the
+//! next state and the actions the supervisor's runner carries out whole before it reads the next
+//! event. It reads no clock and draws no random number: each event carries the instants it needs,
+//! and the runner draws the reconnect's jitter and runs the silence watch. Every launch, dial,
+//! wait and watch takes a ticket of its own; an outcome whose ticket the state no longer names is
+//! stale, and one that carries a connection or a process is torn down, never dropped.
 
 pub(crate) mod action;
+pub(crate) mod event;
+pub(crate) mod state;
 
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 
 use crate::crash_window::{CrashOutcome, CrashWindow};
 use crate::driver::codex::service::home::CodexServiceKind;
@@ -17,178 +19,22 @@ use crate::driver::codex::service::supervisor::reconnect::RECONNECT_STABLE_UPTIM
 use crate::driver::codex::service::supervisor::transition::action::{
     LastingServiceEnd, SupervisorAction,
 };
+use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
+use crate::driver::codex::service::supervisor::transition::state::{StoppingThen, SupervisorState};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 
-/// Where one service stands.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) enum SupervisorState {
-    /// Nothing runs and nothing is starting.
-    Stopped,
-    /// A start is under way.
-    Starting {
-        /// The start's ticket.
-        launch: u64,
-        /// Why the conversations on the service need resuming once it is up, when they do.
-        recovery: Option<CodexServiceRecoveryCause>,
-    },
-    /// The service runs and the daemon's connection is open.
-    Up {
-        /// The ticket of the start whose process runs.
-        launch: u64,
-        /// The ticket of the open connection.
-        dial: u64,
-        /// How many redials the drops since the last stable connection made, 0 for a start; the
-        /// next drop's wait grows from it.
-        attempt: u32,
-        /// When the connection came up.
-        since: Instant,
-        /// Codex's words once it answered that it drains toward its exit: new work is refused,
-        /// reads and interrupts go on.
-        draining: Option<String>,
-    },
-    /// The connection dropped while the service runs; a redial is waiting or under way, and it
-    /// never gives up.
-    Reconnecting {
-        /// The ticket of the start whose process runs.
-        launch: u64,
-        /// The ticket of the redial under way.
-        dial: u64,
-        /// How many redials came before this one since the last stable connection, which its wait
-        /// grows from.
-        attempt: u32,
-    },
-    /// The process ended on its own and the crash window's wait runs before the next start.
-    Restarting {
-        /// The wait's ticket.
-        wait: u64,
-    },
-    /// The process ended too many times in the crash window; it stays down until the person's
-    /// restart.
-    CrashLoop,
-    /// A stop is under way.
-    Stopping {
-        /// The ticket of the start whose process is stopping.
-        launch: u64,
-        /// What follows once it has stopped.
-        then: StoppingThen,
-        /// What becomes of a terminal service's lasting process.
-        end: LastingServiceEnd,
-    },
-    /// Shut down with the daemon; nothing starts it again.
-    ShutDown,
-}
+/// How long a service the daemon started may answer nothing, since its connection dropped or a
+/// request on its open connection went unanswered, before the daemon ends it as a crash.
+pub(crate) const SERVICE_SILENCE_LIMIT: Duration = Duration::from_mins(2);
 
-/// What follows a stop.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum StoppingThen {
-    /// Nothing.
-    Stopped,
-    /// A fresh start.
-    Starting,
-    /// The service is shut down for good.
-    ShutDown,
-}
+// The span over which silent ends are counted apart from the crash window, which two-minute
+// silences can never fill.
+const SILENT_END_WINDOW: Duration = Duration::from_mins(30);
 
-/// What reaches the supervisor: a caller's ask, or the outcome of something its runner did.
-#[derive(Debug)]
-pub(crate) enum SupervisorEvent {
-    /// A caller needs the service up.
-    Start,
-    /// A start brought the service up, its process and connection parked under `launch`.
-    Started {
-        /// The start's ticket.
-        launch: u64,
-        /// When the connection came up.
-        at: Instant,
-        /// What the start found the service to be.
-        kind: CodexServiceKind,
-    },
-    /// A start failed; anything it launched is parked under `launch`.
-    StartFailed {
-        /// The start's ticket.
-        launch: u64,
-        /// When it failed, on the wall clock.
-        at: SystemTime,
-        /// Why.
-        failure: Arc<CodexError>,
-    },
-    /// The connection `dial` closed with no close of the daemon's.
-    Dropped {
-        /// The connection's ticket.
-        dial: u64,
-        /// When it closed.
-        at: Instant,
-        /// When it closed, on the wall clock.
-        wall_at: SystemTime,
-        /// Whether the runner found gone a process the daemon cannot wait on, whose end it reads
-        /// from no exit.
-        is_unwaited_process_gone: bool,
-    },
-    /// The process the start `launch` launched ended.
-    ProcessExited {
-        /// The start's ticket.
-        launch: u64,
-        /// When, on the wall clock.
-        at: SystemTime,
-    },
-    /// A redial opened a connection, parked under `dial`.
-    Reconnected {
-        /// The redial's ticket.
-        dial: u64,
-        /// When it came up.
-        at: Instant,
-    },
-    /// A redial failed.
-    ReconnectFailed {
-        /// The redial's ticket.
-        dial: u64,
-        /// Whether anything answered on the socket.
-        is_listening: bool,
-        /// Whether the runner found gone a process the daemon cannot wait on, whose end it reads
-        /// from no exit.
-        is_unwaited_process_gone: bool,
-    },
-    /// A crash restart's wait ended.
-    WaitElapsed {
-        /// The wait's ticket.
-        wait: u64,
-    },
-    /// The stop or teardown of what the ticket named ended.
-    StopDone {
-        /// The ticket.
-        ticket: u64,
-    },
-    /// Codex answered on connection `dial` that it drains toward its exit.
-    Draining {
-        /// The connection's ticket.
-        dial: u64,
-        /// Codex's words.
-        message: String,
-    },
-    /// Codex's own managed daemon this supervisor joined is free, and the runner stopped it.
-    JoinedServiceFreed {
-        /// The ticket of the connection it was joined on.
-        dial: u64,
-    },
-    /// The daemon's last conversation on a joined service closed, so it may be free.
-    LastConversationClosed,
-    /// The person or the switch stops the service.
-    Stop,
-    /// The daemon stops or restarts.
-    Shutdown {
-        /// Which.
-        intent: DaemonStopIntent,
-    },
-    /// The person's restart of a service left down, which forgets the crash window.
-    Restart,
-    /// A start on a new program: a Codex update, the daemon's own program moved, or hooks that
-    /// do not match.
-    PlannedRestart,
-    /// A planned restart's second service took this one's place on its home, so it is never
-    /// started again: once its process ends, its conversations move to the second.
-    Replaced,
-}
+// One entry per silent end the window lets pass, so the fifth leaves the service down; only the
+// count is read, since the crash window gives the wait before each restart.
+const SILENT_ENDS_PASSED: &[Duration] = &[Duration::ZERO; 4];
 
 /// How a service stands, as the callers waiting on it read it.
 #[derive(Clone, Debug)]
@@ -219,6 +65,8 @@ pub(crate) struct Supervision {
     state: SupervisorState,
     kind: CodexServiceKind,
     crash_window: CrashWindow,
+    // The silent ends over the last half hour.
+    silent_ends: CrashWindow,
     next_ticket: u64,
     // Whether another service took this one's place on its home.
     is_replaced: bool,
@@ -232,6 +80,7 @@ impl Supervision {
             state: SupervisorState::Stopped,
             kind,
             crash_window: CrashWindow::provider(),
+            silent_ends: CrashWindow::new(SILENT_END_WINDOW, SILENT_ENDS_PASSED),
             next_ticket: 1,
             is_replaced: false,
         }
@@ -247,12 +96,33 @@ impl Supervision {
         self.kind
     }
 
-    /// Moves the state by `event` and answers what the runner carries out, in order.
+    /// Moves the state by `event` and answers what the runner carries out, in order; a silence
+    /// watch the new state no longer names is ended first.
     pub(crate) fn transition(&mut self, event: SupervisorEvent) -> Vec<SupervisorAction> {
         let state = std::mem::replace(&mut self.state, SupervisorState::Stopped);
-        let (next, actions) = self.step(state, event);
+        let watched = state.silence_ticket();
+        let (next, mut actions) = self.step(state, event);
+        if watched.is_some() && next.silence_ticket() != watched {
+            actions.insert(0, SupervisorAction::ClearSilence);
+        }
         self.state = next;
         actions
+    }
+
+    // Forgets every crash and silent end; the person's restart does this.
+    fn forget_crashes(&mut self) {
+        self.crash_window.clear();
+        self.silent_ends.clear();
+    }
+
+    // A silence watch for a service the daemon started; one it joined is never ended.
+    fn watch_silence(&mut self, actions: &mut Vec<SupervisorAction>) -> Option<u64> {
+        if !self.kind.is_daemons_own() {
+            return None;
+        }
+        let ticket = self.mint_ticket();
+        actions.push(SupervisorAction::WatchSilence { ticket });
+        Some(ticket)
     }
 
     fn mint_ticket(&mut self) -> u64 {
@@ -275,18 +145,24 @@ impl Supervision {
         (SupervisorState::Starting { launch, recovery }, actions)
     }
 
-    // The process ended on its own at `at`: a restart after the crash window's wait, or the
-    // crash loop that leaves it down, reported with `start_failure` where the crash was a restart
-    // that failed; a replaced service is never restarted and its record goes. With no `at`, a
-    // lasting service a former daemon started whose end the daemon could not read, it starts
-    // again at once and no crash is counted, since a crash loop names its end.
+    // The process ended on its own at `at`, or the daemon ended it for its silence: a restart
+    // after the crash window's wait, or the crash loop that leaves it down, reported with
+    // `start_failure` where the crash was a restart that failed; a silent end also counts toward
+    // the half hour's limit. A replaced service is never restarted and its record goes. With no
+    // `at`, a lasting service a former daemon started whose end the daemon could not read, it
+    // starts again at once and no crash is counted, since a crash loop names its end.
     fn crash(
         &mut self,
         at: Option<SystemTime>,
         start_failure: Option<Arc<CodexError>>,
+        is_silent: bool,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
-        actions.push(SupervisorAction::ReportProcessExited);
+        actions.push(if is_silent {
+            SupervisorAction::ReportSilentEnd
+        } else {
+            SupervisorAction::ReportProcessExited
+        });
         if self.is_replaced {
             actions.push(SupervisorAction::RetireRecord);
             actions.push(SupervisorAction::Publish(CodexServiceAvailability::Stopped));
@@ -295,7 +171,11 @@ impl Supervision {
         let Some(at) = at else {
             return self.start(Some(CodexServiceRecoveryCause::Crash), actions);
         };
-        match self.crash_window.record_crash(at) {
+        let mut outcome = self.crash_window.record_crash(at);
+        if is_silent && self.silent_ends.record_crash(at) == CrashOutcome::CrashLoop {
+            outcome = CrashOutcome::CrashLoop;
+        }
+        match outcome {
             CrashOutcome::RestartAfter(wait) => {
                 let ticket = self.mint_ticket();
                 actions.push(SupervisorAction::WaitToRestart { ticket, wait });
@@ -329,7 +209,7 @@ impl Supervision {
             Some(CodexServiceRecoveryCause::Crash | CodexServiceRecoveryCause::PersonRestart)
         ) {
             actions.push(SupervisorAction::ReportStartFailed(Arc::clone(&failure)));
-            return self.crash(Some(at), Some(failure), actions);
+            return self.crash(Some(at), Some(failure), false, actions);
         }
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
@@ -362,11 +242,13 @@ impl Supervision {
         }
     }
 
-    // A redial after `attempt` earlier ones, waiting the wait grown from that count.
+    // A redial after `attempt` earlier ones, waiting the wait grown from that count, under the
+    // silence watch `silence`.
     fn redial(
         &mut self,
         launch: u64,
         attempt: u32,
+        silence: Option<u64>,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
         let dial = self.mint_ticket();
@@ -379,6 +261,7 @@ impl Supervision {
                 launch,
                 dial,
                 attempt,
+                silence,
             },
             actions,
         )
@@ -475,7 +358,7 @@ impl Supervision {
             }
             (State::Stopped, Event::Start) => self.start(None, Vec::new()),
             (State::Stopped, Event::Restart) => {
-                self.crash_window.clear();
+                self.forget_crashes();
                 self.start(None, Vec::new())
             }
             (State::Stopped | State::CrashLoop, Event::Stop) => (
@@ -497,7 +380,7 @@ impl Supervision {
                 state @ (State::Starting { .. } | State::Up { .. } | State::Reconnecting { .. }),
                 Event::Restart,
             ) => {
-                self.crash_window.clear();
+                self.forget_crashes();
                 (state, Vec::new())
             }
             (State::Starting { launch, recovery }, Event::Started { at, kind, .. }) => {
@@ -514,6 +397,7 @@ impl Supervision {
                         attempt: 0,
                         since: at,
                         draining: None,
+                        silence: None,
                     },
                     actions,
                 )
@@ -580,6 +464,7 @@ impl Supervision {
                     dial,
                     attempt,
                     since,
+                    silence,
                     ..
                 },
                 Event::Dropped {
@@ -593,21 +478,30 @@ impl Supervision {
                     return self.crash(
                         None,
                         None,
+                        false,
                         vec![Action::Disconnect {
                             is_process_gone: true,
                         }],
                     );
                 }
                 let is_stable = at.saturating_duration_since(since) >= RECONNECT_STABLE_UPTIME;
+                let mut actions = vec![
+                    Action::Disconnect {
+                        is_process_gone: false,
+                    },
+                    Action::ReportDropped,
+                ];
+                // A watch already running since an unanswered request goes on: the silence began
+                // then.
+                let silence = match silence {
+                    Some(ticket) => Some(ticket),
+                    None => self.watch_silence(&mut actions),
+                };
                 self.redial(
                     launch,
                     if is_stable { 0 } else { attempt },
-                    vec![
-                        Action::Disconnect {
-                            is_process_gone: false,
-                        },
-                        Action::ReportDropped,
-                    ],
+                    silence,
+                    actions,
                 )
             }
             (State::Up { launch, .. }, Event::ProcessExited { launch: ended, at })
@@ -616,6 +510,7 @@ impl Supervision {
                 self.crash(
                     Some(at),
                     None,
+                    false,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -627,6 +522,7 @@ impl Supervision {
                     dial,
                     attempt,
                     since,
+                    silence,
                     ..
                 },
                 Event::Draining {
@@ -640,8 +536,78 @@ impl Supervision {
                     attempt,
                     since,
                     draining: Some(message),
+                    silence,
                 },
                 Vec::new(),
+            ),
+            // A request went unanswered on the open connection: the silence watch starts, unless
+            // one already runs, so a later request's timeout never pushes its end out.
+            (
+                State::Up {
+                    launch,
+                    dial,
+                    attempt,
+                    since,
+                    draining,
+                    silence: None,
+                },
+                Event::RequestTimedOut { dial: timed_out },
+            ) if timed_out == dial => {
+                let mut actions = Vec::new();
+                let silence = self.watch_silence(&mut actions);
+                (
+                    State::Up {
+                        launch,
+                        dial,
+                        attempt,
+                        since,
+                        draining,
+                        silence,
+                    },
+                    actions,
+                )
+            }
+            // The service sent something on the connection: its silence is over.
+            (
+                State::Up {
+                    launch,
+                    dial,
+                    attempt,
+                    since,
+                    draining,
+                    silence: Some(_),
+                },
+                Event::Answered { dial: answered },
+            ) if answered == dial => (
+                State::Up {
+                    launch,
+                    dial,
+                    attempt,
+                    since,
+                    draining,
+                    silence: None,
+                },
+                Vec::new(),
+            ),
+            // The service answered nothing for the whole limit: the daemon ends it, and its end
+            // is a crash once the stop is done.
+            (
+                State::Up {
+                    launch,
+                    silence: Some(watched),
+                    ..
+                }
+                | State::Reconnecting {
+                    launch,
+                    silence: Some(watched),
+                    ..
+                },
+                Event::SilenceElapsed { ticket, at },
+            ) if ticket == watched => Self::stop(
+                launch,
+                StoppingThen::SilentEnd { at },
+                LastingServiceEnd::Stop,
+                vec![Action::CancelPending],
             ),
             (State::Up { launch, .. }, Event::Stop) => Self::stop(
                 launch,
@@ -670,6 +636,7 @@ impl Supervision {
                 CodexServiceKind::Joined => self.redial(
                     launch,
                     0,
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: false,
                     }],
@@ -698,6 +665,7 @@ impl Supervision {
                     launch,
                     dial,
                     attempt,
+                    ..
                 },
                 Event::Reconnected { at, .. },
             ) => (
@@ -707,6 +675,7 @@ impl Supervision {
                     attempt: attempt.saturating_add(1),
                     since: at,
                     draining: None,
+                    silence: None,
                 },
                 vec![
                     Action::AdoptDial { dial },
@@ -719,6 +688,7 @@ impl Supervision {
                     launch,
                     dial,
                     attempt,
+                    silence,
                 },
                 Event::ReconnectFailed {
                     dial: failed,
@@ -729,6 +699,7 @@ impl Supervision {
                 (CodexServiceKind::Account | CodexServiceKind::Terminal, true) => self.crash(
                     None,
                     None,
+                    false,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -746,7 +717,7 @@ impl Supervision {
                     | CodexServiceKind::Terminal
                     | CodexServiceKind::Joined,
                     _,
-                ) => self.redial(launch, attempt.saturating_add(1), Vec::new()),
+                ) => self.redial(launch, attempt.saturating_add(1), silence, Vec::new()),
             },
             (State::Reconnecting { launch, .. }, Event::ProcessExited { launch: ended, at })
                 if ended == launch =>
@@ -754,6 +725,7 @@ impl Supervision {
                 self.crash(
                     Some(at),
                     None,
+                    false,
                     vec![
                         Action::CancelPending,
                         Action::Disconnect {
@@ -788,7 +760,7 @@ impl Supervision {
                 ],
             ),
             (State::Restarting { .. }, Event::Restart) => {
-                self.crash_window.clear();
+                self.forget_crashes();
                 self.start(
                     Some(CodexServiceRecoveryCause::Crash),
                     vec![Action::CancelPending],
@@ -800,7 +772,7 @@ impl Supervision {
                 vec![Action::Publish(CodexServiceAvailability::CrashLoop)],
             ),
             (State::CrashLoop, Event::Restart) => {
-                self.crash_window.clear();
+                self.forget_crashes();
                 self.start(Some(CodexServiceRecoveryCause::PersonRestart), Vec::new())
             }
 
@@ -822,6 +794,7 @@ impl Supervision {
                         vec![Action::Publish(CodexServiceAvailability::Stopped)],
                     ),
                     StoppingThen::Starting => self.start(None, Vec::new()),
+                    StoppingThen::SilentEnd { at } => self.crash(Some(at), None, true, Vec::new()),
                     StoppingThen::ShutDown => (
                         State::ShutDown,
                         vec![Action::Publish(CodexServiceAvailability::ShutDown)],
@@ -842,10 +815,12 @@ impl Supervision {
                         StoppingThen::ShutDown
                     }
                     (_, Event::Stop) => StoppingThen::Stopped,
+                    // A caller's start waits for the restart the silent end leads to.
+                    (silent @ StoppingThen::SilentEnd { .. }, _) => silent,
                     (_, _) => StoppingThen::Starting,
                 };
                 if matches!(event, Event::Restart) {
-                    self.crash_window.clear();
+                    self.forget_crashes();
                 }
                 let actions = if matches!(event, Event::Start) && then == StoppingThen::ShutDown {
                     vec![Action::Publish(CodexServiceAvailability::Stopping)]

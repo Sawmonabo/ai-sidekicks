@@ -273,12 +273,14 @@ pub enum SessionNotice {
         /// The provider.
         provider: ProviderId,
     },
-    /// The provider process ended on its own too many times in a short window and the daemon
-    /// stopped restarting it, with the exit code or the signal it ended on, or, where the daemon
-    /// read no ending, the failure its last restart gave, exactly one of them; drawn as a banner.
+    /// The provider process ended too many times in a short window and the daemon stopped
+    /// restarting it, with the exit code or the signal it ended on, the seconds it answered
+    /// nothing before the daemon ended it, or, where the daemon read no ending, the failure its
+    /// last restart gave, exactly one of them; drawn as a banner.
     #[schemars(extend("oneOf" = [
         { "required": ["exitCode"] },
         { "required": ["signal"] },
+        { "required": ["silentSeconds"] },
         { "required": ["startFailure"] },
     ]))]
     ProviderCrashLoop {
@@ -302,6 +304,15 @@ pub enum SessionNotice {
         )]
         #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
         signal: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+        /// How long it answered nothing before the daemon ended it, in seconds, where that ended
+        /// it.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "SafeInt<1>")]
+        silent_seconds: Option<SafeInt<1>>,
         /// The failure its last restart gave, word for word, where no ending was read.
         #[serde(
             default,
@@ -377,25 +388,28 @@ pub enum SessionNotice {
 
 impl SessionNotice {
     /// Holds a crash loop to exactly one cause: the exit code or the signal its process ended on,
-    /// or its last restart's failure; every other kind names none.
+    /// the silence the daemon ended it for, or its last restart's failure; every other kind names
+    /// none.
     fn names_one_crash_loop_cause(&self) -> garde::Result {
         match self {
             Self::ProviderCrashLoop {
                 exit_code,
                 signal,
+                silent_seconds,
                 start_failure,
                 ..
             } => {
                 let named = [
                     exit_code.is_some(),
                     signal.is_some(),
+                    silent_seconds.is_some(),
                     start_failure.is_some(),
                 ];
                 if named.iter().filter(|is_named| **is_named).count() == 1 {
                     Ok(())
                 } else {
                     Err(garde::Error::new(
-                        "a crash loop names exactly one of exitCode, signal and startFailure",
+                        "a crash loop names exactly one of exitCode, signal, silentSeconds and startFailure",
                     ))
                 }
             }

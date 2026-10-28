@@ -11,7 +11,11 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
 use sidekicks_contracts::daemon::lifecycle::DAEMON_STOP_TERMINAL_DRAIN_MS;
-use sidekicks_contracts::run::control::ProcessExit;
+use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
+use sidekicks_contracts::run::control::{ProcessExit, ProcessExitAfterSilence};
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::output_tail::OutputTail;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
@@ -27,10 +31,11 @@ use crate::driver::codex::service::supervisor::start::{
     CodexServiceProcess, StartedService, connect, read_codex_loaded_threads, read_service_version,
     start_codex_service,
 };
-use crate::driver::codex::service::supervisor::transition::SupervisorEvent;
+use crate::driver::codex::service::supervisor::transition::SERVICE_SILENCE_LIMIT;
 use crate::driver::codex::service::supervisor::transition::action::{
     LastingServiceEnd, SupervisorAction,
 };
+use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
 use crate::driver::codex::transport::socket::CodexSocketWait;
@@ -86,6 +91,8 @@ pub(super) struct ServiceRunner {
     process: Option<CodexServiceProcess>,
     // Stands down the start, redial or wait under way.
     pending: CancellationToken,
+    // Stands down the silence watch running.
+    silence: CancellationToken,
     // How the process last ended, until the exit is reported.
     last_exit: Option<ProcessExit>,
     // Codex's start lock an input carried, for the start its event leads to.
@@ -104,6 +111,7 @@ impl ServiceRunner {
             parked: HashMap::new(),
             process: None,
             pending: CancellationToken::new(),
+            silence: CancellationToken::new(),
             last_exit: None,
             start_lock: None,
         }
@@ -191,6 +199,26 @@ impl ServiceRunner {
                     }
                 });
             }
+            SupervisorAction::WatchSilence { ticket } => {
+                self.silence.cancel();
+                self.silence = CancellationToken::new();
+                let watching = Arc::downgrade(service);
+                let cancel = self.silence.clone();
+                tokio::spawn(async move {
+                    tokio::select! {
+                        () = cancel.cancelled() => {}
+                        () = tokio::time::sleep(SERVICE_SILENCE_LIMIT) => {
+                            if let Some(watching) = watching.upgrade() {
+                                watching.send(SupervisorEvent::SilenceElapsed {
+                                    ticket,
+                                    at: SystemTime::now(),
+                                });
+                            }
+                        }
+                    }
+                });
+            }
+            SupervisorAction::ClearSilence => self.silence.cancel(),
             SupervisorAction::CancelPending => {
                 self.pending.cancel();
                 self.pending = CancellationToken::new();
@@ -216,6 +244,14 @@ impl ServiceRunner {
                     .dependencies
                     .events
                     .process_exited(service, exit.as_ref());
+            }
+            SupervisorAction::ReportSilentEnd => {
+                // The stop's own exit, where it came first, gives only the lines printed.
+                let exit = silent_exit(self.last_exit.take());
+                service
+                    .dependencies
+                    .events
+                    .process_exited(service, Some(&exit));
             }
             SupervisorAction::ReportCrashLoop(start_failure) => {
                 clear_home_socket_link(service, service.physical_socket()).await;
@@ -535,6 +571,24 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
             Err(error) => report_stop_failed(error),
         }
     });
+}
+
+// The end of a service the daemon stopped for its silence, with the lines the stop's exit read.
+fn silent_exit(stopped: Option<ProcessExit>) -> ProcessExit {
+    let output_tail = match stopped {
+        Some(ProcessExit::Code(ended)) => ended.output_tail,
+        Some(ProcessExit::Signal(ended)) => ended.output_tail,
+        Some(ProcessExit::Silent(ended)) => ended.output_tail,
+        None => FreeFormText::new(OutputTail::<PROVIDER_FAILURE_DETAIL_MAX_LEN>::new().into_text())
+            .expect("an empty tail reads as a short, non-blank phrase"),
+    };
+    ProcessExit::Silent(ProcessExitAfterSilence {
+        silent_seconds: SafeInt::new(SERVICE_SILENCE_LIMIT.as_secs())
+            .expect("the silence limit is a positive number of seconds"),
+        exit_code: None,
+        signal: None,
+        output_tail,
+    })
 }
 
 fn report_crash_loop(service: &CodexService) {

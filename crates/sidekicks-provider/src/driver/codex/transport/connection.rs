@@ -72,6 +72,13 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
     /// it takes no new work, while its running turns, reads and interrupts go on until it closes
     /// the connection. Called once per such answer, off the reader.
     fn service_draining(&self, message: &str);
+
+    /// A request on the still open connection went unanswered past its deadline. Called once
+    /// until the service next sends anything, which [`Self::answered_after_timeout`] reports.
+    fn request_timed_out(&self);
+
+    /// The service sent something after a request went unanswered. Called on the reader.
+    fn answered_after_timeout(&self);
 }
 
 /// What one connection hands up: notifications and its close to `events`, routed asks to
@@ -198,6 +205,8 @@ struct ConnectionState {
     answering: HashSet<String>,
     /// How the connection closed; `None` while it is open.
     close_reason: Option<String>,
+    /// Whether a request went unanswered past its deadline with nothing from the service since.
+    is_awaiting_answer: bool,
 }
 
 /// What the service answered one request: its `result`, or the code and message of its error,
@@ -254,6 +263,7 @@ impl CodexAppServerConnection {
                 held: HashMap::new(),
                 answering: HashSet::new(),
                 close_reason: None,
+                is_awaiting_answer: false,
             }),
             sent_message_byte_limit: writer.sent_message_byte_limit(),
             writer: AsyncMutex::new(Some(writer)),
@@ -344,10 +354,13 @@ impl CodexAppServerConnection {
                     reason: self.shared.close_reason(),
                 },
             }),
-            Err(_elapsed) => Err(CodexError::Unanswered {
-                method: method.to_owned(),
-                cause: CodexUnansweredCause::Deadline { timeout },
-            }),
+            Err(_elapsed) => {
+                self.shared.note_request_timed_out();
+                Err(CodexError::Unanswered {
+                    method: method.to_owned(),
+                    cause: CodexUnansweredCause::Deadline { timeout },
+                })
+            }
         };
         drop(slot);
         outcome
@@ -476,6 +489,16 @@ impl ConnectionShared {
         true
     }
 
+    // A request went unanswered: reported on an open connection, once until the service next
+    // sends anything.
+    fn note_request_timed_out(&self) {
+        let mut state = self.lock_state();
+        if state.close_reason.is_none() && !state.is_awaiting_answer {
+            state.is_awaiting_answer = true;
+            self.events.request_timed_out();
+        }
+    }
+
     // The socket closed: a close the daemon did not ask for is a drop.
     fn handle_socket_closed(&self, reason: &str) {
         if self.mark_closed(reason) {
@@ -486,8 +509,15 @@ impl ConnectionShared {
     // Reads one message and hands it on; one that is no JSON-RPC message is reported by why and
     // how long it is, never by its content.
     fn receive(self: &Arc<Self>, bytes: &[u8]) {
-        if self.lock_state().close_reason.is_some() {
-            return;
+        {
+            let mut state = self.lock_state();
+            if state.close_reason.is_some() {
+                return;
+            }
+            // Reported under the lock, so it can never pass the timeout it answers.
+            if std::mem::take(&mut state.is_awaiting_answer) {
+                self.events.answered_after_timeout();
+            }
         }
         let text = decode_inbound_json(bytes);
         let frame = match read_frame(&text) {

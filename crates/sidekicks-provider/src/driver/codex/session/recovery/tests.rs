@@ -152,6 +152,11 @@ fn exit_code(code: u8) -> ProcessExit {
         .expect("the test writes an exit")
 }
 
+fn silent_end() -> ProcessExit {
+    serde_json::from_value(json!({"silentSeconds": 120, "outputTail": "(no output)"}))
+        .expect("the test writes a silent end")
+}
+
 // Killed by telling the queue the process is gone before the paused run's turns end, which has
 // the queue settle the continue it kept against a run still live, and before the held presses of
 // `Allow once` are released.
@@ -196,8 +201,8 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
 }
 
 // Killed by a notice after a crash restart, by the person's restart telling no session it
-// brought back, by a crash loop naming an exit older than its newest, and by one naming its
-// restart's failure where it read an exit. Runs in real time under a bound, the service answering
+// brought back, by a crash loop naming an exit older than its newest, by one naming its restart's
+// failure where it read an exit, and by a silent end's loop naming anything but its silence. Runs in real time under a bound, the service answering
 // on its own task.
 #[tokio::test]
 async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_the_session() {
@@ -221,6 +226,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                             .expect("a notice names its kind")
                             .to_owned(),
                         notice["exitCode"].as_i64(),
+                        notice["silentSeconds"].as_i64(),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -228,9 +234,9 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         session
             .task
             .drive(async {
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, None)
                     .await;
             })
             .await;
@@ -250,18 +256,34 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                 recovery
                     .crash_loop(&service, Some(&restart_failure()))
                     .await;
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::PersonRestart)
+                    .recover(&service, CodexServiceRecoveryCause::PersonRestart, None)
                     .await;
             })
             .await;
         assert_eq!(
             notices(),
             [
-                ("providerCrashLoop".to_owned(), Some(137)),
-                ("providerRestarted".to_owned(), None),
+                ("providerCrashLoop".to_owned(), Some(137), None),
+                ("providerRestarted".to_owned(), None, None),
             ]
+        );
+
+        // The daemon ended the service for its silence, and five such ends left it down.
+        session
+            .task
+            .drive(async {
+                recovery.remember_exit(&service, silent_end());
+                recovery
+                    .end_turns_on_exit(&service, Some(silent_end()))
+                    .await;
+                recovery.crash_loop(&service, None).await;
+            })
+            .await;
+        assert_eq!(
+            notices().last(),
+            Some(&("providerCrashLoop".to_owned(), None, Some(120)))
         );
         service_side.abort();
     })
@@ -291,9 +313,9 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
                 recovery
                     .end_turns_on_exit(&service, Some(exit_code(1)))
                     .await;
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, None)
                     .await;
                 recovery.end_turns_on_exit(&service, None).await;
                 recovery

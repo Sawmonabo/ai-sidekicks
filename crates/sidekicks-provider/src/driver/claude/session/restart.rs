@@ -494,13 +494,15 @@ impl ClaudeSessionRestarts {
     }
 
     async fn report_crash_loop(&self, session_id: SessionId, exit: &ProcessExit) {
-        let (exit_code, signal) = match exit {
-            ProcessExit::Code(ended) => (Some(ended.exit_code), None),
-            ProcessExit::Signal(ended) => (None, Some(ended.signal.clone())),
+        let (exit_code, signal, silent_seconds) = match exit {
+            ProcessExit::Code(ended) => (Some(ended.exit_code), None, None),
+            ProcessExit::Signal(ended) => (None, Some(ended.signal.clone()), None),
+            ProcessExit::Silent(ended) => (None, None, Some(ended.silent_seconds)),
         };
-        let ending = match (&exit_code, &signal) {
-            (Some(code), _) => ("exitCode".to_owned(), json!(code)),
-            (None, signal) => ("signal".to_owned(), json!(signal)),
+        let ending = match (&exit_code, &signal, &silent_seconds) {
+            (Some(code), _, _) => ("exitCode".to_owned(), json!(code)),
+            (None, None, Some(seconds)) => ("silentSeconds".to_owned(), json!(seconds)),
+            (None, signal, _) => ("signal".to_owned(), json!(signal)),
         };
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider: DESCRIPTOR.provider_id(),
@@ -520,6 +522,7 @@ impl ClaudeSessionRestarts {
                 provider: DESCRIPTOR.provider_id(),
                 exit_code,
                 signal,
+                silent_seconds,
                 start_failure: None,
             },
         )

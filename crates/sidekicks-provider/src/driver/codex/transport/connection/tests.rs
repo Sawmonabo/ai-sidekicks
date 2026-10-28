@@ -27,6 +27,7 @@ use crate::driver::error_causes::RequestUnanswered;
 struct RecordedEvents {
     dropped: Mutex<Vec<String>>,
     held_requests_dropped: Mutex<Vec<CodexForgottenRequest>>,
+    silence: Mutex<Vec<&'static str>>,
 }
 
 impl CodexConnectionEvents for RecordedEvents {
@@ -47,6 +48,20 @@ impl CodexConnectionEvents for RecordedEvents {
     }
 
     fn service_draining(&self, _message: &str) {}
+
+    fn request_timed_out(&self) {
+        self.silence
+            .lock()
+            .expect("no test thread panicked")
+            .push("timed out");
+    }
+
+    fn answered_after_timeout(&self) {
+        self.silence
+            .lock()
+            .expect("no test thread panicked")
+            .push("answered");
+    }
 }
 
 enum TestResponder {
@@ -121,6 +136,38 @@ async fn a_request_past_its_deadline_is_unanswered() {
 
     assert!(is_pending_before);
     assert_unanswered(error, RefusalCode::ProviderTimeout);
+}
+
+// Kills: each timeout reported, which would start the service's silence over at every request
+// and never end it, and the service's next frame left unreported, which would end a service that
+// answered.
+#[tokio::test(start_paused = true)]
+async fn a_timeout_is_reported_once_until_the_service_next_sends_anything() {
+    let (connection, service, events) = connect(usize::MAX, None);
+    let silence = || {
+        events
+            .silence
+            .lock()
+            .expect("no test thread panicked")
+            .clone()
+    };
+    let params = json!({});
+
+    let _first = connection.request("thread/read", &params).await;
+    let _second = connection.request("thread/read", &params).await;
+    let after_two_timeouts = silence();
+    service.send(&json!({ "method": "thread/status/changed", "params": {} }));
+    // The reader takes the frame on its own task.
+    for _ in 0..100 {
+        if silence().len() > 1 {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    let _third = connection.request("thread/read", &params).await;
+
+    assert_eq!(after_two_timeouts, ["timed out"]);
+    assert_eq!(silence(), ["timed out", "answered", "timed out"]);
 }
 
 // Kills: a close after the write mapped back to `Transport`, which a caller would send again

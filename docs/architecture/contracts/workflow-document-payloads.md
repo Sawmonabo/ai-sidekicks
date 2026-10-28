@@ -297,7 +297,8 @@ interface WorkflowStep {
   error?: WorkflowStepError;
   // Present only on a `failed` step whose process ended on its own — a command, a full-tier Code
   // step, Git, Run tests: exactly one of the exit code and the signal, and the last lines it printed,
-  // which the step panel's Error tab reads. The same shape as `agent.run.failed`'s `processExit`.
+  // which the step panel's Error tab reads, as the exit code and signal of `agent.run.failed`'s
+  // `processExit` are.
   processExit?:
     | { exitCode: number; signal?: never; outputTail: string }
     | { signal: string; exitCode?: never; outputTail: string };

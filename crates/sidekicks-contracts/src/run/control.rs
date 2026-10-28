@@ -108,10 +108,38 @@ pub struct ProcessExitWithSignal {
     pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
 
-/// How a process that ended on its own exited: exactly one of its exit code and the signal that
-/// ended it, and the last lines it printed. `agent.run.failed` carries a provider process's under
-/// the turn, and a failed workflow step the process it ran; a process the daemon closed itself, or
-/// a sleep, records none.
+/// A provider service the daemon ended because it answered nothing, and the last lines it printed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[schemars(inline)]
+pub struct ProcessExitAfterSilence {
+    /// How long it answered nothing before the daemon ended it, in seconds.
+    pub silent_seconds: SafeInt<1>,
+    /// Never present beside a silence.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub exit_code: Option<Never>,
+    /// Never present beside a silence.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub signal: Option<Never>,
+    /// The last lines it printed.
+    pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
+}
+
+/// How a process ended under work it carried: exactly one of its exit code, the signal that ended
+/// it and the silence the daemon ended a provider service for, and the last lines it printed.
+/// `agent.run.failed` carries a provider process's under the turn, and a failed workflow step the
+/// process it ran; a process the daemon closed itself for any other reason, or a sleep, records
+/// none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ProcessExit {
@@ -119,6 +147,8 @@ pub enum ProcessExit {
     Code(ProcessExitWithCode),
     /// Ended by a signal.
     Signal(ProcessExitWithSignal),
+    /// Ended by the daemon after it answered nothing.
+    Silent(ProcessExitAfterSilence),
 }
 
 /// Why the daemon itself ended a run `stopped`: the run passed the token limit the person set.

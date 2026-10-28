@@ -60,11 +60,12 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
     }
 
     fn recovered(&self, service: &Arc<CodexService>, cause: CodexServiceRecoveryCause) {
-        if let Some(parts) = self.link.parts() {
-            parts.recovery.forget_exit(service);
-        }
+        let ended = self
+            .link
+            .parts()
+            .and_then(|parts| parts.recovery.take_exit(service));
         self.spawn(service, "recovered", move |parts, service| async move {
-            parts.recovery.recover(&service, cause).await;
+            parts.recovery.recover(&service, cause, ended).await;
         });
     }
 
