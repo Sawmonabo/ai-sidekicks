@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::{SinkExt as _, StreamExt as _};
+use futures::{FutureExt as _, SinkExt as _, StreamExt as _};
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
@@ -60,9 +60,6 @@ const THREAD: &str = "thread-1";
 const COPY_THREAD: &str = "thread-copy";
 const CALL: &str = "call-1";
 const EXECUTOR_PROCESS: &str = "7-0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
-
-/// How long a test watches for a line the relay must hold back.
-const HELD_QUIET: Duration = Duration::from_millis(200);
 
 // The executor's far side: the lines the relay wrote to it, and its output the test writes.
 struct FakeExecutor {
@@ -577,8 +574,8 @@ async fn resends_a_late_write_under_its_write_id() {
 }
 
 // A terminate of a command a wrapper runs first has the wrapper asked, through the session's real
-// channel, to end its command, and passes on once the executor reports the command ended. Killed
-// by a terminate passed on at once, which asks the wrapper nothing.
+// channel, to end its command, and is held until the executor reports the command ended or the
+// hold runs out. Killed by a terminate passed on at once.
 #[tokio::test]
 async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands_end() {
     let folder = tempfile::tempdir().expect("a test folder");
@@ -650,10 +647,10 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
         Arc::clone(&relay).forward_terminate(Arc::clone(&executor), terminate.to_string()),
     );
     wait_until(|| !sent_requests(&channel.channel).is_empty()).await;
-    // Held while the command runs: nothing reaches the executor before its end. `next_line` is
-    // cancel-safe, so the wait loses no line.
-    let sent_early = tokio::time::timeout(HELD_QUIET, fake.next_sent()).await;
-    assert!(sent_early.is_err(), "sent before the end: {sent_early:?}");
+    // Held once the wrapper is asked: nothing has reached the executor yet. `next_line` is
+    // cancel-safe, so this one poll loses no line.
+    let sent_early = fake.next_sent().now_or_never();
+    assert!(sent_early.is_none(), "sent at once: {sent_early:?}");
     assert!(!terminating.is_finished());
     fake.write(&exited(EXECUTOR_PROCESS)).await;
     assert_eq!(fake.next_sent().await, terminate);
