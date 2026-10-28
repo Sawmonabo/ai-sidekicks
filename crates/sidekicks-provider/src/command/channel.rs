@@ -27,6 +27,8 @@ use zeroize::Zeroizing;
 
 pub(crate) mod party;
 pub(crate) mod records;
+#[cfg(test)]
+pub(crate) mod test_support;
 
 /// The variable naming a conversation's channel folder to the parties its commands start.
 const COMMAND_CHANNEL_VARIABLE: &str = "SIDEKICKS_COMMAND_CHANNEL";

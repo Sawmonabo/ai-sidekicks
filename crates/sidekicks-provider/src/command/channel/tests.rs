@@ -1,27 +1,17 @@
-use std::io::{BufRead as _, BufReader, Lines};
-use std::path::Path;
-use std::process::{Child, ChildStdout, Command, Stdio};
-use std::sync::Arc;
+use std::io::{BufRead as _, BufReader};
+use std::process::Command;
 use std::time::Duration;
 
 use hpke::Kem as _;
-use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
-use sidekicks_platforms::{harness_test_name, pin_running_process};
+use sidekicks_platforms::pin_running_process;
 
-use super::{
-    AdmittedParty, ChannelKem, ChannelPrivateKey, ChannelPublicKey, CommandChannel, Direction,
-    PARTY_KEY_ARGUMENT_PREFIX, PartyId, PartyRecord, REQUESTS_FOLDER, command_channel_root,
-    public_key_hex, record_context, record_name, remove_channel_folders, seal, write_record,
+use super::test_support::{
+    end_party, names_in, open_channel, open_channel_bound_to, party_command, ready_parties, sealed,
 };
-
-/// The process a test starts as a party: it prints `ready <its id>`, starts a party of its own
-/// under it where `NESTED_KEY_VARIABLE` names that party's key, and waits for its input to end.
-const PARTY_PROCESS_TEST: &str = "a_party_process_waits_for_its_input_to_end";
-
-/// The variable naming the key of a party the started party starts under itself.
-const NESTED_KEY_VARIABLE: &str = "SIDEKICKS_TEST_NESTED_PARTY_KEY";
-
-pub(super) type KeyPair = (ChannelPrivateKey, ChannelPublicKey);
+use super::{
+    AdmittedParty, ChannelKem, Direction, PartyRecord, REQUESTS_FOLDER, command_channel_root,
+    record_context, record_name, remove_channel_folders, seal, write_record,
+};
 
 fn exited() -> PartyRecord {
     PartyRecord::Exited {
@@ -36,96 +26,6 @@ fn starting() -> PartyRecord {
         stdout_path: None,
         process: None,
     }
-}
-
-/// This test binary started as a party holding `keys`, its own party under it holding `nested`
-/// where given.
-pub(super) fn party_command(keys: &KeyPair, nested: Option<&KeyPair>) -> Command {
-    let mut command = Command::new(std::env::current_exe().expect("the test program"));
-    command
-        .arg(format!(
-            "{PARTY_KEY_ARGUMENT_PREFIX}{}",
-            public_key_hex(&keys.1)
-        ))
-        .args([
-            "--exact",
-            &harness_test_name(module_path!(), PARTY_PROCESS_TEST),
-            "--ignored",
-            "--nocapture",
-            "--quiet",
-        ])
-        .env_remove(NESTED_KEY_VARIABLE)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped());
-    if let Some(nested) = nested {
-        command.env(NESTED_KEY_VARIABLE, public_key_hex(&nested.1));
-    }
-    command
-}
-
-/// The ids of the next `count` parties that print `ready`.
-pub(super) fn ready_parties(
-    lines: &mut Lines<BufReader<ChildStdout>>,
-    count: usize,
-) -> Vec<PartyId> {
-    let mut ready = Vec::new();
-    while ready.len() < count {
-        let line = lines.next().expect("the party prints").expect("a line");
-        if let Some(id) = line.strip_prefix("ready ") {
-            ready.push(id.parse().expect("a party id"));
-        }
-    }
-    ready
-}
-
-/// Ends a party the test started, which ends any party under it.
-pub(super) fn end_party(mut party: Child) {
-    drop(party.stdin.take());
-    party.wait().expect("the party ends once its input does");
-}
-
-/// `record` sealed by `keys` to `channel` as `party`'s record numbered `sequence`.
-pub(super) fn sealed(
-    channel: &CommandChannel,
-    keys: &KeyPair,
-    party: PartyId,
-    sequence: u64,
-    record: &PartyRecord,
-) -> Vec<u8> {
-    let context = record_context(Direction::ToDaemon, party, sequence);
-    let plaintext = serde_json::to_vec(record).expect("a record writes");
-    seal(keys, &channel.keys.1, &context, &plaintext).expect("it seals")
-}
-
-/// A channel in its own folder under `folder`, bound to `provider` where one is given.
-pub(super) fn open_channel_bound_to(folder: &Path, provider: Option<u32>) -> CommandChannel {
-    let name = provider.map_or_else(|| "unbound".to_owned(), |provider| provider.to_string());
-    let channel = CommandChannel::open(
-        folder.join(name),
-        Arc::new(ProcessTableReader::for_this_program().expect("a reader")) as _,
-    )
-    .expect("the channel opens");
-    if let Some(provider) = provider {
-        channel.bind(provider);
-    }
-    channel
-}
-
-pub(super) fn open_channel(folder: &Path, provider: u32) -> CommandChannel {
-    open_channel_bound_to(folder, Some(provider))
-}
-
-pub(super) fn names_in(folder: &Path) -> Vec<String> {
-    std::fs::read_dir(folder)
-        .expect("the folder lists")
-        .map(|entry| {
-            entry
-                .expect("an entry")
-                .file_name()
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect()
 }
 
 // Fails when a record opens under the other direction's context or another party's key, or
@@ -351,33 +251,6 @@ async fn a_forgotten_party_leaves_no_request_and_a_closed_channel_no_folder() {
     channel.close().await.expect("the channel closes");
     assert!(!channel_folder.exists());
     end_party(party);
-}
-
-#[test]
-#[ignore = "run only as the party process another test starts"]
-fn a_party_process_waits_for_its_input_to_end() {
-    let nested = std::env::var(NESTED_KEY_VARIABLE).ok().map(|key| {
-        Command::new(std::env::current_exe().expect("the test program"))
-            .arg(format!("{PARTY_KEY_ARGUMENT_PREFIX}{key}"))
-            .args(std::env::args_os().skip(2))
-            .env_remove(NESTED_KEY_VARIABLE)
-            .stdin(Stdio::piped())
-            .spawn()
-            .expect("the nested party starts")
-    });
-    let mut output = std::io::stdout().lock();
-    std::io::Write::write_all(
-        &mut output,
-        format!("ready {}\n", std::process::id()).as_bytes(),
-    )
-    .expect("it prints");
-    std::io::Write::flush(&mut output).expect("it flushes");
-    drop(output);
-    let mut input = String::new();
-    while std::io::stdin().read_line(&mut input).expect("it reads") > 0 {}
-    if let Some(nested) = nested {
-        end_party(nested);
-    }
 }
 
 // Fails when the start's sweep leaves a channel folder a previous run left, or reaches past the

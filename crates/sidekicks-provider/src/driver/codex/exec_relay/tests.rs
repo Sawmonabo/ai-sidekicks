@@ -31,6 +31,10 @@ use super::start_rewrite::{WrappedStart, wrap_start};
 use super::{
     CodexExecRelay, CodexExecRelayDependencies, CodexThreadSessions, RelayedCommand, RelayedThread,
 };
+use crate::command::channel::PartyRecord;
+use crate::command::channel::test_support::{
+    end_party, new_party_keys, party_command, ready_parties, sent_requests, write_party_record,
+};
 use crate::command::running_set::RunningCommandSets;
 use crate::command::running_set::unbound_running_command_sets;
 use crate::command::waiting_checks::SystemInputWaitReader;
@@ -552,6 +556,82 @@ async fn resends_a_late_write_under_its_write_id() {
     assert_ne!(first["id"], second["id"]);
     assert_eq!(first["params"], second["params"]);
     assert_eq!(first["params"]["chunk"], "eWVzCg==");
+}
+
+// A terminate of a command a wrapper runs first has the wrapper asked, through the session's real
+// channel, to end its command, and passes on once the executor reports the command ended. Killed
+// by a terminate passed on at once, which asks the wrapper nothing.
+#[tokio::test]
+async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands_end() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let session_id = new_session_id();
+    let sets = unbound_running_command_sets();
+    let relay = relay_reporting_to(
+        folder.path(),
+        Some(Arc::clone(&sets)),
+        session_threads(session_id),
+    );
+    let (executor, mut fake) = initialized_executor().await;
+    relay.take_executor(Arc::clone(&executor));
+    let channel = relay
+        .session_channel(session_id, &executor)
+        .await
+        .expect("the session's channel opens")
+        .expect("the running commands are registered");
+    relay.record_command(
+        CALL.to_owned(),
+        RelayedCommand {
+            session_id,
+            thread_id: THREAD.to_owned(),
+            executor_process_id: EXECUTOR_PROCESS.to_owned(),
+            terminal_process_id: "7".to_owned(),
+            accepts_input: false,
+            service_start: 0,
+        },
+    );
+    sets.command_started(CommandStart {
+        session_id,
+        command_id: command_id(),
+        run_id: new_run_id(),
+        name: NonEmptyText::new("sleep 60".to_owned()).expect("a name"),
+        started_at: WireInstant::now(),
+        line: None,
+        process_id: Some(EXECUTOR_PROCESS.to_owned()),
+        is_backgrounded: false,
+        can_move_to_background: false,
+        accepts_input: false,
+    });
+    // The wrapper: a process under the executor's, whose start names the executor's process.
+    let keys = new_party_keys();
+    let mut wrapper = party_command(&keys, None)
+        .spawn()
+        .expect("the wrapper starts");
+    let mut lines = std::io::BufRead::lines(std::io::BufReader::new(
+        wrapper.stdout.take().expect("its output"),
+    ));
+    let party = ready_parties(&mut lines, 1)[0];
+    write_party_record(
+        &channel.channel,
+        &keys,
+        party,
+        1,
+        &PartyRecord::Starting {
+            command: "sleep 60".to_owned(),
+            stdout_path: None,
+            process: Some(EXECUTOR_PROCESS.to_owned()),
+        },
+    );
+    wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
+
+    let terminate = json!({ "id": 4, "method": "process/terminate", "params": { "processId": EXECUTOR_PROCESS } });
+    let terminating = tokio::spawn(
+        Arc::clone(&relay).forward_terminate(Arc::clone(&executor), terminate.to_string()),
+    );
+    wait_until(|| !sent_requests(&channel.channel).is_empty()).await;
+    fake.write(&exited(EXECUTOR_PROCESS)).await;
+    assert_eq!(fake.next_sent().await, terminate);
+    terminating.await.expect("the terminate passed on");
+    end_party(wrapper);
 }
 
 // A stop of Codex's own background terminal is answered done only when Codex says it terminated.

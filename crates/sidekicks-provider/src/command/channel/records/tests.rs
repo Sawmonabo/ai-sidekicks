@@ -19,7 +19,7 @@ use sidekicks_platforms::{InputTerminal, InputWaitReading, TerminalSignal, send_
 use tokio::sync::watch;
 
 use super::{RecordFollower, follow_channel_records, tail_output};
-use crate::command::channel::tests::{
+use crate::command::channel::test_support::{
     end_party, names_in, open_channel, party_command, ready_parties, sealed,
 };
 use crate::command::channel::{
