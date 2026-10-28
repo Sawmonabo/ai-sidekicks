@@ -267,8 +267,8 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                         .end_turns_on_exit(&service, Some(exit_code(code)))
                         .await;
                 }
-                // The exit read wins over the failure of the restart that filled the window, and the
-                // queue hears the session's process gone at the crash loop itself.
+                // The exit read wins over the failure of the restart that filled the window, and
+                // the queue hears the session's process gone at the crash loop itself.
                 let gone_before = gone_steps(&steps, session_id);
                 recovery
                     .crash_loop(&service, Some(&restart_failure()))

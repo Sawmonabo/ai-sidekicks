@@ -229,8 +229,9 @@ impl CodexServiceRecovery {
 
     /// Resumes every conversation of a service that runs again: after a crash, a reconnect or the
     /// person's restart of a crash loop, settling the resumes `generation` owed. After a reconnect
-    /// the conversations held for their running commands are subscribed to again first. Only the person's restart writes a notice: one
-    /// `ProviderRestarted` on each session its crash loop held that the restart brought back.
+    /// the conversations held for their running commands are subscribed to again first. Only the
+    /// person's restart writes a notice: one `ProviderRestarted` on each session its crash loop
+    /// held that the restart brought back.
     pub(crate) async fn recover(
         &self,
         service: &Arc<CodexService>,

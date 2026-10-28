@@ -1,6 +1,6 @@
-//! A Codex run's calls: its session's settle, its start, interrupt, steer, pause and continue, a retry of its held turn
-//! on a faster model, the answer to an ask it raised, `Allow once` on a block of Codex's own
-//! reviewer, and the skills a person picked for its message.
+//! A Codex run's calls: its session's settle, its start, interrupt, steer, pause and continue, a
+//! retry of its held turn on a faster model, the answer to an ask it raised, `Allow once` on a
+//! block of Codex's own reviewer, and the skills a person picked for its message.
 
 use std::path::Path;
 

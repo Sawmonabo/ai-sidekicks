@@ -2,9 +2,8 @@
 //! the one transition in flight on each, an establishment or a close, taken as a per-session claim
 //! that the next waits behind. A session whose service came back is owed its resume, by each
 //! recovery of it, from then until that recovery claims its slot, and reads as being established
-//! meanwhile. The record itself stays on
-//! its session's task; a close lets it go there, routes and waits first, so nothing reaches it
-//! after.
+//! meanwhile. The record itself stays on its session's task; a close lets it go there, routes and
+//! waits first, so nothing reaches it after.
 
 use std::collections::{HashMap, HashSet};
 use std::pin::pin;

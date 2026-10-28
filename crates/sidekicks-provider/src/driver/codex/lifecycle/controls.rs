@@ -99,7 +99,8 @@ impl CodexDriver {
     /// copy's turn ended with its answer delivered, or once a close or the shutdown stopped it.
     /// Refused `session.sideQuestion.refused` where Codex's policy refused the turn, and
     /// `provider.unavailable` in Codex's words where it gave no answer otherwise; fails with
-    /// `CodexError::Transport` with neither a live record nor a resume handle, and as the ask fails.
+    /// `CodexError::Transport` with neither a live record nor a resume handle, and as the ask
+    /// fails.
     pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,

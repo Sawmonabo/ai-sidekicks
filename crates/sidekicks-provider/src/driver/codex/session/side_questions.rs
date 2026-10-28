@@ -1,10 +1,10 @@
 //! A side question on Codex: a throwaway, read-only copy of the session's conversation answers it
 //! in one turn, the answer is delivered as `session.sideQuestion.answered`, and the ask is answered
 //! once the copy's turn ended: with the answer delivered, refused where Codex's policy refused the
-//! turn, else failed with why no answer came. The copy runs under
-//! the daemon's read-only profile, which keeps the credential denies, asks nothing and reaches no
-//! tool server. On a live session it is forked on the session's service and its frames are
-//! diverted before the session's own routing; on a resting one it is forked from the stored
+//! turn, else refused `provider.unavailable` in Codex's words for why no answer came. The copy runs
+//! under the daemon's read-only profile, which keeps the credential denies, asks nothing and
+//! reaches no tool server. On a live session it is forked on the session's service and its frames
+//! are diverted before the session's own routing; on a resting one it is forked from the stored
 //! conversation on the account's service over a connection of its own, which only it reads. Its
 //! cost is metered apart from the session's turns, and the copy is let go once it answered or its
 //! session closed.
@@ -786,14 +786,16 @@ fn unanswered(
     };
     let refusal = read_codex_error_kind(error)
         .filter(|kind| CODEX_POLICY_REFUSALS.contains(&kind.as_str()))
-        .and_then(|kind| {
-            Some(RunFailureCause::Refused {
-                origin: RunRefusedOrigin::Provider,
-                model: wire_handle(model)?,
-                sentence: words("message").map(failure_detail),
-                explanation: words("additionalDetails").map(failure_detail),
-                safety_category: wire_handle(&kind),
-            })
+        .map(|kind| RunFailureCause::Refused {
+            origin: RunRefusedOrigin::Provider,
+            // A model name no handle can carry names the provider instead, so a refusal stays one.
+            model: wire_handle(model).unwrap_or_else(|| {
+                wire_handle(DESCRIPTOR.provider_id().as_str())
+                    .expect("a provider's id is a wire handle")
+            }),
+            sentence: words("message").map(failure_detail),
+            explanation: words("additionalDetails").map(failure_detail),
+            safety_category: wire_handle(&kind),
         });
     match refusal {
         Some(cause) => CodexError::Driver(DriverError::Refused(side_question_refusal(

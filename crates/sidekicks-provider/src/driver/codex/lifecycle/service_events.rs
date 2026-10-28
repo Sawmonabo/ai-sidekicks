@@ -35,16 +35,21 @@ impl CodexDriverServiceEvents {
         Acting: Future<Output = ()> + Send + 'static,
     {
         let Some(parts) = self.link.parts() else {
-            tracing::debug!(
-                codex_home = %service.home().codex_home.display(),
-                event,
-                "a codex service event came before any session, with nothing to act on"
-            );
+            log_event_before_any_session(service, event);
             return;
         };
         let tasks = parts.tasks.clone();
         tasks.spawn(act(parts, Arc::clone(service)));
     }
+}
+
+// Logs a service event that came before any session composed the pieces.
+fn log_event_before_any_session(service: &CodexService, event: &'static str) {
+    tracing::debug!(
+        codex_home = %service.home().codex_home.display(),
+        event,
+        "a codex service event came before any session, with nothing to act on"
+    );
 }
 
 impl CodexServiceEvents for CodexDriverServiceEvents {
@@ -61,16 +66,16 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
     }
 
     fn recovered(&self, service: &Arc<CodexService>, cause: CodexServiceRecoveryCause) {
-        // Marked here, in the service's own event order, before the service reads as up; with no
-        // parts yet, the spawn below logs the event and acts on nothing.
-        let Some(generation) = self.link.parts().map(|parts| {
-            parts.recovery.forget_exit(service);
-            parts.recovery.owe_resumes(service)
-        }) else {
-            self.spawn(service, "recovered", |_, _| async {});
+        let Some(parts) = self.link.parts() else {
+            log_event_before_any_session(service, "recovered");
             return;
         };
-        self.spawn(service, "recovered", move |parts, service| async move {
+        // Marked here, in the service's own event order, before the service reads as up.
+        parts.recovery.forget_exit(service);
+        let generation = parts.recovery.owe_resumes(service);
+        let tasks = parts.tasks.clone();
+        let service = Arc::clone(service);
+        tasks.spawn(async move {
             parts.recovery.recover(&service, cause, generation).await;
         });
     }
