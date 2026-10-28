@@ -10,7 +10,7 @@ use bytes::Bytes;
 use sidekicks_platforms::{
     SHELL_FOLDER_PROBES, ShellFolderProbe, default_shell, real_path, run_test_as_own_root,
 };
-use sidekicks_session::spawn_cwd_translator::{SpawnCwdStrategy, translate_spawn_cwd};
+use sidekicks_shell::spawn_cwd_translator::{SpawnCwdStrategy, translate_spawn_cwd};
 use sidekicks_terminal::{
     CommandLine, OutputFilter, ScreenListener, ShellCommand, SpawnRequest, TerminalEvent,
     TerminalOutput, Terminals,

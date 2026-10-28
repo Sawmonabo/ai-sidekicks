@@ -12,11 +12,9 @@ use std::process::{Command, ExitCode, ExitStatus};
 use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::WindowSize;
-use alacritty_terminal::tty::Pty;
 use nix::fcntl::{FcntlArg, OFlag, fcntl};
 use nix::sys::signal::{SigSet, SigmaskHow, Signal, pthread_sigmask};
 use nix::sys::termios::{SetArg, Termios, cfmakeraw, tcgetattr, tcgetsid, tcsetattr};
-use nix::sys::wait::{WaitStatus, waitpid};
 use nix::unistd::{Pid, isatty, pipe, tcgetpgrp, tcsetpgrp};
 use polling::{Event, Events, PollMode, Poller};
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
@@ -24,7 +22,9 @@ use signal_hook::iterator::Signals;
 
 use crate::posix::ctrl_c::end_by_default_action;
 use crate::posix::process::group::{signal_group, signal_group_once};
+use crate::posix::shell_start::take_controlling_terminal;
 use crate::posix::terminal::posix_signal;
+use crate::posix::terminal::pty::Pty;
 use crate::terminal::TerminalSignal;
 
 /// Replaces this process with the program `command` starts, which takes the signal actions a
@@ -108,11 +108,14 @@ pub fn start_in_own_group(command: &mut Command) {
 }
 
 /// Runs the program `command` starts as the foreground job of the terminal on this process's
-/// standard input, as a job-control shell runs one: in a process group of its own, which it leads,
-/// made the terminal's foreground group by the child before its exec, so a typed stop stops it
-/// where this process leads the session. Waits past a stop and answers the job's exit. Fails with
-/// the system's error when the group or the terminal cannot be set, or the program cannot start.
+/// standard input, as a job-control shell runs one: this process, its session's leader, first
+/// takes that terminal as its controlling one, then the job runs in a process group of its own,
+/// which it leads, made the terminal's foreground group by the child before its exec, so a typed
+/// stop stops it. Waits past a stop and answers the job's exit. Fails with the system's error when
+/// the terminal cannot be taken, the group or the terminal's foreground cannot be set, or the
+/// program cannot start.
 pub fn run_foreground_job(command: &mut Command) -> io::Result<ExitStatus> {
+    take_controlling_terminal()?;
     // Blocked, never ignored, since an ignored action would outlive the exec; the child inherits
     // the block for its own call and puts the mask back before its exec.
     let saved = block_terminal_output_stop()?;
@@ -356,18 +359,8 @@ impl TerminalOutputWatch {
     }
 }
 
-/// Waits for the command `pty` started to exit and answers its status; the PTY's own drop then
-/// finds it reaped. Blocks; fails with the system's error.
+/// Waits for the command `pty` started to exit, past a stop or a continue, reaps it and answers
+/// its status; the PTY's drop then sends it nothing. Blocks; fails with the system's error.
 pub fn wait_for_terminal_command(pty: &Pty) -> io::Result<ExitStatus> {
-    let pid = Pid::from_raw(i32::try_from(pty.child().id()).map_err(io::Error::other)?);
-    loop {
-        // A stop or a continue is no exit, so the wait goes on past either.
-        let status = waitpid(pid, None).map_err(io::Error::from)?;
-        if let WaitStatus::Exited(_, code) = status {
-            return Ok(ExitStatus::from_raw(code << 8));
-        }
-        if let WaitStatus::Signaled(_, signal, _) = status {
-            return Ok(ExitStatus::from_raw(signal as i32));
-        }
-    }
+    pty.reap()
 }

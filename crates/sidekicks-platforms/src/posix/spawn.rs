@@ -1,40 +1,53 @@
-//! What macOS's `posix_spawn` takes, owned: its attributes and its file actions, each destroyed
-//! when dropped; the start of a child leading a session of its own through it, which runs no fork
-//! handler in the child, and that child's reap, since no runtime reaps a child it did not spawn.
+//! What `posix_spawn` takes on macOS and Linux, owned: its attributes and its file actions, each
+//! destroyed when dropped; the start of a child leading a session of its own through it, which runs
+//! no fork handler in the child, and that child's reap, since no runtime reaps a child it did not
+//! spawn.
 
-use std::error::Error;
-use std::ffi::{OsStr, OsString, c_char, c_int, c_short};
+use std::ffi::{OsStr, OsString, c_int, c_short};
 use std::io;
-use std::os::fd::{AsRawFd as _, BorrowedFd};
+use std::mem::MaybeUninit;
+use std::os::fd::{AsRawFd as _, BorrowedFd, RawFd};
 use std::os::unix::process::ExitStatusExt as _;
 use std::path::Path;
 use std::process::ExitStatus;
-use std::sync::OnceLock;
 
-use nix::errno::Errno;
-use nix::sys::signal::{SigSet, Signal, kill};
-use nix::unistd::Pid;
+use nix::sys::signal::{SigSet, Signal};
 
 use crate::c_string_array::null_terminated_pointers;
-use crate::macos::loaded_images::look_up_symbol;
-use crate::macos::pinned_process::PinnedProcess;
 use crate::posix::c_string::c_string;
+#[cfg(target_os = "macos")]
 use crate::posix::null_device::NULL_DEVICE_PATH;
 use crate::posix::process::id::system_process_id;
 
 /// `sys/spawn.h`'s flag that makes the child lead a session of its own, which the `libc` crate
-/// does not list.
+/// does not list for macOS.
+#[cfg(target_os = "macos")]
 const POSIX_SPAWN_SETSID: c_int = 0x0400;
 
-// The call that adds a folder change to a spawn's file actions.
-type AddChdirCall =
-    unsafe extern "C" fn(*mut libc::posix_spawn_file_actions_t, *const c_char) -> c_int;
+/// glibc's flag that makes the child lead a session of its own, run before the file actions.
+#[cfg(target_os = "linux")]
+const POSIX_SPAWN_SETSID: c_int = libc::POSIX_SPAWN_SETSID as c_int;
 
-/// The system's call that adds a folder change to a spawn's file actions, found by name at run
-/// time the first time: `posix_spawn_file_actions_addchdir`, which macOS 26 is the first to
-/// export, else the `_np` name every macOS since 10.15 exports, so the program loads on every
-/// macOS the product runs on. `Unsupported` on a macOS with neither.
+/// The descriptor a Linux child holds the inherited descriptor on: the first after the standard
+/// streams, so every descriptor above it closes in the spawn.
+#[cfg(target_os = "linux")]
+const INHERITED_DESCRIPTOR: RawFd = 3;
+
+// The call that adds a folder change to a spawn's file actions.
+#[cfg(target_os = "macos")]
+type AddChdirCall =
+    unsafe extern "C" fn(*mut libc::posix_spawn_file_actions_t, *const std::ffi::c_char) -> c_int;
+
+/// macOS's call that adds a folder change to a spawn's file actions, found by name at run time the
+/// first time: `posix_spawn_file_actions_addchdir`, which macOS 26 is the first to export, else the
+/// `_np` name every macOS since 10.15 exports, so the program loads on every macOS the product
+/// runs on. `Unsupported` on a macOS with neither.
+#[cfg(target_os = "macos")]
 fn add_chdir_call() -> io::Result<AddChdirCall> {
+    use std::sync::OnceLock;
+
+    use crate::macos::loaded_images::look_up_symbol;
+
     static CALL: OnceLock<Option<AddChdirCall>> = OnceLock::new();
     CALL.get_or_init(|| {
         let symbol = look_up_symbol(c"posix_spawn_file_actions_addchdir")
@@ -50,17 +63,18 @@ fn add_chdir_call() -> io::Result<AddChdirCall> {
     })
 }
 
-/// A spawn's attributes, destroyed when this drops. macOS's attributes object is a pointer to
-/// memory the system owns, so moving this moves only the pointer.
+/// A spawn's attributes, destroyed when this drops. Nothing the system keeps points at the value,
+/// so it moves freely: macOS's is a pointer to memory the system owns, glibc's a plain struct.
 pub(crate) struct SpawnAttributes(libc::posix_spawnattr_t);
 
 impl SpawnAttributes {
     /// Fresh attributes, every flag clear. Fails with the error code the system answers.
     pub(crate) fn new() -> io::Result<Self> {
-        let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
-        // SAFETY: `attributes` is a live, writable attributes object for the call to set up.
-        check_spawn_status(unsafe { libc::posix_spawnattr_init(&raw mut attributes) })?;
-        Ok(Self(attributes))
+        let mut attributes = MaybeUninit::<libc::posix_spawnattr_t>::uninit();
+        // SAFETY: `attributes` is live, writable memory for the call to set up.
+        check_spawn_status(unsafe { libc::posix_spawnattr_init(attributes.as_mut_ptr()) })?;
+        // SAFETY: the call succeeded, so it set the attributes up.
+        Ok(Self(unsafe { attributes.assume_init() }))
     }
 
     /// Sets the spawn's flags to `flags`, replacing any set before. Fails with the error code the
@@ -91,16 +105,17 @@ impl Drop for SpawnAttributes {
 }
 
 /// A spawn's file actions, run in order in the child before its program, destroyed when this
-/// drops; a pointer to memory the system owns, as [`SpawnAttributes`] is.
+/// drops; free to move, as [`SpawnAttributes`] is.
 pub(crate) struct SpawnFileActions(libc::posix_spawn_file_actions_t);
 
 impl SpawnFileActions {
     /// An empty list of file actions. Fails with the error code the system answers.
     pub(crate) fn new() -> io::Result<Self> {
-        let mut actions: libc::posix_spawn_file_actions_t = std::ptr::null_mut();
-        // SAFETY: `actions` is a live, writable file-actions object for the call to set up.
-        check_spawn_status(unsafe { libc::posix_spawn_file_actions_init(&raw mut actions) })?;
-        Ok(Self(actions))
+        let mut actions = MaybeUninit::<libc::posix_spawn_file_actions_t>::uninit();
+        // SAFETY: `actions` is live, writable memory for the call to set up.
+        check_spawn_status(unsafe { libc::posix_spawn_file_actions_init(actions.as_mut_ptr()) })?;
+        // SAFETY: the call succeeded, so it set the file actions up.
+        Ok(Self(unsafe { actions.assume_init() }))
     }
 
     /// The file actions, for a call that adds one.
@@ -111,6 +126,26 @@ impl SpawnFileActions {
     /// The file actions, for the spawn.
     pub(crate) fn as_ptr(&self) -> *const libc::posix_spawn_file_actions_t {
         &raw const self.0
+    }
+
+    /// Adds the duplication of `source` onto `target` in the child. Fails with the error code the
+    /// system answers, `EBADF` for a descriptor past the system's bound.
+    fn add_duplicate(&mut self, source: RawFd, target: RawFd) -> io::Result<()> {
+        // SAFETY: the file actions were set up by `new`; the call copies both numbers.
+        check_spawn_status(unsafe {
+            libc::posix_spawn_file_actions_adddup2(self.as_mut_ptr(), source, target)
+        })
+    }
+
+    /// Adds the change into `folder` in the child, a failure of which fails the spawn. Fails with
+    /// the error code the system answers, and on macOS with `Unsupported` without the call.
+    fn add_folder_change(&mut self, folder: &std::ffi::CStr) -> io::Result<()> {
+        #[cfg(target_os = "macos")]
+        let add_chdir = add_chdir_call()?;
+        #[cfg(target_os = "linux")]
+        let add_chdir = libc::posix_spawn_file_actions_addchdir_np;
+        // SAFETY: the file actions were set up by `new`, and the call copies the folder's path.
+        check_spawn_status(unsafe { add_chdir(self.as_mut_ptr(), folder.as_ptr()) })
     }
 }
 
@@ -133,7 +168,9 @@ pub(crate) fn check_spawn_status(status: c_int) -> io::Result<()> {
 
 /// Where one standard stream of a child [`spawn_session_leader`] starts reads or writes.
 pub(crate) enum SpawnStream<'a> {
-    /// The null device, read-only for standard input and write-only for the outputs.
+    /// The null device, read-only for standard input and write-only for the outputs; only macOS's
+    /// lasting and session children take it.
+    #[cfg(target_os = "macos")]
     NullDevice,
     /// A descriptor of this process, duplicated onto the stream.
     Descriptor(BorrowedFd<'a>),
@@ -149,18 +186,37 @@ pub(crate) struct SessionLeaderSpawn<'a> {
     pub(crate) arguments: &'a [String],
     /// Its whole environment, each entry `NAME=VALUE`.
     pub(crate) environment: Vec<OsString>,
-    /// The folder it starts in.
-    pub(crate) working_folder: &'a Path,
+    /// The folder it starts in; `None` keeps this process's.
+    pub(crate) working_folder: Option<&'a Path>,
     /// Its standard input, output and error, in that order.
     pub(crate) streams: [SpawnStream<'a>; 3],
+    /// One more descriptor it keeps open, at the number [`inherited_descriptor_in_child`] gives.
+    pub(crate) inherited: Option<BorrowedFd<'a>>,
+    /// The signals set back to their default action in it, which matters for one this process
+    /// ignores, since a handler never survives the exec.
+    pub(crate) default_signals: &'a [Signal],
 }
 
-/// Starts `spawn` with `posix_spawn` by its program's path: in a session and group of its own,
-/// `SIGPIPE` back at its default as std sets it for a `Command` child, the spawning thread's signal
-/// mask kept as std keeps it, only its three standard streams open, in its folder. Answers the
+/// The number a child [`spawn_session_leader`] starts holds `descriptor` at when it inherits it:
+/// the same on macOS, whose spawn keeps a descriptor its file actions name.
+#[cfg(target_os = "macos")]
+pub(crate) fn inherited_descriptor_in_child(descriptor: BorrowedFd<'_>) -> RawFd {
+    descriptor.as_raw_fd()
+}
+
+/// The number a child [`spawn_session_leader`] starts holds `descriptor` at when it inherits it:
+/// `INHERITED_DESCRIPTOR` on Linux, whose spawn closes every descriptor above that one.
+#[cfg(target_os = "linux")]
+pub(crate) fn inherited_descriptor_in_child(_descriptor: BorrowedFd<'_>) -> RawFd {
+    INHERITED_DESCRIPTOR
+}
+
+/// Starts `spawn` with `posix_spawn` by its program's path: in a session and group of its own, its
+/// default signals back at their default, the spawning thread's signal mask kept as std keeps it,
+/// only its three standard streams and its inherited descriptor open, in its folder. Answers the
 /// child's id; the caller reaps it. Fails with `InvalidInput` for a NUL in the program, a word, the
 /// environment or the folder, else with the error code the system answers, a program that cannot
-/// run among them.
+/// run and a folder that cannot be entered among them.
 pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result<u32> {
     let program = c_string(spawn.program.as_os_str())?;
     let arguments = std::iter::once(c_string(spawn.argument_zero))
@@ -176,8 +232,10 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
         .iter()
         .map(|entry| c_string(entry))
         .collect::<io::Result<Vec<_>>>()?;
-    let folder = c_string(spawn.working_folder.as_os_str())?;
-    let null_device = c_string(OsStr::new(NULL_DEVICE_PATH))?;
+    let folder = spawn
+        .working_folder
+        .map(|folder| c_string(folder.as_os_str()))
+        .transpose()?;
 
     let mut file_actions = SpawnFileActions::new()?;
     for (stream, descriptor) in
@@ -187,14 +245,15 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
             .zip([libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO])
     {
         match stream {
+            #[cfg(target_os = "macos")]
             SpawnStream::NullDevice => {
+                let null_device = c_string(OsStr::new(NULL_DEVICE_PATH))?;
                 let access = if descriptor == libc::STDIN_FILENO {
                     libc::O_RDONLY
                 } else {
                     libc::O_WRONLY
                 };
-                // SAFETY: the file actions were set up above, and the path is a C string that
-                // outlives the spawn, which reads it.
+                // SAFETY: the file actions were set up above, and the call copies the path.
                 check_spawn_status(unsafe {
                     libc::posix_spawn_file_actions_addopen(
                         file_actions.as_mut_ptr(),
@@ -206,33 +265,52 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
                 })?;
             }
             SpawnStream::Descriptor(source) => {
-                // SAFETY: the file actions were set up above, and the source descriptor is
-                // borrowed for `spawn`'s life, which outlives the spawn.
-                check_spawn_status(unsafe {
-                    libc::posix_spawn_file_actions_adddup2(
-                        file_actions.as_mut_ptr(),
-                        source.as_raw_fd(),
-                        descriptor,
-                    )
-                })?;
+                file_actions.add_duplicate(source.as_raw_fd(), descriptor)?;
             }
         }
     }
-    let add_chdir = add_chdir_call()?;
-    // SAFETY: the file actions were set up above, and the folder is a C string that outlives the
-    // spawn.
-    check_spawn_status(unsafe { add_chdir(file_actions.as_mut_ptr(), folder.as_ptr()) })?;
+    // After the streams, so on Linux a stream's source on descriptor 3 is copied before the
+    // inherited end replaces it. macOS keeps a descriptor a duplication names under
+    // `POSIX_SPAWN_CLOEXEC_DEFAULT`, and a duplication clears close-on-exec on the copy.
+    if let Some(inherited) = spawn.inherited {
+        file_actions.add_duplicate(
+            inherited.as_raw_fd(),
+            inherited_descriptor_in_child(inherited),
+        )?;
+    }
+    // Linux has no `POSIX_SPAWN_CLOEXEC_DEFAULT`, so the spawn closes every descriptor above the
+    // ones it hands on; glibc 2.34 is the first with the call.
+    #[cfg(target_os = "linux")]
+    {
+        let first_closed = if spawn.inherited.is_some() {
+            INHERITED_DESCRIPTOR + 1
+        } else {
+            INHERITED_DESCRIPTOR
+        };
+        // SAFETY: the file actions were set up above; the call copies the number.
+        check_spawn_status(unsafe {
+            libc::posix_spawn_file_actions_addclosefrom_np(file_actions.as_mut_ptr(), first_closed)
+        })?;
+    }
+    if let Some(folder) = &folder {
+        file_actions.add_folder_change(folder)?;
+    }
 
     let mut attributes = SpawnAttributes::new()?;
     let mut default_signals = SigSet::empty();
-    default_signals.add(Signal::SIGPIPE);
+    for signal in spawn.default_signals {
+        default_signals.add(*signal);
+    }
     // SAFETY: the attributes were set up above, and the call copies the set.
     check_spawn_status(unsafe {
         libc::posix_spawnattr_setsigdefault(attributes.as_mut_ptr(), default_signals.as_ref())
     })?;
-    attributes.set_flags(
-        POSIX_SPAWN_SETSID | libc::POSIX_SPAWN_SETSIGDEF | libc::POSIX_SPAWN_CLOEXEC_DEFAULT,
-    )?;
+    #[cfg(target_os = "macos")]
+    let flags =
+        POSIX_SPAWN_SETSID | libc::POSIX_SPAWN_SETSIGDEF | libc::POSIX_SPAWN_CLOEXEC_DEFAULT;
+    #[cfg(target_os = "linux")]
+    let flags = POSIX_SPAWN_SETSID | libc::POSIX_SPAWN_SETSIGDEF;
+    attributes.set_flags(flags)?;
 
     let argument_pointers = null_terminated_pointers(&arguments);
     let environment_pointers = null_terminated_pointers(&environment);
@@ -253,6 +331,28 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
     Ok(u32::try_from(pid).expect("a started process's id is positive"))
 }
 
+/// The daemon's own environment as `NAME=VALUE` entries, each of `added` set over it.
+pub(crate) fn inherited_environment(added: &[(String, String)]) -> Vec<OsString> {
+    let inherited = std::env::vars_os().filter(|(name, _)| {
+        !added
+            .iter()
+            .any(|(added_name, _)| OsStr::new(added_name) == name)
+    });
+    let added = added
+        .iter()
+        .map(|(name, value)| (OsString::from(name), OsString::from(value)));
+    inherited
+        .chain(added)
+        .map(|(name, value)| {
+            let mut entry = OsString::with_capacity(name.len() + value.len() + 1);
+            entry.push(name);
+            entry.push("=");
+            entry.push(value);
+            entry
+        })
+        .collect()
+}
+
 /// Reaps the child `id` this process spawned, waiting for its exit, and answers how it ended.
 /// Blocking, so it runs in `spawn_blocking`, or once the child has ended. Fails with
 /// `InvalidInput` for an id of 0 or past `i32::MAX`, else with the system's error from the wait.
@@ -271,17 +371,41 @@ pub(crate) fn reap_spawned_child(id: u32) -> io::Result<ExitStatus> {
     }
 }
 
+/// Reaps the child `id` this process spawned when it has exited, never waiting, and answers how it
+/// ended; `None` while it runs or before the system reports its exit to a wait. Fails with
+/// `InvalidInput` for an id of 0 or past `i32::MAX`, else with the system's error from the wait.
+pub(crate) fn reap_exited_child(id: u32) -> io::Result<Option<ExitStatus>> {
+    let pid = system_process_id(id)?.get();
+    let mut status: c_int = 0;
+    loop {
+        // SAFETY: `status` is a live, writable integer, and `pid` names this process's own child.
+        match unsafe { libc::waitpid(pid, &raw mut status, libc::WNOHANG) } {
+            0 => return Ok(None),
+            reaped if reaped == pid => return Ok(Some(ExitStatus::from_raw(status))),
+            _ => {
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() != Some(libc::EINTR) {
+                    return Err(error);
+                }
+            }
+        }
+    }
+}
+
 /// Waits with no thread for the end of `process`, a child this process spawned, then reaps it on
 /// a blocking thread, where the reap answers at once, and answers how it ended; where the wait for
 /// its end cannot be set up, the blocking reap waits for the exit itself, so no child is left a
 /// zombie, at the cost of one blocking thread held until the child exits, which the daemon's stop
 /// then waits on up to its drain bound. Must be called within the runtime. Fails with the system's
 /// error from the reap.
-pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<ExitStatus> {
+#[cfg(target_os = "macos")]
+pub(crate) async fn reap_ended_child(
+    process: &crate::macos::pinned_process::PinnedProcess,
+) -> io::Result<ExitStatus> {
     let id = process.id();
     if let Err(error) = process.wait_for_end().await {
         tracing::warn!(
-            error = &error as &(dyn Error + 'static),
+            error = &error as &(dyn std::error::Error + 'static),
             "a spawned child's end could not be watched, so its reap waits for it"
         );
     }
@@ -297,7 +421,12 @@ pub(crate) async fn reap_ended_child(process: &PinnedProcess) -> io::Result<Exit
 /// can leave the child unreaped until this process exits. Fails with the system's error from the
 /// kill, which leaves the child unreaped rather than wait on one still running, or from a reap on
 /// this thread.
+#[cfg(target_os = "macos")]
 pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {
+    use nix::errno::Errno;
+    use nix::sys::signal::kill;
+    use nix::unistd::Pid;
+
     // Unreaped, the child keeps its id, so the kill by id reaches no other process.
     let pid = Pid::from_raw(system_process_id(id)?.get());
     match kill(pid, Signal::SIGKILL) {
@@ -310,7 +439,7 @@ pub(crate) fn end_spawned_child(id: u32) -> io::Result<()> {
             drop(runtime.spawn_blocking(move || {
                 if let Err(error) = reap_spawned_child(id) {
                     tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
+                        error = &error as &(dyn std::error::Error + 'static),
                         "a killed child could not be reaped"
                     );
                 }

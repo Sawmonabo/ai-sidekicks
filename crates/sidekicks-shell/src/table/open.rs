@@ -121,6 +121,7 @@ impl TableShared {
                 spawn_nonce: &spawn_nonce,
                 mark_nonce: &mark_nonce,
                 shell_mode: self.deps.shell_mode.clone(),
+                release_version: &self.deps.release_version,
             })
             .await;
             match start {

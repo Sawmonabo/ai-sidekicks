@@ -1,15 +1,125 @@
 //! A child's exit awaited without reaping it, so its process id stays its own until its owner
 //! reaps it: the wait blocks on the system's exit event for the process (a process descriptor on
-//! Linux, a `kqueue` exit filter on macOS), which a stop does not raise.
+//! Linux, a `kqueue` exit filter on macOS), which a stop does not raise. [`ExitEvent`] registers
+//! that event on a poller another wait drives too, such as a terminal's watch.
 
 use std::io::{self, ErrorKind};
 use std::mem::MaybeUninit;
+#[cfg(target_os = "macos")]
+use std::num::NonZeroI32;
+#[cfg(target_os = "linux")]
+use std::os::fd::OwnedFd;
 use std::time::{Duration, Instant};
 
 use polling::{Events, Poller};
 
 /// The key the process's exit event is registered under, the only source its poller watches.
 const EXIT_KEY: usize = 0;
+
+/// A child's exit event registered on a poller, posted once: on Linux its process descriptor,
+/// held open while registered, and on macOS a `kqueue` exit filter on its id.
+pub(crate) struct ExitEvent {
+    /// The child's process descriptor, which reads as ready once the child has exited.
+    #[cfg(target_os = "linux")]
+    descriptor: OwnedFd,
+    /// The child's id, which the exit filter is keyed on.
+    #[cfg(target_os = "macos")]
+    pid: NonZeroI32,
+}
+
+impl ExitEvent {
+    /// Registers the exit of the child `pid` on `poller` under `key`; `None` when the child is
+    /// already exiting, for which no event comes. Fails with `InvalidInput` for a pid of 0 or past
+    /// `i32::MAX`, and with the system's error.
+    ///
+    /// # Safety
+    ///
+    /// `pid` is the caller's own child, not yet reaped, and the event is taken off `poller` with
+    /// [`Self::unregister`], or `poller` dropped, before the event is dropped.
+    #[cfg(target_os = "linux")]
+    pub(crate) unsafe fn register(
+        poller: &Poller,
+        pid: u32,
+        key: usize,
+    ) -> io::Result<Option<Self>> {
+        use polling::Event;
+
+        use crate::linux::pinned_process::open_process_descriptor;
+
+        let descriptor = match open_process_descriptor(pid) {
+            Ok(descriptor) => descriptor,
+            // No process has the id, so the child has exited.
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        // SAFETY: the event holds the descriptor, and the caller takes the event off the poller or
+        // drops the poller before it drops the event, so the descriptor outlives its registration.
+        unsafe { poller.add(&descriptor, Event::readable(key)) }?;
+        Ok(Some(Self { descriptor }))
+    }
+
+    /// Registers the exit of the child `pid` on `poller` under `key`; `None` when the child is
+    /// already exiting, for which no event comes. Fails with `InvalidInput` for a pid of 0 or past
+    /// `i32::MAX`, and with the system's error.
+    ///
+    /// # Safety
+    ///
+    /// `pid` is the caller's own child, not yet reaped, and the event is taken off `poller` with
+    /// [`Self::unregister`], or `poller` dropped, before the event is dropped.
+    #[cfg(target_os = "macos")]
+    pub(crate) unsafe fn register(
+        poller: &Poller,
+        pid: u32,
+        key: usize,
+    ) -> io::Result<Option<Self>> {
+        use polling::PollMode;
+        use polling::os::kqueue::PollerKqueueExt;
+
+        use crate::posix::process::id::system_process_id;
+
+        let pid = system_process_id(pid)?;
+        // SAFETY: the caller's own child, unreaped, so no other process has its id.
+        match poller.add_filter(unsafe { exit_filter(pid) }, key, PollMode::Oneshot) {
+            Ok(()) => Ok(Some(Self { pid })),
+            // The kernel refuses the filter for a child already exiting, which may not yet read
+            // as exited; the poller still lists the id it refused, so the id is taken off it.
+            Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                // SAFETY: as above; a delete only names the filter.
+                poller.delete_filter(unsafe { exit_filter(pid) })?;
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Takes the event off `poller`, whether or not it was posted. Fails with the system's error.
+    #[cfg(target_os = "linux")]
+    pub(crate) fn unregister(self, poller: &Poller) -> io::Result<()> {
+        poller.delete(&self.descriptor)
+    }
+
+    /// Takes the event off `poller`, whether or not it was posted. Fails with the system's error.
+    #[cfg(target_os = "macos")]
+    pub(crate) fn unregister(self, poller: &Poller) -> io::Result<()> {
+        use polling::os::kqueue::PollerKqueueExt;
+
+        // SAFETY: a delete only names the filter, which the kernel removed already once posted.
+        poller.delete_filter(unsafe { exit_filter(self.pid) })
+    }
+}
+
+/// The `kqueue` filter for the exit of process `pid`.
+///
+/// # Safety
+///
+/// `pid` is the caller's own child, not yet reaped.
+#[cfg(target_os = "macos")]
+unsafe fn exit_filter(pid: NonZeroI32) -> polling::os::kqueue::Process<'static> {
+    use polling::os::kqueue::{Process, ProcessOps};
+
+    // SAFETY: the caller's contract: the id is its own unreaped child's.
+    unsafe { Process::from_pid(pid, ProcessOps::Exit) }
+}
 
 /// Blocks until the child `pid` has exited, leaving it unreaped, or until `bound` passes where one
 /// is given; answers whether it exited. A stop or a continue does not end the wait. `pid` must be
@@ -22,55 +132,19 @@ pub fn wait_for_exit(pid: u32, bound: Option<Duration>) -> io::Result<bool> {
 
 /// Waits on `pid`'s exit event through a poller of its own until the child has exited or
 /// `give_up_at` passes where one is given; the child's state is read only once the watch is set
-/// up, so an exit before it is not missed.
-#[cfg(target_os = "linux")]
-fn watch_exit_event(pid: u32, give_up_at: Option<Instant>) -> io::Result<bool> {
-    use polling::Event;
-
-    use crate::linux::pinned_process::open_process_descriptor;
-
-    // Declared before the poller, so it outlives the poller and the registration in it.
-    let descriptor = match open_process_descriptor(pid) {
-        Ok(descriptor) => descriptor,
-        // No process has the id, so the child has exited; the blocking wait answers at once.
-        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-            return wait_without_reaping(pid, libc::WEXITED).map(is_exit);
-        }
-        Err(error) => return Err(error),
-    };
-    let poller = Poller::new()?;
-    // SAFETY: the descriptor is declared before the poller, so it stays open until the poller and
-    // its registration are gone.
-    unsafe { poller.add(&descriptor, Event::readable(EXIT_KEY)) }?;
-    wait_on_exit_event(&poller, pid, give_up_at)
-}
-
-/// Waits on `pid`'s exit event through a poller of its own until the child has exited or
-/// `give_up_at` passes where one is given; the child's state is read only once the watch is set
 /// up, since the exit filter reports only an exit after it is attached, so an exit before it is
 /// not missed.
-#[cfg(target_os = "macos")]
 fn watch_exit_event(pid: u32, give_up_at: Option<Instant>) -> io::Result<bool> {
-    use polling::PollMode;
-    use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps};
-
-    use crate::posix::process::id::system_process_id;
-
-    let raw_pid = system_process_id(pid)?;
     let poller = Poller::new()?;
-    // SAFETY: the id is the caller's own child, left unreaped until this wait returns, so no other
-    // process takes it while the filter is registered.
-    let process = unsafe { Process::from_pid(raw_pid, ProcessOps::Exit) };
-    match poller.add_filter(process, EXIT_KEY, PollMode::Oneshot) {
-        Ok(()) => {}
-        // The kernel refuses the filter for a child already exiting, which may not yet read as
-        // exited; its exit is under way, so the blocking wait returns at once.
-        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
-            return wait_without_reaping(pid, libc::WEXITED).map(is_exit);
-        }
-        Err(error) => return Err(error),
-    }
-    wait_on_exit_event(&poller, pid, give_up_at)
+    // SAFETY: `pid` is the caller's own unreaped child, and the event is taken off the poller
+    // below before it is dropped.
+    let Some(exit_event) = (unsafe { ExitEvent::register(&poller, pid, EXIT_KEY) })? else {
+        // The child is exiting, so the blocking wait returns at once.
+        return wait_without_reaping(pid, libc::WEXITED).map(is_exit);
+    };
+    let exited = wait_on_exit_event(&poller, pid, give_up_at);
+    exit_event.unregister(&poller)?;
+    exited
 }
 
 /// Waits on `poller`, which watches `pid`'s exit event, until the child has exited or

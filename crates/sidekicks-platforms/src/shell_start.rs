@@ -129,6 +129,9 @@ pub enum ShellStartError {
     /// The system refused to arm the parent-death signal or clear the huge-page switch.
     #[error("the system refused to arm the shell's process")]
     ArmingRefused(#[source] io::Error),
+    /// The system refused to make the terminal the mode started on its controlling one.
+    #[error("the system refused to make the shell's terminal its controlling one")]
+    TerminalRefused(#[source] io::Error),
     /// The system refused to enter the shell's folder: it is gone, not a folder, or not open to
     /// the user.
     #[error("the system refused to enter the shell's folder")]

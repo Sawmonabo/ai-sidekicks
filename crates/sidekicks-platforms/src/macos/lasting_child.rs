@@ -4,8 +4,10 @@ use std::ffi::OsString;
 use std::io;
 use std::os::fd::AsFd as _;
 
+use nix::sys::signal::Signal;
+
 use crate::lasting_child::LastingCommand;
-use crate::macos::posix_spawn::{SessionLeaderSpawn, SpawnStream, spawn_session_leader};
+use crate::posix::spawn::{SessionLeaderSpawn, SpawnStream, spawn_session_leader};
 
 /// Starts `command` as [`spawn_session_leader`] starts a child, named by its program's path, its
 /// standard input and output the null device and its error output `error_output`, with only the
@@ -21,11 +23,13 @@ pub(crate) fn spawn_lasting_child_process(command: &LastingCommand) -> io::Resul
             .iter()
             .map(|(name, value)| OsString::from(format!("{name}={value}")))
             .collect(),
-        working_folder: &command.working_folder,
+        working_folder: Some(&command.working_folder),
         streams: [
             SpawnStream::NullDevice,
             SpawnStream::NullDevice,
             SpawnStream::Descriptor(command.error_output.as_fd()),
         ],
+        inherited: None,
+        default_signals: &[Signal::SIGPIPE],
     })
 }

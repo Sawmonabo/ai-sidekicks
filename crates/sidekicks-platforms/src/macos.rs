@@ -18,7 +18,6 @@ pub(crate) mod lasting_child;
 pub(crate) mod loaded_images;
 pub(crate) mod memory;
 pub(crate) mod pinned_process;
-pub(crate) mod posix_spawn;
 pub(crate) mod power_source;
 pub(crate) mod process_start;
 pub(crate) mod processes;

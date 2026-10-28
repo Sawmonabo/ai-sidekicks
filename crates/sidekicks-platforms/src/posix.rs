@@ -28,6 +28,7 @@ pub(crate) mod shell_folder_start;
 pub(crate) mod shell_start;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod socket;
+pub(crate) mod spawn;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod stand_in_program;
 pub(crate) mod stop_request;

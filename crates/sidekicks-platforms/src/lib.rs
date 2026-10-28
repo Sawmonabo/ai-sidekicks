@@ -11,8 +11,9 @@
               input count (`GetNumberOfConsoleInputEvents`) and library-search calls, the shell \
               start's signal and console-handler calls, the parent check a Linux `Command` child \
               runs in `pre_exec`, a Linux lasting child's `setsid` and `prctl` in `pre_exec`, a \
-              lasting child's and a session child's `posix_spawn` on macOS (its attributes, file \
-              actions and reap), a Linux session child's `setsid` in `pre_exec`, the stop of a \
+              lasting child's and a session child's `posix_spawn` on macOS and a terminal's on \
+              macOS and Linux (its attributes, file actions and reap), the `shell` mode's \
+              `TIOCSCTTY`, a Linux session child's `setsid` in `pre_exec`, the stop of a \
               pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, descendant list \
               and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
               `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
@@ -163,7 +164,7 @@ pub use file_watch::{DOES_WATCH_OUTLIVE_TREE_MOVE, WATCHES_TREES, inotify_watch_
 pub use footprint::ProcessFootprint;
 pub use held_file::{create_held_file, is_held, remove_unless_held};
 pub use hidden_entry::is_hidden_entry;
-#[cfg(all(unix, any(test, feature = "test-support")))]
+#[cfg(any(test, feature = "test-support"))]
 pub use input_wait::SELECT_READER_SCRIPT;
 pub use input_wait::{InputTerminal, InputWaitReading};
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
@@ -338,8 +339,14 @@ pub use posix::shell_start::{
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::inner::CAN_START_AN_INNER_TERMINAL;
 #[cfg(unix)]
 pub use posix::terminal::inner::start_inner_terminal;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::pty::run_terminal_taking_stand_in;
+#[cfg(unix)]
+pub use posix::terminal::pty::{Pty, start_terminal};
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
@@ -363,18 +370,18 @@ pub use posix::stop_request::StopRequest;
 pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::test_programs::{
+    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
+    interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
+};
 #[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
     end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
     release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
-    send_console_break, send_signal, terminal_ending_route, terminal_options,
-    terminal_signal_route, write_console_waiting_input,
-};
-#[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::terminal::{
-    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
-    interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
+    send_console_break, send_signal, terminal_ending_route, terminal_signal_route,
+    write_console_waiting_input,
 };
 #[cfg(unix)]
 pub use posix::thread_cpu_time::thread_cpu_time;
@@ -423,10 +430,10 @@ pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
     CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, InnerTerminal,
     ProcessTreeEnd, TerminalDevice, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
-    TerminalSignalRoute, TerminalWake, TerminalWaker,
+    TerminalSignalRoute, TerminalStart, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
-pub use test_program::{harness_test_name, pass_through_start};
+pub use test_program::{harness_test_name, pass_through_start, terminal_taking_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
@@ -568,12 +575,14 @@ pub use windows::system_locale::{system_hour_cycle, system_locale};
 pub use windows::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::start_inner_terminal;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::terminal::{CAN_START_AN_INNER_TERMINAL, run_terminal_taking_stand_in};
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
-    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
-    end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
-    release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
-    send_console_break, send_signal, terminal_ending_route, terminal_options,
+    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, Pty, TerminalWatch,
+    child_process_id, end_process_tree, read_console, read_console_waiting_input,
+    read_terminal_master, release_terminal, restrict_library_search, run_console_helper,
+    run_terminal_loop, send_console_break, send_signal, start_terminal, terminal_ending_route,
     terminal_signal_route, write_console_waiting_input,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
