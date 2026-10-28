@@ -85,7 +85,6 @@ use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
     PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
 };
-use crate::port::registration::PortRegistration;
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_registry::ProviderProcessRegistry;
@@ -94,6 +93,7 @@ use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
 use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 use crate::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The conversation a test session starts on.
 pub(crate) const TEST_THREAD: &str = "thread-1";

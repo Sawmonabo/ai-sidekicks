@@ -38,7 +38,6 @@ use sidekicks_provider::driver::diagnostics::{
 use sidekicks_provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
-use sidekicks_provider::port::registration::PortRegistrationError;
 use sidekicks_provider::process_registry::ProviderProcessRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
@@ -53,6 +52,7 @@ use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::worktree_naming::worktrees_folder;
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_workspace::git::process::GitRunner;

@@ -77,9 +77,9 @@ use crate::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort,
     QuestionTurnError, take_question_in_turn,
 };
-use crate::port::registration::PortRegistration;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome};
+use sidekicks_std::port_registration::PortRegistration;
 
 // The decision reason of an ask an ask rule sent to the host.
 const CLAUDE_RULE_DECISION: &str = "rule";

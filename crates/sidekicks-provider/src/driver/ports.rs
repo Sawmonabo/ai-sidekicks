@@ -21,7 +21,6 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
 use crate::port::plan::PlanPort;
 use crate::port::question::QuestionPort;
-use crate::port::registration::PortRegistration;
 use crate::port::repository_reader::RepositoryReader;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
@@ -30,6 +29,7 @@ use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::usage_sink::UsageSink;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub trait MessageTakenListener: Send + Sync {

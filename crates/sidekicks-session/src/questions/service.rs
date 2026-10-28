@@ -31,10 +31,10 @@ use sidekicks_provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionPort, ToolServerQuestionAnswer,
     WaitingQuestionOpening,
 };
-use sidekicks_provider::port::registration::{PortRegistration, PortRegistrationError};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };

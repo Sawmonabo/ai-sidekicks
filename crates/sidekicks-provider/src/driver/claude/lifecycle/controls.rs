@@ -64,8 +64,8 @@ use crate::driver::session_control::{
     SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
     build_auth_probe_result,
 };
-use crate::port::registration::PortRegistration;
 use crate::port::session_inbox_address::SessionInboxAddresser;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The model a read of the build's own choices runs on: Claude Code's pointer to its recommended
 /// model, which every account's catalog lists.

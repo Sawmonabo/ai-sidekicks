@@ -47,10 +47,10 @@ use crate::driver::claude::session::tool_server_calls::ClaudeToolServerCalls;
 use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::in_process_tool_servers::InProcessToolServers;
-use crate::port::registration::PortRegistration;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::port_registration::PortRegistration;
 
 /// What every session's task shares.
 pub(crate) struct ClaudeSessionTaskServices {

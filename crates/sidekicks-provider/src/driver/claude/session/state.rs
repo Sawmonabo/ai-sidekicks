@@ -31,13 +31,13 @@ use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::SpawnedVersionBindingCarriers;
-use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
 use crate::usage_delta_accountant::UsageDeltaAccountant;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.

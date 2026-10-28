@@ -44,10 +44,10 @@ use crate::driver::test_registry::{
     RecordedQueue, new_run_id, new_session_id, test_driver_services,
 };
 use crate::port::question::QuestionPort;
-use crate::port::registration::PortRegistration;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";

@@ -73,12 +73,12 @@ use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::contract::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
-use crate::port::registration::PortRegistration;
 use crate::port::run_host::RunHost;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::spawn_environment::ReservedEnvironmentNames;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The folder under the daemon's data folder that holds each session's helper role files.
 const CODEX_HELPER_ROLES_FOLDER_NAME: &str = "codex-helper-roles";

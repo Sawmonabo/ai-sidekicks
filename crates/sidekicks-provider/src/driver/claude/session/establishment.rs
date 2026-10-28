@@ -87,7 +87,6 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
     SubagentPolicy,
 };
-use crate::port::registration::PortRegistrationError;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::InboundDelivery;
 use crate::run::posture::{CredentialPolicyResolveError, ExecutionPostureService};
@@ -95,6 +94,7 @@ use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::thread_frame_router::ThreadFrameRouter;
 use crate::usage_delta_accountant::UsageDeltaAccountant;
+use sidekicks_std::port_registration::PortRegistrationError;
 
 /// Why a session's process could not be brought up and adopted.
 #[derive(Debug, thiserror::Error)]

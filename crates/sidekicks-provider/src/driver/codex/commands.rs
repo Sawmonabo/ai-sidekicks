@@ -34,8 +34,8 @@ use crate::driver::diagnostics::{
 };
 use crate::driver::run_control::PickedSkill;
 use crate::driver::session_control::ProviderCommandsListener;
-use crate::port::registration::PortRegistration;
 use crate::port::server_prompts::ServerPromptPort;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The provider's live skill listing.
 const CODEX_SKILLS_LIST_METHOD: &str = "skills/list";

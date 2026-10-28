@@ -64,13 +64,13 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::registration::PortRegistration;
 use crate::port::run_host::RunHost;
 use crate::port::usage_sink::UsageSink;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::thread_frame_router::ThreadFrameRoute;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// Reports that Claude Code took a message the daemon handed: the session, the message's own id
 /// and the run it was taken by.

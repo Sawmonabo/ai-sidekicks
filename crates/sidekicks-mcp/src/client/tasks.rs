@@ -39,9 +39,9 @@ use sidekicks_provider::port::question::{
     ProviderQuestion, ProviderQuestionWithdrawal, QuestionLinePlace, QuestionPort, QuestionTurnEnd,
     QuestionTurnError, ToolServerQuestionAnswer, take_question_in_turn,
 };
-use sidekicks_provider::port::registration::PortRegistration;
 use sidekicks_provider::record_readers::read_non_empty_string;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use strum::{IntoStaticStr, VariantArray};
 use tokio::sync::{Notify, oneshot, watch};
 use tokio_util::sync::CancellationToken;

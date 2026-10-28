@@ -55,10 +55,10 @@ use crate::driver::run_control::{
     InterruptRunRequest, PauseRunParams, ResumeRunParams, SteerTurnEndedError, WaitingMessage,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::registration::PortRegistration;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_std::port_registration::PortRegistration;
 
 /// What run control acts through.
 pub(crate) struct CodexRunControlDependencies {

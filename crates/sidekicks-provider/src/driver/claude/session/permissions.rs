@@ -30,8 +30,8 @@ use crate::driver::claude::spawn::settings::{
     ClaudePermissionsRequest, compose_claude_permissions,
 };
 use crate::driver::contract::DriverError;
-use crate::port::registration::PortRegistration;
 use crate::port::session_rules::SessionRulePort;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// Why a standing rule could not be handed to Claude Code or taken out of force there.
 #[derive(Debug, thiserror::Error)]

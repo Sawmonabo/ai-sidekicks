@@ -52,10 +52,10 @@ use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::registration::PortRegistration;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
 const CODEX_EXIT_UNREAD_FAILURE: &str = "The Codex service ended";

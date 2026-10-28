@@ -7,7 +7,6 @@ pub mod inbound_dispatch;
 pub mod permission_ask;
 pub mod plan;
 pub mod question;
-pub mod registration;
 pub(crate) mod repository_reader;
 pub mod reviewer_denial;
 pub mod run_host;

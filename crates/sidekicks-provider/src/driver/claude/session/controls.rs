@@ -64,13 +64,13 @@ use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
-use crate::port::registration::PortRegistration;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::usage_sink::UsageSink;
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
+use sidekicks_std::port_registration::PortRegistration;
 
 // The bundled skill Claude Code's review runs, by the name the build's skill list gives it.
 const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";

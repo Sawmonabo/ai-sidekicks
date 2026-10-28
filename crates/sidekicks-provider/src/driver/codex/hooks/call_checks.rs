@@ -40,8 +40,8 @@ use crate::port::permission_ask::{
     PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
     ProviderPermissionAskWithdrawal,
 };
-use crate::port::registration::PortRegistration;
 use crate::port::session_rules::SessionRulePort;
+use sidekicks_std::port_registration::PortRegistration;
 
 /// The tool Codex names a shell command by at its hooks.
 const CODEX_HOOK_SHELL_TOOL: &str = "Bash";
@@ -470,8 +470,8 @@ mod tests {
         PermissionAskPort, ProviderAskAction, ProviderPermissionAnswer, ProviderPermissionAsk,
         ProviderPermissionAskWithdrawal,
     };
-    use crate::port::registration::PortRegistration;
     use crate::port::session_rules::SessionRulePort;
+    use sidekicks_std::port_registration::PortRegistration;
 
     type PortFailure = Box<dyn Error + Send + Sync>;
 

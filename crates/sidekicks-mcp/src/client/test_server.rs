@@ -17,7 +17,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_provider::port::question::QuestionPort;
 use sidekicks_provider::port::question::test_card::QuestionCard;
-use sidekicks_provider::port::registration::PortRegistration;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;

@@ -64,7 +64,6 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
     SessionToolServer, SubagentDefinition, SubagentPolicy,
 };
-use crate::port::registration::PortRegistration;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::process_identity::ProviderProcessIds as _;
 use crate::process_registry::ProviderProcessRegistry;
@@ -75,6 +74,7 @@ use crate::spawn_environment::{
 };
 use crate::spawned_version::to_binding_version_carriers;
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
+use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";

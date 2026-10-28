@@ -28,8 +28,8 @@ use crate::driver::codex::usage_limit_signal::{
 };
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::registration::PortRegistration;
 use crate::run::delivery::{InboundDelivery, MachineScopedRow};
+use sidekicks_std::port_registration::PortRegistration;
 
 /// Reads and files an account's rate-limit readings. A clone files through the same record of what
 /// was filed, so a reading one clone filed is not filed again by another.
