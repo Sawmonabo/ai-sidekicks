@@ -34,4 +34,5 @@ pub mod spawn_cwd_translator;
 pub mod staged_attachments;
 pub mod tags;
 pub mod transcript;
+pub mod usage_record;
 pub mod worktree_naming;
