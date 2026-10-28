@@ -17,6 +17,7 @@ use sidekicks_session::addresses::SessionInboxAddresses;
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
@@ -28,8 +29,12 @@ use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_workspace::clone::service::CloneService;
+use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use sidekicks_workspace::project::service::ProjectService;
 
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
@@ -48,6 +53,9 @@ use crate::highlight::colorer::CodeHighlighter;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
+use crate::ipc::handlers::machine::folder::register_machine_folders;
+use crate::ipc::handlers::project::clone::register_project_clone_methods;
+use crate::ipc::handlers::project::register_project_methods;
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
 use crate::ipc::handlers::repo::working_folder::register_working_folder;
@@ -59,6 +67,7 @@ use crate::ipc::handlers::session::changes::register_session_changes;
 use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
+use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
 use crate::ipc::handlers::session::read::register_session_read;
@@ -118,6 +127,8 @@ pub(crate) struct MethodTableServices {
     pub(crate) inbox_addresses: Arc<SessionInboxAddresses>,
     /// Each session's tags.
     pub(crate) tags: Arc<SessionTagService>,
+    /// The project sessions' named groups.
+    pub(crate) session_groups: Arc<SessionGroupService>,
     /// The links between sessions.
     pub(crate) links: Arc<SessionLinkService>,
     /// The ranking of a session's related sessions.
@@ -145,12 +156,21 @@ pub(crate) struct MethodTableServices {
     pub(crate) branches: Arc<BranchListReader>,
     /// Follows a session's working folder.
     pub(crate) working_folders: Arc<WorkingFolderWatcher>,
+    /// The projects' edits.
+    pub(crate) projects: Arc<ProjectService>,
+    /// The live projects list.
+    pub(crate) project_list_feed: Arc<ProjectListFeed>,
+    /// The clones into projects, or why the clone service could not start, which each clone verb
+    /// then answers.
+    pub(crate) clones: Result<Arc<CloneService>, String>,
+    /// Lists the machine's folders for another device's folder chooser.
+    pub(crate) machine_folders: Arc<FolderListService>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs, the sessions, the repositories. The handshake, the
-/// subscriptions' cancel and the artifact store's table are registered by the start beside them.
-/// Fails when a method is registered twice.
+/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects and
+/// the machine's folders. The handshake, the subscriptions' cancel and the artifact store's table
+/// are registered by the start beside them. Fails when a method is registered twice.
 #[expect(
     dead_code,
     reason = "the daemon's start registers the tables through it"
@@ -197,6 +217,7 @@ pub(crate) fn register_method_tables(
     register_session_search(builder, services.session_search)?;
     register_session_controls(builder, services.session_controls)?;
     register_session_tags(builder, services.tags)?;
+    register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_restart(
         builder,
@@ -211,7 +232,10 @@ pub(crate) fn register_method_tables(
     register_terminal_write(builder, services.shells.input_lookup())?;
     register_terminal_methods(builder, services.shells)?;
     register_repo_branches(builder, services.branches)?;
-    register_working_folder(builder, services.working_folders)
+    register_working_folder(builder, services.working_folders)?;
+    register_project_methods(builder, services.projects, services.project_list_feed)?;
+    register_project_clone_methods(builder, services.clones)?;
+    register_machine_folders(builder, services.machine_folders)
 }
 
 /// The chain a call on the serving socket passes through, and its gate that records mutating calls,

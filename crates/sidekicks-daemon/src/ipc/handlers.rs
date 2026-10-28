@@ -1,11 +1,14 @@
 //! The method handlers that sit on the socket: the approval, artifact, command, driver,
-//! highlight, question, repository, run, session, terminal and transcript methods served here.
+//! highlight, machine, project, question, repository, run, session, terminal and transcript
+//! methods served here.
 
 pub(crate) mod approval;
 pub(crate) mod artifact;
 pub(crate) mod command;
 pub(crate) mod driver;
 pub(crate) mod highlight;
+pub(crate) mod machine;
+pub(crate) mod project;
 pub(crate) mod question;
 pub(crate) mod repo;
 pub(crate) mod run;
