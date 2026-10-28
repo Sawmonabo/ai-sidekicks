@@ -212,8 +212,9 @@ pub(crate) struct LiveClaudeSession {
     /// The binding of each run that took the session's turn on this process, whose held `Allow
     /// once` presses are released once the process is gone, ended runs' included.
     pub(crate) served_bindings: Mutex<HashSet<RuntimeBindingId>>,
-    /// The inbox socket the process listens on, set from the first `system/init` that names it.
-    pub(crate) messaging_socket: OnceLock<PathBuf>,
+    /// The socket the process listens on, the path the daemon chose and passed it at its start;
+    /// `None` where none could be made.
+    pub(crate) messaging_socket: Option<PathBuf>,
 }
 
 impl LiveClaudeSession {

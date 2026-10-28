@@ -13,7 +13,7 @@ mod resume;
 use std::error::Error;
 use std::io;
 use std::num::NonZeroUsize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Map, Value};
@@ -48,6 +48,7 @@ use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSession
 use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeThreadUsageTally};
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
+use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::run::start::claude_session_unavailable;
@@ -578,12 +579,9 @@ impl ClaudeSessionEstablishment {
             accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
             usage_tally: ClaudeThreadUsageTally::default(),
         };
-        self.routing.bind_session_thread(
-            &mut band,
-            session_id,
-            &provider_session_id,
-            &establishment,
-        );
+        self.routing
+            .bind_session_thread(&mut band, session_id, &provider_session_id, &establishment)
+            .await;
         let listener = Arc::new(ClaudeSessionListener::new(
             provider_session_id.clone(),
             Arc::new(Mutex::new(band)),
@@ -592,6 +590,7 @@ impl ClaudeSessionEstablishment {
             arrivals,
         ));
         let in_process_servers = sources.ports.in_process_tool_servers.port();
+        let messaging_socket = self.task_services.inboxes.mint_process_socket(session_id);
         let started = self
             .starts
             .start_session(ClaudeBringUpRequest {
@@ -611,12 +610,16 @@ impl ClaudeSessionEstablishment {
                     routes: Arc::clone(&self.routes),
                     session_id,
                 }),
+                messaging_socket: messaging_socket.as_deref(),
             })
             .await;
         let started = match started {
             Ok(started) => started,
             Err(error) => {
                 callback_tools.roll_back();
+                if let Some(socket) = &messaging_socket {
+                    ClaudeSessionInboxes::remove_process_socket(session_id, socket).await;
+                }
                 return Err(error.into());
             }
         };
@@ -635,8 +638,13 @@ impl ClaudeSessionEstablishment {
         let (applied_output_speed, ultracode_reading) = match checked {
             Ok(applied) => applied,
             Err(error) => {
-                self.end_unadopted(&started, session_id, callback_tools)
-                    .await;
+                self.end_unadopted(
+                    &started,
+                    session_id,
+                    callback_tools,
+                    messaging_socket.as_deref(),
+                )
+                .await;
                 return Err(error);
             }
         };
@@ -648,8 +656,13 @@ impl ClaudeSessionEstablishment {
         )
         .await
         {
-            self.end_unadopted(&started, session_id, callback_tools)
-                .await;
+            self.end_unadopted(
+                &started,
+                session_id,
+                callback_tools,
+                messaging_socket.as_deref(),
+            )
+            .await;
             return Err(ClaudeEstablishmentError::AdvisorRecord(error));
         }
         let live = Arc::new(LiveClaudeSession {
@@ -686,7 +699,7 @@ impl ClaudeSessionEstablishment {
             process_exit: OnceLock::new(),
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
-            messaging_socket: OnceLock::new(),
+            messaging_socket,
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
             requested_spawn,
@@ -696,6 +709,10 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(error);
         }
+        // Bound while the claim still holds the slot, so a close waits for it and releases the
+        // inbox after, and a message meanwhile waits for the process instead of waking a closed
+        // session.
+        self.task_services.inboxes.bind(session_id).await;
         if let Err(live) = claim.install(Arc::clone(&live)) {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
@@ -713,9 +730,11 @@ impl ClaudeSessionEstablishment {
         started: &ClaudeStartedSession,
     ) {
         let session_id = live.session_id;
+        // A fork's bring-up left the channel on its predecessor's process until now.
+        if let Some(channel) = &live.spawn_bound_legs.command_channel {
+            channel.follow(live.process_identity.process_id);
+        }
         self.task_services.idle_sleep.note_awake(session_id);
-        let inboxes = Arc::clone(&self.task_services.inboxes);
-        tokio::spawn(async move { inboxes.bind(session_id).await });
         self.streams.insert(Arc::clone(&stream));
         // A resume reuses its predecessor's conversation id, which a held record would match.
         self.handshakes.forget_handshake(session_id);
@@ -782,12 +801,16 @@ impl ClaudeSessionEstablishment {
         started: &ClaudeStartedSession,
         session_id: SessionId,
         callback_tools: ClaudeCallbackBinding,
+        messaging_socket: Option<&Path>,
     ) {
         started.channel.terminate().await;
         self.sources
             .processes
             .remove_exited(session_id, started.identity);
         callback_tools.roll_back();
+        if let Some(socket) = messaging_socket {
+            ClaudeSessionInboxes::remove_process_socket(session_id, socket).await;
+        }
     }
 
     // Ends a started process whose live session was built and never installed.
@@ -796,6 +819,9 @@ impl ClaudeSessionEstablishment {
         self.sources
             .processes
             .remove_exited(live.session_id, started.identity);
+        if let Some(socket) = &live.messaging_socket {
+            ClaudeSessionInboxes::remove_process_socket(live.session_id, socket).await;
+        }
     }
 }
 

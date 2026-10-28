@@ -13,10 +13,9 @@ use std::time::Duration;
 
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
-use serde_json::Value;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{
-    PathRules, UnixDomainStream, bind_socket_listener, connect_unix_domain_socket,
+    UnixDomainStream, bind_socket_listener, connect_unix_domain_socket,
     create_missing_private_folders, found_no_listener,
 };
 use sidekicks_std::mutex_lock::lock;
@@ -24,12 +23,11 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::task::{JoinHandle, JoinSet};
 
+use crate::driver::claude::inbox::address::fresh_socket_name;
 use crate::driver::claude::inbox::forward::ClaudeInboxForwarding;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
-use crate::driver::claude::session::state::LiveClaudeSession;
-use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::port::session_wake::SessionWaker;
@@ -41,9 +39,6 @@ const FIRST_LINE_LIMIT: Duration = Duration::from_secs(30);
 /// How long the accept loop waits after an accept fails for a reason other than the one
 /// connection, such as the process's open files running out, so a failing accept does not spin.
 const ACCEPT_RETRY_WAIT: Duration = Duration::from_secs(1);
-
-/// The folder under Claude Code's config folder where each process records itself by its id.
-const SESSION_REGISTRY_FOLDER: &str = "sessions";
 
 /// Every session's inbox and the daemon's own, each listened on until released.
 pub(crate) struct ClaudeSessionInboxes {
@@ -60,11 +55,11 @@ pub(crate) struct ClaudeSessionInboxes {
 /// Why a connection to a session's inbox reached no process of the session.
 #[derive(Debug, thiserror::Error)]
 enum ClaudeInboxRefusal {
-    /// The wake answered, but no process of the session is up.
+    /// The wake answered, but no process of the session came up in time.
     #[error("the session has no process to pass the message to")]
     NoProcess,
-    /// The session's process named no inbox socket of its own.
-    #[error("the session's process names no inbox socket")]
+    /// The session's process was started with no socket of its own.
+    #[error("the session's process listens on no socket")]
     NoProcessSocket,
 }
 
@@ -114,6 +109,35 @@ impl ClaudeSessionInboxes {
             listener,
         ));
         lock(&self.session_inboxes).insert(session_id, serving);
+    }
+
+    /// A fresh path in the session inbox's folder for one process of the session to listen on, the
+    /// folder made private where it is missing, so the daemon knows the socket before the process
+    /// starts. A failure is recorded and the process starts with no socket the inbox can reach.
+    pub(crate) fn mint_process_socket(&self, session_id: SessionId) -> Option<PathBuf> {
+        let address = self.addresser.session_inbox_address(&session_id, None);
+        let folder = Path::new(address.as_str())
+            .parent()
+            .expect("an inbox address sits in a folder");
+        let minted = create_missing_private_folders(folder)
+            .and_then(|()| fresh_socket_name().map_err(io::Error::other))
+            .map(|name| folder.join(name));
+        minted
+            .inspect_err(|error| {
+                record_inbox_failure(Some(session_id), "naming the process's socket", error);
+            })
+            .ok()
+    }
+
+    /// Removes the socket file a process of the session left at `socket` once it is gone, so the
+    /// fresh name each process takes leaves nothing behind; one already removed is no failure.
+    pub(crate) async fn remove_process_socket(session_id: SessionId, socket: &Path) {
+        match tokio::fs::remove_file(socket).await {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                record_inbox_failure(Some(session_id), "removing the process's socket", &error);
+            }
+            Ok(()) | Err(_) => {}
+        }
     }
 
     /// Stops listening on the session's inbox, which removes its socket, for the session's close
@@ -190,17 +214,24 @@ impl ClaudeSessionInboxes {
                     .require_port()?
                     .wake_for_message(session_id)
                     .await?;
-                let live = self
-                    .slots
-                    .live_session(session_id)
-                    .ok_or(ClaudeInboxRefusal::NoProcess)?;
+                // A restart or a wake still bringing the process up is waited out, so the line
+                // reaches the process it brings up.
+                let live = tokio::time::timeout(
+                    FIRST_LINE_LIMIT,
+                    self.slots.live_after_transitions(session_id),
+                )
+                .await
+                .ok()
+                .flatten()
+                .ok_or(ClaudeInboxRefusal::NoProcess)?;
                 (live, Some(first_line))
             }
         };
-        let process_socket = process_socket_of(&live)
-            .await
+        let process_socket = live
+            .messaging_socket
+            .as_deref()
             .ok_or(ClaudeInboxRefusal::NoProcessSocket)?;
-        let process = connect_unix_domain_socket(&process_socket).await?;
+        let process = connect_unix_domain_socket(process_socket).await?;
         let (mut from_process, mut to_process) = tokio::io::split(process);
         let inbound = async {
             let mut line = held_line.unwrap_or_default();
@@ -223,12 +254,6 @@ impl ClaudeSessionInboxes {
     }
 }
 
-/// The inbox socket a `system/init` frame names for its process; `None` where it names none.
-pub(crate) fn read_messaging_socket(init_frame: &str) -> Option<PathBuf> {
-    let frame = serde_json::from_str::<Value>(init_frame).ok()?;
-    Some(PathBuf::from(frame.get("messaging_socket_path")?.as_str()?))
-}
-
 // Binds an inbox at `path`, making its folder private where it is missing; a socket file no
 // listener serves, which a stopped daemon left, is replaced.
 async fn bind_inbox(path: &Path) -> io::Result<Listener> {
@@ -247,20 +272,6 @@ async fn bind_inbox(path: &Path) -> io::Result<Listener> {
         }
         bound => bound,
     }
-}
-
-// The socket the session's process listens on: the one its `system/init` named, else the one its
-// record in Claude Code's session registry names, which it writes at its start before any turn.
-async fn process_socket_of(live: &LiveClaudeSession) -> Option<PathBuf> {
-    if let Some(socket) = live.messaging_socket.get() {
-        return Some(socket.clone());
-    }
-    let record = claude_config_folder(&live.spawn_bound_legs.spawn_environment, PathRules::NATIVE)?
-        .join(SESSION_REGISTRY_FOLDER)
-        .join(format!("{}.json", live.process_identity.process_id));
-    let text = tokio::fs::read(&record).await.ok()?;
-    let record = serde_json::from_slice::<Value>(&text).ok()?;
-    Some(PathBuf::from(record.get("messagingSocketPath")?.as_str()?))
 }
 
 // Accepts each connection to one session's inbox and carries it on its own task, until the

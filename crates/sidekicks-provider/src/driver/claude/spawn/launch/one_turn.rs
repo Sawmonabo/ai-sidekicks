@@ -113,7 +113,7 @@ pub(crate) async fn run_claude_one_turn(
         .as_deref()
         .and_then(ClaudeCommandChannel::apart_run);
     let (listener, mut arrivals) = ForwardedArrivals::open();
-    let brought_up = bring_up_claude_process(
+    let brought_up = match bring_up_claude_process(
         launcher,
         executable,
         ClaudeBringUpRequest {
@@ -124,11 +124,25 @@ pub(crate) async fn run_claude_one_turn(
             },
             listener,
             turn_holds: None,
+            messaging_socket: None,
         },
         request.permission_mode,
     )
-    .await?;
+    .await
+    {
+        Ok(brought_up) => brought_up,
+        Err(error) => {
+            // A process that never came up ended whatever task it had.
+            if let Some(apart_run) = apart_run {
+                apart_run.end();
+            }
+            return Err(error);
+        }
+    };
     let process = brought_up.process;
+    if let Some(apart_run) = apart_run {
+        apart_run.serve(Arc::clone(&process) as Arc<dyn ClaudeProcessChannel>);
+    }
     let calls = ClaudeToolServerCalls::default();
     let turn = async {
         let frame =

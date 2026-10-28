@@ -32,7 +32,7 @@ use crate::driver::claude::hooks::callbacks::{
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
-use crate::driver::claude::inbox::listener::{ClaudeSessionInboxes, read_messaging_socket};
+use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -156,12 +156,6 @@ impl ClaudeSessionTask {
             .idle_sleep
             .observe_frame(session_id, frame_kind, text);
         if observation.subagent_id.is_none() {
-            if frame_kind == "system/init"
-                && live.messaging_socket.get().is_none()
-                && let Some(socket) = read_messaging_socket(text)
-            {
-                drop(live.messaging_socket.set(socket));
-            }
             services
                 .self_started
                 .open_for_frame(live, frame_kind, text, routed.turn_at_read.is_held)
@@ -281,6 +275,9 @@ impl ClaudeSessionTask {
         services
             .processes
             .remove_exited(session_id, self.live.process_identity);
+        if let Some(socket) = &self.live.messaging_socket {
+            ClaudeSessionInboxes::remove_process_socket(session_id, socket).await;
+        }
         // Set before the slot is read, so a fork that fails after this finds the exit.
         let exit = self
             .live

@@ -69,10 +69,8 @@ impl SessionWaker for ProcessWaker {
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         self.wakes.fetch_add(1, Ordering::SeqCst);
-        let live = scripted_live_session(session_id, Arc::new(MockClaudeProcessChannel::new()));
-        live.messaging_socket
-            .set(self.process_socket.clone())
-            .expect("a new process names its socket once");
+        let mut live = scripted_live_session(session_id, Arc::new(MockClaudeProcessChannel::new()));
+        live.messaging_socket = Some(self.process_socket.clone());
         let installed =
             self.slots
                 .claim_create(session_id)
@@ -181,4 +179,35 @@ async fn a_frame_to_a_sleeping_session_wakes_it_and_arrives_from_the_daemon_s_in
     assert_eq!(answered["from"], format!("uds:{}", session_inbox.as_str()));
     assert_eq!(second["msg_id"], "second");
     inboxes.release_all();
+}
+
+// Killed by a name shared across a session's processes (a fork and the predecessor it replaces
+// would bind one path), by a socket outside the inbox's folder, and by a folder left unmade, where
+// a pinned socket has no fallback.
+#[test]
+fn each_process_socket_is_fresh_beside_the_session_s_inbox() {
+    let scratch = short_socket_folder().expect("a scratch folder is made");
+    let folder = scratch.path().join("cc-socks");
+    let addresser = ScratchAddresser {
+        folder: folder.clone(),
+    };
+    let inboxes = ClaudeSessionInboxes::new(
+        Arc::new(addresser),
+        Arc::new(PortRegistration::new("session wakes")),
+        ClaudeSessionSlots::new(Arc::new(|_predecessor| {})),
+        Arc::new(ClaudeIdleSleep::default()),
+    );
+    let session_id = new_session_id();
+
+    let first = inboxes
+        .mint_process_socket(session_id)
+        .expect("a socket is named");
+    let second = inboxes
+        .mint_process_socket(session_id)
+        .expect("a socket is named");
+
+    assert_ne!(first, second);
+    assert_eq!(first.parent(), Some(folder.as_path()));
+    assert_eq!(second.parent(), Some(folder.as_path()));
+    assert!(folder.is_dir());
 }

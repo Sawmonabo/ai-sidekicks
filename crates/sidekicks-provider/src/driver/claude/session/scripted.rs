@@ -149,7 +149,7 @@ pub(crate) fn scripted_live_session(
         process_exit: OnceLock::new(),
         task_ended: SetOnce::new(),
         served_bindings: Mutex::default(),
-        messaging_socket: OnceLock::new(),
+        messaging_socket: None,
     }
 }
 

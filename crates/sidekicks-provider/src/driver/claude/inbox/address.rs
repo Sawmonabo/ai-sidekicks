@@ -112,6 +112,14 @@ impl SessionInboxAddresser for ClaudeSessionInboxAddresser {
     }
 }
 
+/// A fresh `<16 lowercase hex>.sock` name from the system's random source, for one process's own
+/// socket beside the session's inbox. Fails when the source cannot be read.
+pub(crate) fn fresh_socket_name() -> Result<String, getrandom::Error> {
+    let mut seed = [0_u8; 9];
+    getrandom::fill(&mut seed)?;
+    Ok(socket_name(&seed))
+}
+
 /// `<16 lowercase hex>.sock` from `digest`: a letter `a`–`f` from its first byte, then the hex of
 /// the next eight bytes less its last digit.
 fn socket_name(digest: &[u8]) -> String {

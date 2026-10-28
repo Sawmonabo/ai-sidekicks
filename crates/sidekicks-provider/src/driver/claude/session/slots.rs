@@ -77,6 +77,23 @@ impl ClaudeSessionSlots {
         }
     }
 
+    /// The session's live process once no transition holds its slot, waiting out each one in
+    /// flight, such as a restart's bring-up; `None` where none runs or it refuses to die.
+    pub(crate) async fn live_after_transitions(
+        &self,
+        session_id: SessionId,
+    ) -> Option<Arc<LiveClaudeSession>> {
+        loop {
+            let settled = match lock(&self.table).by_session.get(&session_id)? {
+                ClaudeSessionSlot::Live { session } => return Some(Arc::clone(session)),
+                ClaudeSessionSlot::Establishing { settled, .. }
+                | ClaudeSessionSlot::Closing { settled, .. } => Arc::clone(settled),
+                ClaudeSessionSlot::Quarantined { .. } => return None,
+            };
+            settled.wait().await;
+        }
+    }
+
     /// Every session whose process is live now.
     pub(crate) fn live_sessions(&self) -> Vec<Arc<LiveClaudeSession>> {
         lock(&self.table)

@@ -3,6 +3,7 @@
 //! servers, the summarized thinking display and the settings readback, any failure ending the
 //! process and failing the spawn, since nothing runs on a half-set process.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -77,6 +78,9 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
     /// The session turn its reader releases at a turn-ending lead `result`; `None` for a process
     /// that holds no session turn.
     pub(crate) turn_holds: Option<ClaudeTurnHolds>,
+    /// The socket the process listens on for other sessions' messages; `None` for a process
+    /// no inbox passes messages to.
+    pub(crate) messaging_socket: Option<&'a Path>,
 }
 
 /// What a `get_settings` reply says the process runs with.
@@ -128,6 +132,10 @@ pub(crate) async fn bring_up_claude_process(
         legs.command_channel.as_deref(),
     )?;
     let has_managed_mcp_file = has_readable_managed_mcp_file().await;
+    // A fork's predecessor keeps running on the session's channel until the fork is adopted, which
+    // binds the channel then, so a fork that fails leaves it on the predecessor's process.
+    let binds_command_channel =
+        !matches!(request.conversation, ClaudeConversationStart::Fork { .. });
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
         model: &legs.model,
         permission_mode: permission_mode.unwrap_or_else(|| {
@@ -143,6 +151,7 @@ pub(crate) async fn bring_up_claude_process(
         step_bound: spawn.step_bound,
         has_managed_mcp_file,
         conversation: request.conversation,
+        messaging_socket: request.messaging_socket,
     });
     // Under an administrator's MCP file only the daemon's own server is fronted, and Claude Code
     // loads the organization's servers itself.
@@ -167,7 +176,7 @@ pub(crate) async fn bring_up_claude_process(
             request.turn_holds,
         )
         .await?;
-    if let Some(channel) = &legs.command_channel {
+    if binds_command_channel && let Some(channel) = &legs.command_channel {
         channel.follow(process.identity().process_id);
     }
     match configure(&process, legs.subagent_policy.as_ref(), in_process_servers).await {

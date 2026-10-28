@@ -169,6 +169,8 @@ impl ClaudeDriver {
                 }
             }
         }
+        // Again once the slot is gone, for a bring-up that bound the inbox after the first release.
+        task_services.inboxes.release(session_id);
         self.close_command_channel(session_id).await;
         Ok(())
     }
