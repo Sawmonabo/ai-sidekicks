@@ -24,6 +24,7 @@ use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::provider::id::ProviderId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
+use crate::wire::instant::WireInstant;
 use crate::wire::{Never, literal};
 
 literal! {
@@ -94,6 +95,8 @@ status_notice! {
             session_id: SessionId,
             /// The live leg.
             binding_id: RuntimeBindingId,
+            /// When the leg's reading that changed its status was observed.
+            observed_at: WireInstant,
         },
         /// A session's leg left the aggregate: the session closed, its driver exited, the leg
         /// moved to another binding or the server was switched off for it; a page drops that leg

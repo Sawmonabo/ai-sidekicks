@@ -117,7 +117,7 @@ impl McpNoticeBoard {
 #[cfg(any(test, feature = "test-support"))]
 impl McpNoticeBoard {
     /// Sends `notice` as the machine probe's status notice of `binding`, under the key the status
-    /// core sends it by; for the tests of the crates that read the board.
+    /// tracker sends it by; for the tests of the crates that read the board.
     pub fn send_probe_notice(
         &self,
         binding: &sidekicks_contracts::mcp::server::McpServerBindingRef,

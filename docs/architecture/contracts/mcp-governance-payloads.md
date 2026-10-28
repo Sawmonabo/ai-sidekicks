@@ -418,6 +418,8 @@ type McpServerStatusChangedNotice = McpServerBindingAuditRef & {
   origin: "sessionFeed" | "sessionEnded" | "machineProbe";
   // REQUIRED for origins "sessionFeed" and "sessionEnded", the session whose feed saw it or whose leg left; ABSENT for "machineProbe"
   sessionId?: SessionId;
+  // REQUIRED for origin "sessionFeed", the instant of the reading that changed the leg's status; ABSENT otherwise. The list's legs[].observedAt is the leg's newest reading, so it may be newer than the last notice's while the status agrees
+  observedAt?: string;
   bindingId?: string; // REQUIRED for origins "sessionFeed" and "sessionEnded" — the Plan-003 runtime-binding leg key (opaque daemon-minted id), attributing the transition to its legs[] entry when one binding backs several legs in the same session; on "sessionEnded" the leg that left, `status` then the aggregate over the legs that remain, so the page drops that leg and reads nothing again; ABSENT for "machineProbe" (no leg observed). The Rust type holds the conditionality (a type where the arms allow, else a garde check)
 };
 type McpServerSignInCompletedPayload = McpServerBindingAuditRef & {

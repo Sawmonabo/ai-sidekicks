@@ -112,16 +112,15 @@ fn crash_a_child(crash: &str, data_folder: &Path) {
     assert!(monitor_status.success(), "the monitor served its child");
 }
 
-// A panic and a bad read in a child each leave one report of module file names and offsets;
-// the panic's report names its file and not its folder, holds the session id only as its
-// keyed hash and holds neither credential its message named, nor does either of the panic's
-// raw records, the hook's and the one the monitor writes beside the dump;
-// no report holds the secret the child's dump does; each dump is deleted once built. While
-// `Keep crash reports` is off, no report is built and every dump, report and panic record
-// goes. Killed by a path kept whole or cut at a space, by an unkeyed or raw id, by the
-// credential scrub or the query strip dropped from either raw record, by the credential scrub
-// dropped from the report, by a dump left behind, by the
-// monitor not writing, by the switch not read, and by the raw record kept while it is off.
+// A panic and a bad read in a child each leave one report of module file names and offsets; the
+// panic's report names its file and not its folder, holds the session id only as its keyed hash and
+// holds neither credential its message named, nor does either of the panic's raw records, the
+// hook's and the one the monitor writes beside the dump; no report holds the secret the child's
+// dump does; each dump is deleted once built. While `Keep crash reports` is off, no report is built
+// and every dump, report and panic record goes. Killed by a path kept whole or cut at a space, by
+// an unkeyed or raw id, by the credential scrub or the query strip dropped from either raw record,
+// by a dump left behind, by the monitor not writing, by the switch not read, and by the raw record
+// kept while it is off.
 #[tokio::test]
 async fn crashes_become_stripped_reports_and_none_while_off() {
     if let Ok(crash) = std::env::var(CHILD_CRASH) {

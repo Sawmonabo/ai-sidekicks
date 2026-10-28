@@ -188,7 +188,7 @@ impl McpServerStatusTracker {
             .map(|text| sanitize_failure_reason(&text, ERROR_MESSAGE_MAX_LEN));
         let notice_type = McpServerStatusChangedType::Value;
         let (notice, notice_origin) = match origin {
-            ChangeOrigin::SessionFeed(leg) => (
+            ChangeOrigin::SessionFeed { leg, observed_at } => (
                 McpServerStatusChangedNotice::SessionFeed {
                     notice_type,
                     provider,
@@ -200,6 +200,7 @@ impl McpServerStatusTracker {
                     failure_reason,
                     session_id: leg.session_id,
                     binding_id: leg.binding_id.clone(),
+                    observed_at,
                 },
                 McpNoticeOrigin::Leg {
                     session_id: leg.session_id,

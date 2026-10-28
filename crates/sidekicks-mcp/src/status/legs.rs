@@ -95,7 +95,12 @@ struct BindingStatus {
 )]
 pub(super) enum ChangeOrigin {
     /// A live leg's own status changed.
-    SessionFeed(LegId),
+    SessionFeed {
+        /// The leg.
+        leg: LegId,
+        /// When the reading that changed it was observed.
+        observed_at: WireInstant,
+    },
     /// A leg left the binding's aggregate: retired, now serving the server from another binding,
     /// or the server switched off for it.
     SessionEnded(LegId),
@@ -236,7 +241,7 @@ impl McpLegs {
                         // below with a `sessionEnded`.
                         McpServerReading::SwitchedOff => server.is_switched_off = true,
                     }
-                    server.observed_at = observed_at;
+                    server.observed_at = observed_at.clone();
                     let has_left_aggregate = was_in_aggregate && server.is_switched_off;
                     (previous, None, false, has_left_aggregate)
                 }
@@ -291,7 +296,10 @@ impl McpLegs {
         {
             outcome.changes.push(StatusChange {
                 binding_key: key,
-                origin: ChangeOrigin::SessionFeed(leg_id),
+                origin: ChangeOrigin::SessionFeed {
+                    leg: leg_id,
+                    observed_at,
+                },
                 previous_status: previous.unwrap_or(McpServerStatus::Unknown),
                 status,
                 failure_text: update.failure_text,
