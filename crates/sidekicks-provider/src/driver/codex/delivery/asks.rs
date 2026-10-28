@@ -80,17 +80,20 @@ pub(crate) struct CodexAskOwners {
 /// Writes a project's rule into, or takes it back out of, one of the project's working folders,
 /// reading the rule files Codex reads there.
 pub(crate) trait CodexProjectRules: Send + Sync {
-    /// Writes `rule` into `project_folder`'s own rule file. Fails as the write fails or Codex
-    /// would refuse the rule.
+    /// Writes `rule` into `project_folder`'s own rule file, read beside the rules of `codex_home`,
+    /// the session's. Fails as the write fails or Codex would refuse the rule.
     fn write<'call>(
         &'call self,
+        codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
 
-    /// Takes `rule` back out of `project_folder`'s own rule file. Fails as the removal fails.
+    /// Takes `rule` back out of `project_folder`'s own rule file, read beside the rules of
+    /// `codex_home`, the session's. Fails as the removal fails.
     fn remove<'call>(
         &'call self,
+        codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>>;
@@ -281,16 +284,25 @@ impl CodexAskHandOff {
             && made_rule.rule.kind == RememberedScopeKind::Project
         {
             let project_rules = &self.dependencies.project_rules;
+            let codex_home = &service.home().codex_home;
             write_into_project_folders(
                 &made_rule.project_folders,
                 &made_rule.rule,
                 |project_folder, rule| {
                     let project_rules = Arc::clone(project_rules);
-                    async move { project_rules.write(project_folder, rule).await }.boxed()
+                    let codex_home = codex_home.clone();
+                    async move { project_rules.write(&codex_home, project_folder, rule).await }
+                        .boxed()
                 },
                 |project_folder, rule| {
                     let project_rules = Arc::clone(project_rules);
-                    async move { project_rules.remove(project_folder, rule).await }.boxed()
+                    let codex_home = codex_home.clone();
+                    async move {
+                        project_rules
+                            .remove(&codex_home, project_folder, rule)
+                            .await
+                    }
+                    .boxed()
                 },
                 &[],
             )

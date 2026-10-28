@@ -207,7 +207,7 @@ impl CodexDriver {
     }
 
     // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
-    async fn read_session_leg(
+    pub(super) async fn read_session_leg(
         &self,
         session_id: SessionId,
     ) -> Result<Option<RuntimeBinding>, DriverError> {

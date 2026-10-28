@@ -35,6 +35,7 @@ use crate::driver::codex::model_windows::{
     join_codex_model_windows, read_codex_service_model_windows,
 };
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
+use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
@@ -168,14 +169,29 @@ impl CodexDriver {
         Ok(self.parts()?.goals.clear(params).await?)
     }
 
-    /// Takes a revoked project rule out of the project's own rule file. A rule the session made
-    /// needs nothing here: the call checks read each revocation at the next call it covers.
+    /// Takes a revoked project rule out of the project's own rule file, read beside the rules of
+    /// the account home the session runs on: its live conversation's, else its stored leg's. A
+    /// rule the session made needs nothing here: the call checks read each revocation at the next
+    /// call it covers. A session that never ran has no home to read. Fails as the stored leg or
+    /// the home cannot be read, or the file cannot be edited.
     pub(crate) async fn revoke_rule(&self, params: RevokeRuleParams) -> Result<(), DriverError> {
         let Some(project_folder) = &params.project_folder else {
             return Ok(());
         };
+        let codex_home = match self.views.conversation(params.session_id) {
+            Some(conversation) => conversation.service.home().codex_home.clone(),
+            None => {
+                let Some(leg) = self.read_session_leg(params.session_id).await? else {
+                    return Ok(());
+                };
+                self.homes
+                    .codex_home_for(&leg.spawn_config.provider_account_id)
+                    .await?
+                    .codex_home
+            }
+        };
         self.project_rules
-            .revoke(project_folder, &params.rule)
+            .revoke(&codex_home, project_folder, &params.rule)
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))
     }

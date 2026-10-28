@@ -112,11 +112,6 @@ impl CodexHomes {
             personal_home: read_codex_personal_home(base_environment, home_folder),
         }
     }
-
-    /// The person's own Codex folder.
-    pub(crate) fn personal_home(&self) -> &Path {
-        &self.personal_home
-    }
 }
 
 impl CodexHomeResolver for CodexHomes {

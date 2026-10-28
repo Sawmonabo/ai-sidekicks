@@ -108,6 +108,8 @@ pub(crate) struct CodexDriver {
     // The folder each session's command channel opens under.
     command_channel_root: PathBuf,
     log_expiry: AccountHomeLogExpiry,
+    // Each account's Codex home, read without starting its service.
+    homes: Arc<CodexHomes>,
     pub(super) registry: Arc<CodexServiceRegistry>,
     release: Arc<CodexConversationRelease>,
     pub(super) slots: Arc<CodexSessionSlots>,
@@ -236,11 +238,11 @@ impl CodexDriver {
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
             command_channel_root,
             project_rules: Arc::new(CodexProjectRuleFiles {
-                codex_home: homes.personal_home().to_owned(),
                 home_folder: services.home_folder.clone(),
                 repositories: Arc::clone(&services.ports.repositories),
             }),
             log_expiry: AccountHomeLogExpiry::default(),
+            homes,
             registry,
             release,
             config_forks: Arc::new(CodexConfigForks::new(Arc::clone(&slots), tasks.clone())),
