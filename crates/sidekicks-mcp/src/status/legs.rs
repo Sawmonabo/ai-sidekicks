@@ -186,8 +186,8 @@ impl McpLegs {
     /// Applies one server's reading from a leg, `binding` being the effective binding the leg
     /// serves it from. A notice goes out when the leg's own status changed. A switch-off takes the
     /// leg out of the aggregate with a `sessionEnded`, its last status kept, and a leg that now
-    /// serves the name from another binding leaves the old one the same way. A retired leg's
-    /// reading changes nothing.
+    /// serves the name from another binding leaves the old one the same way. A switched-off leg
+    /// that reports again counts as new on the binding. A retired leg's reading changes nothing.
     pub(super) fn observe(
         &mut self,
         binding: &McpServerBindingRef,
@@ -215,15 +215,16 @@ impl McpLegs {
                 observed_at.clone(),
             )
         };
-        // The leg's status on this binding before the reading, `None` when the leg had none; the
-        // binding the leg served the name from before, when it moved; and whether a switch-off
-        // took the leg out of this binding's aggregate.
+        // The leg's status on this binding before the reading, `None` when the leg had none or was
+        // switched off, so its return reads as new; the binding the leg served the name from
+        // before, when it moved; and whether a switch-off took the leg out of this binding's
+        // aggregate.
         let (previous, moved_from, is_new_on_binding, has_left_aggregate) =
             match leg.servers.entry(update.server_name) {
                 Entry::Occupied(mut held) if held.get().binding_key == key => {
                     let server = held.get_mut();
-                    let previous = server.status;
                     let was_in_aggregate = !server.is_switched_off;
+                    let previous = server.status.filter(|_| was_in_aggregate);
                     match update.reading {
                         McpServerReading::Observed(status) => {
                             server.status = Some(status);
@@ -231,7 +232,8 @@ impl McpLegs {
                             // The newest text, so a later notice this leg decides quotes it.
                             server.failure_text = update.failure_text.clone();
                         }
-                        // The last status and its text stay; the leg only leaves the aggregate.
+                        // The last status and its text stay; the leg leaves the aggregate, answered
+                        // below with a `sessionEnded`.
                         McpServerReading::SwitchedOff => server.is_switched_off = true,
                     }
                     server.observed_at = observed_at;
