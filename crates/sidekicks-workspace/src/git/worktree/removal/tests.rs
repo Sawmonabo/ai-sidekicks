@@ -10,8 +10,8 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::worktree::copy_progress::WorktreeCopy;
 use sidekicks_contracts::worktree::lifecycle::{
-    RemovedWorktreeId, WorktreeId, WorktreeRetireConflictDetails, WorktreeRetireRequest,
-    WorktreeState,
+    KeptWorktree, RemovedWorktreeId, WorktreeId, WorktreeRetireConflictDetails,
+    WorktreeRetireRequest, WorktreeState,
 };
 use sidekicks_platforms::{
     DOES_HELD_FILE_REFUSE_RENAME, create_held_file, harness_test_name, scratch_volume,
@@ -406,6 +406,30 @@ async fn a_discard_ends_the_tree_s_processes_in_place_and_holds_them_off_until_i
             was_present: false,
         }],
         "the hold drops only once the tree has moved"
+    );
+}
+
+// Kills two removals of one tree run side by side, where the second reads the tree live and moves
+// a folder the first has already moved.
+#[tokio::test]
+async fn the_second_of_two_discards_pressed_together_answers_the_tree_retired() {
+    let fixture = RemovalFixture::new().await;
+    let tree = fixture.kept.add_tree("twice", "twice").await;
+    let request = retire_request(&tree, true);
+
+    let (first, second) = tokio::join!(
+        fixture.removal.retire(&request),
+        fixture.removal.retire(&request)
+    );
+
+    let mut kept: Vec<Option<KeptWorktree>> = [first, second]
+        .into_iter()
+        .map(|answer| answer.expect("both discards answer").kept)
+        .collect();
+    kept.sort_by_key(Option::is_none);
+    assert!(
+        matches!(kept[..], [Some(_), None]),
+        "one discard keeps the tree and the other finds it retired, got {kept:?}"
     );
 }
 

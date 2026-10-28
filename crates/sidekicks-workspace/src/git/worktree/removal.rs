@@ -12,7 +12,8 @@
 //! kept copy's lock in a task of their own, so a caller that stops waiting never leaves half of
 //! one done; the lock is the one the removed list's put-back and deletion take. A tree's sessions
 //! are swept once the lock is let go, since the sweep takes the workspace locks, which come before
-//! it. The discards a crash cut short are put right first, by the repair.
+//! it. The discards a crash cut short are put right first, by the repair. One tree's removals and
+//! keepings aside take turns, so the second of two pressed together finds the tree retired.
 
 mod repair;
 
@@ -38,6 +39,7 @@ use sidekicks_contracts::worktree::lifecycle::{
 use sidekicks_platforms::DOES_WATCH_OUTLIVE_TREE_MOVE;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::settle_all::settle_all;
 use tokio::task::JoinError;
 
@@ -291,6 +293,8 @@ pub struct WorktreeRemoval {
 // What the removal and the work it runs under the kept copy's lock share.
 struct RemovalShared {
     deps: WorktreeRemovalDeps,
+    // Held per tree across a removal or a keeping aside, from its first read to its answer.
+    retirements: KeyedLock<WorktreeId>,
 }
 
 // git's record of a moved tree that could not be removed, kept to report once the tree's sessions
@@ -301,7 +305,10 @@ impl WorktreeRemoval {
     /// A removal over `deps`.
     pub fn new(deps: WorktreeRemovalDeps) -> Self {
         Self {
-            shared: Arc::new(RemovalShared { deps }),
+            shared: Arc::new(RemovalShared {
+                deps,
+                retirements: KeyedLock::new(),
+            }),
         }
     }
 
@@ -311,12 +318,14 @@ impl WorktreeRemoval {
     /// `worktree.retireFolderHeld` when the system refuses the move, and every refusal removes
     /// nothing. A discard whose copy across volumes could not remove the original refuses
     /// `worktree.retireIncomplete`, its copy listed and the tree left live. A tree already retired
-    /// has its sessions swept again.
+    /// has its sessions swept again, so the second of two removals of one tree, which take turns,
+    /// answers it retired.
     pub async fn retire(
         &self,
         request: &WorktreeRetireRequest,
     ) -> Result<WorktreeRetireResponse, WorktreeRemovalError> {
         let shared = &self.shared;
+        let _retiring = shared.retirements.acquire(request.worktree_id).await;
         let worktrees = &shared.deps.worktrees;
         let (row, _) = worktrees
             .require_worktree_at_place(&request.worktree_id)
@@ -428,6 +437,7 @@ impl RemovalShared {
         self: &Arc<Self>,
         row: &WorktreeRow,
     ) -> Result<(), WorktreeRemovalError> {
+        let _retiring = self.retirements.acquire(row.id).await;
         let worktrees = &self.deps.worktrees;
         let folder = PathBuf::from(row.fs_root.as_str());
         if self.finish_interrupted_discards_in(&row.fs_root).await? {
