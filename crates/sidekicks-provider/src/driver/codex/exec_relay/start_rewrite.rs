@@ -10,9 +10,9 @@ use std::sync::Arc;
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
-use sidekicks_workspace::git::process::NO_PROMPT_ENVIRONMENT;
+use sidekicks_workspace::git::process::{GIT_TERMINAL_PROMPT_OFF, NO_PROMPT_ENVIRONMENT};
 
-use crate::command::askpass::{GIT_TERMINAL_PROMPT_OFF, command_prompt_environment};
+use crate::command::askpass::command_prompt_environment;
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
 use crate::driver::codex::exec_relay::shell_snapshot::wrap::wrap_with_snapshot;
 use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, forward};

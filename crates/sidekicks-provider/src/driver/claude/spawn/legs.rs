@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
+use sidekicks_workspace::git::process::GIT_TERMINAL_PROMPT_OFF;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::host::{
@@ -22,7 +23,6 @@ use crate::callback_tools::host::{
 use crate::callback_tools::spawn_binding::{
     CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
 };
-use crate::command::askpass::GIT_TERMINAL_PROMPT_OFF;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};

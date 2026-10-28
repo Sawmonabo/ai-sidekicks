@@ -19,9 +19,6 @@ use crate::command::channel::{DaemonRequest, PartyRecord};
 /// The name of the link git and ssh run as their askpass, which reaches this mode.
 pub const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";
 
-/// The variable that keeps git from asking on a terminal, and its value, as git's own calls set it.
-pub(crate) use sidekicks_workspace::git::process::GIT_TERMINAL_PROMPT_OFF;
-
 /// The command askpass's link beside `daemon_program`, the running daemon's own program.
 pub fn command_askpass_program_path(daemon_program: &Path) -> PathBuf {
     daemon_program.with_file_name(format!("{COMMAND_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
