@@ -1,17 +1,23 @@
 //! A person's send: into a paused run, which it resumes, into a session whose lead run changes
 //! between the send's read and its write, and with a skill its provider does not list; and a review
-//! queued as the session's next item, which opens a run of its own.
+//! queued as the session's next item, which opens a run of its own, takes no edit and is sent again
+//! once not delivered.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::queue::{AgentQueueItemCreateResponse, QueueItemId, QueuedSkillPick};
+use sidekicks_contracts::run::queue::{
+    AgentQueueItemCreateRequest, AgentQueueItemCreateResponse, QueueItemId,
+    QueueItemNotDeliveredReason, QueuedSkillPick,
+};
 use sidekicks_contracts::session::controls::methods::{
     SessionCodeReviewStartRequest, SessionReviewTarget,
 };
+use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
@@ -181,6 +187,34 @@ impl Fixture {
         }
     }
 
+    /// Sends again, or edits, the item `replaces` as a person's send naming it does, and answers
+    /// the send. Fails as the queue refuses it.
+    async fn replace_item(
+        &self,
+        replaces: QueueItemId,
+    ) -> Result<AgentQueueItemCreateResponse, QueueError> {
+        timeout(
+            WAIT,
+            self.queue.create(
+                AgentQueueItemCreateRequest {
+                    session_id: self.session_id,
+                    to: None,
+                    workspace_id: None,
+                    client_idempotency_key: client_key(),
+                    content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+                    attachments: None,
+                    skills: None,
+                    replaces_queue_item_id: Some(replaces),
+                    answers_question_id: None,
+                    output_speed_for_turn: None,
+                },
+                DeviceId::new("device-1".to_owned()).expect("a test device id"),
+            ),
+        )
+        .await
+        .expect("the send answers")
+    }
+
     /// The session's one stored review.
     fn stored_review(&self) -> QueueItemRecord {
         let item_id = self
@@ -255,4 +289,101 @@ async fn a_review_behind_a_running_turn_is_never_handed_into_it() {
     assert!(calls.starts().is_empty(), "{:?}", calls.starts());
     assert_eq!(review.target_run_id, Some(run_id));
     assert_eq!(review.state, RecordedQueueItemState::Queued);
+}
+
+// An edit naming a review that waits behind a running turn is refused `agent.queueItem.changeRefused`
+// with the reason `reviewItem`, and the review keeps waiting, nothing written. Killed by an edit
+// that answers the review as an item the queue does not hold, or edits it like a message.
+#[tokio::test]
+async fn an_edit_of_a_waiting_review_is_refused_as_a_review_item() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+    let review_id = fixture.queue_review(client_key()).await;
+
+    let edited = fixture.replace_item(review_id).await;
+    fixture.queue.stop().await;
+
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = edited else {
+        panic!("the edit is refused, got {edited:?}");
+    };
+    assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
+    assert_eq!(
+        detail.expect("the refusal names its reason")["reason"],
+        json!("reviewItem")
+    );
+    assert_eq!(fixture.count_items(), 1);
+    assert_eq!(
+        fixture.stored_state(review_id),
+        RecordedQueueItemState::Queued
+    );
+}
+
+// A review whose run failed to start reads not delivered, and a send naming it queues the same
+// review again: the failed one reads superseded, with its superseded event written, and the new
+// review opens a run of its own through the driver. Killed by a retry that answers the review as
+// an item the queue does not hold, one sent as a message, and a retry that writes no superseded
+// event.
+#[tokio::test]
+async fn a_review_not_delivered_is_sent_again_as_the_same_review() {
+    let calls = Arc::new(DriverCalls::default());
+    calls.start_failures_left.store(1, Ordering::SeqCst);
+    let fixture = fixture(recording_driver(&calls)).await;
+    let failed_id = fixture.queue_review(client_key()).await;
+    fixture.queue.stop().await;
+    assert_eq!(
+        fixture.stored_state(failed_id),
+        RecordedQueueItemState::NotDelivered {
+            reason: QueueItemNotDeliveredReason::Failed {}
+        }
+    );
+
+    let retried = fixture
+        .replace_item(failed_id)
+        .await
+        .expect("the retry is queued");
+    fixture.queue.stop().await;
+
+    let (AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
+    | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. }) = retried
+    else {
+        panic!("the retry waits or is admitted: {retried:?}");
+    };
+    let review = fixture.stored_item(queue_item_id);
+    assert_eq!(
+        review.body,
+        QueueItemBody::Review {
+            target: SessionReviewTarget::Staged
+        }
+    );
+    assert_eq!(review.state, RecordedQueueItemState::Admitted);
+    assert_eq!(
+        fixture.stored_state(failed_id),
+        RecordedQueueItemState::Superseded
+    );
+    let superseded_events: i64 = fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT COUNT(*) FROM session_events
+             WHERE type = 'agent.queueItem.superseded' AND instr(payload, ?1) > 0",
+            [failed_id.to_string()],
+            |row| row.get(0),
+        )
+        .expect("the test reads the superseded events");
+    assert_eq!(superseded_events, 1);
+    let run_id = review.target_run_id.expect("the retry waits for its run");
+    assert_eq!(calls.starts().last(), Some(&(run_id, queue_item_id)));
+    assert_eq!(
+        calls.opening_items(),
+        [
+            RunOpeningItem::Review {
+                target: SessionReviewTarget::Staged
+            },
+            RunOpeningItem::Review {
+                target: SessionReviewTarget::Staged
+            }
+        ]
+    );
 }

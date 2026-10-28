@@ -276,25 +276,27 @@ impl QueueRecorder {
             queue_item_id: item.id,
             state: QueueItemQueuedState::Value,
         });
+        // The new item's creation, then the one it replaces superseded.
+        let mut item_events = vec![
+            SessionEventDraft::of_session(item.session_id, &created)
+                .map_err(QueueRecordError::Draft)?,
+        ];
+        if let Some(replaced) = edit_replaces.or(retries) {
+            let superseded =
+                SessionEvent::AgentQueueItemSuperseded(AgentQueueItemSupersededPayload {
+                    session_id: item.session_id,
+                    queue_item_id: replaced.id,
+                    state: AgentQueueItemSupersededState::Value,
+                    replaced_by_queue_item_id: item.id,
+                });
+            item_events.push(
+                SessionEventDraft::of_session(item.session_id, &superseded)
+                    .map_err(QueueRecordError::Draft)?,
+            );
+        }
         let (draft, correlation_id) = match &item.body {
             QueueItemBody::Message(body) => {
-                preceding_events.push(
-                    SessionEventDraft::of_session(item.session_id, &created)
-                        .map_err(QueueRecordError::Draft)?,
-                );
-                if let Some(replaced) = edit_replaces.or(retries) {
-                    let superseded =
-                        SessionEvent::AgentQueueItemSuperseded(AgentQueueItemSupersededPayload {
-                            session_id: item.session_id,
-                            queue_item_id: replaced.id,
-                            state: AgentQueueItemSupersededState::Value,
-                            replaced_by_queue_item_id: item.id,
-                        });
-                    preceding_events.push(
-                        SessionEventDraft::of_session(item.session_id, &superseded)
-                            .map_err(QueueRecordError::Draft)?,
-                    );
-                }
+                preceding_events.extend(item_events);
                 let device_id = item
                     .device_id
                     .clone()
@@ -319,12 +321,14 @@ impl QueueRecorder {
                     .expect("a queue item id is a UUID, within an event field's cap");
                 (draft, Some(correlation_id))
             }
-            // A review has no words, so its created event carries the write.
-            QueueItemBody::Review { .. } => (
-                SessionEventDraft::of_session(item.session_id, &created)
-                    .map_err(QueueRecordError::Draft)?,
-                None,
-            ),
+            // A review has no words, so its own events carry the write, the last of them last.
+            QueueItemBody::Review { .. } => {
+                let last = item_events
+                    .pop()
+                    .expect("a review's events hold its creation");
+                preceding_events.extend(item_events);
+                (last, None)
+            }
         };
         let linkage = SessionEventLinkage {
             correlation_id,

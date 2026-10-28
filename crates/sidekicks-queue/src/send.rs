@@ -2,10 +2,11 @@
 //! live, continues the current one resting interrupted, or starts the next one; a review of the
 //! session's changes, which goes the same way but is never handed into a running or continued
 //! turn, so it opens a run of its own once the messages before it went; an edit of a waiting
-//! message, which takes its place; and a retry of one not delivered, which goes again as a new
-//! message with the same words and files while the failed one reads superseded. Each is one write,
-//! taken under the queue's session lock its caller holds. A send into a paused or pausing run
-//! answers the run to resume, which the caller resumes once it has let the lock go.
+//! message, which takes its place; and a retry of an item not delivered, which goes again as a new
+//! message with the same words and files, or as the same review, while the failed one reads
+//! superseded. Each is one write, taken under the queue's session lock its caller holds. A send
+//! into a paused or pausing run answers the run to resume, which the caller resumes once it has let
+//! the lock go.
 
 use std::sync::Arc;
 
@@ -210,11 +211,11 @@ impl QueueSends {
         }
     }
 
-    /// Replaces the lead's message `replaces_queue_item_id`: one still waiting is edited in its
-    /// place, and one not delivered is sent again with its own words and files. Called under
-    /// `hold`; refuses an item the lead's queue of the session does not hold as a message, one
-    /// that has left the queue otherwise, and a retry whose words differ from the failed
-    /// message's.
+    /// Replaces the lead's item `replaces_queue_item_id`: a message still waiting is edited in its
+    /// place, and an item not delivered is sent again, a message with its own words and files and
+    /// a review as the same review, the send's words unread. Called under `hold`; refuses an item
+    /// the lead's queue of the session does not hold, an edit of a waiting review, one that has
+    /// left the queue otherwise, and a retry of a message in other words than its own.
     pub(crate) async fn replace(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -223,18 +224,29 @@ impl QueueSends {
         device_id: DeviceId,
     ) -> Result<WrittenSend, QueueError> {
         let session_id = *hold.key();
-        // A review is no message an edit or a retry replaces.
-        let (replaces, replaced) = self
+        let replaces = self
             .read_item(replaces_queue_item_id)
             .await?
             .filter(|item| item.session_id == session_id && item.child_handle.is_none())
-            .and_then(|item| {
-                let replaced = item.body.as_message()?.clone();
-                Some((item, replaced))
-            })
             .ok_or_else(|| queue_item_not_found(replaces_queue_item_id))?;
-        match replaces.state {
-            RecordedQueueItemState::NotDelivered { .. } => {
+        match (&replaces.body, &replaces.state) {
+            (QueueItemBody::Review { target }, RecordedQueueItemState::NotDelivered { .. }) => {
+                let item = QueueSendItem::Review {
+                    item_id: message.item_id,
+                    target: *target,
+                    client_idempotency_key: message.client_idempotency_key,
+                };
+                self.send(hold, item, Some(replaces)).await
+            }
+            (QueueItemBody::Review { .. }, RecordedQueueItemState::Queued) => Err(change_refused(
+                AgentQueueItemChangeRefusedReason::ReviewItem,
+                &format!(
+                    "Queue item {} is a queued review, which carries no words to edit",
+                    replaces.id
+                ),
+            )
+            .into()),
+            (QueueItemBody::Message(replaced), RecordedQueueItemState::NotDelivered { .. }) => {
                 if message.body.content != replaced.content {
                     return Err(change_refused(
                         AgentQueueItemChangeRefusedReason::NotDelivered,
@@ -250,13 +262,13 @@ impl QueueSends {
                 // it no second time.
                 let body = QueueMessageBody {
                     answers_question_id: None,
-                    ..replaced
+                    ..replaced.clone()
                 };
                 let message = QueueSendMessage { body, ..message };
                 let item = QueueSendItem::Message { message, device_id };
                 self.send(hold, item, Some(replaces)).await
             }
-            RecordedQueueItemState::Queued => {
+            (QueueItemBody::Message(_), RecordedQueueItemState::Queued) => {
                 // An edit goes into its message's run; a waiting message the daemon wrote for no
                 // run has none.
                 let run_id = replaces
@@ -270,9 +282,12 @@ impl QueueSends {
                     resumes: None,
                 })
             }
-            RecordedQueueItemState::Admitted
-            | RecordedQueueItemState::Superseded
-            | RecordedQueueItemState::Canceled => Err(left_queue_refusal(&replaces).into()),
+            (
+                QueueItemBody::Message(_) | QueueItemBody::Review { .. },
+                RecordedQueueItemState::Admitted
+                | RecordedQueueItemState::Superseded
+                | RecordedQueueItemState::Canceled,
+            ) => Err(left_queue_refusal(&replaces).into()),
         }
     }
 
