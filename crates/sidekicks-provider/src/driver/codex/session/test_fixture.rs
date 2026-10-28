@@ -335,17 +335,6 @@ pub(super) fn one_folder_spawn_contexts(
     spawn_contexts
 }
 
-/// The provider-accounts port with [`OneFolder`] registered on it.
-pub(super) fn one_folder_provider_accounts(
-    folder: PathBuf,
-) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
-    let provider_accounts = DriverPorts::new().provider_accounts;
-    provider_accounts
-        .register(Arc::new(OneFolder(folder)) as Arc<dyn ProviderAccountReader>)
-        .expect("a fresh port registers");
-    provider_accounts
-}
-
 /// Every session runs in one folder on the test's one account, whose home sits beside the folder
 /// and whose generation is never read.
 pub(crate) struct OneFolder(pub(crate) PathBuf);

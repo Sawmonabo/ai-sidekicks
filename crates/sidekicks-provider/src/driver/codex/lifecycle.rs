@@ -326,8 +326,7 @@ impl CodexDriver {
                 command_channel_root: self.command_channel_root.clone(),
             },
         ));
-        let rate_limits =
-            CodexRateLimitFiling::new(Arc::clone(&dispatch), Arc::clone(&self.provider_accounts));
+        let rate_limits = CodexRateLimitFiling::new(Arc::clone(&self.ports.usage));
         let recovery = Arc::new(CodexServiceRecovery::new(
             CodexServiceRecoveryDependencies {
                 slots: Arc::clone(&self.slots),
