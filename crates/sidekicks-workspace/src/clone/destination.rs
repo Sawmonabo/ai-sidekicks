@@ -488,10 +488,11 @@ mod tests {
         let refusal = remove_staged_clone(&staged)
             .await
             .expect_err("the removal fails");
-        assert!(
-            matches!(&refusal, StagedCloneError::Io(error) if error.kind() == ErrorKind::NotADirectory),
-            "{refusal:?}"
+        let is_not_a_folder = matches!(
+            &refusal,
+            StagedCloneError::Io(error) if error.kind() == ErrorKind::NotADirectory
         );
+        assert!(is_not_a_folder, "{refusal:?}");
     }
 
     #[tokio::test]

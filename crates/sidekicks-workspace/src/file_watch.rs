@@ -183,7 +183,8 @@ pub(crate) struct FileWatch<W = RecommendedWatcher> {
     polled_roots: Arc<[PathBuf]>,
     // The instant the feed was last known whole; a rescan reports only entries changed since.
     whole_since: SystemTime,
-    // The monotonic clock's reading when `whole_since` was taken, which shows a wall clock set back.
+    // The monotonic clock's reading when `whole_since` was taken, which shows a wall clock set
+    // back.
     whole_since_clock: Instant,
     ceiling_misses: Arc<Mutex<CeilingMisses>>,
     is_ceiling_retry_waiting: bool,
