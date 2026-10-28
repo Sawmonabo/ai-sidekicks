@@ -454,10 +454,10 @@ impl SessionChanges {
     }
 }
 
-/// Archives a session of a project being forgotten: an active one as
-/// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come now; a
-/// closed or purging session is refused as [`SessionChangeError::Refused`] says.
 impl ForgottenProjectSessions for SessionChanges {
+    /// Archives a session of a project being forgotten: an active one as
+    /// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come
+    /// now; a closed or purging session is refused as [`SessionChangeError::Refused`] says.
     fn archive_of_forgotten_project(
         &self,
         session_id: SessionId,

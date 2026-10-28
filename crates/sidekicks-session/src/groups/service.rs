@@ -28,7 +28,7 @@ use crate::groups::store::{
     group_name_free_for_rename_statement, group_name_free_in_session_project_statement,
     insert_group_statement, leave_group_statement, project_session_statement,
     release_group_sessions_statement, remove_empty_groups_of_session_project_statement,
-    rename_group_statement, session_group_placement_statement,
+    rename_group_statement, session_group_placement_statement, session_project_kept_statement,
 };
 
 /// Why a group verb failed; a refused verb keeps nothing.
@@ -75,8 +75,9 @@ impl SessionGroupService {
     }
 
     /// Makes a group in the session's project with the session moved into it. Fails with
-    /// [`SessionGroupError::Refused`]: `session.notFound`, `session.group.refused` for a chat, or
-    /// `session.group.nameTaken` when another group of the project holds the name ignoring case.
+    /// [`SessionGroupError::Refused`]: `session.notFound`, `session.group.refused` for a chat or a
+    /// session whose project was forgotten, or `session.group.nameTaken` when another group of the
+    /// project holds the name ignoring case.
     pub async fn create(
         &self,
         request: &SessionGroupCreateRequest,
@@ -96,6 +97,7 @@ impl SessionGroupService {
             vec![
                 session_exists_statement(&session_id),
                 project_session_statement(&session_id),
+                session_project_kept_statement(&session_id),
                 group_name_free_in_session_project_statement(&session_id, &group.name_folded),
                 insert_group_statement(&group),
                 session_group_placement_statement(&session_id, &group_id),
@@ -103,8 +105,12 @@ impl SessionGroupService {
             ],
             |statement_index| match statement_index {
                 0 => Some(session_not_found(&session_id)),
-                1 => Some(chat_has_no_group(&session_id)),
-                2 => Some(group_name_taken(request.name.as_str())),
+                1 => Some(group_refusal("A chat sits in no group.", &session_id)),
+                2 => Some(group_refusal(
+                    "This session's project was forgotten.",
+                    &session_id,
+                )),
+                3 => Some(group_name_taken(request.name.as_str())),
                 _ => None,
             },
         )
@@ -236,8 +242,8 @@ fn session_ids_of(result: Option<&StatementResult>) -> Result<Vec<SessionId>, Se
         .map_err(SessionGroupError::StoredSessionId)
 }
 
-fn chat_has_no_group(session_id: &SessionId) -> DomainError {
-    DomainError::new("A chat sits in no group.", RefusalCode::SessionGroupRefused)
+fn group_refusal(message: &str, session_id: &SessionId) -> DomainError {
+    DomainError::new(message, RefusalCode::SessionGroupRefused)
         .with_detail(json!({ "sessionId": session_id }))
 }
 
@@ -255,21 +261,31 @@ mod tests {
     use rusqlite::{Connection, params};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::repo::mount::ExecutionMode;
+    use std::time::Duration;
+
+    use sidekicks_contracts::session::directory::{SessionListChange, SessionListEntry};
     use sidekicks_contracts::session::groups::{
-        SessionGroupCreateRequest, SessionGroupMoveRequest,
+        SessionGroupCreateRequest, SessionGroupMoveRequest, SessionGroupRenameRequest,
+        SessionGroupUngroupRequest,
     };
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionShape;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed as _};
     use sidekicks_store::database::schema::session_directory::insert_session_row;
     use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
     use sidekicks_store::events::log_service::test_fixture::open_log;
     use sidekicks_workspace::test_rows::project_and_mount_rows;
+    use tokio::time::timeout;
 
     use super::{SessionGroupError, SessionGroupService};
     use crate::directory::list_feed::SessionListFeed;
+    use crate::directory::list_feed::subscriber::SessionListSubscriber;
     use crate::questions::schema::schema_parts;
+
+    // Bounds the wait for a list change.
+    const WAIT: Duration = Duration::from_secs(5);
 
     // A project session of the project `project_id`, found in it through its create request.
     fn insert_project_session(connection: &Connection, project_id: &str) -> SessionId {
@@ -313,8 +329,30 @@ mod tests {
         }
     }
 
-    // Kills: the fold dropped (a name differing only in case would make a second group), and the
-    // removal of empty groups dropped (the emptied group would stay).
+    // The group a session's list row shows, waiting past every other change for the session's.
+    async fn listed_group(
+        subscriber: &mut SessionListSubscriber,
+        session_id: SessionId,
+    ) -> Option<String> {
+        let gate = CreditGate::with_credit(1);
+        loop {
+            let change = timeout(WAIT, subscriber.next(&gate))
+                .await
+                .expect("the list changes")
+                .expect("the list reads")
+                .expect("the list goes on");
+            if let SessionListChange::Upsert { entry, .. } = change
+                && let SessionListEntry::Project(project) = *entry
+                && project.session_id == session_id
+            {
+                return project.group.map(|group| group.name.as_str().to_owned());
+            }
+        }
+    }
+
+    // Kills: the fold dropped (a name differing only in case would make a second group), the
+    // removal of empty groups dropped (the emptied group would stay), and a rename or an ungroup
+    // that tells the sessions list of no member, or reads the wrong statement's rows.
     #[tokio::test]
     async fn a_folded_name_is_taken_an_emptied_group_is_removed_and_a_chat_is_refused() {
         let database = TestDatabase::new(schema_parts());
@@ -330,10 +368,8 @@ mod tests {
         let second = insert_project_session(&connection, &project_id);
         let chat = test_session_id();
         insert_session_row(&connection, chat.text().as_str(), None, None);
-        let groups = SessionGroupService::new(
-            Arc::clone(&log.writer),
-            SessionListFeed::for_test(&database, &log.followers),
-        );
+        let list_feed = SessionListFeed::for_test(&database, &log.followers);
+        let groups = SessionGroupService::new(Arc::clone(&log.writer), Arc::clone(&list_feed));
         let group_count = || -> i64 {
             connection
                 .query_row("SELECT COUNT(*) FROM session_groups", [], |row| row.get(0))
@@ -364,5 +400,32 @@ mod tests {
             RefusalCode::SessionGroupRefused
         );
         assert_eq!(group_count(), 0);
+
+        let mut subscriber = list_feed.open().await.expect("the list opens").subscriber;
+        let group_id = groups
+            .create(&create_request(second, "Ops"))
+            .await
+            .expect("the group is made")
+            .group_id;
+        assert_eq!(
+            listed_group(&mut subscriber, second).await.as_deref(),
+            Some("Ops")
+        );
+        groups
+            .rename(&SessionGroupRenameRequest {
+                group_id,
+                name: FreeFormText::new("Release".to_owned()).expect("a group name"),
+            })
+            .await
+            .expect("the group is renamed");
+        assert_eq!(
+            listed_group(&mut subscriber, second).await.as_deref(),
+            Some("Release")
+        );
+        groups
+            .ungroup(&SessionGroupUngroupRequest { group_id })
+            .await
+            .expect("the group is let go");
+        assert_eq!(listed_group(&mut subscriber, second).await, None);
     }
 }
