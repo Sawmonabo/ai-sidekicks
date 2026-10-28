@@ -38,6 +38,15 @@ const DAEMON_INBOX_PURPOSE: &str = "daemon-inbox:";
 /// The letters an inbox name starts with.
 const NAME_FIRST_LETTERS: [char; 6] = ['a', 'b', 'c', 'd', 'e', 'f'];
 
+/// The digits that follow a socket name's first letter: lowercase hex.
+const NAME_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// How many characters a socket name holds before its suffix: its letter and fifteen digits.
+const NAME_STEM_LENGTH: usize = 16;
+
+/// The suffix of every socket name the daemon mints.
+const SOCKET_SUFFIX: &str = ".sock";
+
 /// What Claude Code's socket folder in one POSIX place is derived from.
 pub(crate) struct PlaceInboxEnvironment<'a> {
     /// The place's login-shell environment captured at the daemon's start, never the daemon's own
@@ -123,12 +132,10 @@ pub(crate) fn fresh_socket_name() -> Result<String, getrandom::Error> {
 /// Whether `name` is shaped as the daemon names an inbox or a process's socket: a letter `a`–`f`,
 /// fifteen lowercase hex digits and `.sock`.
 pub(crate) fn is_inbox_socket_name(name: &str) -> bool {
-    name.strip_suffix(".sock").is_some_and(|stem| {
-        stem.len() == 16
+    name.strip_suffix(SOCKET_SUFFIX).is_some_and(|stem| {
+        stem.len() == NAME_STEM_LENGTH
             && stem.starts_with(NAME_FIRST_LETTERS)
-            && stem
-                .bytes()
-                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+            && stem.bytes().all(|byte| NAME_DIGITS.contains(&byte))
     })
 }
 
@@ -136,9 +143,13 @@ pub(crate) fn is_inbox_socket_name(name: &str) -> bool {
 /// the next eight bytes less its last digit.
 fn socket_name(digest: &[u8]) -> String {
     let first = NAME_FIRST_LETTERS[usize::from(digest[0]) % NAME_FIRST_LETTERS.len()];
-    let mut rest = base16ct::lower::encode_string(&digest[1..9]);
-    rest.pop();
-    format!("{first}{rest}.sock")
+    let rest: String = digest[1..]
+        .iter()
+        .flat_map(|byte| [byte >> 4, byte & 0x0f])
+        .take(NAME_STEM_LENGTH - 1)
+        .map(|digit| char::from(NAME_DIGITS[usize::from(digit)]))
+        .collect();
+    format!("{first}{rest}{SOCKET_SUFFIX}")
 }
 
 /// Claude Code's default socket folder in one place: its runtime folder (else `/tmp`) plus

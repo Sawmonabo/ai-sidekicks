@@ -40,6 +40,10 @@ const FIRST_LINE_LIMIT: Duration = Duration::from_secs(30);
 /// connection, such as the process's open files running out, so a failing accept does not spin.
 const ACCEPT_RETRY_WAIT: Duration = Duration::from_secs(1);
 
+/// How long the sweep waits before it tries a refused socket again: macOS refuses a connect to a
+/// live listener whose queue is full, so only a socket refused twice is taken as left.
+const REFUSED_RECHECK_WAIT: Duration = Duration::from_millis(50);
+
 /// Every session's inbox and the daemon's own, each listened on until released.
 pub(crate) struct ClaudeSessionInboxes {
     addresser: Arc<dyn SessionInboxAddresser>,
@@ -261,7 +265,8 @@ impl ClaudeSessionInboxes {
 }
 
 // Removes each socket named as the daemon names one in `folder` that no process listens on, as a
-// stopped run leaves it; one a live process answers stays, and that connection is closed at once.
+// stopped run leaves it, refused twice a moment apart; one a live process answers stays, and that
+// connection is closed at once.
 // A socket that cannot be reached otherwise, or removed, is logged and kept. A missing folder
 // holds nothing; one that cannot be listed fails the sweep.
 async fn remove_left_sockets(folder: &Path) -> io::Result<()> {
@@ -275,7 +280,15 @@ async fn remove_left_sockets(folder: &Path) -> io::Result<()> {
             continue;
         }
         let socket = entry.path();
-        match connect_unix_domain_socket(&socket).await {
+        let mut reached = connect_unix_domain_socket(&socket).await;
+        if reached
+            .as_ref()
+            .is_err_and(|error| error.kind() == io::ErrorKind::ConnectionRefused)
+        {
+            tokio::time::sleep(REFUSED_RECHECK_WAIT).await;
+            reached = connect_unix_domain_socket(&socket).await;
+        }
+        match reached {
             Ok(connection) => drop(connection),
             Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
                 // One already removed is no failure.
