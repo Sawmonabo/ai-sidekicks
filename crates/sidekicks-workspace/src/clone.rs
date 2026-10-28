@@ -7,7 +7,7 @@
 pub mod askpass;
 pub(crate) mod card;
 pub(crate) mod destination;
-pub(crate) mod large_files;
+pub mod large_files;
 pub(crate) mod progress;
 pub mod requests;
 pub(crate) mod run;
