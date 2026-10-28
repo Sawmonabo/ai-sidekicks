@@ -309,8 +309,8 @@ impl McpLegs {
     }
 
     /// Retires `leg`: its servers leave every binding's aggregate, each binding whose aggregate it
-    /// was in answering a `sessionEnded` change, and what it reports later is ignored. The leg is forgotten at once
-    /// when no sink of it is open, else when its last sink closes.
+    /// was in answering a `sessionEnded` change, and what it reports later is ignored. The leg is
+    /// forgotten at once when no sink of it is open, else when its last sink closes.
     pub(super) fn retire(&mut self, leg_id: &LegId) -> Vec<StatusChange> {
         let Some(leg) = self.legs.get_mut(leg_id) else {
             return Vec::new();
