@@ -4,7 +4,6 @@
 //! stays open until its own notification closes it. Also the usage routing metered off a frame,
 //! recorded on the run whose thread spent it.
 
-use serde_json::{Map, Value};
 use sidekicks_contracts::run::subagent::SubagentId;
 use tokio::time::Instant;
 
@@ -29,23 +28,22 @@ use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 struct ClaudeUsageUnheld;
 
 impl ClaudeDeliveryStream {
-    /// Takes one task frame of `kind`, read off `text` into `members`: a helper's end moves its
-    /// child run, and the frame's command or tool-server task is read on the run that started it,
-    /// the helper's child run where a helper started it and `lead` otherwise.
+    /// Takes one task frame of `kind`, read once off `text`: a helper's end moves its child run,
+    /// and the frame's command or tool-server task is read on the run that started it, the
+    /// helper's child run where a helper started it and `lead` otherwise.
     pub(super) async fn take_task_frame(
         &self,
         session: &ClaudeSessionStream,
         kind: &ClaudeWireFrameKind,
         text: &str,
-        members: &Map<String, Value>,
         lead: Option<ClaudeBoundRun>,
     ) {
-        if *kind == ClaudeWireFrameKind::SystemTaskNotification {
-            self.end_helper(session, members).await;
-        }
         let Some(task) = ClaudeTaskFrame::read(text) else {
             return;
         };
+        if *kind == ClaudeWireFrameKind::SystemTaskNotification {
+            self.end_helper(session, &task).await;
+        }
         let run = self.task_run(session, &task, lead);
         let held_end = {
             let mut readings = session.lock();

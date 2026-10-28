@@ -6,9 +6,9 @@
 //! spent, and what the working line and the context ring read. A frame of a turn no daemon run
 //! holds is recorded and dropped.
 
+mod body;
 pub(crate) mod daemon_ends;
 mod helper_runs;
-mod members;
 mod rows;
 mod run_end;
 mod session;
@@ -33,8 +33,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use self::body::{ClaudeFrameBody, read_frame_members};
 use self::daemon_ends::ClaudeStreamDialogPorts;
-use self::members::read_frame_members;
 pub(crate) use self::session::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::DESCRIPTOR;
@@ -47,9 +47,8 @@ use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
 use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
 use crate::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
 use crate::driver::claude::delivery::system::{
-    read_claude_api_retry, read_claude_assistant_refusal, read_claude_model_reroute,
-    read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
-    read_claude_worker_shutdown_reason,
+    read_claude_api_retry, read_claude_model_reroute, read_claude_provider_status,
+    read_claude_refusal_without_fallback, read_claude_warning, read_claude_worker_shutdown_reason,
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
@@ -185,24 +184,44 @@ impl ClaudeDeliveryStream {
         {
             return after;
         }
-        let Some(members) = read_frame_members(&frame.text) else {
-            return after;
-        };
         // A command or tool-server task, the lead's or a helper's, may end after its turn did.
         if kind.is_task() {
-            self.take_task_frame(session, &kind, &frame.text, &members, turn_at_read.lead)
+            self.take_task_frame(session, &kind, &frame.text, turn_at_read.lead)
                 .await;
             return after;
         }
+        // Each frame is parsed once: a message into the members its rows read, a streamed piece
+        // by its own reader, and any other frame, all small, into its top-level members.
+        let body = if matches!(
+            kind,
+            ClaudeWireFrameKind::Assistant | ClaudeWireFrameKind::User
+        ) {
+            match serde_json::from_str::<ClaudeMessageFrame>(&frame.text) {
+                Ok(message) => ClaudeFrameBody::Message(message),
+                Err(_) => return after,
+            }
+        } else if kind == ClaudeWireFrameKind::StreamEvent {
+            ClaudeFrameBody::StreamEvent
+        } else {
+            match read_frame_members(&frame.text) {
+                Some(members) => ClaudeFrameBody::Members(members),
+                None => return after,
+            }
+        };
         // A helper's own message carries no row of the session's, only the lines of its calls.
         if is_helper_frame {
             if kind == ClaudeWireFrameKind::Assistant
-                && let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text)
+                && let ClaudeFrameBody::Message(message) = &body
             {
-                session.lock().command_tasks.observe_calls(&message);
+                session.lock().command_tasks.observe_calls(message);
             }
             return after;
         }
+        let (members, message) = match body {
+            ClaudeFrameBody::Members(members) => (members, None),
+            ClaudeFrameBody::Message(message) => (Map::new(), Some(message)),
+            ClaudeFrameBody::StreamEvent => (Map::new(), None),
+        };
         let released = session.lock().buffer.flush_expired(Instant::now());
         self.send_rows(session, released, None).await;
         if matches!(
@@ -390,11 +409,16 @@ impl ClaudeDeliveryStream {
             }
             ClaudeWireFrameKind::StreamEvent => self.stream_event(session, &lead, &frame.text),
             ClaudeWireFrameKind::Assistant => {
-                let usage = frame.observation.message_usage.as_ref();
-                self.assistant(session, &lead, &frame.text, &members, usage)
-                    .await;
+                if let Some(message) = message {
+                    let usage = frame.observation.message_usage.as_ref();
+                    self.assistant(session, &lead, &message, usage).await;
+                }
             }
-            ClaudeWireFrameKind::User => self.user(session, &lead, &frame.text, &members).await,
+            ClaudeWireFrameKind::User => {
+                if let Some(message) = message {
+                    self.user(session, &lead, &message).await;
+                }
+            }
             // Read above: the tasks, a sent message's fate, the quota and the turn's end.
             ClaudeWireFrameKind::SystemTaskStarted
             | ClaudeWireFrameKind::SystemTaskUpdated
@@ -536,28 +560,23 @@ impl ClaudeDeliveryStream {
         &self,
         session: &ClaudeSessionStream,
         lead: &ClaudeBoundRun,
-        text: &str,
-        members: &Map<String, Value>,
+        frame: &ClaudeMessageFrame,
         usage: Option<&ClaudeMessageUsageObservation>,
     ) {
-        let error = read_non_empty_string(members, "error");
         self.dependencies
             .dialogs
-            .observe_assistant_error(lead.run_id, error)
+            .observe_assistant_error(lead.run_id, frame.error())
             .await;
-        let Ok(frame) = serde_json::from_str::<ClaudeMessageFrame>(text) else {
-            return;
-        };
         let (pieces, rows, counts_step, tasks) = {
             let mut readings = session.lock();
-            readings.command_tasks.observe_calls(&frame);
-            let tasks = readings.turn_readings.observe_calls(&frame);
+            readings.command_tasks.observe_calls(frame);
+            let tasks = readings.turn_readings.observe_calls(frame);
             // As Claude Code reads a turn, its last refused message is the turn's refusal.
-            if let Some(refusal) = read_claude_assistant_refusal(members) {
+            if let Some(refusal) = frame.refusal() {
                 readings.refusal = Some(refusal);
             }
             let rows = read_claude_assistant_rows(
-                &frame,
+                frame,
                 session.session_id,
                 lead.run_id,
                 &mut readings.open_tool_calls,
@@ -568,7 +587,7 @@ impl ClaudeDeliveryStream {
                 && frame.provider_message_id().is_some_and(|message_id| {
                     readings.counted_step_messages.insert(message_id.to_owned())
                 });
-            let (pieces, unstreamed) = readings.streamed_blocks.finish(&frame, rows);
+            let (pieces, unstreamed) = readings.streamed_blocks.finish(frame, rows);
             let key = frame
                 .uuid()
                 .map(|uuid| ClaudeMessageKey::Uuid(uuid.to_owned()));
@@ -600,17 +619,13 @@ impl ClaudeDeliveryStream {
         &self,
         session: &ClaudeSessionStream,
         lead: &ClaudeBoundRun,
-        text: &str,
-        members: &Map<String, Value>,
+        frame: &ClaudeMessageFrame,
     ) {
-        let Ok(frame) = serde_json::from_str::<ClaudeMessageFrame>(text) else {
-            return;
-        };
         let (rows, tasks) = {
             let mut guard = session.lock();
             let readings = &mut *guard;
             let reading = read_claude_user_rows(
-                &frame,
+                frame,
                 session.session_id,
                 lead.run_id,
                 &mut readings.open_tool_calls,
@@ -618,7 +633,7 @@ impl ClaudeDeliveryStream {
                 Instant::now(),
             );
             readings.failed_call_words.extend(reading.failed_results);
-            let tasks = readings.turn_readings.observe_results(&frame);
+            let tasks = readings.turn_readings.observe_results(frame);
             let key = frame
                 .uuid()
                 .map(|uuid| ClaudeMessageKey::Uuid(uuid.to_owned()));
@@ -632,10 +647,8 @@ impl ClaudeDeliveryStream {
         if let Some(tasks) = tasks {
             self.publish_turn_tasks(session, tasks);
         }
-        // Claude Code echoes each message it took off its input with the uuid it was sent under;
-        // a helper's replay carries its parent call and was never handed.
-        if members.get("isReplay").and_then(Value::as_bool) == Some(true)
-            && members.get("parent_tool_use_id").is_none_or(Value::is_null)
+        // Claude Code echoes each message it took off its input with the uuid it was sent under.
+        if frame.is_taken_echo()
             && let Some(uuid) = frame.uuid()
         {
             self.report_taken(session, uuid);

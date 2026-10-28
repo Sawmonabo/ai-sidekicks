@@ -15,9 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
-use crate::driver::claude::delivery::system::{
-    read_claude_assistant_refusal, read_claude_refusal_without_fallback,
-};
+use crate::driver::claude::delivery::system::read_claude_refusal_without_fallback;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::session::process::{ClaudeCodeProcess, ClaudeStreamFrame};
@@ -230,22 +228,22 @@ fn read_lead_frame(frame: &ClaudeStreamFrame, reading: &mut OneTurnReading) {
         reading.refusal = None;
         return;
     }
-    let Ok(Value::Object(members)) = serde_json::from_str::<Value>(&frame.text) else {
-        return;
-    };
     match frame_kind {
         "assistant" => {
-            if let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text)
-                && let Some(id) = message.provider_message_id()
-            {
+            let Ok(message) = serde_json::from_str::<ClaudeMessageFrame>(&frame.text) else {
+                return;
+            };
+            if let Some(id) = message.provider_message_id() {
                 reading.provider_message_id = Some(id.to_owned());
             }
-            if let Some(refusal) = read_claude_assistant_refusal(&members) {
+            if let Some(refusal) = message.refusal() {
                 reading.refusal = Some(refusal);
             }
         }
         "system/model_refusal_no_fallback" => {
-            reading.refusal = read_claude_refusal_without_fallback(&members);
+            if let Ok(Value::Object(members)) = serde_json::from_str::<Value>(&frame.text) {
+                reading.refusal = read_claude_refusal_without_fallback(&members);
+            }
         }
         _ => {}
     }

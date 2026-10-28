@@ -7,14 +7,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use jiff::{SignedDuration, Timestamp};
+use serde::Deserialize;
 use serde_json::Value;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::contract::DriverError;
 use crate::driver::idle_sleep::{IdleSleepHolds, KeptSchedule, SessionSleepState};
 use crate::driver::session_control::ResumeSessionParams;
+use crate::lenient_json::read_lenient;
 
 /// Claude Code's tool that schedules the session's next wake-up, which its process loses when it
 /// stops.
@@ -112,18 +115,26 @@ impl ClaudeIdleSleep {
                 if !is_waiting {
                     return;
                 }
-                let Some(frame) = serde_json::from_str::<Value>(text).ok() else {
+                let Ok(frame) = serde_json::from_str::<ClaudeMessageFrame>(text) else {
                     return;
                 };
                 let mut sessions = lock(&self.sessions);
                 let Some(session) = sessions.get_mut(&session_id) else {
                     return;
                 };
-                let Some((call, is_error)) = take_answered_call(session, &frame) else {
+                let Some((call, is_error)) =
+                    frame.tool_results().find_map(|(call_id, is_error)| {
+                        Some((session.pending_calls.remove(call_id)?, is_error))
+                    })
+                else {
                     return;
                 };
-                if !is_error && let Some(output) = frame.get("tool_use_result") {
-                    session.apply(call, output, Timestamp::now());
+                if !is_error
+                    && let Some(output) = frame
+                        .tool_use_result()
+                        .and_then(|output| serde_json::from_str::<Value>(output.get()).ok())
+                {
+                    session.apply(call, &output, Timestamp::now());
                 }
             }
             "system/init" => {
@@ -445,33 +456,35 @@ fn mentions_schedule_tool(text: &str) -> bool {
     .any(|tool_name| text.contains(tool_name))
 }
 
+// The members of a scheduling call's input that are read.
+#[derive(Default, Deserialize)]
+struct ScheduleCallInput {
+    #[serde(default, deserialize_with = "read_lenient")]
+    cron: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    id: Option<String>,
+}
+
 // The scheduling calls an `assistant` frame makes, by their tool-use id.
 fn read_schedule_calls(text: &str) -> Vec<(String, PendingScheduleCall)> {
-    let Ok(frame) = serde_json::from_str::<Value>(text) else {
+    let Ok(frame) = serde_json::from_str::<ClaudeMessageFrame>(text) else {
         return Vec::new();
     };
-    let Some(blocks) = frame.pointer("/message/content").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    blocks
-        .iter()
-        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_use"))
-        .filter_map(|block| {
-            let call_id = block.get("id").and_then(Value::as_str)?;
-            let input = block.get("input");
-            let read_input = |member: &str| {
+    frame
+        .tool_uses()
+        .filter_map(|(call_id, tool_name, input)| {
+            let input = || {
                 input
-                    .and_then(|input| input.get(member))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
+                    .and_then(|input| serde_json::from_str::<ScheduleCallInput>(input.get()).ok())
+                    .unwrap_or_default()
             };
-            let call = match block.get("name").and_then(Value::as_str)? {
+            let call = match tool_name {
                 SCHEDULE_WAKEUP_TOOL => PendingScheduleCall::Wakeup,
                 CRON_CREATE_TOOL => PendingScheduleCall::CronCreate {
-                    cron: read_input("cron")?,
+                    cron: input().cron?,
                 },
                 CRON_DELETE_TOOL => PendingScheduleCall::CronDelete {
-                    job_id: read_input("id")?,
+                    job_id: input().id?,
                 },
                 CRON_LIST_TOOL => PendingScheduleCall::CronList,
                 _ => return None,
@@ -479,25 +492,6 @@ fn read_schedule_calls(text: &str) -> Vec<(String, PendingScheduleCall)> {
             Some((call_id.to_owned(), call))
         })
         .collect()
-}
-
-// Takes the pending call a `user` frame's tool result answers, with whether the result is an
-// error; `None` when it answers none.
-fn take_answered_call(
-    session: &mut SessionSleep,
-    frame: &Value,
-) -> Option<(PendingScheduleCall, bool)> {
-    frame
-        .pointer("/message/content")?
-        .as_array()?
-        .iter()
-        .filter(|block| block.get("type").and_then(Value::as_str) == Some("tool_result"))
-        .find_map(|block| {
-            let call_id = block.get("tool_use_id").and_then(Value::as_str)?;
-            let call = session.pending_calls.remove(call_id)?;
-            let is_error = block.get("is_error").and_then(Value::as_bool) == Some(true);
-            Some((call, is_error))
-        })
 }
 
 // A job's `recurring`, which Claude Code takes as true where a job leaves it out.
