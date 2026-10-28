@@ -59,9 +59,26 @@ pub(crate) struct CodexSessionContextReadings {
     fixed_start_tokens: Option<u64>,
     // The model and window the last reading was composed for.
     published_for: Option<CodexReadingSettings>,
-    // How many readings were published, so a reading composed off the session's task is dropped
-    // once another was published after it began.
-    published: Arc<Mutex<u64>>,
+    // What was published, so a reading composed off the session's task is dropped once another
+    // was published after it began, or a later settings change began.
+    published: Arc<Mutex<PublishedReadings>>,
+}
+
+/// The readings one session published and the settings changes it saw.
+#[derive(Default)]
+struct PublishedReadings {
+    /// How many readings were published.
+    count: u64,
+    /// How many settings changes began, the newest one's number.
+    settings_generation: u64,
+}
+
+/// What a reading composed off the session's task began from: the readings published then and
+/// the settings change it was composed for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LateReading {
+    published_before: u64,
+    settings_generation: u64,
 }
 
 impl CodexSessionContextReadings {
@@ -126,6 +143,11 @@ impl CodexSessionContextReadings {
             return;
         }
         self.published_for = Some(settings.clone());
+        let settings_generation = {
+            let mut published = lock(&self.published);
+            published.settings_generation += 1;
+            published.settings_generation
+        };
         let Some(publisher) = parts.ports.context_readings.port().map(Arc::clone) else {
             return;
         };
@@ -151,19 +173,17 @@ impl CodexSessionContextReadings {
             }
             return;
         }
-        let published_before = *lock(&self.published);
+        let late = LateReading {
+            published_before: lock(&self.published).count,
+            settings_generation,
+        };
         let published = Arc::clone(&self.published);
         let model_windows = Arc::clone(&parts.model_windows);
         let service = Arc::clone(&record.service);
         parts.tasks.spawn(async move {
             let windows = model_windows.read(&service).await;
             if let Some(composed) = compose(&windows) {
-                publish_counted(
-                    &published,
-                    Some(published_before),
-                    publisher.as_ref(),
-                    composed,
-                );
+                publish_counted(&published, Some(late), publisher.as_ref(), composed);
             }
         });
     }
@@ -187,19 +207,22 @@ fn read_compaction_limit(
         })
 }
 
-// Publishes `reading` and counts it, unless `published_before` is given and a reading was
-// published since, which `reading` would otherwise replace with an older view.
+// Publishes `reading` and counts it, unless it is `late` and a reading was published since, which
+// it would otherwise replace with an older view, or a later settings change began.
 fn publish_counted(
-    published: &Mutex<u64>,
-    published_before: Option<u64>,
+    published: &Mutex<PublishedReadings>,
+    late: Option<LateReading>,
     publisher: &dyn ContextReadingPublisher,
     reading: SessionContextReading,
 ) {
     let mut published = lock(published);
-    if published_before.is_some_and(|before| before != *published) {
+    if late.is_some_and(|late| {
+        late.published_before != published.count
+            || late.settings_generation != published.settings_generation
+    }) {
         return;
     }
-    *published += 1;
+    published.count += 1;
     publisher.publish_context_reading(reading);
 }
 

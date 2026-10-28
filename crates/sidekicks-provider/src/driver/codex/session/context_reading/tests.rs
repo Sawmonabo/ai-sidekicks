@@ -7,8 +7,8 @@ use sidekicks_contracts::session::inspector::SessionContextReading;
 use sidekicks_contracts::wire::number::Percent;
 
 use super::{
-    CodexContextWindowReading, CodexReadingSettings, CodexSessionContextReadings,
-    compose_settings_reading, publish_counted,
+    CodexContextWindowReading, CodexReadingSettings, CodexSessionContextReadings, LateReading,
+    PublishedReadings, compose_settings_reading, publish_counted,
 };
 use crate::driver::codex::model_windows::{CodexModelWindow, CodexModelWindows};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
@@ -87,21 +87,42 @@ fn a_reading_before_any_report_carries_the_catalogs_usable_window(
 }
 
 // A reading composed off the session's task is dropped once another was published after it began,
-// so a report's reading is never replaced by an older one with no usage.
+// so a report's reading is never replaced by an older one with no usage, and once a later
+// settings change began, so a session switched from one model to another never ends on the first
+// one's window. Killed by dropping either check from `publish_counted`.
 #[test]
-fn a_late_reading_never_replaces_one_published_after_it_began() {
-    let published = Mutex::new(0);
+fn a_late_reading_never_replaces_a_newer_one() {
+    let published = Mutex::new(PublishedReadings::default());
     let collected = CollectedReadings::default();
-    let reading = compose_settings_reading(session_id(), &catalog(), &settings(None), None, None)
-        .expect("the catalog lists the model");
-    let began_at = *published.lock().expect("no test thread panicked");
+    let reading = |requested_window| {
+        compose_settings_reading(
+            session_id(),
+            &catalog(),
+            &settings(requested_window),
+            None,
+            None,
+        )
+        .expect("the catalog lists the model")
+    };
+    let late = |published_before, settings_generation| {
+        Some(LateReading {
+            published_before,
+            settings_generation,
+        })
+    };
 
-    publish_counted(&published, None, &collected, reading.clone());
-    publish_counted(&published, Some(began_at), &collected, reading);
+    publish_counted(&published, None, &collected, reading(None));
+    publish_counted(&published, late(0, 0), &collected, reading(None));
+    published
+        .lock()
+        .expect("no test thread panicked")
+        .settings_generation = 2;
+    publish_counted(&published, late(1, 1), &collected, reading(None));
+    publish_counted(&published, late(1, 2), &collected, reading(Some(1_000_000)));
 
     assert_eq!(
-        collected.0.lock().expect("no test thread panicked").len(),
-        1
+        *collected.0.lock().expect("no test thread panicked"),
+        [reading(None), reading(Some(1_000_000))]
     );
 }
 
