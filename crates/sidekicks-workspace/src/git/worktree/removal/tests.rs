@@ -519,6 +519,15 @@ async fn a_discard_whose_caller_stops_waiting_mid_move_lands_whole() {
 #[tokio::test]
 async fn a_keeping_aside_whose_caller_stops_waiting_holds_the_tree_s_turn_until_it_moves() {
     let fixture = RemovalFixture::new().await;
+    // Every commit is pushed, so the plain removal has nothing to lose.
+    let repository = fixture.kept.repository.clone();
+    fixture
+        .kept
+        .git(
+            &repository,
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+        )
+        .await;
     let tree = fixture.kept.add_tree("kept", "kept").await;
     let folder = PathBuf::from(tree.fs_root.as_str());
     fixture
