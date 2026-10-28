@@ -450,6 +450,14 @@ impl TableShared {
         }
     }
 
+    // The held shell, refused `terminal.notFound` when the table does not hold it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a run's take of a shell reads whether it reports its marks and sits idle"
+        )
+    )]
     fn find_shell(
         &self,
         session_id: &SessionId,

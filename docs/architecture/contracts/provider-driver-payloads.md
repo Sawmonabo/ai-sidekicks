@@ -315,13 +315,19 @@ interface ProviderCommandBinding {
   providerName: ProviderId;
   providerAccountId: string | null;
 }
-interface ProviderCommandEntry {
+// Tagged on `kind`; only a tool server's prompt names its server and carries a title.
+type ProviderCommandEntry =
+  | ({ kind: "command" | "skill" } & ProviderCommandEntryMembers)
+  | ({
+      kind: "prompt";
+      server: string; // the tool server that publishes it
+      title?: string; // the prompt's title for people, where the server gives one
+    } & ProviderCommandEntryMembers);
+interface ProviderCommandEntryMembers {
   name: string;
-  kind: "command" | "skill" | "prompt";
   description?: string;
   argumentHint?: string;
   scope?: string;
-  server?: string; // present iff `kind` is "prompt": the tool server that publishes it
   // Absent = the provider draws no enabled/disabled distinction on this surface. `false` = the
   // provider published the entry AND declared it disabled: returned, never filtered, not offerable.
   enabled?: boolean;

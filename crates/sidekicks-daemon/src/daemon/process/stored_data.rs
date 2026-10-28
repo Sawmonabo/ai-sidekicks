@@ -20,8 +20,6 @@ use sidekicks_session::conversation_purge::ConversationPurge;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::writer::repack::RepackJobDeps;
-use sidekicks_store::events::session::appender::SessionEventAppender;
-use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::daemon::backup::run::{BACKUP_BUDGET, Backups};
 use crate::daemon::configuration::ConfigurationStore;
@@ -130,10 +128,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
     let damaged_history = Arc::new(DamagedHistory::new(DamagedHistoryDeps {
         reads: Arc::clone(&database.pool),
         session_events: Arc::clone(&session_services.sessions),
-        appender: Arc::new(SessionEventAppender::new(
-            Arc::clone(&database.event_log),
-            SESSION_EVENT_VERSION.clone(),
-        )),
+        appender: Arc::clone(&session_services.appender),
         writer: Arc::clone(&database.writer),
         projection_rebuild,
         restart_settle,

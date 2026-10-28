@@ -117,8 +117,8 @@ impl ServerPromptPort for McpClient {
 }
 
 /// One prompt as a `/` list entry naming its server, with the title the server gives and its
-/// arguments' names as the hint; `None` for a prompt whose name or words break the entry's bounds,
-/// which the list leaves out.
+/// arguments' names as the hint; `None` for a prompt whose name breaks the entry's bounds, which
+/// the list leaves out. A title, description or hint that breaks its bounds is left off alone.
 fn prompt_entry(
     prompt: Prompt,
     server: &McpServerName,
