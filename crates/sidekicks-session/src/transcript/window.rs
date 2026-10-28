@@ -23,7 +23,6 @@
 //! budget with its rows.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use rusqlite::Connection;
 use serde_json::json;
@@ -31,7 +30,6 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, SessionEventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
@@ -50,13 +48,13 @@ use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::read::{
     SessionEventReads, SessionLogReadError, resolve_event_cursor,
 };
 use sidekicks_store::transcript::rejoin::RowReads;
 
+use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::child_run::stamp_child_run_summaries;
 use crate::transcript::projector::{TranscriptProjectionError, project_window};
@@ -147,7 +145,7 @@ where
 pub fn read_transcript_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
-    driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
+    driver_of: &ProviderDriverLookup,
     request: &TranscriptReadRequest,
     parse: BlockParse,
 ) -> Result<TranscriptReadResponse, TranscriptReadError>
@@ -196,7 +194,7 @@ struct WindowReads<'window, DamagedFrom: ?Sized> {
     reader: &'window Connection,
     read_damaged_from_sequence: &'window DamagedFrom,
     // The driver that answers a provider, which reads the session's task-list calls.
-    driver_of: &'window dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
+    driver_of: &'window ProviderDriverLookup,
     session_id: &'window SessionId,
     // When the read began, the time a child row's summary is marked incomplete as of.
     observed_at: WireInstant,

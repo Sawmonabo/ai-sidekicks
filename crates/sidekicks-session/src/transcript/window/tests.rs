@@ -18,6 +18,7 @@ use sidekicks_store::events::test_log::AT;
 
 use super::{TranscriptReadError, read_transcript_window};
 use crate::questions::schema::schema_parts;
+use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use crate::transcript::body::read_row_body;
 use crate::transcript::body::starts_cache::BlockCuts;
@@ -592,7 +593,7 @@ fn a_task_list_call_adds_no_row_and_a_stretch_of_them_is_passed_over() {
         }))
         .expect("the test's request reads")
     };
-    let sequences = |driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>| {
+    let sequences = |driver_of: &ProviderDriverLookup| {
         let response = read_transcript_window(
             &session_log.reader(),
             &|_: &SessionId| None,
@@ -613,7 +614,7 @@ fn a_task_list_call_adds_no_row_and_a_stretch_of_them_is_passed_over() {
 
     // The page's first stretch is the task-list call alone, so it reads on to the next.
     assert_eq!(
-        sequences(&|_| Some(Arc::clone(&driver))),
+        sequences(&move |_| Some(Arc::clone(&driver))),
         [read_opening, read_end]
     );
     assert_eq!(
@@ -693,11 +694,12 @@ fn a_read_past_its_cap_of_task_list_stretches_continues_empty_after_them() {
         .expect_task_list_change()
         .returning(|call| (call.tool_name == "task-list").then_some(TaskListChange::Nothing));
     let driver: Arc<dyn ProviderDriver> = Arc::new(driver);
+    let driver_of = move |_: &ProviderId| Some(Arc::clone(&driver));
     let read_after = |after: Value| {
         read_transcript_window(
             &session_log.reader(),
             &|_: &SessionId| None,
-            &|_| Some(Arc::clone(&driver)),
+            &driver_of,
             &serde_json::from_value(json!({
                 "sessionId": session_log.session_id,
                 "afterCursor": after,

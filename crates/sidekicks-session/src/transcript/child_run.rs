@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::json;
@@ -14,7 +14,6 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::event_cursor::{EventCursor, encode_event_cursor};
@@ -32,7 +31,6 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::{SafeInt, count_bound};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::events::session::read::{
     SELECTED_COLUMNS, SessionEventReads, readable_event_sql, resolve_event_cursor,
@@ -40,6 +38,7 @@ use sidekicks_store::events::session::read::{
 use sidekicks_store::transcript::rejoin::{row_condition_sql, stored_patch_part_sql};
 
 use crate::run::refusals::RunRefusal;
+use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::BlockParse;
 use crate::transcript::projector::project_window;
 use crate::transcript::window::{
@@ -285,7 +284,7 @@ struct ExpandedRun {
 pub(crate) fn expand_child_run<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
-    driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
+    driver_of: &ProviderDriverLookup,
     request: &TranscriptChildRunExpandRequest,
     observed_at: &WireInstant,
     parse: BlockParse,

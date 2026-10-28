@@ -594,8 +594,6 @@ impl RunningCommandSets {
         }
     }
 
-    /// Forgets the wrapper `party`, whose command ended or whose process did, so a later process
-    /// that reuses its id reaches no row of its.
     /// Marks `run_id` as a process of `session_id` apart from its own, whose rows the session's
     /// own whole list and process end leave alone until `apart_run_ended`.
     pub(crate) fn apart_run_started(&self, session_id: SessionId, run_id: RunId) {
@@ -613,6 +611,8 @@ impl RunningCommandSets {
         }
     }
 
+    /// Forgets the wrapper `party`, whose command ended or whose process did, so a later process
+    /// that reuses its id reaches no row of its.
     pub(crate) fn wrapper_ended(&self, session_id: SessionId, party: PartyId) {
         let mut sessions = self.lock();
         if let Some(commands) = sessions.get_mut(&session_id) {

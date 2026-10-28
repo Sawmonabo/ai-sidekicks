@@ -124,8 +124,8 @@ pub struct DriverPorts {
     /// The run queue's intake of an ended process.
     pub process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
     /// The usage record. Until it is registered a session's readings meter from a zero base and
-    /// each metered change and quota window is dropped, where every other port refuses: the
-    /// provider's stream never waits on the record.
+    /// each metered change and quota window is dropped, as the command output and the readings
+    /// ports drop theirs while the other ports refuse: the provider's stream never waits on it.
     pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     /// The running commands of every session, which each driver reports its agent's commands to
     /// and follows each command's channel into; a command reported before it is registered is

@@ -9,12 +9,9 @@
 //! those no later text can move while it is still arriving, or why its cut failed. A row of a tool
 //! call the session's driver reads as a change to the agent's task list stands as no row.
 
-use std::sync::Arc;
-
 use rusqlite::Connection;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::TranscriptRowContent;
@@ -26,7 +23,6 @@ use sidekicks_contracts::transcript::row::{
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::events::session::read::{
     MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads, session_read_bound,
 };
@@ -34,6 +30,7 @@ use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of, joined_row_c
 use sidekicks_store::transcript::whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
 
 use crate::run::agent::read_lead_binding;
+use crate::service::ProviderDriverLookup;
 use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
 use crate::transcript::task_list_call::is_task_list_call;
 use crate::transcript::turn_attribution::{
@@ -83,7 +80,7 @@ pub enum TranscriptProjectionError {
 pub(crate) fn project_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: DamagedFrom,
-    driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
+    driver_of: &ProviderDriverLookup,
     session_id: &SessionId,
     rows: &[EventEnvelope],
     head: i64,
