@@ -157,7 +157,7 @@ pub trait WorktreeSessionSweep: Send + Sync {
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
-/// What the removal runs with; the kept copy's lock, the leftover names and the copies under way
+/// What the removal runs with; the kept copy's lock, the names in use and the copies under way
 /// are the store's, so the removal and the store never hold two.
 pub struct WorktreeRemovalDeps {
     /// The daemon's git entry point.

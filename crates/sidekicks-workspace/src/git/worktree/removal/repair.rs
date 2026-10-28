@@ -190,7 +190,7 @@ impl WorktreeRemoval {
                 .deps
                 .removed_worktrees
                 .folder_move_tools()
-                .leftover_names,
+                .names_in_use,
             &shared.deps.worktrees_folder,
         )
         .await
@@ -389,7 +389,7 @@ impl RemovalShared {
         remove_stale_record_and_refs(
             StaleRecordTools {
                 claims: store.claims(),
-                leftover_names: store.folder_move_tools().leftover_names,
+                names_in_use: store.folder_move_tools().names_in_use,
             },
             &self.deps.git,
             unfinished.place.as_ref(),

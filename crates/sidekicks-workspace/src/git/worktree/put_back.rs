@@ -107,7 +107,7 @@ impl<'a> PutBackTools<'a> {
     fn stale_record(&self) -> StaleRecordTools<'a> {
         StaleRecordTools {
             claims: self.claims,
-            leftover_names: self.kept.folder_moves.leftover_names,
+            names_in_use: self.kept.folder_moves.names_in_use,
         }
     }
 }
@@ -512,10 +512,7 @@ async fn put_worktree_back(
     // The names are taken before the mark names them, so two put-backs never take one name, and
     // held until this answers, so the cleanup never takes them meanwhile. A crash between leaves
     // an empty folder and a record holding only the lock, which the cleanup removes.
-    let _target_hold = tools
-        .stale_record()
-        .leftover_names
-        .hold(input.target_folder);
+    let _target_hold = tools.stale_record().names_in_use.hold(input.target_folder);
     match tokio::fs::create_dir(input.target_folder).await {
         Ok(()) => {}
         Err(failure) if failure.kind() == io::ErrorKind::AlreadyExists => {
@@ -544,7 +541,7 @@ async fn put_worktree_back(
     };
     let _record_hold = tools
         .stale_record()
-        .leftover_names
+        .names_in_use
         .hold(&record.record_folder);
     let mut progress = PutBackProgress {
         mark: PutBackMark {

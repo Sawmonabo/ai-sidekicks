@@ -23,7 +23,7 @@ pub(crate) async fn remove_unmarked_names(
     original_path: &Path,
     records_folder: &Path,
 ) -> Result<(), StaleRecordError> {
-    if !tools.leftover_names.is_in_use(original_path)
+    if !tools.names_in_use.is_in_use(original_path)
         && !tools.claims.is_live_tree_at(original_path).await?
     {
         match tokio::fs::remove_dir(original_path).await {
@@ -47,7 +47,7 @@ pub(crate) async fn remove_unmarked_names(
     let restoring = tools.claims.restoring_records().await?;
     while let Some(entry) = records.next_entry().await.map_err(at(records_folder))? {
         let record = entry.path();
-        if tools.leftover_names.is_in_use(&record) || restoring.contains(&record) {
+        if tools.names_in_use.is_in_use(&record) || restoring.contains(&record) {
             continue;
         }
         if is_lone_initializing_lock(&record).await? {

@@ -110,7 +110,7 @@ pub(crate) struct KeptCopyTools<'a> {
     pub(crate) git: &'a GitRunner,
     /// Where the project lives, which every git call runs at.
     pub(crate) place: Option<&'a Place>,
-    /// Where a copy across volumes reports, and the leftover names it holds.
+    /// Where a copy across volumes reports, and the names in use it holds.
     pub(crate) folder_moves: FolderMoveTools<'a>,
 }
 

@@ -61,7 +61,7 @@ use crate::git::process::GitRunner;
 use crate::git::worktree::claims::KeptCopyClaims;
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
-use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, LeftoverNamesInUse};
+use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, NamesInUse};
 use crate::git::worktree::kept_copy::held_work::{HeldWorkEnd, held_answer, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KeptCopyRowWrites, KeptCopyTools, KeptWorktreeState, RowWriteError, delete_kept_copy,
@@ -93,8 +93,8 @@ pub struct RemovedWorktreeStoreDeps {
     pub worktrees: Arc<WorktreeService>,
     /// Where a put-back's copy across volumes, and its undo's, reports its progress.
     pub copies: WorktreeCopiesUnderWay,
-    /// The leftover names in use, shared with everything that makes or sweeps one.
-    pub leftover_names: Arc<LeftoverNamesInUse>,
+    /// The names in use, shared with everything that makes or sweeps one.
+    pub names_in_use: Arc<NamesInUse>,
     /// The lock per kept copy, by its id, which the removal holds for its discards and repairs.
     pub kept_copy_lock: Arc<KeyedLock<RemovedWorktreeId>>,
     /// The daemon's worktrees folder; a kept folder is deleted only from inside it.
@@ -202,12 +202,12 @@ impl RemovedWorktreeStore {
         &self.deps.kept_copy_lock
     }
 
-    /// The copies under way and the leftover names in use, which every folder move of a kept
-    /// copy runs with.
+    /// The copies under way and the names in use, which every folder move of a kept copy runs
+    /// with.
     pub(crate) fn folder_move_tools(&self) -> FolderMoveTools<'_> {
         FolderMoveTools {
             copies: &self.deps.copies,
-            leftover_names: &self.deps.leftover_names,
+            names_in_use: &self.deps.names_in_use,
         }
     }
 
@@ -666,7 +666,7 @@ impl RemovedWorktreeStore {
     ) -> Result<(), RemovedWorktreeStoreError> {
         let tools = StaleRecordTools {
             claims: &self.claims,
-            leftover_names: &self.deps.leftover_names,
+            names_in_use: &self.deps.names_in_use,
         };
         let record_folder = Path::new(kept.record_folder.as_str());
         let original_path = Path::new(kept.original_path.as_str());

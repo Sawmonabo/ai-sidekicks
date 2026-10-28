@@ -5,6 +5,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::future::BoxFuture;
 use rstest::rstest;
@@ -22,12 +23,13 @@ use super::RemovedWorktreeStoreError;
 use super::put_back_copy;
 use super::restore::KeptCopyPutBackMarks;
 use super::test_fixture::KeptCopyFixture;
-use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
 use crate::git::worktree::kept_copy::pins::KeptPin;
+use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
 use crate::git::worktree::put_back::branch::BranchChoiceError;
 use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{
-    PutBackAtFreeNameInput, PutBackBranchChoice, put_worktree_back_at_free_name,
+    PutBackAtFreeNameInput, PutBackBranchChoice, PutBackMark, PutBackMarks,
+    put_worktree_back_at_free_name,
 };
 use crate::git::worktree::removal::FolderProcessHold;
 use crate::git::worktree::removal::tests::RemovalFixture;
@@ -302,12 +304,12 @@ async fn a_cleanup_removes_the_names_a_put_back_cut_short_before_its_mark_left()
     fs::write(record.join("locked"), "initializing\n").expect("the record is locked");
     let tools = StaleRecordTools {
         claims: &fixture.store.claims,
-        leftover_names: &fixture.store.deps.leftover_names,
+        names_in_use: &fixture.store.deps.names_in_use,
     };
 
     let holds = [
-        tools.leftover_names.hold(original_path),
-        tools.leftover_names.hold(&record),
+        tools.names_in_use.hold(original_path),
+        tools.names_in_use.hold(&record),
     ];
     remove_unmarked_names(tools, original_path, &records_folder)
         .await
@@ -326,6 +328,87 @@ async fn a_cleanup_removes_the_names_a_put_back_cut_short_before_its_mark_left()
 
     assert!(!original_path.exists(), "the empty folder is left");
     assert!(!record.exists(), "the locked record is left");
+}
+
+// A put-back that reads the folder's name before it takes it, where its own read said free.
+struct FreeAtFirstRead<'a> {
+    marks: KeptCopyPutBackMarks<'a>,
+    is_read: AtomicBool,
+}
+
+impl PutBackMarks for FreeAtFirstRead<'_> {
+    async fn is_folder_taken(&self, folder: &Path) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        if !self.is_read.swap(true, Ordering::SeqCst) {
+            return Ok(false);
+        }
+        self.marks.is_folder_taken(folder).await
+    }
+
+    async fn write(&self, mark: &PutBackMark) -> Result<(), RowWriteError> {
+        self.marks.write(mark).await
+    }
+
+    async fn clear(&self) -> Result<(), RowWriteError> {
+        self.marks.clear().await
+    }
+}
+
+// Two put-backs of copies of one tree take its folder's name at once: the first has made the empty
+// folder and holds it, and the second, whose read found it free, finds it taken and moves on.
+// Kills names held as a set, where the second's hold, dropped as it moves on, lets go of the
+// first's, so the cleanup removes the first's folder before its mark.
+#[tokio::test]
+async fn a_put_back_that_finds_its_name_taken_leaves_the_other_put_back_s_hold() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let original_path = Path::new(tree.fs_root.as_str());
+    let tools = StaleRecordTools {
+        claims: &fixture.store.claims,
+        names_in_use: &fixture.store.deps.names_in_use,
+    };
+    let first_hold = tools.names_in_use.hold(original_path);
+    fs::create_dir(original_path).expect("the first put-back's folder is made");
+    let kept = fixture
+        .store
+        .find_row(removed_worktree_id)
+        .await
+        .expect("the kept copy's row is read")
+        .expect("the kept copy is listed");
+    let common_folder = fixture.common_folder();
+
+    let placed = put_worktree_back_at_free_name(
+        fixture.store.put_back_tools(None),
+        PutBackAtFreeNameInput {
+            kept_folder: Path::new(kept.kept_path.as_str()),
+            original_path,
+            branch: kept.branch.as_str(),
+            canonical_root: &fixture.repository,
+            common_folder: &common_folder,
+            choice: &PutBackBranchChoice::OwnBranch,
+            copy: &put_back_copy(&kept),
+        },
+        &FreeAtFirstRead {
+            marks: KeptCopyPutBackMarks {
+                store: &fixture.store,
+                kept: &kept,
+            },
+            is_read: AtomicBool::new(false),
+        },
+    )
+    .await
+    .expect("the second put-back takes the next name");
+
+    assert_eq!(placed.target_folder, fixture.tree_at("fix-restored"));
+    remove_unmarked_names(tools, original_path, &common_folder.join("worktrees"))
+        .await
+        .expect("the cleanup's pass runs");
+    assert!(
+        original_path.is_dir(),
+        "the first put-back's folder stays while it holds the name"
+    );
+    drop(first_hold);
+    assert!(!tools.names_in_use.is_in_use(original_path));
 }
 
 // Kills a put-back that reads the commit the tree stood on from its pin alone, which anything

@@ -32,7 +32,7 @@ use crate::git::process::test_repository::{commit_empty, git_in, make_test_repos
 use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, LeftoverNamesInUse};
+use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, NamesInUse};
 use crate::git::worktree::kept_copy::{KeptCopyTools, WorktreeAside, move_worktree_aside};
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::removal::new_removed_worktree_id;
@@ -67,7 +67,7 @@ pub(crate) struct KeptCopyFixture {
     /// The store under test.
     pub(crate) store: Arc<RemovedWorktreeStore>,
     copies: WorktreeCopiesUnderWay,
-    leftover_names: Arc<LeftoverNamesInUse>,
+    names_in_use: Arc<NamesInUse>,
 }
 
 impl KeptCopyFixture {
@@ -119,14 +119,14 @@ impl KeptCopyFixture {
             worktrees_folder: worktrees_folder.clone(),
         }));
         let copies = WorktreeCopiesUnderWay::default();
-        let leftover_names = Arc::new(LeftoverNamesInUse::default());
+        let names_in_use = Arc::new(NamesInUse::default());
         let store = Arc::new(RemovedWorktreeStore::new(RemovedWorktreeStoreDeps {
             git: git.clone(),
             reads,
             writer: Arc::clone(&log.writer),
             worktrees: Arc::clone(&worktrees),
             copies: copies.clone(),
-            leftover_names: Arc::clone(&leftover_names),
+            names_in_use: Arc::clone(&names_in_use),
             kept_copy_lock: Arc::new(KeyedLock::new()),
             worktrees_folder: worktrees_folder.clone(),
         }));
@@ -141,7 +141,7 @@ impl KeptCopyFixture {
             worktrees,
             store,
             copies,
-            leftover_names,
+            names_in_use,
         }
     }
 
@@ -241,7 +241,7 @@ impl KeptCopyFixture {
                 place: None,
                 folder_moves: FolderMoveTools {
                     copies: &self.copies,
-                    leftover_names: &self.leftover_names,
+                    names_in_use: &self.names_in_use,
                 },
             },
             WorktreeAside {

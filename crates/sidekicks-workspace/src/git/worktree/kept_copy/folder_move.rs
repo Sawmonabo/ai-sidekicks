@@ -2,10 +2,10 @@
 //! volumes a copy with its progress that takes the real name only once whole, the original removed
 //! after it only by a move. A copy in flight sits beside its destination under a leftover's name,
 //! `<name>.copying-<32 hex>`, so a crash partway never leaves a partial copy under the real name;
-//! the names this daemon is using now are held in one [`LeftoverNamesInUse`], so the leftover
-//! sweep never takes a copy in flight for one a crash cut short.
+//! the names this daemon is using now are held in one [`NamesInUse`], so the leftover sweep never
+//! takes a copy in flight for one a crash cut short.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io;
@@ -30,38 +30,47 @@ use crate::git::worktree::service::remove_folder;
 // The random bytes a leftover's name ends in, written as twice as many hex digits.
 const LEFTOVER_SUFFIX_BYTES: usize = 16;
 
-/// The names of the leftover folders this daemon is making or removing now: copies in flight,
-/// records set aside, and the folder and record a put-back is taking. Made once and shared by `Arc` with everything that makes or sweeps one.
+/// The folder names this daemon is making or removing now, each held as many times as it is
+/// taken: copies in flight, records set aside, and the folder and record a put-back is taking,
+/// which two put-backs of copies of one tree can both take. Made once and shared by `Arc` with
+/// everything that makes or sweeps one.
 #[derive(Debug, Default)]
-pub struct LeftoverNamesInUse {
-    names: Mutex<HashSet<PathBuf>>,
+pub struct NamesInUse {
+    holds: Mutex<HashMap<PathBuf, usize>>,
 }
 
-/// A leftover's name held in use; dropping it lets the name go, so a canceled move frees it too.
-pub(crate) struct LeftoverNameHold {
-    names: Arc<LeftoverNamesInUse>,
+/// One hold of a name in use; dropping it lets go of this hold alone, so a canceled move frees its
+/// own hold too.
+pub(crate) struct NameHold {
+    names: Arc<NamesInUse>,
     folder: PathBuf,
 }
 
-impl LeftoverNamesInUse {
+impl NamesInUse {
     /// Holds `folder` in use until the answer is dropped.
-    pub(crate) fn hold(self: &Arc<Self>, folder: &Path) -> LeftoverNameHold {
-        lock(&self.names).insert(folder.to_path_buf());
-        LeftoverNameHold {
+    pub(crate) fn hold(self: &Arc<Self>, folder: &Path) -> NameHold {
+        *lock(&self.holds).entry(folder.to_path_buf()).or_default() += 1;
+        NameHold {
             names: Arc::clone(self),
             folder: folder.to_path_buf(),
         }
     }
 
-    /// Whether `folder` is held in use now.
+    /// Whether any hold on `folder` stands now.
     pub(crate) fn is_in_use(&self, folder: &Path) -> bool {
-        lock(&self.names).contains(folder)
+        lock(&self.holds).contains_key(folder)
     }
 }
 
-impl Drop for LeftoverNameHold {
+impl Drop for NameHold {
     fn drop(&mut self) {
-        lock(&self.names.names).remove(&self.folder);
+        let mut holds = lock(&self.names.holds);
+        if let Some(count) = holds.get_mut(&self.folder) {
+            *count -= 1;
+            if *count == 0 {
+                holds.remove(&self.folder);
+            }
+        }
     }
 }
 
@@ -111,13 +120,13 @@ pub(crate) fn is_leftover_name(name: &OsStr, base: Option<&str>, kind: LeftoverK
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// Where a copy across volumes reports, and the leftover names it holds while it runs.
+/// Where a copy across volumes reports, and the names in use it holds while it runs.
 #[derive(Clone, Copy)]
 pub(crate) struct FolderMoveTools<'a> {
     /// The copies under way, which a copy across volumes joins while it runs.
     pub(crate) copies: &'a WorktreeCopiesUnderWay,
-    /// The leftover names in use, which a copy in flight holds.
-    pub(crate) leftover_names: &'a Arc<LeftoverNamesInUse>,
+    /// The names in use, which a copy in flight holds.
+    pub(crate) names_in_use: &'a Arc<NamesInUse>,
 }
 
 /// How a folder reached its new place.
@@ -298,7 +307,7 @@ pub(crate) async fn rename_or_copy_folder(
     }
     let copy_folder =
         leftover_name(to, LeftoverKind::Copying).map_err(FolderMoveError::LeftoverName)?;
-    let _copy_name = tools.leftover_names.hold(&copy_folder);
+    let _copy_name = tools.names_in_use.hold(&copy_folder);
     let copied = copy_whole(tools.copies, from, &copy_folder, copy).await;
     let placed = match copied {
         Ok(()) => rename_folder(&copy_folder, to)
@@ -321,12 +330,12 @@ pub(crate) async fn rename_or_copy_folder(
 /// leaves a leftover the sweep removes, never part of the folder under its own name. Fails as each
 /// step does.
 pub(crate) async fn remove_folder_as_leftover(
-    leftover_names: &Arc<LeftoverNamesInUse>,
+    names_in_use: &Arc<NamesInUse>,
     folder: &Path,
 ) -> Result<(), LeftoverRemovalError> {
     let leftover =
         leftover_name(folder, LeftoverKind::Copying).map_err(LeftoverRemovalError::Name)?;
-    let _leftover_name = leftover_names.hold(&leftover);
+    let _leftover_name = names_in_use.hold(&leftover);
     rename_folder(folder, &leftover)
         .await
         .map_err(LeftoverRemovalError::Rename)?;
@@ -340,7 +349,7 @@ pub(crate) async fn remove_folder_as_leftover(
 /// removed-worktrees folder, where a discard or an undone put-back copies one. A copy this daemon
 /// is making now is left out. Fails with a folder's read.
 pub(crate) async fn list_leftover_copies(
-    leftover_names: &LeftoverNamesInUse,
+    names_in_use: &NamesInUse,
     worktrees_folder: &Path,
 ) -> io::Result<Vec<PathBuf>> {
     let mut leftovers = Vec::new();
@@ -350,18 +359,18 @@ pub(crate) async fn list_leftover_copies(
             continue;
         }
         let project_folder = worktrees_folder.join(&project);
-        leftovers.extend(list_leftover_copies_in(leftover_names, &project_folder).await?);
+        leftovers.extend(list_leftover_copies_in(names_in_use, &project_folder).await?);
         let removed_folder = project_folder.join(REMOVED_WORKTREES_FOLDER_NAME);
         for kept in read_folder_names(&removed_folder).await? {
             leftovers
-                .extend(list_leftover_copies_in(leftover_names, &removed_folder.join(kept)).await?);
+                .extend(list_leftover_copies_in(names_in_use, &removed_folder.join(kept)).await?);
         }
     }
     Ok(leftovers)
 }
 
 async fn list_leftover_copies_in(
-    leftover_names: &LeftoverNamesInUse,
+    names_in_use: &NamesInUse,
     folder: &Path,
 ) -> io::Result<Vec<PathBuf>> {
     Ok(read_folder_names(folder)
@@ -369,7 +378,7 @@ async fn list_leftover_copies_in(
         .into_iter()
         .filter(|name| is_leftover_name(name, None, LeftoverKind::Copying))
         .map(|name| folder.join(name))
-        .filter(|leftover| !leftover_names.is_in_use(leftover))
+        .filter(|leftover| !names_in_use.is_in_use(leftover))
         .collect())
 }
 
@@ -491,10 +500,10 @@ mod tests {
     use std::fs;
     use std::sync::Arc;
 
-    use super::{LeftoverKind, LeftoverNamesInUse, leftover_name, list_leftover_copies};
+    use super::{LeftoverKind, NamesInUse, leftover_name, list_leftover_copies};
     use crate::git::worktree::naming::REMOVED_WORKTREES_FOLDER_NAME;
 
-    // Kills dropping `LeftoverNamesInUse` from the listing, which lets the sweep remove a copy in
+    // Kills dropping `NamesInUse` from the listing, which lets the sweep remove a copy in
     // flight; and a listing that misses the kept folders or matches a name of another form.
     #[tokio::test]
     async fn a_leftover_listing_keeps_out_copies_in_flight_and_names_of_other_forms() {
@@ -517,7 +526,7 @@ mod tests {
         ] {
             fs::create_dir(folder).expect("the folder is made");
         }
-        let names = Arc::new(LeftoverNamesInUse::default());
+        let names = Arc::new(NamesInUse::default());
         let copy_in_flight = names.hold(&in_flight);
 
         let leftovers = list_leftover_copies(&names, worktrees)

@@ -22,7 +22,7 @@ use crate::git::worktree::claims::{KeptCopyClaims, KeptCopyClaimsReadError};
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::kept_copy::KEPT_REF_STORE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::{
-    LeftoverKind, LeftoverNamesInUse, is_leftover_name, leftover_name, rename_folder,
+    LeftoverKind, NamesInUse, is_leftover_name, leftover_name, rename_folder,
 };
 use crate::git::worktree::kept_copy::saved_state::{RepositoryStoreSettings, SavedStateError};
 use crate::git::worktree::reads::{
@@ -32,13 +32,13 @@ use crate::git::worktree::reads::{
 use crate::git::worktree::service::remove_folder;
 
 /// What a stale record's removal reads before it removes anything: what live trees and put-backs
-/// hold, and the leftover names in use.
+/// hold, and the names in use.
 #[derive(Clone, Copy)]
 pub(crate) struct StaleRecordTools<'a> {
     /// What live trees and put-backs hold, read when asked.
     pub(crate) claims: &'a KeptCopyClaims,
-    /// The leftover names in use, which a record set aside holds.
-    pub(crate) leftover_names: &'a Arc<LeftoverNamesInUse>,
+    /// The names in use, which a record set aside holds.
+    pub(crate) names_in_use: &'a Arc<NamesInUse>,
 }
 
 /// Why a stale record's removal stopped; what it set aside stays for the next look.
@@ -94,7 +94,7 @@ pub(crate) async fn remove_stale_tree_record(
     };
     let removing_folder = leftover_name(record_folder, LeftoverKind::Removing)
         .map_err(StaleRecordError::LeftoverName)?;
-    let _removing_name = tools.leftover_names.hold(&removing_folder);
+    let _removing_name = tools.names_in_use.hold(&removing_folder);
     match rename_folder(record_folder, &removing_folder).await {
         Ok(()) => {}
         // Another removal of the same record took it first.
@@ -215,7 +215,7 @@ async fn finish_record_removals_cut_short(
         .into_iter()
         .filter(|name| is_leftover_name(name, Some(record_name), LeftoverKind::Removing))
         .map(|name| records_folder.join(name))
-        .filter(|leftover| !tools.leftover_names.is_in_use(leftover))
+        .filter(|leftover| !tools.names_in_use.is_in_use(leftover))
         .collect();
     for leftover in leftovers {
         let is_tree_live = match read_named_git_file(&leftover).await? {
@@ -361,7 +361,7 @@ mod tests {
 
     use super::{StaleRecordTools, remove_stale_tree_record};
     use crate::git::worktree::claims::KeptCopyClaims;
-    use crate::git::worktree::kept_copy::folder_move::LeftoverNamesInUse;
+    use crate::git::worktree::kept_copy::folder_move::NamesInUse;
     use crate::git::worktree::schema::schema_parts;
     use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
@@ -421,10 +421,10 @@ mod tests {
             database.path(),
             READ_STATEMENT_CAPACITY,
         )));
-        let leftover_names = Arc::new(LeftoverNamesInUse::default());
+        let names_in_use = Arc::new(NamesInUse::default());
         let tools = StaleRecordTools {
             claims: &claims,
-            leftover_names: &leftover_names,
+            names_in_use: &names_in_use,
         };
 
         let records_folder = record_folder.parent().expect("a record sits in a folder");

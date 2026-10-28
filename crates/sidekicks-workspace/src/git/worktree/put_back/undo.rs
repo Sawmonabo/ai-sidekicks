@@ -145,7 +145,7 @@ async fn undo_tree_placement(
                     .await
                     .map_err(PutBackUndoError::Record)?
             {
-                return remove_folder_as_leftover(tools.kept.folder_moves.leftover_names, target)
+                return remove_folder_as_leftover(tools.kept.folder_moves.names_in_use, target)
                     .await
                     .map_err(PutBackUndoError::Leftover);
             }
