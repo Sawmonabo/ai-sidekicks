@@ -305,6 +305,49 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
     );
 }
 
+// A held answer whose run ended with no report showing what its provider did is let go at the next
+// answer on any run, since the run's end settled its choice. Killed by dropping the sweep before an
+// answer (`forget_answers_of_ended_runs`), which keeps the answer for the process's life.
+#[tokio::test]
+async fn a_held_answer_of_a_run_that_ended_without_a_report_is_let_go_at_the_next_answer() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_answer_provider_choice()
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let fixture = fixture(driver, WAITING_ON_THE_CHOICE).await;
+    let first = fixture.answer(RunUsageCreditsChoice::Consent).await;
+    assert!(
+        matches!(
+            first,
+            Err(ProviderChoiceError::Driver(DriverError::Unanswered(_)))
+        ),
+        "{first:?}"
+    );
+    assert_eq!(fixture.resolver.held_answer_count(), 1);
+    fixture
+        .engine
+        .end_turn_on_process_exit(
+            fixture.run_id,
+            serde_json::from_value(json!({ "exitCode": 1, "outputTail": "the provider stopped" }))
+                .expect("the test's exit reads as one"),
+        )
+        .await
+        .expect("the run ends on its process's exit");
+
+    let next = fixture.answer(RunUsageCreditsChoice::Consent).await;
+
+    assert!(
+        matches!(
+            next,
+            Err(ProviderChoiceError::Refused(
+                RunRefusal::InvalidTransition { .. }
+            ))
+        ),
+        "{next:?}"
+    );
+    assert_eq!(fixture.resolver.held_answer_count(), 0);
+}
+
 // A report that shows the provider took a held answer settles it first: a settle that fails once is
 // retried in the same dispatch, and one that fails twice leaves the answer held while the report
 // still applies, so the run never reads waiting for input while its provider runs; the next report
