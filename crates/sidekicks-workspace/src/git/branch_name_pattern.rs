@@ -208,9 +208,8 @@ async fn read_git_branch_name_line(
             GitCall::read(["check-ref-format", "--branch", branch_name]),
         )
         .await;
-    let failure = match refused {
-        Ok(_) => return Ok(None),
-        Err(failure) => failure,
+    let Err(failure) = refused else {
+        return Ok(None);
     };
     if let GitError::Exited { stderr, .. } = &failure
         && let Some(line) =

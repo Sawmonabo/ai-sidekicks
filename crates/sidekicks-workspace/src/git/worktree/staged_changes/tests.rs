@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sidekicks_platforms::real_path;
 
@@ -8,7 +8,7 @@ use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_record_git_file};
 
 // The `.git` files the repository's linked records name, sorted.
-async fn recorded_git_files(repository: &Path) -> Vec<std::path::PathBuf> {
+async fn recorded_git_files(repository: &Path) -> Vec<PathBuf> {
     let records = repository.join(".git").join(LINKED_RECORDS_FOLDER_NAME);
     let mut named = Vec::new();
     let mut entries = tokio::fs::read_dir(&records)
@@ -109,7 +109,7 @@ async fn a_sweep_removes_the_locked_record_of_a_tree_left_without_its_git_file()
     let failures = worktrees.sweep_left_worktrees().await;
 
     assert!(failures.is_empty(), "{failures:?}");
-    assert!(recorded_git_files(&repository).await.is_empty());
+    assert_eq!(recorded_git_files(&repository).await, Vec::<PathBuf>::new());
     assert!(!Path::new(&record).exists(), "the locked record is left");
     let mut staged = tokio::fs::read_dir(worktrees_folder.join(".staged-changes"))
         .await

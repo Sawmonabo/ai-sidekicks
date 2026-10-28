@@ -614,7 +614,7 @@ async fn a_supplied_head_is_refused_as_an_invalid_branch_name_with_git_s_line() 
         line.starts_with("fatal: ") && line.contains("'HEAD'"),
         "git's line as printed: {line}"
     );
-    assert!(fixture.worktree_states().is_empty());
+    assert_eq!(fixture.worktree_states(), Vec::<String>::new());
 }
 
 // A git ended between making the folder and writing its linking files leaves a tree with no `.git`
