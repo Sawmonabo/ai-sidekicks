@@ -33,7 +33,7 @@ It is the "one machine executing" half of the product model. A session runs on e
 - Execution remains local to the machine; the control plane does not become the code-execution authority.
 - Machine reachability and run state are separate concerns.
 - A machine may host multiple agents and runs; what it admits is decided by the memory gate, which starts work while the machine has the memory for it.
-- A machine is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start; the key is kept as its own item in the machine's credential store and never leaves the machine, and it is minted again only when a removed machine is linked again.
+- A machine is registered with the control plane under its own id and its owning user, never under a session. The service mints that id and the machine's Ed25519 identity key at its first start, with its X25519 channel key; each key is kept as its own item in the machine's credential store and never leaves the machine, and both are minted again only when a removed machine is linked again, or at a sign-in that finds them lost or changed while the machine has no registration, since nothing pins a key that was never registered.
 
 ## Relationships To Adjacent Concepts
 

@@ -20,7 +20,7 @@ The machine's own record on the control plane: the daemon registers it, and the 
 
 | Method | Procedure type | Request schema | Response schema |
 | --- | --- | --- | --- |
-| `machine.register` | `mutation` | `MachineRegisterRequest` | `EmptyPayload` (`{}`) — control-plane route ONLY, **daemon-called** each time the service starts; accepted only for the key enrolled at sign-in, and refreshes the machine's row (Plan-025 Phase 3) |
+| `machine.register` | `mutation` | `MachineRegisterRequest` | `EmptyPayload` (`{}`) — control-plane route ONLY, **daemon-called** each time the service starts; accepted only for the key enrolled at sign-in or a removed machine's new key at its relink, and refreshes the machine's row; refused with `machine.keyChanged` (409) when the account holds the id under another identity key, and `machine.permissionDenied` (403) for a machine the caller does not own (Plan-025 Phase 3) |
 | `machine.rename` | `mutation` | `MachineRenameRequest` | `EmptyPayload` (`{}`) — control-plane route ONLY (Plan-025 Phase 3) |
 | `machine.remove` | `mutation` | `MachineRemoveRequest` | `EmptyPayload` (`{}`) — control-plane route ONLY; the removal is the `machine.removed` statement it posts to the account's chain (Plan-025 Phase 5) |
 | `machine.certificateChallenge.update` | `mutation` | `MachineCertificateChallengeUpdateRequest` | `EmptyPayload` (`{}`) — self-hosted relay ONLY, **daemon-called** while a shared-port certificate for the machine's wildcard name is being issued (Plan-025 Phase 8) |
