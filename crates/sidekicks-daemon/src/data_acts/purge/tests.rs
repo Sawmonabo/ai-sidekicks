@@ -51,15 +51,18 @@ use sidekicks_workflow::test_rows::{
     TEST_SESSION_ID, TestStep, insert_run, insert_step, insert_workflow_version,
 };
 use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
-use sidekicks_workspace::git::process::test_git_runner;
+use sidekicks_workspace::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use sidekicks_workspace::git::turn_snapshot::retention::RunContextKey;
 use sidekicks_workspace::git::turn_snapshot::service::{
     TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY, TurnSnapshotService,
 };
+use sidekicks_workspace::git::worktree::test_rows::insert_worktree_rows;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
 use sidekicks_workspace::repo::mount::service::{
     REPO_MOUNT_SERVICE_STATEMENT_CAPACITY, RepoMountService,
 };
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
+use sidekicks_workspace::test_rows::PARENT_ROWS_AT;
 use tempfile::TempDir;
 use tokio::sync::{mpsc, watch};
 use tokio::time::timeout;
@@ -310,6 +313,60 @@ fn only_outcome(report: super::SessionPurgeReport) -> SessionPurgeOutcome {
     outcomes.remove(0).1
 }
 
+// A repository holding one snapshot ref of `run_id`, stored as a run context of `session_id`.
+async fn store_run_snapshot(
+    connection: &Connection,
+    git: &GitRunner,
+    session_id: SessionId,
+    run_id: RunId,
+) -> TempDir {
+    let repository = tempfile::tempdir().expect("a scratch repository");
+    let arguments = |arguments: &[&str]| in_folder(repository.path(), arguments);
+    git.run(None, GitCall::read(arguments(&["init", "--quiet"])))
+        .await
+        .expect("the repository is made");
+    let object = git
+        .run(
+            None,
+            GitCall::read(arguments(&["hash-object", "-w", "--stdin"]))
+                .with_input(MARKER.as_bytes().to_vec()),
+        )
+        .await
+        .expect("an object is written");
+    let object = String::from_utf8(object.stdout).expect("an object id is ASCII");
+    let snapshot_ref = format!(
+        "refs/sidekicks/runs/{}/epoch-0/turn-1",
+        RunContextKey::from(run_id)
+    );
+    git.run(
+        None,
+        GitCall::write(arguments(&["update-ref", &snapshot_ref, object.trim()])),
+    )
+    .await
+    .expect("the snapshot ref is written");
+    insert_worktree_rows(connection);
+    connection
+        .execute(
+            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+             execution_mode, execution_root, checkout_root, git_common_dir, branch_context_id, \
+             created_at) VALUES (?1, ?2, 'workspace', 'boundRoot', ?3, ?3, ?4, \
+             'branch-context', ?5)",
+            params![
+                run_id.text().as_str(),
+                session_id.text().as_str(),
+                repository.path().to_string_lossy().into_owned(),
+                repository
+                    .path()
+                    .join(".git")
+                    .to_string_lossy()
+                    .into_owned(),
+                PARENT_ROWS_AT
+            ],
+        )
+        .expect("the test stores the run's context");
+    repository
+}
+
 fn contains(bytes: &[u8], text: &str) -> bool {
     bytes
         .windows(text.len())
@@ -319,8 +376,9 @@ fn contains(bytes: &[u8], text: &str) -> bool {
 // Kills: the workflow runs' rows left out of the write (the run's foreign keys refuse it or its
 // steps stay), an unsettled release or a spent `Send now` key of the lead run left behind,
 // `secure_delete` off or the truncation skipped (the marker stays in the file or its log), a
-// receipt outside the delete's write or naming another range, and a count of live runs that only
-// run state changes move (the purged run stays counted).
+// receipt outside the delete's write or naming another range, a count of live runs that only run
+// state changes move (the purged run stays counted), and a purge that skips a run's snapshot refs
+// (the run's ref stays in its repository).
 #[tokio::test]
 async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log() {
     let fixture = purge_fixture().await;
@@ -331,6 +389,8 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     store_session(&reader, survivor, SessionState::Active);
     let lead_run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
     insert_running_run(&fixture.database, session_id, lead_run_id);
+    let git = test_git_runner();
+    let repository = store_run_snapshot(&reader, &git, session_id, lead_run_id).await;
     append_event(&fixture.log, session_id, "Read").await;
     append_event(&fixture.log, session_id, MARKER).await;
     append_event(&fixture.log, survivor, "Write").await;
@@ -467,6 +527,20 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
     assert_eq!(
         send_now_keys, 0,
         "no spent `Send now` key outlives its session"
+    );
+    let snapshot_refs = git
+        .run(
+            None,
+            GitCall::read(in_folder(
+                repository.path(),
+                &["for-each-ref", "refs/sidekicks/runs/"],
+            )),
+        )
+        .await
+        .expect("the repository's refs are listed");
+    assert!(
+        snapshot_refs.stdout.is_empty(),
+        "the run's snapshot refs are pruned"
     );
     assert_eq!(event_count(&reader, survivor), 1);
     assert_eq!(

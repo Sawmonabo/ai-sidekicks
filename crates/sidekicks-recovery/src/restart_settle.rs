@@ -43,21 +43,21 @@ pub(crate) const RESTART_FAILURE_DETAIL: &str =
 pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 8;
 
 /// What the restart settle reads and writes through.
-pub(crate) struct RestartSettleDeps {
+pub struct RestartSettleDeps {
     /// The reads of what the restart left.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The appends of the retries' and the choices' settlements.
-    pub(crate) appender: Arc<SessionEventAppender>,
+    pub appender: Arc<SessionEventAppender>,
     /// The runs' ends and their open turns and interventions.
-    pub(crate) run_engine: Arc<RunEngine>,
+    pub run_engine: Arc<RunEngine>,
     /// The cancels of the asks an ended run left pending.
-    pub(crate) approvals: Arc<ApprovalService>,
+    pub approvals: Arc<ApprovalService>,
     /// The reopening of the plans a restart's lost requests held.
-    pub(crate) plans: Arc<PlansService>,
+    pub plans: Arc<PlansService>,
 }
 
 /// Settles what a restart left in one session.
-pub(crate) struct RestartSettle {
+pub struct RestartSettle {
     deps: RestartSettleDeps,
 }
 
@@ -105,8 +105,7 @@ pub enum RestartSettleError {
 
 impl RestartSettle {
     /// A settle over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) fn new(deps: RestartSettleDeps) -> Self {
+    pub fn new(deps: RestartSettleDeps) -> Self {
         Self { deps }
     }
 

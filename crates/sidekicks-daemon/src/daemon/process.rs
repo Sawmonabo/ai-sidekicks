@@ -14,6 +14,7 @@ mod repo_services;
 mod session_services;
 pub(crate) mod start_options;
 pub(crate) mod stop;
+mod stored_data;
 pub(crate) mod supervision;
 #[cfg(test)]
 mod tests;
