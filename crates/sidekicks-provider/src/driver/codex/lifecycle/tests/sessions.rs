@@ -12,14 +12,13 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 
-use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, driver_holding};
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
+    bind_test_listener, start_scripted_codex_service,
 };
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::inbound::codex_session_inbound;
@@ -480,9 +479,11 @@ async fn a_conversation_not_resumed_in_place_reads_down_and_tells_the_queue(
     let recovering = parts
         .recovery
         .recover(&service, CodexServiceRecoveryCause::Crash, generation);
-    if let ResumeFailure::ServiceLost = failure {
-        scripted.publish_crash_loop();
-    }
+    // Held, so the script stays open while the service reads down.
+    let _set_aside = match failure {
+        ResumeFailure::Refused => None,
+        ResumeFailure::ServiceLost => scripted.publish_crash_loop(),
+    };
     let mut recovering = std::pin::pin!(recovering);
     tokio::time::timeout(CLOSE_BOUND, async {
         loop {

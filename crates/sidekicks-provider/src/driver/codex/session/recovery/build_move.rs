@@ -142,7 +142,7 @@ impl CodexServiceRecovery {
         for (claim, inbound) in held {
             let resumed = self.resume_claimed(service, &inbound, never_left()).await;
             drop(claim);
-            if let Some(result) = resumed {
+            if let Some(result) = resumed.map(|outcome| outcome.result) {
                 self.report_moved(service, &inbound, result, change).await;
             }
         }
@@ -242,7 +242,7 @@ impl CodexServiceRecovery {
             let thread_id = thread_id.clone();
             async move { await_unloaded(&leaving, &thread_id, deadline).await }.boxed()
         });
-        let resumed = self.resume_claimed(to, inbound, writer_left).await?;
+        let resumed = self.resume_claimed(to, inbound, writer_left).await?.result;
         self.report_relaunch(to, session_id, resumed.clone()).await;
         Some(resumed)
     }

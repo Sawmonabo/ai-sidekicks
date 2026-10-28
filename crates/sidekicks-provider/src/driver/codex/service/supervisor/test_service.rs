@@ -77,12 +77,14 @@ impl ScriptedCodexService {
         self.publish_disconnected(CodexServiceAvailability::Reconnecting)
     }
 
-    /// Publishes the service down after a crash loop, its connection gone.
-    pub(crate) fn publish_crash_loop(&self) {
-        self.publish_disconnected(CodexServiceAvailability::CrashLoop);
+    /// Publishes the service down after a crash loop, its connection set aside as the reconnect
+    /// sets it aside.
+    pub(crate) fn publish_crash_loop(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.publish_disconnected(CodexServiceAvailability::CrashLoop)
     }
 
-    // Publishes the service as `availability`, one it is not up in, its connection set aside.
+    // Publishes the service as `availability`, one it is not up in, its connection set aside so
+    // the script stays open.
     fn publish_disconnected(
         &self,
         availability: CodexServiceAvailability,
