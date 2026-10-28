@@ -113,7 +113,7 @@ pub(crate) struct CodexEstablishedSession {
     record: CodexSessionRecord,
     receiver: CodexSessionInboundReceiver,
     claim: ThreadClaim,
-    is_resumed: bool,
+    // Kept from the conversation's metadata exactly when it was resumed.
     fixed_start: CodexFixedStart,
 }
 
@@ -245,7 +245,6 @@ impl CodexSessionEstablishment {
                 record,
                 receiver,
                 claim,
-                is_resumed: false,
                 fixed_start: CodexFixedStart::FirstRequest,
             },
         ))
@@ -340,7 +339,6 @@ impl CodexSessionEstablishment {
                 record,
                 receiver,
                 claim,
-                is_resumed: true,
                 fixed_start: CodexFixedStart::Kept(read_codex_kept_fixed_start(
                     &params.runtime_metadata,
                 )),
@@ -375,9 +373,9 @@ impl CodexSessionEstablishment {
             mut record,
             receiver,
             claim,
-            is_resumed,
             fixed_start,
         } = established;
+        let is_resumed = matches!(fixed_start, CodexFixedStart::Kept(_));
         let base = if is_resumed {
             // The list read before the resume is stale; a fresh read follows the next request.
             self.dependencies

@@ -143,12 +143,8 @@ pub(crate) fn is_inbox_socket_name(name: &str) -> bool {
 /// the next eight bytes less its last digit.
 fn socket_name(digest: &[u8]) -> String {
     let first = NAME_FIRST_LETTERS[usize::from(digest[0]) % NAME_FIRST_LETTERS.len()];
-    let rest: String = digest[1..]
-        .iter()
-        .flat_map(|byte| [byte >> 4, byte & 0x0f])
-        .take(NAME_STEM_LENGTH - 1)
-        .map(|digit| char::from(NAME_DIGITS[usize::from(digit)]))
-        .collect();
+    let mut rest = base16ct::lower::encode_string(&digest[1..9]);
+    rest.truncate(NAME_STEM_LENGTH - 1);
     format!("{first}{rest}{SOCKET_SUFFIX}")
 }
 

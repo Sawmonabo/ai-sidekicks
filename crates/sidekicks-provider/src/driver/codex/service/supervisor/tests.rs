@@ -15,7 +15,8 @@ use tokio_tungstenite::tungstenite::Message;
 
 use super::test_service::{
     ExitsHeard, TestCodexProgram, UnheardEvents, bind_test_listener,
-    start_scripted_account_service_told, test_codex_service_dependencies, write_failing_codex,
+    start_scripted_account_service_reporting_to, test_codex_service_dependencies,
+    write_failing_codex,
 };
 use super::{
     CodexService, CodexServiceSocket, CodexWindowsSandboxReadiness, read_windows_sandbox_readiness,
@@ -204,7 +205,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
 #[tokio::test(start_paused = true)]
 async fn a_service_silent_since_a_request_is_ended_at_the_limit_after_its_send() {
     let (heard, mut exits, _recoveries) = ExitsHeard::new();
-    let scripted = start_scripted_account_service_told(Arc::new(heard));
+    let scripted = start_scripted_account_service_reporting_to(Arc::new(heard));
     scripted.mark_started();
     let connection = scripted
         .service

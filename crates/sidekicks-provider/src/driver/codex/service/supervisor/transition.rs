@@ -544,9 +544,10 @@ impl Supervision {
                 },
                 Vec::new(),
             ),
-            // A request went unanswered on the open connection: the silence watch starts from the
-            // send of the oldest request still unanswered, unless one already runs, so a later
-            // request's timeout never pushes its end out.
+            // A request went unanswered on the open connection: the silence watch counts from the
+            // send of the oldest request still unanswered or the service's last frame, whichever
+            // came later, unless one already runs, so a later request's timeout never pushes its
+            // end out.
             (
                 State::Up {
                     launch,

@@ -186,12 +186,12 @@ impl CodexExecRelay {
         })
     }
 
-    /// Readies the relay for one start of its service: the executor `command` runs is started
-    /// where none runs, the listener opened once, and a new token
-    /// minted, which the answered `environment/add` hands the service. The commands of the
-    /// service's former start that already ended are ended now, since no item of theirs will be
-    /// reported. Fails with `CodexError::Transport` when the executor cannot be started, the port
-    /// bound or the token minted.
+    /// Readies the relay for one start of its service: starts the executor `command` runs where
+    /// none runs, opens the listener once and mints a new token, which the answered
+    /// `environment/add` hands the service. The commands of the service's former start that
+    /// already ended are ended now, since no item of theirs will be reported. Fails with
+    /// `CodexError::Transport` when the executor cannot be started, the port bound or the token
+    /// minted.
     pub(crate) async fn start(
         &self,
         command: tokio::process::Command,
@@ -277,7 +277,22 @@ impl CodexExecRelay {
         let Some(channel) = channel.and_then(|cell| cell.get().cloned()) else {
             return Ok(());
         };
-        close_unless_closed(&channel.channel).await?;
+        self.close_session_channel(session_id, &channel.channel)
+            .await
+    }
+
+    // Closes `session_id`'s `channel`, which a session's close and an open that found its session
+    // gone can both reach, and removes the session's folder once nothing else is in it; a folder
+    // the other already removed is no failure.
+    async fn close_session_channel(
+        &self,
+        session_id: SessionId,
+        channel: &CommandChannel,
+    ) -> std::io::Result<()> {
+        match channel.close().await {
+            Err(error) if error.kind() != ErrorKind::NotFound => return Err(error),
+            Err(_) | Ok(()) => {}
+        }
         let session_folder = compose_codex_command_channel_folder(
             &self.dependencies.command_channel_root,
             session_id,
@@ -443,7 +458,8 @@ impl CodexExecRelay {
         if is_kept {
             return Ok(Some(channel));
         }
-        close_unless_closed(&channel.channel).await?;
+        self.close_session_channel(session_id, &channel.channel)
+            .await?;
         Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
             "the session closed while its command channel opened",
@@ -544,15 +560,6 @@ fn one_line(text: String) -> String {
         text.replace(['\n', '\r'], " ")
     } else {
         text
-    }
-}
-
-// Closes `channel`, which a session's close and an open that found its session gone can both
-// reach; a folder the other already removed is no failure.
-async fn close_unless_closed(channel: &CommandChannel) -> std::io::Result<()> {
-    match channel.close().await {
-        Err(error) if error.kind() != ErrorKind::NotFound => Err(error),
-        Err(_) | Ok(()) => Ok(()),
     }
 }
 

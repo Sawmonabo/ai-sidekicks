@@ -219,12 +219,12 @@ impl CodexProgramResolver for TestCodexProgram {
 /// Starts a service on an account's home whose connection the test scripts. Must be called within
 /// a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
-    start_scripted_account_service_told(Arc::new(UnheardEvents))
+    start_scripted_account_service_reporting_to(Arc::new(UnheardEvents))
 }
 
 /// Starts a service on an account's home whose connection the test scripts, telling `events` what
 /// happens to it. Must be called within a runtime.
-pub(crate) fn start_scripted_account_service_told(
+pub(crate) fn start_scripted_account_service_reporting_to(
     events: Arc<dyn CodexServiceEvents>,
 ) -> ScriptedCodexService {
     start_scripted_codex_service_on(

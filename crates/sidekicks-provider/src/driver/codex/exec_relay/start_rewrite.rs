@@ -6,8 +6,8 @@
 //!
 //! No shell snapshot is taken: every conversation's policy inherits nothing and the daemon composes
 //! each command's environment itself, so a snapshot would carry nothing a command reads. The line
-//! runs non-login, as Codex's own path runs it beside a snapshot, so the person's profile never
-//! runs again over that environment.
+//! runs non-login, as Codex's own path runs it beside a snapshot, so no login profile
+//! (`.zprofile`, `.bash_profile`, `.profile`) runs over that environment.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -233,8 +233,8 @@ impl CodexExecRelay {
     }
 
     // Wraps the start in `params` for its session's channel, answering whether it did: left as it
-    // is, logged, where the channel cannot be opened, and as it is while no running commands are
-    // registered.
+    // is, logged, where the channel cannot be opened, or while no running commands are registered
+    // or no executor runs.
     async fn wrap_relayed_start(
         &self,
         params: &mut Map<String, Value>,
@@ -244,7 +244,15 @@ impl CodexExecRelay {
         let session_id = command.session_id;
         let channel = match self.session_channel(session_id, executor).await {
             Ok(Some(channel)) => channel,
-            Ok(None) => return false,
+            Ok(None) => {
+                tracing::debug!(
+                    %session_id,
+                    "a Codex session's command channel has no running commands or executor to \
+                     follow; its command runs unwrapped"
+                );
+                return false;
+            }
+
             Err(error) => {
                 tracing::warn!(
                     %session_id,
