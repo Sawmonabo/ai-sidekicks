@@ -38,20 +38,23 @@ impl ClaudeSessionEstablishment {
     /// the resume that brought it up answered; every failure answers the `Failed` arm, nothing
     /// left running.
     pub(crate) async fn resume(&self, mut params: ResumeSessionParams) -> ClaudeResumeAnswer {
-        // The timed fires stored for the session, which a fresh process does not keep.
+        let session_id = params.session_id;
         let schedules = std::mem::take(&mut params.kept_schedules);
-        self.task_services.idle_sleep.seed_schedules(
-            params.session_id,
-            schedules,
-            Timestamp::now(),
-        );
-        match self.try_resume(params).await {
+        let answer = match self.try_resume(params).await {
             Ok(answer) => answer,
             Err(error) => ClaudeResumeAnswer {
                 result: resume_failure(error.recovery_condition(), &error),
                 has_started_process: false,
             },
+        };
+        // The timed fires stored for the session, which a fresh process does not keep, go to a
+        // session whose process came up; a failed resume leaves none to fire.
+        if matches!(answer.result, DriverResumeResult::Resumed { .. }) {
+            self.task_services
+                .idle_sleep
+                .seed_schedules(session_id, schedules, Timestamp::now());
         }
+        answer
     }
 
     // A resume's bring-up; its failures are the caller's to answer through the `Failed` arm.
