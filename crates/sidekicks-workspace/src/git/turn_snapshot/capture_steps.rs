@@ -29,11 +29,12 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::missing_entry::MissingEntry;
 use tokio::task::JoinError;
 
+use crate::git::GITLINK_MODE;
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder, strip_line_end};
 use crate::git::turn_snapshot::capture::{
-    CORE_SPARSE_CHECKOUT_KEY, GITLINK_TREE_MODE, ObjectFormat,
-    SKIPPED_EMBEDDED_REPOSITORIES_TRAILER, SNAPSHOT_COMMIT_MESSAGE, SNAPSHOT_IDENTITY_EMAIL,
-    SNAPSHOT_IDENTITY_NAME, SPARSE_BOUNDARY_PATHS_TRAILER, SPARSE_SEED_INDEX_LOCK_ATTEMPTS,
+    CORE_SPARSE_CHECKOUT_KEY, ObjectFormat, SKIPPED_EMBEDDED_REPOSITORIES_TRAILER,
+    SNAPSHOT_COMMIT_MESSAGE, SNAPSHOT_IDENTITY_EMAIL, SNAPSHOT_IDENTITY_NAME,
+    SPARSE_BOUNDARY_PATHS_TRAILER, SPARSE_SEED_INDEX_LOCK_ATTEMPTS,
     SPARSE_SEED_INDEX_LOCK_RETRY_DELAY, SparseListingPartition, UnrecognizedObjectFormat,
     join_nul_terminated_listing, split_nul_terminated_listing_bytes, to_raw_git_date,
 };
@@ -292,7 +293,7 @@ impl SnapshotCheckout<'_> {
             // A direct index insert of the gitlink, as porcelain staging writes; git records it
             // although the object lives in the embedded repository's store (git 2.50.1).
             let mut cache_info =
-                OsString::from(format!("{GITLINK_TREE_MODE},{},", embedded_head.as_str()));
+                OsString::from(format!("{GITLINK_MODE},{},", embedded_head.as_str()));
             cache_info.push(embedded_path_text.as_os_str());
             let mut arguments = self.in_checkout(&["update-index", "--add", "--cacheinfo"]);
             arguments.push(cache_info);

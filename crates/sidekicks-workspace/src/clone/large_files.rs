@@ -12,8 +12,8 @@ use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::missing_entry::{MissingEntry, is_missing_entry};
 
+use crate::git::GITLINK_MODE;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read};
-use crate::git::turn_snapshot::capture::GITLINK_TREE_MODE;
 use crate::repo::root_resolver::GIT_ENTRY_NAME;
 
 /// The four filter settings `git lfs install` writes, exactly as Git LFS writes them, passed to
@@ -140,7 +140,7 @@ async fn checked_out_submodules(
 fn gitlink_path(entry: &[u8]) -> Option<&[u8]> {
     let tab = memchr(b'\t', entry)?;
     let (fields, path) = entry.split_at(tab);
-    let after_mode = fields.strip_prefix(GITLINK_TREE_MODE.as_bytes())?;
+    let after_mode = fields.strip_prefix(GITLINK_MODE.as_bytes())?;
     if !after_mode.starts_with(b" ") {
         return None;
     }

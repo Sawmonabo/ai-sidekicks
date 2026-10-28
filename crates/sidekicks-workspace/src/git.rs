@@ -6,3 +6,7 @@ pub mod exclude;
 pub mod process;
 pub mod turn_snapshot;
 pub mod worktree;
+
+/// The mode git records for a gitlink, a repository embedded in the tree whose commit lives in
+/// that repository, not this one.
+pub const GITLINK_MODE: &str = "160000";

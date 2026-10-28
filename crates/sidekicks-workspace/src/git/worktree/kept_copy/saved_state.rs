@@ -19,14 +19,12 @@ use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::JoinError;
 
+use crate::git::GITLINK_MODE;
 use crate::git::process::{CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read};
 use crate::git::worktree::copy::{TreeCopyError, TreeCopyPolicy, copy_tree};
 use crate::git::worktree::kept_copy::pins::{KeptPin, KeptWorktreePins};
 use crate::git::worktree::kept_copy::{KEPT_LFS_ENTRY, KEPT_REF_STORE_ENTRY};
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_current_branch};
-
-// A gitlink's mode: its commit lives in the submodule's repository, not this one.
-const SUBMODULE_MODE: &str = "160000";
 
 // A git LFS pointer is a small text blob; anything larger is never one.
 const LFS_POINTER_MAX_BYTES: u64 = 1024;
@@ -187,7 +185,7 @@ pub(crate) async fn list_index_objects_missing_from_head(
             has_conflict = true;
             continue;
         }
-        if new_mode == SUBMODULE_MODE || is_no_object(new_object) {
+        if new_mode == GITLINK_MODE || is_no_object(new_object) {
             continue;
         }
         missing.insert(GitObjectId::new(new_object.to_owned()).ok_or(unexpected)?);
@@ -234,7 +232,7 @@ async fn list_conflict_stage_objects(
         };
         let object = GitObjectId::new(object.to_owned())
             .ok_or(SavedStateError::Unexpected(CONFLICT_STAGE_UNEXPECTED))?;
-        if mode != SUBMODULE_MODE {
+        if mode != GITLINK_MODE {
             objects.push(object);
         }
     }
