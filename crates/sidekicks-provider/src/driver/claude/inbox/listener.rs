@@ -52,7 +52,8 @@ pub(crate) struct ClaudeSessionInboxes {
     idle_sleep: Arc<ClaudeIdleSleep>,
     // Made with the daemon's inbox, at the first session's bind.
     forwarding: OnceLock<Arc<ClaudeInboxForwarding>>,
-    daemon_inbox: Mutex<Option<JoinHandle<()>>>,
+    // Bound once, so sessions starting together share one sweep and one bind.
+    daemon_inbox: tokio::sync::OnceCell<JoinHandle<()>>,
     session_inboxes: Mutex<HashMap<SessionId, JoinHandle<()>>>,
 }
 
@@ -82,7 +83,7 @@ impl ClaudeSessionInboxes {
             slots,
             idle_sleep,
             forwarding: OnceLock::new(),
-            daemon_inbox: Mutex::default(),
+            daemon_inbox: tokio::sync::OnceCell::new(),
             session_inboxes: Mutex::default(),
         }
     }
@@ -157,32 +158,30 @@ impl ClaudeSessionInboxes {
         for (_, serving) in lock(&self.session_inboxes).drain() {
             serving.abort();
         }
-        if let Some(serving) = lock(&self.daemon_inbox).take() {
+        if let Some(serving) = self.daemon_inbox.get() {
             serving.abort();
         }
     }
 
-    // Listens on the daemon's inbox where nothing listens on it yet.
+    // Listens on the daemon's inbox once; a bind running when another session's starts is waited
+    // for, and a failed one is left for the next session's to try again.
     async fn bind_daemon_inbox(&self) -> io::Result<()> {
-        if lock(&self.daemon_inbox).is_some() {
-            return Ok(());
-        }
-        let address = self.addresser.daemon_inbox_address(None);
-        let path = Path::new(address.as_str());
-        if let Some(folder) = path.parent()
-            && let Err(error) = remove_left_sockets(folder).await
-        {
-            record_inbox_failure(None, "removing the sockets a stopped run left", &error);
-        }
-        let listener = bind_inbox(path).await?;
-        let forwarding = Arc::clone(
-            self.forwarding
-                .get_or_init(|| Arc::new(ClaudeInboxForwarding::new(address.as_str().to_owned()))),
-        );
-        let mut daemon_inbox = lock(&self.daemon_inbox);
-        if daemon_inbox.is_none() {
-            *daemon_inbox = Some(tokio::spawn(serve_daemon_inbox(forwarding, listener)));
-        }
+        self.daemon_inbox
+            .get_or_try_init(|| async {
+                let address = self.addresser.daemon_inbox_address(None);
+                let path = Path::new(address.as_str());
+                if let Some(folder) = path.parent()
+                    && let Err(error) = remove_left_sockets(folder).await
+                {
+                    record_inbox_failure(None, "removing the sockets a stopped run left", &error);
+                }
+                let listener = bind_inbox(path).await?;
+                let forwarding = Arc::clone(self.forwarding.get_or_init(|| {
+                    Arc::new(ClaudeInboxForwarding::new(address.as_str().to_owned()))
+                }));
+                Ok::<_, io::Error>(tokio::spawn(serve_daemon_inbox(forwarding, listener)))
+            })
+            .await?;
         Ok(())
     }
 
@@ -265,8 +264,9 @@ impl ClaudeSessionInboxes {
 }
 
 // Removes each socket named as the daemon names one in `folder` that no process listens on, as a
-// stopped run leaves it, refused twice a moment apart; one a live process answers stays, and that
-// connection is closed at once.
+// stopped run leaves it: every socket is tried once, and the refused ones are tried again together
+// after one wait, so only a socket refused twice is removed. One a live process answers stays, and
+// that connection is closed at once.
 // A socket that cannot be reached otherwise, or removed, is logged and kept. A missing folder
 // holds nothing; one that cannot be listed fails the sweep.
 async fn remove_left_sockets(folder: &Path) -> io::Result<()> {
@@ -275,34 +275,48 @@ async fn remove_left_sockets(folder: &Path) -> io::Result<()> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error),
     };
+    let mut refused = Vec::new();
     while let Some(entry) = entries.next_entry().await? {
         if !entry.file_name().to_str().is_some_and(is_inbox_socket_name) {
             continue;
         }
         let socket = entry.path();
-        let mut reached = connect_unix_domain_socket(&socket).await;
-        if reached
-            .as_ref()
-            .is_err_and(|error| error.kind() == io::ErrorKind::ConnectionRefused)
-        {
-            tokio::time::sleep(REFUSED_RECHECK_WAIT).await;
-            reached = connect_unix_domain_socket(&socket).await;
+        if is_refused(&socket).await {
+            refused.push(socket);
         }
-        match reached {
-            Ok(connection) => drop(connection),
-            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
-                // One already removed is no failure.
-                match tokio::fs::remove_file(&socket).await {
-                    Err(error) if error.kind() != io::ErrorKind::NotFound => {
-                        record_inbox_failure(None, "removing a socket a run left", &error);
-                    }
-                    Ok(()) | Err(_) => {}
-                }
-            }
-            Err(error) => record_inbox_failure(None, "reaching a socket a run left", &error),
+    }
+    if refused.is_empty() {
+        return Ok(());
+    }
+    tokio::time::sleep(REFUSED_RECHECK_WAIT).await;
+    for socket in refused {
+        if !is_refused(&socket).await {
+            continue;
+        }
+        // One already removed is no failure.
+        if let Err(error) = tokio::fs::remove_file(&socket).await
+            && error.kind() != io::ErrorKind::NotFound
+        {
+            record_inbox_failure(None, "removing a socket a run left", &error);
         }
     }
     Ok(())
+}
+
+// Whether a connect to `socket` is refused; a connection made is closed at once, and any other
+// failure is logged and reads as not refused, so the socket is kept.
+async fn is_refused(socket: &Path) -> bool {
+    match connect_unix_domain_socket(socket).await {
+        Ok(connection) => {
+            drop(connection);
+            false
+        }
+        Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => true,
+        Err(error) => {
+            record_inbox_failure(None, "reaching a socket a run left", &error);
+            false
+        }
+    }
 }
 
 // Binds an inbox at `path`, making its folder private where it is missing; a socket file no
