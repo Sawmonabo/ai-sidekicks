@@ -125,6 +125,18 @@ impl ScriptedCodexService {
             .availability
             .send_replace(CodexServiceAvailability::Up);
     }
+
+    /// Publishes the service up again on `connection` once its supervisor reads it starting, as a
+    /// new process would come up under a start that never answers.
+    pub(crate) async fn publish_up_once_starting(
+        &self,
+        connection: Option<Arc<CodexAppServerConnection>>,
+    ) {
+        self.service
+            .wait_for(|availability| matches!(availability, CodexServiceAvailability::Starting))
+            .await;
+        self.publish_up(connection);
+    }
 }
 
 /// The dependencies a test's services share: their data and logs under `folder`, the build
@@ -184,7 +196,22 @@ impl CodexProgramResolver for TestCodexProgram {
 /// Starts a service on an account's home whose connection the test scripts. Must be called within
 /// a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
-    start_scripted_codex_service_on(CodexHomeKind::Account, CodexServiceKind::Account)
+    start_scripted_codex_service_on(
+        CodexHomeKind::Account,
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+    )
+}
+
+/// Starts a service on an account's home whose connection the test scripts and whose own start,
+/// once its supervisor begins one, never answers, so the test publishes the new process up. Must
+/// be called within a runtime.
+pub(crate) fn start_scripted_codex_service_whose_start_waits() -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::Account,
+        CodexServiceKind::Account,
+        Arc::new(WaitingProgram),
+    )
 }
 
 /// Starts the terminal service on the person's own folder with terminal reach on, its connection
@@ -195,20 +222,20 @@ pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
             is_terminal_reach_on: true,
         },
         CodexServiceKind::Terminal,
+        Arc::new(UnstartedProgram),
     )
 }
 
-// A service of `kind` on a home of `home_kind` whose connection the test scripts.
+// A service of `kind` on a home of `home_kind` whose connection the test scripts, a start of its
+// own running `program`.
 fn start_scripted_codex_service_on(
     home_kind: CodexHomeKind,
     kind: CodexServiceKind,
+    program: Arc<dyn CodexProgramResolver>,
 ) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let dependencies = test_codex_service_dependencies(
-        folder.path(),
-        Arc::new(UnstartedProgram),
-        Arc::new(UnheardEvents),
-    );
+    let dependencies =
+        test_codex_service_dependencies(folder.path(), program, Arc::new(UnheardEvents));
     let socket: PathBuf = folder.path().join("codex.sock");
     let (service, script) = script_codex_service(
         CodexServiceHome {
@@ -266,6 +293,18 @@ impl CodexProgramResolver for UnstartedProgram {
                 "a scripted service runs no program".into(),
             ))
         })
+    }
+}
+
+// A program whose resolve never answers, so a start on it stays starting.
+struct WaitingProgram;
+
+impl CodexProgramResolver for WaitingProgram {
+    fn resolve<'call>(
+        &'call self,
+        _home: &'call CodexServiceHome,
+    ) -> BoxFuture<'call, Result<ResolvedProviderExecutable, DriverError>> {
+        Box::pin(std::future::pending())
     }
 }
 

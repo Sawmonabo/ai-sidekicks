@@ -17,6 +17,7 @@ use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
+use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service_whose_start_waits;
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::test_fixture::{
@@ -26,6 +27,7 @@ use crate::driver::codex::session::test_fixture::{
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
+use crate::driver::session_control::ProviderBuildChange;
 use crate::driver::test_registry::new_run_id;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
@@ -616,4 +618,68 @@ async fn a_relaunch_whose_record_is_refused_lets_its_conversation_go() {
     })
     .await
     .expect("the recovery ends within the bound");
+}
+
+// Killed by a build move whose in-place resume on an account's service records no relaunch: the
+// conversation resumes under a binding the session directory opened first, and that binding is
+// the one recorded. Real time under a bound, the service answering on its own task once its new
+// process is published up.
+#[tokio::test]
+async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it_opened() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut session =
+            TestCodexSession::start_on(start_scripted_codex_service_whose_start_waits()).await;
+        session.scripted.report_version("codex-cli 0.163.0");
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let steps = Arc::new(Steps::new(&session));
+        let recovery = test_recovery(
+            &session,
+            folder.path(),
+            &steps,
+            RefusedRelaunchStep::Nothing,
+        );
+        let service = Arc::clone(&session.scripted.service);
+        let settings = session.task.record.thread_settings.clone();
+        let change = ProviderBuildChange {
+            from_version: "0.163.0".to_owned(),
+            to_version: "0.164.0".to_owned(),
+        };
+        // The old process's connection, set aside as it leaves, serves the new one.
+        let connection = session.scripted.publish_reconnecting();
+        let mut restarting = std::pin::pin!(recovery.restart_service(&service, Some(change)));
+
+        let scripted = &session.scripted;
+        session
+            .task
+            .drive(async {
+                tokio::select! {
+                    restarted = &mut restarting => {
+                        panic!("the restart waits for its new process: {restarted:?}")
+                    }
+                    () = scripted.publish_up_once_starting(connection) => {}
+                }
+            })
+            .await;
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
+        session
+            .task
+            .drive(restarting)
+            .await
+            .expect("the build move resumes the conversation");
+
+        let relaunch = relaunch_steps(&steps);
+        assert_eq!(relaunch.len(), 3, "{relaunch:?}");
+        let opened = relaunch[0]
+            .strip_prefix("opened ")
+            .expect("the relaunch opens its binding first");
+        assert_eq!(relaunch[1], "resume", "{relaunch:?}");
+        assert_eq!(relaunch[2], format!("relaunched Some({opened})"));
+        service_side.abort();
+    })
+    .await
+    .expect("the build move ends within the bound");
 }

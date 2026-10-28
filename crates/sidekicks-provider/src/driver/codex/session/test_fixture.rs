@@ -156,7 +156,11 @@ impl TestCodexSession {
     /// A session on conversation [`TEST_THREAD`] at Ask, registered on its service, with no
     /// binding.
     pub(crate) async fn start() -> Self {
-        let scripted = start_scripted_codex_service();
+        Self::start_on(start_scripted_codex_service()).await
+    }
+
+    /// A session as [`Self::start`] makes it, on `scripted`'s service.
+    pub(crate) async fn start_on(scripted: ScriptedCodexService) -> Self {
         let database = TestDatabase::new(schema_parts());
         let engine = Arc::new(RecordingRunEngine::default());
         let bindings = Arc::new(open_store(&database).await);
