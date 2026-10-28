@@ -17,13 +17,14 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::PROVIDERS;
 #[cfg(test)]
-use sidekicks_provider::driver::capabilities::{DriverCapabilities, DriverCapabilityFlags};
+use sidekicks_provider::driver::capabilities::{
+    DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
+};
 #[cfg(test)]
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
-use sidekicks_provider::runtime_binding::test_store::spawned_build;
 
 use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
 
@@ -62,7 +63,6 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     provider_account_id: None,
                     on_mcp_server_status: None,
                 },
-                spawned_version: spawned_build("1.0.0", "/opt/provider/bin"),
                 function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),
             })
         }
@@ -70,14 +70,17 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
     })
 }
 
-/// Records the first provider's capabilities in `providers`, so its contract version reads.
+/// Records the first provider's capabilities in `providers`, so its contract version reads and,
+/// where `is_resumable`, it resumes.
 #[cfg(test)]
-pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry) {
+pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, is_resumable: bool) {
     providers
         .record_capabilities(
             &first_provider(),
             DriverCapabilities {
-                flags: DriverCapabilityFlags::from_fn(|_| false),
+                flags: DriverCapabilityFlags::from_fn(|flag| {
+                    is_resumable && flag == DriverCapabilityFlag::Resume
+                }),
                 contract_version: FreeFormText::new("1.0.0".to_owned())
                     .expect("a contract version"),
             },

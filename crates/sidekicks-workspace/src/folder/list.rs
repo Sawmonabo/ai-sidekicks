@@ -37,24 +37,25 @@ use sidekicks_contracts::repo::folders::{
 };
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::TextError;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     LocaleCategory, PathRules, is_hidden_entry, path_from_program_output, resolve_path,
     system_locale,
 };
 use sidekicks_std::file::bounded_read::read_within_ceiling;
 use sidekicks_std::missing_entry::is_missing_entry;
-use sidekicks_std::processor_bound::map_with_processor_bound;
+use sidekicks_std::processor_bound::{map_with_processor_bound, processor_count};
 use sidekicks_std::retry::read::{is_retryable_read_failure, read_with_one_retry};
 use sidekicks_std::settle_all::SettleFailures;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, strip_line_end};
-use crate::repo::errors::RepoRefusal;
+use crate::repo::errors::{RepoRefusal, refuse_distribution};
 use crate::repo::root_resolver::{ROOT_RESOLUTION_GIT_TIMEOUT, refusal_of_filesystem_failure};
 
 /// Why a folder listing failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum FolderListError {
+pub enum FolderListError {
     /// The request was refused: the top level, a WSL distribution, a path naming no complete
     /// location, or a folder that cannot be read, with the system's reason.
     #[error(transparent)]
@@ -68,9 +69,22 @@ pub(crate) enum FolderListError {
     RepositoryCheck(#[from] SettleFailures<RepositoryCheckError>),
 }
 
+impl From<FolderListError> for HandlerError {
+    /// A refusal is answered with its code; a path the wire cannot carry or a failed repository
+    /// check is a fault.
+    fn from(error: FolderListError) -> Self {
+        match error {
+            FolderListError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (FolderListError::PathNotSendable(_) | FolderListError::RepositoryCheck(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
+    }
+}
+
 /// Why one folder's repository check failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RepositoryCheckError {
+pub enum RepositoryCheckError {
     /// git could not answer: it could not start, was ended, or printed what cannot be read.
     #[error("git could not check whether a folder is a repository")]
     Git(#[from] GitError),
@@ -80,23 +94,15 @@ pub(crate) enum RepositoryCheckError {
 }
 
 /// Lists the machine's folders for another device's folder chooser.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the folder list method's handler")
-)]
-pub(crate) struct FolderListService {
+pub struct FolderListService {
     home_folder: PathBuf,
     git: GitRunner,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the folder list method's handler")
-)]
 impl FolderListService {
     /// The listing starting at `home_folder`, the home folder of the account the service runs as,
     /// asking `git` which folders are repositories.
-    pub(crate) fn new(home_folder: PathBuf, git: GitRunner) -> Self {
+    pub fn new(home_folder: PathBuf, git: GitRunner) -> Self {
         Self { home_folder, git }
     }
 
@@ -107,7 +113,7 @@ impl FolderListService {
     /// no complete location or with `pathNotFound` or `notReadable` and the system's reason for a
     /// folder that cannot be read after one retry or in time; and with the other variants when
     /// the path cannot be sent or git cannot check a folder.
-    pub(crate) async fn list(
+    pub async fn list(
         &self,
         request: MachineFolderListRequest,
     ) -> Result<MachineFolderListResponse, FolderListError> {
@@ -115,13 +121,7 @@ impl FolderListService {
             MachineFolderListRequest::Top(_) => return Err(RepoRefusal::TopLevelNotOffered.into()),
             MachineFolderListRequest::Folder(request) => request,
         };
-        // This daemon reaches no WSL distribution, so none of that name is here to list.
-        if let Some(place) = request.place {
-            return Err(RepoRefusal::DistributionNotFound {
-                distro: place.distro,
-            }
-            .into());
-        }
+        refuse_distribution(request.place.as_ref())?;
         let folder = self.folder_in_view(request.path.as_ref())?;
         let filter = request
             .filter
@@ -130,9 +130,7 @@ impl FolderListService {
             .filter(|filter| !filter.is_empty());
         let is_hidden_shown = request.show_hidden == Some(true);
 
-        let refused =
-            |error: &io::Error| FolderListError::Refused(refusal_of_filesystem_failure(error));
-        let candidate_names = read_with_one_retry(
+        let mut candidate_names = read_with_one_retry(
             || {
                 let filter = filter.clone();
                 read_within_ceiling(&folder, move |folder| {
@@ -143,35 +141,12 @@ impl FolderListService {
         )
         .await
         .map_err(|error| refused(&error))?;
-        let mut names: Vec<OsString> =
-            map_with_processor_bound(candidate_names, "reading the entries of a folder", |name| {
-                read_folder_entry(&folder, name, is_hidden_shown)
-            })
-            .await
-            .map_err(|failures| match failures {
-                SettleFailures::One(error) => refused(&error),
-                SettleFailures::Many { failures, .. } => refused(&failures[0]),
-            })?
-            .into_iter()
-            .flatten()
-            .collect();
-        sort_folder_names(&mut names, &folder_name_collator());
-
-        let candidates: Vec<(PathBuf, MachineFolderListEntry)> = names
-            .iter()
-            .filter_map(|name| entry_of(&folder, name))
-            .collect();
+        sort_folder_names(&mut candidate_names, &folder_name_collator());
         // Cut to one message before git is asked, so no folder past the cut costs a git call.
-        let fitted = count_entries_fitting_one_frame(
-            &candidates,
-            candidates.len(),
-            PAGE_MAX_BYTES,
-            |(_, entry)| json_utf8_byte_length(entry),
-        )
-        .expect("a folder entry of paths and a flag serializes to JSON");
-        let more = fitted < candidates.len();
+        let (candidates, more) =
+            read_page_entries(&folder, candidate_names, is_hidden_shown).await?;
         let entries = map_with_processor_bound(
-            candidates.into_iter().take(fitted),
+            candidates,
             "checking which folders are repositories",
             |(path, entry)| self.mark_repository(path, entry),
         )
@@ -273,6 +248,62 @@ impl FolderListService {
             }
             Err(error) => Err(error.into()),
         }
+    }
+}
+
+// A read of the folder or of an entry, failed after its retry, as the listing's refusal.
+fn refused(error: &io::Error) -> FolderListError {
+    FolderListError::Refused(refusal_of_filesystem_failure(error))
+}
+
+// The folders among `names`, sorted already, that fit one message, with their paths, and whether
+// a folder is left past the cut. The names are read as the page fills, in batches that double from
+// the processor count, so the reads stop within one batch of the cut, never at the folder's end.
+async fn read_page_entries(
+    folder: &Path,
+    names: Vec<OsString>,
+    is_hidden_shown: bool,
+) -> Result<(Vec<(PathBuf, MachineFolderListEntry)>, bool), FolderListError> {
+    let mut names = names.into_iter();
+    let mut candidates = Vec::new();
+    let mut entry_bytes = Vec::new();
+    let mut batch_size = processor_count();
+    loop {
+        let batch: Vec<OsString> = names.by_ref().take(batch_size).collect();
+        if batch.is_empty() {
+            return Ok((candidates, false));
+        }
+        let shown = map_with_processor_bound(batch, "reading the entries of a folder", |name| {
+            read_folder_entry(folder, name, is_hidden_shown)
+        })
+        .await
+        .map_err(|failures| match failures {
+            SettleFailures::One(error) => refused(&error),
+            SettleFailures::Many { failures, .. } => refused(&failures[0]),
+        })?;
+        for (path, entry) in shown
+            .into_iter()
+            .flatten()
+            .filter_map(|name| entry_of(folder, &name))
+        {
+            entry_bytes.push(
+                json_utf8_byte_length(&entry)
+                    .expect("a folder entry of paths and a flag serializes to JSON"),
+            );
+            candidates.push((path, entry));
+        }
+        let fitted = count_entries_fitting_one_frame(
+            &entry_bytes,
+            entry_bytes.len(),
+            PAGE_MAX_BYTES,
+            |bytes| Ok(*bytes),
+        )
+        .expect("a counted length needs no serializing");
+        if fitted < candidates.len() {
+            candidates.truncate(fitted);
+            return Ok((candidates, true));
+        }
+        batch_size = batch_size.saturating_mul(2);
     }
 }
 

@@ -3,13 +3,14 @@
 //! git reads, a bound on its output and on its time, and an end that reaches every process it
 //! started. A read runs no hook and no file-watch helper program; a write keeps the repository's
 //! hooks, except a write of the daemon's own refs, which runs none. A long call whose standard
-//! error its caller reads as it goes is started instead of run.
+//! error its caller reads as it goes is started instead of run, and a listing whose whole may pass
+//! the output bound is read one entry at a time.
 
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
+use std::process::{ExitStatus, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,6 +23,8 @@ use sidekicks_platforms::{
 use tokio::process::Command;
 use tokio::sync::OnceCell;
 use tokio_util::task::TaskTracker;
+
+mod entries;
 
 /// The most one stream of a git call may print, sized for the largest: a `-z` listing of a whole
 /// worktree's paths. Passing it fails the call; nothing is cut.
@@ -137,6 +140,15 @@ pub enum GitError {
     /// reads git as it runs and ends it.
     #[error("a started git takes no input and no time bound")]
     NotStartable,
+}
+
+impl From<ChildTreeOutputError> for GitError {
+    fn from(error: ChildTreeOutputError) -> Self {
+        match error {
+            ChildTreeOutputError::TooLarge { bound } => Self::OutputTooLarge { bound },
+            ChildTreeOutputError::Io(error) => Self::Read(error),
+        }
+    }
 }
 
 /// The signal that ended a git process, as the system reports it.
@@ -574,29 +586,24 @@ impl GitRunner {
         .await;
         let failure = match waited {
             Ok(Ok(output)) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 if output.status.success() {
                     return Ok(GitOutput {
                         stdout: output.stdout,
-                        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                        stderr,
                     });
                 }
-                let exit = read_child_exit(&output.status, None);
-                return Err(GitError::Exited {
-                    code: output.status.code(),
-                    signal: exit.signal_number.map(|number| {
-                        Box::new(GitSignal {
-                            number,
-                            name: exit.signal_name,
-                        })
-                    }),
-                    stdout: output.stdout,
-                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-                });
+                return Err(exited_failure(&output.status, output.stdout, stderr));
             }
-            Ok(Err(ChildTreeOutputError::TooLarge { bound })) => GitError::OutputTooLarge { bound },
-            Ok(Err(ChildTreeOutputError::Io(error))) => GitError::Read(error),
+            Ok(Err(error)) => error.into(),
             Err(_elapsed) => GitError::TimedOut { timeout },
         };
+        self.end_failed_tree(child);
+        Err(failure)
+    }
+
+    // Ends the tree of a call that failed on a tracked task, after the failure is answered.
+    fn end_failed_tree(&self, mut child: ChildTree) {
         self.tree_ends.spawn(async move {
             if let Err(error) = child.end_tree().await {
                 tracing::warn!(
@@ -605,7 +612,6 @@ impl GitRunner {
                 );
             }
         });
-        Err(failure)
     }
 
     // Starts the git at `executable` with `arguments` in the login shell's environment from the
@@ -783,6 +789,22 @@ pub(crate) fn strip_carriage_return(line: &[u8]) -> &[u8] {
         line.strip_suffix(b"\r").unwrap_or(line)
     } else {
         line
+    }
+}
+
+// The failure of a git that exited `status`, not 0, having printed `stdout` and `stderr`.
+fn exited_failure(status: &ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
+    let exit = read_child_exit(status, None);
+    GitError::Exited {
+        code: status.code(),
+        signal: exit.signal_number.map(|number| {
+            Box::new(GitSignal {
+                number,
+                name: exit.signal_name,
+            })
+        }),
+        stdout,
+        stderr,
     }
 }
 

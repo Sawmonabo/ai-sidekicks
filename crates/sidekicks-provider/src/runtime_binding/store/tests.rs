@@ -6,15 +6,13 @@ use std::fmt::Write as _;
 use rstest::rstest;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
 use super::{
     RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
-    RuntimeBindingStore, read_binding,
+    RuntimeBindingStore, mint_runtime_binding_id, read_binding,
 };
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{SessionToolServer, SubagentDefinition, SubagentPolicy};
@@ -50,8 +48,7 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
         },
     )
     .await;
-    let relaunched_id =
-        RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a UUID is a binding id");
+    let relaunched_id = mint_runtime_binding_id();
     let new_build = spawned_build("2.1.0", "/opt/provider/2.1.0/bin");
 
     store

@@ -1,11 +1,11 @@
-//! A setup runner for tests: no file watch behind its warm step, the account's shell, and the
-//! wall clock for the watch's slow ticks.
+//! A setup runner for tests: no file watch behind its warm step and the wall clock for the
+//! watch's slow ticks.
 
 use std::sync::Arc;
 use std::time::Duration;
 
 use notify::NullWatcher;
-use sidekicks_platforms::{Spawner, WallClockTimer, command_shell};
+use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
@@ -19,7 +19,7 @@ use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps
 const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 
 /// A runner over `git`, `reads` and `events` reading its steps from `sources`. Panics when the
-/// spawner thread, the timer or the account's shell cannot be had.
+/// spawner thread or the timer cannot be had.
 pub(crate) fn test_setup_runner(
     git: GitRunner,
     reads: Arc<DatabaseReadPool>,
@@ -47,6 +47,5 @@ pub(crate) fn test_setup_runner(
             .expect("the spawner thread starts"),
         watcher,
         sources,
-        command_shell: command_shell().expect("the account's shell reads"),
     })
 }

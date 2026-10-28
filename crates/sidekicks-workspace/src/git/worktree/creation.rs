@@ -189,7 +189,7 @@ pub struct WorktreeCreatorDeps<W = RecommendedWatcher> {
     /// The folders other sessions' runs are live in.
     pub live_run_folders: Arc<dyn LiveRunFolderReader>,
     /// Held per checkout, keyed by its canonical folder, from a carry's last check for another
-    /// session's run through its stash, and by the run gate's run-context write in that checkout.
+    /// session's run through its stash; the carry is the one holder.
     pub checkout_lock: Arc<KeyedLock<PathBuf>>,
 }
 
@@ -250,6 +250,10 @@ struct MadeTree {
     name: WorktreeName,
     hook_output: Option<String>,
 }
+
+/// The statements the worktree creator prepares on a read connection: the live tree on a branch
+/// and the trees a stop left being made.
+pub const WORKTREE_CREATOR_STATEMENT_CAPACITY: usize = 2;
 
 /// Makes worktrees and answers the create form's suggestion, through one name plan. Each `UPDATE`
 /// carries its legal predecessor in its `WHERE`, so the transition table lives in the statements.

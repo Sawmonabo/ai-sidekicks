@@ -6,10 +6,13 @@
 //! happened. Reads, writes and repairs run one at a time, so a change never interleaves with
 //! another and a new listener's first reading is never older than a change announced after it.
 
+use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, Weak};
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MACHINE_SETTINGS_FILE_PATH_SEGMENTS, MachineSettings, MachineSettingsChange,
     MachineSettingsReading, ProjectBranchPatternRefusedDetails, SettingsFileRepair,
@@ -20,6 +23,7 @@ use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets}
 use sidekicks_platforms::create_private_folder;
 use sidekicks_std::file::atomic_write::{AtomicWriteError, write_file_atomically};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use tokio::sync::watch;
 
 // Readable and writable by the person alone: an environment row's value can carry a proxy's
@@ -248,6 +252,21 @@ fn apply_change(
         MachineSettingsChange::Voice(value) => settings.voice = value,
     }
     Ok(settings)
+}
+
+/// The workspace's reads of the settings: the file as it stands, its repair left to the page.
+impl MachineSettingsReader for MachineSettingsFile {
+    fn read_machine_settings(
+        &self,
+    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.read()
+                .await
+                .map(|reading| reading.settings)
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
 }
 
 #[cfg(test)]

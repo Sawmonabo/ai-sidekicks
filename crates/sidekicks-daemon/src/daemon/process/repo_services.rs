@@ -17,6 +17,7 @@ use sidekicks_session::live_folders::{
     LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
 };
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
+use sidekicks_std::error_description::describe_error;
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
 };
@@ -83,14 +84,14 @@ pub(crate) struct RepoServiceStart {
 /// The repository services, each built once for the daemon's life.
 pub(crate) struct RepoServices {
     /// The repository mounts of this machine.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) mounts: Arc<RepoMountService>,
     /// The chats' managed workspaces and the watch of their writes; the stop ends both through
     /// [`ManagedWorkspaceService::stop`].
     pub(crate) workspaces: Arc<ManagedWorkspaceService>,
-    /// The broker git's questions go through, `None` where the system has no private askpass
-    /// socket, which leaves clones unavailable; the stop closes it.
-    pub(crate) askpass: Option<AskpassBroker>,
+    /// The broker git's questions go through, or the text every clone verb answers
+    /// `project.clone.unavailable` with, empty where the system has no private askpass socket; the
+    /// start takes it for the clone service, which owns the broker from then on.
+    pub(crate) askpass: Option<Result<AskpassBroker, String>>,
     /// The watch over each working folder; the stop stops it.
     pub(crate) folder_watch: Arc<WorkingFolderWatcher>,
     /// Each live project's repository fetched in the background; the stop stops it.
@@ -98,16 +99,14 @@ pub(crate) struct RepoServices {
     /// Each live session's working folder held watched and its repository fetched.
     pub(crate) live_folders: Arc<LiveSessionFolders>,
     /// A repository's branches, for the new-worktree form.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) branches: Arc<BranchListReader>,
     /// Each session's review notes, read against its live working folder.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) review_notes: Arc<SessionReviewNoteStore>,
     /// Every worktree transition and worktree-scoped git call.
-    #[expect(dead_code, reason = "the worktree methods")]
     pub(crate) worktrees: Arc<WorktreeService>,
+    /// The seam each worktree's events are appended through.
+    pub(crate) worktree_events: Arc<WorktreeEventEmitter>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
-    #[expect(dead_code, reason = "the session purge and the checkpoints")]
     pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
@@ -117,24 +116,20 @@ pub(crate) struct RepoServices {
     pub(crate) stop: CancellationToken,
     /// The chats' writes the managed workspaces' watch reports, for a chat's file versions; the
     /// start takes it for the session services before the repository attachments start.
-    #[expect(dead_code, reason = "the session services' build")]
     pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceWrite>>,
 }
 
 /// Why the repository services could not be built.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum RepoServiceStartError {
-    /// The askpass broker could not start.
-    #[error(transparent)]
-    Askpass(AskpassBrokerError),
     /// Another daemon binds the askpass program's socket in the run folder.
     #[error(transparent)]
     AlreadyRunning(#[from] DaemonAlreadyRunningError),
 }
 
-/// Builds the repository services from `start`. Fails when the askpass broker cannot start for
-/// any reason but a system with no private askpass socket, which leaves it unstarted. Runs inside
-/// the daemon's runtime.
+/// Builds the repository services from `start`. Fails only when another daemon binds the askpass
+/// program's socket in the run folder; any other broker failure leaves clones unavailable and the
+/// start going on. Runs inside the daemon's runtime.
 pub(crate) fn build_repo_services(
     start: RepoServiceStart,
 ) -> Result<RepoServices, RepoServiceStartError> {
@@ -206,7 +201,7 @@ pub(crate) fn build_repo_services(
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer,
-        events: worktree_events,
+        events: Arc::clone(&worktree_events),
         occupancy,
         worktrees_folder,
     }));
@@ -220,12 +215,13 @@ pub(crate) fn build_repo_services(
         branches: Arc::new(BranchListReader::new(git, reads)),
         mounts,
         workspaces,
-        askpass,
+        askpass: Some(askpass),
         folder_watch,
         fetch,
         live_folders,
         review_notes,
         worktrees,
+        worktree_events,
         snapshots,
         mount_health,
         scheduler,
@@ -365,15 +361,16 @@ fn log_reprobe_failure(probed: Result<(), ReprobeError>) {
     }
 }
 
-// The askpass broker `started` in `run_folder`, or `None`, logging why, where the system has no
-// private askpass socket; every clone call is then refused `project.clone.unavailable`. A socket
-// another daemon binds there fails the start as the daemon's own socket does.
+// The askpass broker `started` in `run_folder`, or, logging why, the text every clone verb is
+// refused `project.clone.unavailable` with: empty where the system has no private askpass socket,
+// else the failure's own text, the daemon's start going on. A socket another daemon binds there
+// fails the start as the daemon's own socket does.
 fn askpass_or_unavailable(
     started: Result<AskpassBroker, AskpassBrokerError>,
     run_folder: &Path,
-) -> Result<Option<AskpassBroker>, RepoServiceStartError> {
+) -> Result<Result<AskpassBroker, String>, RepoServiceStartError> {
     match started {
-        Ok(broker) => Ok(Some(broker)),
+        Ok(broker) => Ok(Ok(broker)),
         Err(AskpassBrokerError::Listen(error)) if error.kind() == io::ErrorKind::AddrInUse => {
             Err(DaemonAlreadyRunningError {
                 held_place: HeldPlace::Socket(askpass_socket_path(run_folder)),
@@ -387,28 +384,34 @@ fn askpass_or_unavailable(
                 "the clone service was not started: this system has no private socket for git's \
                  questions"
             );
-            Ok(None)
+            Ok(Err(String::new()))
         }
-        Err(error) => Err(RepoServiceStartError::Askpass(error)),
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the clone service was not started: its askpass broker could not start"
+            );
+            Ok(Err(describe_error(&error)))
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::io;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     use sidekicks_platforms::askpass_socket_path;
-    use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
+    use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 
     use super::{RepoServiceStartError, askpass_or_unavailable};
     use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 
-    // The first case is killed by the `Unsupported` arm deleted, which fails the start where the
-    // system has no askpass socket; the second by the `Unsupported` guard widened to every listen
-    // error, which answers `None` for a run folder whose socket path is past the system's bound.
-    #[tokio::test]
-    async fn only_a_system_with_no_askpass_socket_leaves_the_broker_unstarted() {
+    // Every broker failure but another daemon's socket keeps the start: a system with no askpass
+    // socket with empty text, any other failure with its own. Killed by the third arm failing the
+    // start, by the `Unsupported` arm deleted, and by every failure answered with empty text.
+    #[test]
+    fn a_broker_that_cannot_start_keeps_the_start_and_carries_its_text() {
         let unsupported = askpass_or_unavailable(
             Err(AskpassBrokerError::Listen(io::Error::from(
                 io::ErrorKind::Unsupported,
@@ -416,34 +419,31 @@ mod tests {
             Path::new("/run"),
         );
         assert!(
-            matches!(unsupported, Ok(None)),
+            matches!(unsupported, Ok(Err(ref text)) if text.is_empty()),
             "{:?}",
-            unsupported.map(|broker| broker.is_some())
+            unsupported.map(|broker| broker.err())
         );
 
-        let run_folder = PathBuf::from("/").join("a".repeat(200));
-        let started = AskpassBroker::start(&run_folder, PathBuf::from("askpass-program"));
-        // Where the system has no askpass socket, no path is past its bound.
-        if matches!(
-            started,
-            Err(AskpassBrokerError::Listen(ref error)) if error.kind() == io::ErrorKind::Unsupported
-        ) {
-            return;
-        }
-        let past_the_bound = askpass_or_unavailable(started, &run_folder);
+        let refused = askpass_or_unavailable(
+            Err(AskpassBrokerError::Listen(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "permission denied",
+            ))),
+            Path::new("/run"),
+        );
         assert!(
             matches!(
-                past_the_bound,
-                Err(RepoServiceStartError::Askpass(AskpassBrokerError::Listen(ref error)))
-                    if error.kind() == io::ErrorKind::InvalidInput
+                refused,
+                Ok(Err(ref text))
+                    if text == "the askpass program's socket could not be opened: permission denied"
             ),
             "{:?}",
-            past_the_bound.as_ref().map(Option::is_some)
+            refused.map(|broker| broker.err())
         );
     }
 
-    // Killed by the `AddrInUse` arm deleted: another daemon's askpass socket then fails the start
-    // as a broker that could not start, not as a daemon already running there.
+    // Killed by the `AddrInUse` arm deleted: another daemon's askpass socket then leaves clones
+    // unavailable instead of failing the start as a daemon already running there.
     #[test]
     fn another_daemon_s_askpass_socket_fails_the_start_as_already_running() {
         let run_folder = Path::new("/run/ai-sidekicks");
@@ -464,7 +464,7 @@ mod tests {
                 })) if *path == askpass_socket_path(run_folder)
             ),
             "{:?}",
-            held.map(|broker| broker.is_some())
+            held.map(|broker| broker.err())
         );
     }
 }

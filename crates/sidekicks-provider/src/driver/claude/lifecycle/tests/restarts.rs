@@ -2,7 +2,8 @@
 //! presses each end lets go.
 
 use std::pin::pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use rstest::rstest;
@@ -30,7 +31,6 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::SessionProcessState;
-use crate::driver::ports::ProcessGoneListener;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
     ResumeSessionParams, UpdateSessionModeParams,
@@ -66,6 +66,14 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
             |(reported_session, binding)| *reported_session == session_id && binding.is_some()
         )
     );
+    // Each relaunch resumed under the binding it had opened first.
+    let opened: Vec<_> = fixture
+        .relaunches
+        .opened()
+        .into_iter()
+        .map(|(opened_session, binding)| (opened_session, Some(binding)))
+        .collect();
+    assert_eq!(opened, reported);
     let notices = fixture
         .engine
         .deliveries()
@@ -73,6 +81,74 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .filter(|delivery| delivery.kind == "sessionNotice")
         .count();
     assert_eq!(notices, 1);
+}
+
+// Killed by a relaunch that starts its process after its binding could not be opened: the
+// relaunch is reported failed and nothing starts.
+#[tokio::test(start_paused = true)]
+async fn a_relaunch_whose_binding_cannot_open_starts_nothing() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .relaunches
+        .is_open_refused
+        .store(true, Ordering::SeqCst);
+
+    ScriptedDriver::exit(&first);
+
+    assert_eq!(
+        fixture.relaunches.reported(1).await,
+        [(session_id, None)],
+        "the relaunch is reported failed"
+    );
+    assert_eq!(fixture.relaunches.opened().len(), 1);
+    assert!(fixture.starts.take_started().is_empty());
+}
+
+// Killed by a restart whose record is refused leaving the process it started running: that process
+// is retired and the queue told it is gone, after the exit that started the restart told it once.
+#[tokio::test(start_paused = true)]
+async fn a_restart_whose_record_is_refused_retires_its_process() {
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .process_gone
+        .register(Arc::clone(&fixture.ports) as _)
+        .expect("the process-gone intake registers once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .relaunches
+        .is_relaunch_refused
+        .store(true, Ordering::SeqCst);
+
+    ScriptedDriver::exit(&first);
+    fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    settle().await;
+
+    let gone = fixture
+        .ports
+        .calls()
+        .into_iter()
+        .filter(|call| *call == PortCall::ProcessGone(session_id))
+        .count();
+    assert_eq!(
+        gone, 2,
+        "the exit and the retired restart each tell the queue"
+    );
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Down
+    );
 }
 
 // Killed by a waited restart that resumes a session a create or resume took meanwhile: it would
@@ -195,28 +271,17 @@ async fn a_settle_during_the_crash_wait_answers_once_the_restart_relaunched() {
     assert_eq!(relaunched.user_frames().len(), 1);
 }
 
-// The sessions the queue heard gone, in order.
-#[derive(Default)]
-struct HeardGone(Mutex<Vec<SessionId>>);
-
-impl ProcessGoneListener for HeardGone {
-    fn process_gone(&self, session_id: SessionId) {
-        self.0.lock().expect("the gone list locks").push(session_id);
-    }
-}
-
 // Killed by a failed relaunch that leaves the queue untold: its next run would open the kept
 // entry of a process that never came back. The exit tells it once, the failed relaunch again.
 #[tokio::test(start_paused = true)]
 async fn a_restart_whose_relaunch_fails_tells_the_queue_the_process_is_gone() {
     let fixture = ScriptedDriver::new();
-    let heard = Arc::new(HeardGone::default());
     fixture
         .services
         .ports
         .process_gone
-        .register(heard.clone())
-        .expect("the gone listener registers once");
+        .register(Arc::clone(&fixture.ports) as _)
+        .expect("the process-gone intake registers once");
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let first = fixture.next_start().await;
     fixture
@@ -226,9 +291,18 @@ async fn a_restart_whose_relaunch_fails_tells_the_queue_the_process_is_gone() {
     ScriptedDriver::exit(&first);
     fixture.relaunches.reported(1).await;
 
+    let gone: Vec<PortCall> = fixture
+        .ports
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, PortCall::ProcessGone(_)))
+        .collect();
     assert_eq!(
-        *heard.0.lock().expect("the gone list locks"),
-        [session_id, session_id]
+        gone,
+        [
+            PortCall::ProcessGone(session_id),
+            PortCall::ProcessGone(session_id)
+        ]
     );
     assert_eq!(
         fixture.driver.session_process_state(session_id),

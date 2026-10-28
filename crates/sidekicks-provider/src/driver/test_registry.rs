@@ -50,7 +50,9 @@ use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::store::{
+    RuntimeBindingRebind, RuntimeBindingSpawnConfig, compose_spawn_config_text,
+};
 use crate::spawn_environment::ReservedEnvironmentNames;
 
 /// The statements a test's read pool caches.
@@ -178,13 +180,22 @@ pub fn registrations_of_first_providers(
 /// test may bind several runs, and answers the binding's id.
 pub fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) -> RuntimeBindingId {
     let binding_id = mint_uuid_v7().to_string();
+    let spawn_config = compose_spawn_config_text(
+        &RuntimeBindingSpawnConfig::default(),
+        &database.path().with_file_name("provider").to_string_lossy(),
+    );
     database
         .reader()
         .execute(
             "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
-               cli_version_raw, created_at, updated_at)
-             VALUES (?1, ?2, ?3, '1.0.0', '1.0.0', '', '')",
-            params![binding_id.as_str(), run_id.text().as_str(), PROVIDERS[0].id],
+               cli_version_raw, spawn_config, created_at, updated_at)
+             VALUES (?1, ?2, ?3, '1.0.0', '1.0.0', ?4, '', '')",
+            params![
+                binding_id.as_str(),
+                run_id.text().as_str(),
+                PROVIDERS[0].id,
+                spawn_config
+            ],
         )
         .expect("the test binds the run to its provider");
     RuntimeBindingId::new(binding_id).expect("a minted UUID is a binding id")

@@ -120,8 +120,9 @@ impl CodexDriver {
     /// The skills `picks` names as Codex lists them for the session, each by its name and the
     /// file it loads it from, in the order picked: the live session's listing, else a read on
     /// the service of `provider_account_id`, the account the session's runs are admitted
-    /// against, over the session's folder. Fails with [`DriverError::SkillNotListed`] for a pick
-    /// Codex does not list in that folder, and as the read fails.
+    /// against, over the folder the session's runs work in. Fails with
+    /// [`DriverError::SkillNotListed`] for a pick Codex does not list in that folder, and as the
+    /// read fails.
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
@@ -137,11 +138,11 @@ impl CodexDriver {
                 )
                 .await?
         } else {
-            let context = self
+            let run_folder = self
                 .spawn_contexts
                 .require_port()
                 .map_err(|error| DriverError::Internal(Box::new(error)))?
-                .resolve_spawn_context(session_id, provider_account_id.clone())
+                .resolve_run_folder(session_id)
                 .await
                 .map_err(DriverError::Internal)?;
             let service = self
@@ -152,7 +153,7 @@ impl CodexDriver {
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;
             self.provider_commands
-                .read_skill_files(session_id, &service, &context.working_directory)
+                .read_skill_files(session_id, &service, &run_folder)
                 .await?
         };
         picks

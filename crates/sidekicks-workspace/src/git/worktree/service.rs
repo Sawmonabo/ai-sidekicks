@@ -244,6 +244,11 @@ pub enum WorktreeRowsReadError {
     Database(#[from] rusqlite::Error),
 }
 
+/// The statements the worktree service prepares on a read connection: a tree's row by id, by
+/// folder and its state, the attached mount, the retired among a list, the unreleased runs, and
+/// the sweep's sweepable and uncleaned retired trees.
+pub const WORKTREE_SERVICE_STATEMENT_CAPACITY: usize = 8;
+
 /// Owns every `worktrees` transition and worktree-scoped git call.
 pub struct WorktreeService {
     deps: WorktreeServiceDeps,
@@ -257,11 +262,7 @@ impl WorktreeService {
 
     /// The row of a worktree. Fails with `worktree.notFound` for an unknown id, or the read's
     /// failure.
-    #[expect(
-        dead_code,
-        reason = "worktree removal and the workspace's execution-root prepare"
-    )]
-    pub(crate) async fn require_worktree(
+    pub async fn require_worktree(
         &self,
         worktree_id: &WorktreeId,
     ) -> Result<WorktreeRow, WorktreeServiceError> {

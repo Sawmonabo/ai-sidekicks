@@ -21,7 +21,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::Duration;
 
 use futures::future::{BoxFuture, join_all};
@@ -33,7 +33,7 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
-use sidekicks_platforms::Spawner;
+use sidekicks_platforms::{Spawner, command_shell};
 use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
@@ -61,6 +61,9 @@ const REMOVED_END_REASON: &str = "Ended because its worktree was removed";
 
 /// What a step says when the daemon stopped before or while it ran.
 const STOPPED_END_REASON: &str = "Ended because the background service stopped";
+
+/// What a command's step says when the shell its line runs through cannot be read.
+const SHELL_UNREAD_REASON: &str = "The account's login shell could not be read";
 
 /// Where a new tree is and the repository it was made from.
 #[derive(Clone, Debug)]
@@ -144,9 +147,6 @@ pub struct WorktreeSetupRunnerDeps<W = RecommendedWatcher> {
     pub watcher: Arc<WorkingFolderWatcher<W>>,
     /// The worktree's rows, its project's steps and its commands' environment.
     pub sources: Arc<dyn WorktreeSetupSources>,
-    /// The shell every command line runs through, read once at the daemon's start
-    /// (`sidekicks_platforms::command_shell`).
-    pub command_shell: PathBuf,
 }
 
 /// Called with a tree's whole card each time it changes.
@@ -181,6 +181,8 @@ struct AttachedListener {
 struct RunnerShared<W> {
     deps: WorktreeSetupRunnerDeps<W>,
     state: Arc<Mutex<RunnerState>>,
+    // The shell every command line runs through, read at the first command that reads it.
+    command_shell: OnceLock<PathBuf>,
 }
 
 #[derive(Default)]
@@ -272,6 +274,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             shared: Arc::new(RunnerShared {
                 deps,
                 state: Arc::new(Mutex::new(RunnerState::default())),
+                command_shell: OnceLock::new(),
             }),
         }
     }
@@ -516,11 +519,11 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         run.await.map_err(WorktreeSetupError::RunEnded)
     }
 
-    /// Ends every running setup command, each asked to stop and ended within the daemon's stop
-    /// window, and starts no step after; run when the daemon stops. Fails with `CommandsNotEnded`
-    /// naming each command that could not be ended.
-    #[expect(dead_code, reason = "the daemon's stop")]
-    pub(crate) async fn stop(&self) -> Result<(), WorktreeSetupError> {
+    /// Ends every running setup command, each asked to stop and ended within the stop's grace or
+    /// `bound`, what is left of the daemon's stop, whichever is shorter, and starts no step after;
+    /// run when the daemon stops. Fails with `CommandsNotEnded` naming each command that could not
+    /// be ended.
+    pub async fn stop(&self, bound: Duration) -> Result<(), WorktreeSetupError> {
         let running: Vec<Arc<RunningCommand>> = {
             let mut state = self.shared.lock();
             state.is_stopped = true;
@@ -531,7 +534,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                 .chain(state.ending.values().cloned())
                 .collect()
         };
-        end_all(&running, STOPPED_END_REASON, SHUTDOWN_STOP_GRACE).await
+        end_all(&running, STOPPED_END_REASON, SHUTDOWN_STOP_GRACE.min(bound)).await
     }
 
     /// Drops the tree's card, lets go of the watches its warm step holds and ends its running
@@ -597,6 +600,16 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 }
 
 impl<W: Watcher + Send + 'static> RunnerShared<W> {
+    // The shell a command line runs through, read once it is first needed and kept; a read that
+    // fails is tried again at the next command.
+    fn command_shell(&self) -> io::Result<&Path> {
+        if let Some(shell) = self.command_shell.get() {
+            return Ok(shell);
+        }
+        let shell = command_shell()?;
+        Ok(self.command_shell.get_or_init(|| shell))
+    }
+
     fn lock(&self) -> MutexGuard<'_, RunnerState> {
         lock(&self.state)
     }
@@ -755,6 +768,10 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
             Ok(environment) => environment,
             Err(error) => return StepOutcome::failed(describe_error(&error)),
         };
+        let shell = match self.command_shell() {
+            Ok(shell) => shell,
+            Err(error) => return StepOutcome::failed(format!("{SHELL_UNREAD_REASON}: {error}")),
+        };
         // Kept on the card before it starts, so the stop and a removal reach it from its start.
         let running = {
             let mut state = self.lock();
@@ -772,7 +789,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         let outcome = run_command(
             SetupCommand {
                 spawner: &self.deps.spawner,
-                shell: &self.deps.command_shell,
+                shell,
                 line,
                 tree: &made.tree_path,
                 environment,

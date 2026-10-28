@@ -144,7 +144,8 @@ pub use caller_process::{ParentProcess, ResponsibleProcess};
 pub use child_command::leave_daemon_scope;
 pub use child_command::{ChildEnd, ChildExit, read_child_exit};
 pub use child_tree::{
-    ChildTree, ChildTreeOutput, ChildTreeOutputError, read_stderr_left_at_exit, start_child_tree,
+    ChildTree, ChildTreeOutput, ChildTreeOutputError, read_bounded_to_end,
+    read_stderr_left_at_exit, start_child_tree,
 };
 #[cfg(not(target_os = "macos"))]
 pub use code_signature::DesktopClientRequirement;

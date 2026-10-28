@@ -34,7 +34,7 @@ use crate::driver::attachments::{
 };
 use crate::driver::callback_tool::{CallbackToolInvocation, CallbackToolResult};
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::ports::{DriverPorts, MessageTakenListener};
+use crate::driver::ports::{DriverPorts, MessageTakenListener, ProcessGoneListener};
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver,
 };
@@ -57,6 +57,8 @@ pub(crate) enum PortCall {
     Denial(RunId),
     /// The held presses of an ended process's binding, released.
     PressesReleased(RuntimeBindingId),
+    /// A session's process told gone, once a test registers the recorder for it.
+    ProcessGone(SessionId),
 }
 
 /// Approval ports and the queue's intake of taken messages, each recording what reaches it.
@@ -109,6 +111,12 @@ impl ReviewerDenialPort for RecordingPorts {
 
     fn release_held_presses(&self, binding_id: &RuntimeBindingId) {
         lock(&self.calls).push(PortCall::PressesReleased(binding_id.clone()));
+    }
+}
+
+impl ProcessGoneListener for RecordingPorts {
+    fn process_gone(&self, session_id: SessionId) {
+        lock(&self.calls).push(PortCall::ProcessGone(session_id));
     }
 }
 

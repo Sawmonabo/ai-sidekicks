@@ -1,12 +1,13 @@
 //! A session's provider session, opened by its first admission: the driver's `create_session` and
 //! the runtime binding that records it, or, when the session already has a conversation from before
-//! the daemon started, the driver's `resume_session` of it and the binding the resume minted. Each
-//! run after that gets a binding of its own on the session's current leg. A session's opening, its
-//! run bindings, its level and mode moves and the forgetting of a process gone take the session's
-//! transition lock, so a process never opens at a level or in a mode a move is about to replace,
-//! two moves never store one level while the process runs at the other, and no process opens
-//! between a close's end of the provider leg and its `session.closed` write, nor after it: an
-//! opening under the lock refuses a closed session.
+//! the daemon started, the driver's `resume_session` of it and the binding the resume minted; a
+//! process that ended and stayed down comes back the same way through the driver's
+//! `restart_session`. Each run after that gets a binding of its own on the session's current leg.
+//! A session's opening and restart, its run bindings, its level and mode moves and the forgetting
+//! of a process gone take the session's transition lock, so a process never opens at a level or in
+//! a mode a move is about to replace, two moves never store one level while the process runs at
+//! the other, and no process opens between a close's end of the provider leg and its
+//! `session.closed` write, nor after it: an opening under the lock refuses a closed session.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -28,20 +29,21 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::contract::{
     DriverError, ProviderDriver, SessionProcessState, SpawnedVersionBindingCarriers,
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, ResumeSessionParams,
+    CloseSessionParams, CreateSessionParams, DriverResumeResult, ResumeSessionParams,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::runtime_binding::resume::{
     ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
 };
 use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
-    RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
+    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
+    RuntimeBindingStoreError, mint_runtime_binding_id,
 };
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::console_state::read_session_mode;
@@ -76,9 +78,6 @@ pub struct ProviderSessionOpening {
     /// The create's data legs, its posture the one of the level the session stands at; its
     /// function legs are left out and bound to the binding once it is minted.
     pub create_params: CreateSessionParams,
-    /// The build the session's process spawns, which its binding records: the version it reports
-    /// and the executable it resolved to, from one reading.
-    pub spawned_version: SpawnedVersionBindingCarriers,
     /// The callbacks a process of the leg a binding id names is handed, bound to that leg.
     pub function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
@@ -100,9 +99,8 @@ pub struct ProviderSessionsDeps {
     pub pool: Arc<DatabaseReadPool>,
     /// The writer a level or mode move is stored through.
     pub writer: Arc<DatabaseWriter>,
-    /// The binding rows an opening completes or removes.
-    pub runtime_bindings: Arc<RuntimeBindingStore>,
-    /// Records each binding a run opens on, or a resume minted, with its epoch cursor open.
+    /// Records each binding with its epoch cursor open: a new session's, opened before its
+    /// provider runs, a run's on the session's leg, and the one a resume minted.
     pub binding_cursors: Arc<RunBindingCursors>,
     /// The drivers, and the contract version each declares.
     pub providers: Arc<ProviderRegistry>,
@@ -150,6 +148,8 @@ pub enum ProviderSessionError {
     ResumeRefused {
         /// The session.
         session_id: SessionId,
+        /// The provider that refused.
+        provider: ProviderId,
         /// Why the resume needs recovery.
         recovery_condition: RecoveryCondition,
         /// The provider's own words.
@@ -170,28 +170,6 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
     },
-    /// The driver's create failed, and the binding recorded for it could not be removed.
-    #[error("the provider session of session {session_id} was not created ({create}), and its \
-             binding {} could not be removed", .binding_id.as_str())]
-    CreateLeftBinding {
-        /// The session.
-        session_id: SessionId,
-        /// The binding left.
-        binding_id: RuntimeBindingId,
-        /// Why the create failed.
-        create: DriverError,
-        /// Why the removal failed.
-        #[source]
-        delete: RuntimeBindingStoreError,
-    },
-    /// The binding the opening recorded is gone before its conversation was named on it.
-    #[error("the binding {} of session {session_id}'s opening is gone", .binding_id.as_str())]
-    BindingGone {
-        /// The session.
-        session_id: SessionId,
-        /// The binding.
-        binding_id: RuntimeBindingId,
-    },
     /// The session has no provider session open in this daemon.
     #[error("session {session_id} has no provider session open")]
     NotOpen {
@@ -207,7 +185,22 @@ pub enum ProviderSessionError {
     /// The binding or its cursor was not recorded.
     #[error(transparent)]
     Cursor(#[from] RunBindingCursorError),
-    /// A binding row was not written.
+    /// The binding of a process the driver opened was not recorded, and the process could not be
+    /// closed.
+    #[error(
+        "the binding of session {session_id}'s process was not recorded ({recorded}), and the \
+             process could not be closed"
+    )]
+    UnrecordedNotClosed {
+        /// The session.
+        session_id: SessionId,
+        /// Why the binding was not recorded.
+        recorded: RunBindingCursorError,
+        /// Why the close failed.
+        #[source]
+        closed: DriverError,
+    },
+    /// The session's leg could not be read.
     #[error(transparent)]
     Store(#[from] RuntimeBindingStoreError),
     /// The level the session moved to was not stored, and a process it runs moved back.
@@ -292,11 +285,10 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NoContractVersion { .. }
             | ProviderSessionError::ResumeRefused { .. }
             | ProviderSessionError::NotResumable(_)
-            | ProviderSessionError::CreateLeftBinding { .. }
-            | ProviderSessionError::BindingGone { .. }
             | ProviderSessionError::NotOpen { .. }
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
+            | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {
                 cause: SessionWriteError::Write(_),
@@ -311,6 +303,26 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::Read(_)
             | ProviderSessionError::Pool(_)) => Self::Internal(Box::new(fault)),
         }
+    }
+}
+
+// Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
+// under a binding with no row; the error to answer is the record's, or both when the close failed.
+async fn close_unrecorded(
+    driver: &dyn ProviderDriver,
+    session_id: SessionId,
+    recorded: RunBindingCursorError,
+) -> ProviderSessionError {
+    match driver
+        .close_session(CloseSessionParams { session_id })
+        .await
+    {
+        Ok(()) => recorded.into(),
+        Err(closed) => ProviderSessionError::UnrecordedNotClosed {
+            session_id,
+            recorded,
+            closed,
+        },
     }
 }
 
@@ -333,6 +345,14 @@ struct ResumeOpening {
     params: ResumeSessionParams,
     execution_posture: ExecutionPosture,
     git_folder: FilesystemPath,
+}
+
+// Which of the driver's verbs brings a session's conversation back in a fresh process: the resume
+// of a session's first admission, or the restart of a process that ended and stayed down.
+#[derive(Clone, Copy)]
+enum Relaunch {
+    Resume,
+    Restart,
 }
 
 // One opened session: the provider it runs on, the posture its process runs at, which each of its
@@ -429,6 +449,28 @@ impl ProviderSessions {
         }
     }
 
+    /// Starts the session's provider process again after it ended and stayed down, its newest
+    /// conversation brought back through the driver's restart as an opening's resume brings it
+    /// back, and keeps the session open in this process. Fails with
+    /// [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for an ended
+    /// session, [`ProviderSessionError::NoConversation`] for one with none to resume,
+    /// [`ProviderSessionError::Provider`] when no driver answers its provider or the driver cannot
+    /// resume, the driver never called, [`ProviderSessionError::ResumeRefused`] for a restart the
+    /// provider refused, and as the composition, the driver or the binding's record fails.
+    pub async fn restart(&self, session_id: SessionId) -> Result<(), ProviderSessionError> {
+        let _hold = self.deps.transition_lock.acquire(session_id).await;
+        self.refuse_ended(session_id).await?;
+        let leg = read_session_leg(&self.deps.pool, session_id)
+            .await?
+            .ok_or(ProviderSessionError::NoConversation { session_id })?;
+        self.deps
+            .providers
+            .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)?;
+        let opened = self.relaunch(session_id, leg, Relaunch::Restart).await?;
+        self.lock_opened().insert(session_id, opened);
+        Ok(())
+    }
+
     /// Forgets a session's provider session whose process ended: closed, or gone with no restart
     /// pending.
     pub(crate) fn forget(&self, session_id: SessionId) {
@@ -474,22 +516,30 @@ impl ProviderSessions {
         let binding = self
             .deps
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
-                run_id,
-                provider_name: current.provider_name,
-                contract_version: current.contract_version,
-                spawned_version: SpawnedVersionBindingCarriers {
-                    cli_version: current.cli_version,
-                    resolved_executable_path: PathBuf::from(current.resolved_executable_path),
+            .create(
+                session_id,
+                CreateRuntimeBindingInput {
+                    id: mint_runtime_binding_id(),
+                    run_id,
+                    provider_name: current.provider_name,
+                    contract_version: current.contract_version,
+                    spawned_version: SpawnedVersionBindingCarriers {
+                        cli_version: current.cli_version,
+                        resolved_executable_path: PathBuf::from(current.resolved_executable_path),
+                    },
+                    resume_handle: current.resume_handle,
+                    spawn_config: current.spawn_config,
+                    runtime_metadata: Map::new(),
                 },
-                resume_handle: current.resume_handle,
-                spawn_config: current.spawn_config,
-                runtime_metadata: Map::new(),
-            })
+            )
             .await?;
         Ok(binding.id)
     }
 
+    // A new session's first process. Its binding's cursor opens before the provider runs, since
+    // the provider delivers under the binding at once, and its row is written once the create
+    // answers, with the build that process reported and the conversation it opened; a failed
+    // create leaves neither.
     async fn create(
         &self,
         session_id: SessionId,
@@ -501,7 +551,6 @@ impl ProviderSessions {
             provider,
             git_folder,
             mut create_params,
-            spawned_version,
             function_legs_for,
         } = opening;
         // A mode moved before the first process is the one it opens in.
@@ -514,51 +563,44 @@ impl ProviderSessions {
             .ok_or_else(|| ProviderSessionError::NoContractVersion {
                 provider: provider.clone(),
             })?;
-        let binding = self
-            .deps
+        let spawn_config = spawn_config_of(&create_params);
+        let binding_id = mint_runtime_binding_id();
+        self.deps
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
+            .open_binding(
+                session_id,
+                binding_id.clone(),
                 run_id,
-                provider_name: provider.clone(),
-                contract_version,
-                spawned_version,
-                resume_handle: None,
-                spawn_config: spawn_config_of(&create_params),
-                runtime_metadata: Map::new(),
-            })
+                provider.clone(),
+                create_params.provider_account_id.clone(),
+            )
             .await?;
-        let legs = function_legs_for(&binding.id);
+        let legs = function_legs_for(&binding_id);
         create_params.on_mcp_server_status = legs.on_mcp_server_status;
         let handle = match driver.create_session(create_params).await {
             Ok(handle) => handle,
             // A run whose session never opened keeps no binding.
             Err(create) => {
-                return Err(match self.deps.runtime_bindings.delete(&binding.id).await {
-                    Ok(_) => create.into(),
-                    Err(delete) => ProviderSessionError::CreateLeftBinding {
-                        session_id,
-                        binding_id: binding.id,
-                        create,
-                        delete,
-                    },
-                });
+                self.deps.binding_cursors.forget_binding(&binding_id);
+                return Err(create.into());
             }
         };
-        let patch = RuntimeBindingPatch {
-            resume_handle: Some(handle.resume_handle),
-            ..RuntimeBindingPatch::default()
-        };
-        if self
+        let recorded = self
             .deps
-            .runtime_bindings
-            .update(&binding.id, patch, Vec::new())
-            .await?
-            .is_none()
-        {
-            return Err(ProviderSessionError::BindingGone {
-                session_id,
-                binding_id: binding.id,
-            });
+            .binding_cursors
+            .record_opened_binding(CreateRuntimeBindingInput {
+                id: binding_id,
+                run_id,
+                provider_name: provider.clone(),
+                contract_version,
+                spawned_version: handle.spawned_version,
+                resume_handle: Some(handle.resume_handle),
+                spawn_config,
+                runtime_metadata: Map::new(),
+            })
+            .await;
+        if let Err(unrecorded) = recorded {
+            return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded).await);
         }
         Ok(OpenedSession {
             provider,
@@ -567,8 +609,8 @@ impl ProviderSessions {
         })
     }
 
-    // The session ran before this daemon started: its conversation is resumed in a fresh process,
-    // and the binding the resume minted carries its cursor on; the run gets a binding of its own.
+    // The session ran before this daemon started: its conversation is resumed in a fresh process
+    // and the run gets a binding of its own.
     async fn resume(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -576,58 +618,7 @@ impl ProviderSessions {
         leg: RuntimeBinding,
         run_id: RunId,
     ) -> Result<OpenedSession, ProviderSessionError> {
-        let ResumeOpening {
-            params,
-            execution_posture,
-            git_folder,
-        } = self.compose_resume(session_id, &leg).await?;
-        let driver = self.deps.providers.lookup(&leg.provider_name)?;
-        let (binding_id, resume_handle, spawned_version) =
-            match driver.resume_session(params).await? {
-                DriverResumeResult::Resumed {
-                    binding_id,
-                    resume_handle,
-                    spawned_version,
-                    ..
-                } => (binding_id, resume_handle, spawned_version),
-                DriverResumeResult::Failed {
-                    recovery_condition,
-                    provider_failure_detail,
-                } => {
-                    return Err(ProviderSessionError::ResumeRefused {
-                        session_id,
-                        recovery_condition,
-                        provider_failure_detail,
-                    });
-                }
-            };
-        // A provider that continued the conversation in a new one left the old one behind.
-        let left_conversations = leg
-            .resume_handle
-            .as_ref()
-            .filter(|handle| handle.as_str() != resume_handle.as_str())
-            .map(|handle| LeftConversation {
-                session_id,
-                provider_account_id: leg.spawn_config.provider_account_id.clone(),
-                conversation_id: handle.clone(),
-            })
-            .into_iter()
-            .collect();
-        self.deps
-            .binding_cursors
-            .record_relaunch(RuntimeBindingRelaunch {
-                predecessor_id: leg.id.clone(),
-                binding_id,
-                resume_handle: resume_handle.as_str().to_owned(),
-                spawned_version,
-                left_conversations,
-            })
-            .await?;
-        let opened = OpenedSession {
-            provider: leg.provider_name,
-            execution_posture,
-            git_folder,
-        };
+        let opened = self.relaunch(session_id, leg, Relaunch::Resume).await?;
         // The resumed leg sits on the run it was first opened for; this run gets its own.
         self.lock_opened().insert(session_id, opened.clone());
         if let Err(error) = self.bind_run(hold, run_id).await {
@@ -637,13 +628,108 @@ impl ProviderSessions {
         Ok(opened)
     }
 
-    // What a resume of `leg` opens with: the session's opening as its lead stands now, at the
-    // posture of the level it stands at and in the mode it was last moved to, its callbacks bound
-    // to the leg.
+    // Brings `leg`'s conversation back in a fresh process through `relaunch`, under a binding
+    // minted here whose cursor carries on where the leg's stands, opened before the driver runs,
+    // since the provider delivers under it at once, and recorded once the driver answers; a
+    // process whose record fails is closed. A process already up that answers on its own binding
+    // records nothing.
+    async fn relaunch(
+        &self,
+        session_id: SessionId,
+        leg: RuntimeBinding,
+        relaunch: Relaunch,
+    ) -> Result<OpenedSession, ProviderSessionError> {
+        let minted_id = mint_runtime_binding_id();
+        let ResumeOpening {
+            params,
+            execution_posture,
+            git_folder,
+        } = self
+            .compose_resume(session_id, &leg, minted_id.clone())
+            .await?;
+        let driver = self.deps.providers.lookup(&leg.provider_name)?;
+        self.deps
+            .binding_cursors
+            .open_relaunch(session_id, &leg, minted_id.clone())
+            .await?;
+        let answered = match relaunch {
+            Relaunch::Resume => driver.resume_session(params).await,
+            Relaunch::Restart => driver.restart_session(params).await,
+        };
+        let answer = match answered {
+            Ok(answer) => answer,
+            Err(error) => {
+                self.deps.binding_cursors.forget_binding(&minted_id);
+                return Err(error.into());
+            }
+        };
+        let (binding_id, resume_handle, spawned_version) = match answer {
+            DriverResumeResult::Resumed {
+                binding_id,
+                resume_handle,
+                spawned_version,
+                ..
+            } => (binding_id, resume_handle, spawned_version),
+            DriverResumeResult::Failed {
+                recovery_condition,
+                provider_failure_detail,
+            } => {
+                self.deps.binding_cursors.forget_binding(&minted_id);
+                return Err(ProviderSessionError::ResumeRefused {
+                    session_id,
+                    provider: leg.provider_name,
+                    recovery_condition,
+                    provider_failure_detail,
+                });
+            }
+        };
+        if binding_id == minted_id {
+            // A provider that continued the conversation in a new one left the old one behind.
+            let left_conversations = leg
+                .resume_handle
+                .as_ref()
+                .filter(|handle| handle.as_str() != resume_handle.as_str())
+                .map(|handle| LeftConversation {
+                    session_id,
+                    provider_account_id: leg.spawn_config.provider_account_id.clone(),
+                    conversation_id: handle.clone(),
+                })
+                .into_iter()
+                .collect();
+            let recorded = self
+                .deps
+                .binding_cursors
+                .record_relaunch(RuntimeBindingRelaunch {
+                    predecessor_id: leg.id.clone(),
+                    binding_id,
+                    resume_handle: resume_handle.as_str().to_owned(),
+                    spawned_version,
+                    left_conversations,
+                })
+                .await;
+            if let Err(unrecorded) = recorded {
+                return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded).await);
+            }
+        } else {
+            // A process already up answered on the binding that brought it up, which has its
+            // cursor and its row.
+            self.deps.binding_cursors.forget_binding(&minted_id);
+        }
+        Ok(OpenedSession {
+            provider: leg.provider_name,
+            execution_posture,
+            git_folder,
+        })
+    }
+
+    // What a resume of `leg` under `binding_id` opens with: the session's opening as its lead
+    // stands now, at the posture of the level it stands at and in the mode it was last moved to,
+    // its callbacks bound to `binding_id`.
     async fn compose_resume(
         &self,
         session_id: SessionId,
         leg: &RuntimeBinding,
+        binding_id: RuntimeBindingId,
     ) -> Result<ResumeOpening, ProviderSessionError> {
         let opening = self.compose(session_id).await?;
         let execution_posture = posture_of(session_id, &opening)?;
@@ -658,13 +744,14 @@ impl ProviderSessions {
             session_id,
             create_params.agent_id,
             leg,
+            binding_id.clone(),
             create_params.model,
             create_params.larger_window,
             mode,
             execution_posture.clone(),
             create_params.options,
             create_params.row_values,
-            function_legs_for(&leg.id),
+            function_legs_for(&binding_id),
         )?;
         Ok(ResumeOpening {
             params,

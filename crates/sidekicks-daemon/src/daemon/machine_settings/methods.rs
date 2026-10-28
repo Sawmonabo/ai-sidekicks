@@ -5,20 +5,24 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MachineSettingsChange, MachineSettingsRead, MachineSettingsReading,
     MachineSettingsSubscribe, MachineSettingsUpdate, MachineSettingsUpdateRequest,
     MachineSettingsUpdateResponse, ProjectBranchPatternRefusedDetails,
 };
+use sidekicks_contracts::place::PlacedPath;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_workspace::project::refusals::{refuse_branch_pattern, refuse_environment_rows};
+use sidekicks_workspace::repo::errors::{refuse_distribution, refuse_relative_clone_folder};
 
 use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettingsFileError};
-use crate::daemon::machine_settings::refusals::{refuse_branch_pattern, refuse_environment_rows};
 
 /// Why a `Branch names` pattern cannot be saved, `None` when it can: git's branch-name rule and
 /// a clash in each project that keeps no pattern of its own. Fails when git could not run.
@@ -49,8 +53,9 @@ impl From<MachineSettingsFileError> for HandlerError {
 }
 
 /// Registers `machine.settings.read`, `machine.settings.update` and `machine.settings.subscribe`.
-/// An update with a refused environment row or branch-name pattern is refused before anything is
-/// written. Fails the start when a method is already registered.
+/// An update with a refused environment row or branch-name pattern, or a clone folder that names
+/// no complete location, is refused before anything is written. Fails the start when a method is
+/// already registered.
 pub(crate) fn register_machine_settings_methods(
     registry: &mut MethodRegistryBuilder,
     deps: MachineSettingsMethodsDeps,
@@ -81,6 +86,9 @@ pub(crate) fn register_machine_settings_methods(
                         };
                         refuse_branch_pattern(refusal)?;
                     }
+                    MachineSettingsChange::CloneFolder(folder) => {
+                        refuse_clone_folder(folder.as_ref())?;
+                    }
                     MachineSettingsChange::UpdatesAutomatic(_)
                     | MachineSettingsChange::KeepCrashReports(_)
                     | MachineSettingsChange::EditorId(_)
@@ -96,7 +104,6 @@ pub(crate) fn register_machine_settings_methods(
                     | MachineSettingsChange::SandboxBackgroundBrowser(_)
                     | MachineSettingsChange::ScreenReaderMode(_)
                     | MachineSettingsChange::Backup(_)
-                    | MachineSettingsChange::CloneFolder(_)
                     | MachineSettingsChange::Voice(_) => {}
                 }
                 Ok(MachineSettingsUpdateResponse {
@@ -125,6 +132,21 @@ pub(crate) fn register_machine_settings_methods(
     )
 }
 
+// Refuses a clone folder as a clone start refuses its own: one in a WSL distribution, which this
+// daemon reaches none of, or one naming no complete location, its issue at the folder's path; a
+// cleared folder passes.
+fn refuse_clone_folder(folder: Option<&PlacedPath>) -> Result<(), DomainError> {
+    let Some(folder) = folder else {
+        return Ok(());
+    };
+    refuse_distribution(folder.place.as_ref())?;
+    refuse_relative_clone_folder(folder.path.as_str(), || {
+        let member = |name: &str| IssuePathSegment::Member(name.to_owned());
+        vec![member("change"), member("cloneFolder"), member("path")]
+    })?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -147,10 +169,11 @@ mod tests {
     const WAIT: Duration = Duration::from_secs(10);
 
     // A change one client makes reaches a second client's subscription and the file on disk, and
-    // a credential-shaped environment row is refused with nothing written. Killed by the row's
-    // check moved behind the write, and by an update that reaches no follower.
+    // a credential-shaped environment row or a relative clone folder is refused with nothing
+    // written. Killed by either check moved behind the write, and by an update that reaches no
+    // follower.
     #[tokio::test]
-    async fn an_update_reaches_another_client_and_the_file_and_a_credential_row_writes_nothing() {
+    async fn an_update_reaches_another_client_and_the_file_and_a_refused_change_writes_nothing() {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
         let file_path = machine_settings_file_path(folder.path());
         let mut builder = MethodRegistryBuilder::new();
@@ -203,6 +226,34 @@ mod tests {
             panic!("a credential-shaped row is refused");
         };
         assert_eq!(refusal.code, RefusalCode::ProjectEnvironmentNameRefused);
+        assert_eq!(
+            std::fs::read(&file_path).ok(),
+            file_before,
+            "nothing is written"
+        );
+
+        let refused = registry
+            .dispatch(
+                request(
+                    MachineSettingsUpdate::DESCRIPTOR.method,
+                    Some(&json!({ "change": { "cloneFolder": { "path": "repos" } } })),
+                ),
+                context(1),
+            )
+            .await;
+        let Err(DispatchError::Refused(refusal)) = refused else {
+            panic!("a relative clone folder is refused");
+        };
+        assert_eq!(refusal.code, RefusalCode::RequestParamsInvalid);
+        assert_eq!(
+            refusal
+                .detail
+                .and_then(|fields| fields.get("issues").cloned()),
+            Some(json!([{
+                "path": ["change", "cloneFolder", "path"],
+                "message": "the folder must name one complete location",
+            }]))
+        );
         assert_eq!(
             std::fs::read(&file_path).ok(),
             file_before,

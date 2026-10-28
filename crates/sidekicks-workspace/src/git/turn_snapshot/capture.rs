@@ -34,9 +34,6 @@ pub(crate) const SNAPSHOT_IDENTITY_NAME: &str = APP_DISPLAY_NAME;
 /// The committer email that goes with the snapshot identity name.
 pub(crate) const SNAPSHOT_IDENTITY_EMAIL: &str = "snapshots@ai-sidekicks.invalid";
 
-/// The tree mode git gives an embedded repository entry.
-pub(crate) const GITLINK_TREE_MODE: &str = "160000";
-
 /// The listing's only exclude source: porcelain `add -A` also honors `core.excludesFile` and
 /// `$GIT_DIR/info/exclude`, which are not project declarations.
 pub(crate) const EXCLUDE_PER_DIRECTORY_GITIGNORE: &str = "--exclude-per-directory=.gitignore";

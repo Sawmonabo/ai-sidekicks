@@ -5,31 +5,30 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
-use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
-use sidekicks_session::addresses::SessionInboxAddresses;
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
-use sidekicks_session::staged_attachments::StagedAttachments;
 use sidekicks_session::tags::SessionTagService;
 use sidekicks_shell::table::ShellTable;
-use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_workspace::clone::service::CloneService;
+use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use sidekicks_workspace::project::service::ProjectService;
 
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
@@ -48,6 +47,9 @@ use crate::highlight::colorer::CodeHighlighter;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
+use crate::ipc::handlers::machine::folder::register_machine_folders;
+use crate::ipc::handlers::project::clone::register_project_clone_methods;
+use crate::ipc::handlers::project::register_project_methods;
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
 use crate::ipc::handlers::repo::working_folder::register_working_folder;
@@ -59,11 +61,11 @@ use crate::ipc::handlers::session::changes::register_session_changes;
 use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
+use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
-use crate::ipc::handlers::session::read::register_session_read;
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
-use crate::ipc::handlers::session::restart::{RestartTargetReader, register_session_restart};
+use crate::ipc::handlers::session::restart::register_session_restart;
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
 use crate::ipc::handlers::session::search::{SessionSearchMethods, register_session_search};
 use crate::ipc::handlers::session::tags::register_session_tags;
@@ -96,28 +98,18 @@ pub(crate) struct MethodTableServices {
     pub(crate) run_control: RunControlServices,
     /// The run queue methods' inputs.
     pub(crate) run_queue: RunQueueMethods,
-    /// Every driver, which a session's restart goes through.
-    pub(crate) providers: Arc<ProviderRegistry>,
-    /// Reads where a session's restart lands.
-    pub(crate) restart_targets: RestartTargetReader,
-    /// The read pool a session's restart reads the session's state through.
-    pub(crate) restart_state_pool: Arc<DatabaseReadPool>,
-    /// The session-wide transition lock a session's restart runs under.
-    pub(crate) session_transition_lock: Arc<KeyedLock<SessionId>>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
     /// Each session's live safety holds.
     pub(crate) run_safety_holds: Arc<RunSafetyHolds>,
-    /// The sessions, read by `session.read` and the transcript reads.
+    /// The sessions, which the transcript reads go through.
     pub(crate) sessions: Arc<SessionService>,
     /// Each session's draft.
     pub(crate) drafts: Arc<SessionDraftStore>,
-    /// The files staged for each session.
-    pub(crate) staged_attachments: Arc<dyn StagedAttachments>,
-    /// Each session's inbox addresses.
-    pub(crate) inbox_addresses: Arc<SessionInboxAddresses>,
     /// Each session's tags.
     pub(crate) tags: Arc<SessionTagService>,
+    /// The project sessions' named groups.
+    pub(crate) session_groups: Arc<SessionGroupService>,
     /// The links between sessions.
     pub(crate) links: Arc<SessionLinkService>,
     /// The ranking of a session's related sessions.
@@ -145,16 +137,21 @@ pub(crate) struct MethodTableServices {
     pub(crate) branches: Arc<BranchListReader>,
     /// Follows a session's working folder.
     pub(crate) working_folders: Arc<WorkingFolderWatcher>,
+    /// The projects' edits.
+    pub(crate) projects: Arc<ProjectService>,
+    /// The live projects list.
+    pub(crate) project_list_feed: Arc<ProjectListFeed>,
+    /// The clones into projects, or why the clone service could not start, which each clone verb
+    /// then answers.
+    pub(crate) clones: Result<Arc<CloneService>, String>,
+    /// Lists the machine's folders for another device's folder chooser.
+    pub(crate) machine_folders: Arc<FolderListService>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs, the sessions, the repositories. The handshake, the
-/// subscriptions' cancel and the artifact store's table are registered by the start beside them.
-/// Fails when a method is registered twice.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the tables through it"
-)]
+/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects and
+/// the machine's folders. The handshake, the subscriptions' cancel and the artifact store's table
+/// are registered by the start beside them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -177,13 +174,6 @@ pub(crate) fn register_method_tables(
         Arc::clone(&services.event_log),
         services.run_safety_holds,
     )?;
-    register_session_read(
-        builder,
-        Arc::clone(&services.sessions),
-        Arc::clone(&services.drafts),
-        services.staged_attachments,
-        services.inbox_addresses,
-    )?;
     register_transcript_reads(
         builder,
         services.sessions,
@@ -195,23 +185,24 @@ pub(crate) fn register_method_tables(
     register_session_changes(builder, services.session_changes)?;
     register_session_review_notes(builder, services.review_notes)?;
     register_session_search(builder, services.session_search)?;
-    register_session_controls(builder, services.session_controls)?;
-    register_session_tags(builder, services.tags)?;
-    register_session_links(builder, services.links, services.related_ranking)?;
     register_session_restart(
         builder,
-        services.providers,
-        services.restart_targets,
-        services.restart_state_pool,
-        services.session_transition_lock,
+        Arc::clone(&services.session_controls.provider_sessions),
     )?;
+    register_session_controls(builder, services.session_controls)?;
+    register_session_tags(builder, services.tags)?;
+    register_session_groups(builder, services.session_groups)?;
+    register_session_links(builder, services.links, services.related_ranking)?;
     register_session_recovery_methods(builder, services.damaged_history)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
     register_terminal_write(builder, services.shells.input_lookup())?;
     register_terminal_methods(builder, services.shells)?;
     register_repo_branches(builder, services.branches)?;
-    register_working_folder(builder, services.working_folders)
+    register_working_folder(builder, services.working_folders)?;
+    register_project_methods(builder, services.projects, services.project_list_feed)?;
+    register_project_clone_methods(builder, services.clones)?;
+    register_machine_folders(builder, services.machine_folders)
 }
 
 /// The chain a call on the serving socket passes through, and its gate that records mutating calls,

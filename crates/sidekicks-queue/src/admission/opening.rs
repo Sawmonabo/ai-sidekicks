@@ -233,9 +233,8 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                     | ProviderSessionError::NotResumable(_)
                     | ProviderSessionError::Closed { .. }
                     | ProviderSessionError::BeingDeleted { .. }
-                    | ProviderSessionError::CreateLeftBinding { .. }
-                    | ProviderSessionError::BindingGone { .. }
                     | ProviderSessionError::Cursor(_)
+                    | ProviderSessionError::UnrecordedNotClosed { .. }
                     | ProviderSessionError::Store(_)
                     | ProviderSessionError::LevelNotStored { .. }
                     | ProviderSessionError::LevelNotMovedBack { .. }

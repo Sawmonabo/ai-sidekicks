@@ -13,7 +13,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName};
+use sidekicks_contracts::place::{DistributionRefusalDetails, DistroName, WslPlace};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::ProjectCloneRefusedDetails;
 use sidekicks_contracts::repo::folders::{
@@ -27,6 +27,7 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
+use sidekicks_platforms::PathRules;
 
 /// Why a repository call was refused; nothing was written for any of them. Converts into the
 /// [`DomainError`] the reply carries.
@@ -157,6 +158,49 @@ pub enum RepoRefusal {
         /// The failed start's own text, or empty when the service was never started.
         message: String,
     },
+    /// A clone start under a key on record whose request differs from the one the key first
+    /// answered (`project.clone.idempotencyConflict`); it names the project the key answered.
+    #[error(
+        "clone start refused: its key already started project {project_id} for a different \
+         request"
+    )]
+    CloneIdempotencyConflict {
+        /// The project the key first answered.
+        project_id: ProjectId,
+    },
+    /// A folder a clone goes in that names no complete location, refused as the request's own
+    /// params are (`request.paramsInvalid`), its issue at `member_path`: a relative folder would be
+    /// completed from the daemon's own folder.
+    #[error("the params break the method's contract")]
+    RelativeCloneFolder {
+        /// Where the folder sits in the request's params.
+        member_path: Vec<IssuePathSegment>,
+    },
+}
+
+/// Refuses `repoMount.distributionNotFound` for a folder in a WSL distribution, naming its
+/// distribution: this daemon reaches none. A folder with no place passes.
+pub fn refuse_distribution(place: Option<&WslPlace>) -> Result<(), RepoRefusal> {
+    match place {
+        Some(place) => Err(RepoRefusal::DistributionNotFound {
+            distro: place.distro.clone(),
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Refuses as [`RepoRefusal::RelativeCloneFolder`] at `member_path` a clone folder that names no
+/// complete location on this system; one that does passes.
+pub fn refuse_relative_clone_folder(
+    folder: &str,
+    member_path: impl FnOnce() -> Vec<IssuePathSegment>,
+) -> Result<(), RepoRefusal> {
+    if PathRules::NATIVE.names_complete_location(folder) {
+        return Ok(());
+    }
+    Err(RepoRefusal::RelativeCloneFolder {
+        member_path: member_path(),
+    })
 }
 
 /// The attach request's member holding the path entered, where a resolved root past the cap is
@@ -253,6 +297,20 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::CloneUnavailable { message: _ } => {
                 (RefusalCode::ProjectCloneUnavailable, None)
             }
+            RepoRefusal::CloneIdempotencyConflict { project_id } => (
+                RefusalCode::ProjectCloneIdempotencyConflict,
+                Some(refusal_fields(json!({ "projectId": project_id }))),
+            ),
+            RepoRefusal::RelativeCloneFolder { member_path } => (
+                RefusalCode::RequestParamsInvalid,
+                Some(refusal_fields(json!({
+                    "issues": [Issue {
+                        path: member_path,
+                        message: "the folder must name one complete location".to_owned(),
+                        params: None,
+                    }],
+                }))),
+            ),
         };
         DomainError {
             message,
@@ -286,6 +344,9 @@ fn root_resolution_message(reason: RepoMountRootResolutionReason) -> &'static st
         RepoMountRootResolutionReason::RootMismatch => {
             "canonical repository root resolution failed: the path's working tree is not one git \
              names for its repository, or the repository is not the one attached there"
+        }
+        RepoMountRootResolutionReason::NotUnicode => {
+            "canonical repository root resolution failed: the folder's path is not valid Unicode"
         }
     }
 }

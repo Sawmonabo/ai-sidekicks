@@ -449,8 +449,8 @@ pub struct RepoMountOutsideTrustEnvelopeDetails {
 
 /// Why a `repoMount.rootResolutionFailed` refusal could not resolve a path's canonical repository
 /// root: the path is missing, unreadable or not absolute, git could not answer for it, its working
-/// tree is not one git names for the repository, or git reports a folder with no visible `.git`
-/// entry is not a repository.
+/// tree is not one git names for the repository, git reports a folder with no visible `.git`
+/// entry is not a repository, or the resolved path is not valid Unicode.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase")]
 pub enum RepoMountRootResolutionReason {
@@ -466,6 +466,8 @@ pub enum RepoMountRootResolutionReason {
     RootMismatch,
     /// Git reports the folder is not a repository and no `.git` entry contradicts it.
     NotARepository,
+    /// The resolved path is not valid Unicode, so no provider's wire can carry it.
+    NotUnicode,
 }
 
 /// The details of a `repoMount.rootResolutionFailed` refusal: its reason, the system's own words

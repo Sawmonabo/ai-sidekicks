@@ -20,7 +20,7 @@ use sidekicks_workspace::git::worktree::creation::{
 };
 use sidekicks_workspace::row_guards::CHECKOUT_ROOT_METADATA_PATH;
 
-use crate::run::agent::{RunAgentReadError, RunAgentReader};
+use crate::run::agent::{RUN_AGENT_STATEMENT_CAPACITY, RunAgentReadError, RunAgentReader};
 
 // A run whose execution context is unreleased, at its checkout, and a run still queued or starting,
 // at the checkout its session's workspace works in now, each of a session other than the caller's.
@@ -57,6 +57,10 @@ enum LiveRunFoldersError {
     #[error(transparent)]
     Agent(#[from] RunAgentReadError),
 }
+
+/// The statements the live runs' folders prepare on a read connection: the other sessions' live
+/// runs, and the run agent reader's.
+pub const SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY: usize = 1 + RUN_AGENT_STATEMENT_CAPACITY;
 
 /// Reads the live runs' folders from the daemon's database, each run's agent from its session's
 /// log on the same connection.

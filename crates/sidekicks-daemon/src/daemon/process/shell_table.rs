@@ -1,5 +1,5 @@
 //! The terminal service's table as the daemon's start builds it: its shells' startup folders in
-//! the run folder, the orphan registry in the data folder, and the three reads and writes the table
+//! the run folder, the start's orphan registry, and the three reads and writes the table
 //! calls out to, each a change of a shell's holder appended to its session's log, a session's
 //! working folder, and what a shell takes from the machine's settings file and its project.
 
@@ -18,7 +18,7 @@ use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_shell::control_lease::LeaseBroadcast;
 use sidekicks_shell::integration::injection::{ShellStartupError, prepare_shell_startup_folders};
 use sidekicks_shell::mode::SHELL_MODE;
-use sidekicks_shell::orphan::guard::{OrphanGuardError, open_orphan_guard};
+use sidekicks_shell::orphan::guard::OrphanGuard;
 use sidekicks_shell::table::{
     ReadSessionWorkingFolder, ReadShellSettings, ShellSettings, ShellTable, ShellTableDeps,
 };
@@ -42,10 +42,6 @@ use crate::daemon::release_version::this_build_release_version;
 const SHELL_STARTUP_FOLDER_NAME: &str = "shell-startup";
 
 /// What the shell table is built from.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the shell table from it"
-)]
 pub(crate) struct ShellTableStart {
     /// The daemon's terminals.
     pub(crate) terminals: Arc<Terminals>,
@@ -65,8 +61,8 @@ pub(crate) struct ShellTableStart {
     pub(crate) screen_reader_environment_names: Vec<&'static str>,
     /// The daemon's run folder, where the shells' startup folders go.
     pub(crate) run_folder: PathBuf,
-    /// The daemon's data folder, where the orphan registry is kept.
-    pub(crate) data_folder: PathBuf,
+    /// The record of every terminal child, which the start opened over the data folder.
+    pub(crate) orphan_guard: Arc<OrphanGuard>,
     /// The daemon's own program, whose `shell` mode starts every shell.
     pub(crate) daemon_program: PathBuf,
 }
@@ -86,15 +82,10 @@ pub(crate) enum ShellTableStartError {
     /// The blocking task preparing the startup folders ended before it finished.
     #[error("the shells' startup folders' preparation ended before it finished")]
     StartupFoldersInterrupted(#[source] tokio::task::JoinError),
-    /// The orphan registry could not be opened.
-    #[error("the shells' orphan registry could not be opened")]
-    OrphanGuard(#[source] OrphanGuardError),
 }
 
 /// Builds the shell table from `start`, holding no shell. Fails when the daemon's program cannot
-/// be named, the startup folders cannot be prepared or the orphan registry cannot be opened. Runs
-/// inside the daemon's runtime.
-#[expect(dead_code, reason = "the daemon's start builds the shell table")]
+/// be named or the startup folders cannot be prepared. Runs inside the daemon's runtime.
 pub(crate) async fn build_shell_table(
     start: ShellTableStart,
 ) -> Result<ShellTable, ShellTableStartError> {
@@ -108,7 +99,7 @@ pub(crate) async fn build_shell_table(
         reserved_names,
         screen_reader_environment_names,
         run_folder,
-        data_folder,
+        orphan_guard,
         daemon_program,
     } = start;
     let shell_mode = shell_mode(daemon_program)?;
@@ -118,9 +109,6 @@ pub(crate) async fn build_shell_table(
             .await
             .map_err(ShellTableStartError::StartupFoldersInterrupted)?
             .map_err(ShellTableStartError::StartupFolders)?;
-    let orphan_guard = open_orphan_guard(&data_folder)
-        .await
-        .map_err(ShellTableStartError::OrphanGuard)?;
     Ok(ShellTable::new(ShellTableDeps {
         terminals,
         machine_device_id,
@@ -133,7 +121,7 @@ pub(crate) async fn build_shell_table(
         screen_reader_environment_names,
         startup_folders,
         shell_mode,
-        orphan_guard: Arc::new(orphan_guard),
+        orphan_guard,
         runtime: Handle::current(),
     }))
 }

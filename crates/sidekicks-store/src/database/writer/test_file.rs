@@ -89,7 +89,12 @@ pub fn insert_lead(database: &TestDatabase, session_id: SessionId, provider: &st
                 json!({
                     "mainAgent": {
                         "agentId": agent_id,
-                        "binding": { "providerName": provider },
+                        "binding": {
+                            "providerName": provider,
+                            "modelId": "test-model",
+                            "effort": null,
+                            "providerAccountId": null,
+                        },
                     },
                 })
                 .to_string(),

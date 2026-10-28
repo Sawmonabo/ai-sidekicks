@@ -31,8 +31,7 @@ pub(crate) const LAST_ERROR_METADATA_PATH: &str = "$.lastError";
 
 /// The JSON path in `workspaces.metadata` of the folder the bind admitted, where a `boundRoot` run
 /// works. The bind writes it and nothing clears it.
-#[expect(dead_code, reason = "the workspace service's bind and preparation")]
-pub(crate) const BOUND_ROOT_METADATA_PATH: &str = "$.boundRoot";
+pub const BOUND_ROOT_METADATA_PATH: &str = "$.boundRoot";
 
 /// The JSON path in `workspaces.metadata` of the top level of the working tree the workspace works
 /// in now: the bound checkout's, or its worktree's once one is its execution root.

@@ -523,6 +523,14 @@ pub trait SessionSpawnContextResolver: Send + Sync {
         session_id: SessionId,
         provider_account_id: Option<ProviderAccountId>,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>>;
+
+    /// The folder `session_id`'s runs work in, absolute: its prepared root, else the folder its
+    /// workspace was bound to, else its repository's checkout, so it answers before the session's
+    /// first run prepares a root. Fails when the session or its folders cannot be read.
+    fn resolve_run_folder(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<PathBuf, Box<dyn Error + Send + Sync>>>;
 }
 
 /// Reads the accounts a provider runs on: an account's folders before any session runs on it, and

@@ -50,6 +50,11 @@ impl ReservedEnvironmentNames {
                 .collect(),
         }
     }
+
+    /// The names no row may set, each a name a registered driver sets on its processes.
+    pub fn names(&self) -> &[&'static str] {
+        &self.names
+    }
 }
 
 /// What every environment the daemon builds for one session starts from.

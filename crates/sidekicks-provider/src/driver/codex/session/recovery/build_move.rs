@@ -140,9 +140,16 @@ impl CodexServiceRecovery {
         service.restart_planned().await?;
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
-            let resumed = self.resume_claimed(service, &inbound, never_left()).await;
+            let resumed = self
+                .resume_claimed(service, &inbound, never_left())
+                .await
+                .map(|outcome| outcome.result);
+            if let Some(result) = &resumed {
+                self.report_relaunch(service, &claim, inbound.session_id(), result.clone())
+                    .await;
+            }
             drop(claim);
-            if let Some(result) = resumed.map(|outcome| outcome.result) {
+            if let Some(result) = resumed {
                 self.report_moved(service, &inbound, result, change).await;
             }
         }
@@ -162,6 +169,10 @@ impl CodexServiceRecovery {
             match self.claim_idle(inbound).await {
                 ClaimedIdle::Idle(claim, thread_id) => {
                     let resumed = self.move_claimed(inbound, from, to, thread_id).await;
+                    if let Some(result) = &resumed {
+                        self.report_relaunch(to, &claim, inbound.session_id(), result.clone())
+                            .await;
+                    }
                     drop(claim);
                     if let Some(result) = resumed {
                         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
@@ -242,9 +253,9 @@ impl CodexServiceRecovery {
             let thread_id = thread_id.clone();
             async move { await_unloaded(&leaving, &thread_id, deadline).await }.boxed()
         });
-        let resumed = self.resume_claimed(to, inbound, writer_left).await?.result;
-        self.report_relaunch(to, session_id, resumed.clone()).await;
-        Some(resumed)
+        self.resume_claimed(to, inbound, writer_left)
+            .await
+            .map(|outcome| outcome.result)
     }
 
     // Tells a session it moved to `change`'s build once its conversation resumed there.

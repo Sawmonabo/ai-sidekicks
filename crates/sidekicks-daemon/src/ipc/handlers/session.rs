@@ -4,6 +4,7 @@ pub(crate) mod changes;
 pub(crate) mod controls;
 pub(crate) mod draft_update;
 pub(crate) mod event_subscribe;
+pub(crate) mod group;
 pub(crate) mod links;
 pub(crate) mod list;
 pub(crate) mod read;

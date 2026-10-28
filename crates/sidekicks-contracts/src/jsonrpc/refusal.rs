@@ -448,6 +448,9 @@ refusal_codes! {
     /// A branch-name pattern refused at save, from `machine.settings.update` (`Every
     /// project`'s `Branch names`) or `project.branchPattern.update`, one rule for both.
     ProjectBranchPatternRefused = "project.branchPattern.refused" (InvalidArgument, 422);
+    /// `project.clone.start` reused a `clientIdempotencyKey` with a differing request; the first
+    /// clone is untouched (`data.fields`: `projectId` of the project the key first answered).
+    ProjectCloneIdempotencyConflict = "project.clone.idempotencyConflict" (InvalidArgument, 422);
     /// `project.clone.start` refused before anything is fetched.
     ProjectCloneRefused = "project.clone.refused" (InvalidArgument, 422);
     /// `project.clone.start`, `project.clone.folder.read`, `project.clone.subscribe`,

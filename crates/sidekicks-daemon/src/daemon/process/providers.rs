@@ -89,7 +89,6 @@ pub(crate) struct ProviderStart {
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
 /// refresh and the provider services the daemon holds a connection to.
-#[expect(dead_code, reason = "the daemon's start and stop read the providers")]
 pub(crate) struct Providers {
     /// Every driver, in the table's order.
     pub(crate) registry: Arc<ProviderRegistry>,

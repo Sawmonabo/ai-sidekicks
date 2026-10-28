@@ -380,11 +380,12 @@ impl ClaudeSessionEstablishment {
                 ClaudeUsageEstablishment::Fresh,
             )
             .await?;
-        self.bring_up(start).await?;
+        let spawned_version = self.bring_up(start).await?;
         // Claude Code resumes by the conversation's id, so the handle is that id.
         Ok(ProviderSessionHandle {
             resume_handle: provider_session_id.clone(),
             provider_session_id,
+            spawned_version,
         })
     }
 

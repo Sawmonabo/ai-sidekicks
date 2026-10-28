@@ -25,6 +25,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::run::posture::compose_execution_posture;
+use crate::runtime_binding::store::mint_runtime_binding_id;
 
 /// The resting session's stored conversation.
 pub(crate) const STORED_THREAD: &str = "stored-thread";
@@ -42,6 +43,7 @@ pub(super) const ANSWER: &str = "It reads the worktree.";
 pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
+        binding_id: mint_runtime_binding_id(),
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         resume_handle: STORED_THREAD.to_owned(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),

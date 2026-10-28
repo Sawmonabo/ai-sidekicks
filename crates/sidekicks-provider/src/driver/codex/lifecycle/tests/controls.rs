@@ -158,6 +158,7 @@ async fn a_settle_waits_until_its_session_came_back_live(#[case] coming_back: Co
 #[tokio::test]
 async fn a_settle_as_soon_as_a_session_is_created_answers_live() {
     let mut scripted = start_scripted_codex_service();
+    scripted.report_version("codex-cli 0.163.0");
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let driver = driver_holding(&scripted, folder.path());
     let session_id = new_session_id();

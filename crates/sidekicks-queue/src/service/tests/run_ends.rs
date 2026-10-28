@@ -126,8 +126,8 @@ async fn a_runs_end_moves_its_waiting_message_on(#[case] ended: EndedRun) {
 
 // A message the provider's live process keeps past its run's end stays with that run through the
 // end, and once a driver tells the queue the process is gone it moves on as at the end, to a next
-// run, where it waits for the person's next send. Killed by a process-gone listener that tells the
-// run lifecycle nothing, which leaves it with the ended run.
+// run, which starts with it. Killed by a process-gone listener that tells the run lifecycle
+// nothing, which leaves it with the ended run.
 #[tokio::test]
 async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
     let calls = Arc::new(DriverCalls::default());
@@ -162,7 +162,7 @@ async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
         .target_run_id
         .expect("the message waits for a run");
     assert_ne!(next_run_id, run_id);
-    assert!(calls.starts().is_empty(), "{:?}", calls.starts());
+    assert_eq!(calls.starts(), [(next_run_id, item_id)]);
 }
 
 // A process whose driver brings it back keeps the session open through the notice of its end,

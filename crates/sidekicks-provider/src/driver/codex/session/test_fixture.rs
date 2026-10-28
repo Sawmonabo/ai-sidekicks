@@ -52,7 +52,7 @@ use crate::driver::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
 use crate::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
-use crate::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
+use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -79,12 +79,12 @@ use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::contract::DriverError;
-use crate::driver::ports::DriverPorts;
+use crate::driver::ports::{DriverPorts, SessionRelaunchListener};
 use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
-use crate::driver::session_control::CreateSessionParams;
+use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
     PROVIDERS, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -147,6 +147,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) engine: Arc<dyn RunHost>,
     /// Run control on the session, which an ended turn's pause or continue is acted on through.
     pub(crate) run_control: Arc<CodexRunControl>,
+    /// How each let-go the driver asked of the record said it stopped being its session's.
+    pub(crate) let_go_exits: Vec<CodexRecordExit>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
 }
 
@@ -268,6 +270,7 @@ impl TestCodexSession {
                 ports,
                 engine: Arc::clone(&engine) as _,
                 run_control,
+                let_go_exits: Vec::new(),
                 items,
             },
             bindings,
@@ -320,6 +323,64 @@ impl TestCodexSession {
     }
 }
 
+/// Which step of each relaunch the session directory's stand-in refuses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RefusedRelaunchStep {
+    /// None: every relaunch's opening and record are taken.
+    Nothing,
+    /// Every relaunch's opening.
+    Opening,
+    /// Every relaunch's record.
+    Record,
+}
+
+/// The session directory's stand-in, telling `heard` of each relaunch's opening and record and
+/// refusing the step `refused` names.
+pub(crate) struct TakenRelaunches {
+    /// Told `opened <binding>` at an opening and `relaunched <binding, if resumed>` at a record.
+    pub(crate) heard: Box<dyn Fn(String) + Send + Sync>,
+    /// The step refused.
+    pub(crate) refused: RefusedRelaunchStep,
+}
+
+impl SessionRelaunchListener for TakenRelaunches {
+    fn open_relaunch_binding(
+        &self,
+        _session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        (self.heard)(format!("opened {binding_id:?}"));
+        let is_refused = self.refused == RefusedRelaunchStep::Opening;
+        async move {
+            if is_refused {
+                return Err("the test refuses the opening".into());
+            }
+            Ok(())
+        }
+        .boxed()
+    }
+
+    fn session_relaunched(
+        &self,
+        _session_id: SessionId,
+        result: DriverResumeResult,
+    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        let binding_id = match result {
+            DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
+            DriverResumeResult::Failed { .. } => None,
+        };
+        (self.heard)(format!("relaunched {binding_id:?}"));
+        let is_refused = self.refused == RefusedRelaunchStep::Record;
+        async move {
+            if is_refused {
+                return Err("the test refuses the record".into());
+            }
+            Ok(())
+        }
+        .boxed()
+    }
+}
+
 /// The spawn-context port with [`OneFolder`] over `folder` registered on it.
 pub(super) fn one_folder_spawn_contexts(
     folder: PathBuf,
@@ -364,6 +425,14 @@ impl SessionSpawnContextResolver for OneFolder {
             })
         }
         .boxed()
+    }
+
+    fn resolve_run_folder(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>> {
+        let run_folder = self.0.clone();
+        async move { Ok(run_folder) }.boxed()
     }
 }
 
@@ -455,10 +524,17 @@ impl TestCodexTask {
                 self.apply(routed).await;
             }
             CodexSessionInbound::HeldThread { .. } => {}
+            // A let-go is kept and answered; the record stays for the test to read.
+            CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
+                self.let_go_exits.push(exit);
+                let _unheard = reply.send(());
+            }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
             | CodexSessionInbound::Lifecycle(_) => {
-                panic!("the test's service asks nothing and its driver calls nothing of its own")
+                panic!(
+                    "the test's service asks nothing and its driver calls nothing else of its own"
+                )
             }
         }
         self.waiters.settle(&self.record);

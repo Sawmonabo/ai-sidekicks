@@ -1,5 +1,5 @@
-//! The projects, repository mounts and workspaces tables, which the daemon's schema runs with the
-//! rest. Every closed set a column holds is written from its enum.
+//! The projects, clone start keys, repository mounts and workspaces tables, which the daemon's
+//! schema runs with the rest. Every closed set a column holds is written from its enum.
 
 use std::sync::LazyLock;
 
@@ -39,8 +39,9 @@ pub enum MountOrigin {
     Managed,
 }
 
-/// The workspace part of the daemon's schema: projects, then the repository mounts that name them,
-/// then the workspaces bound to those mounts, in foreign-key order.
+/// The workspace part of the daemon's schema: projects and their clone starts' keys, then the
+/// repository mounts that name them, then the workspaces bound to those mounts, in foreign-key
+/// order.
 pub(crate) static WORKSPACE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workspace_schema_sql);
 
 /// The store's list and the workspace part.
@@ -78,11 +79,13 @@ fn workspace_schema_sql() -> String {
 -- mount's anchor (repo_mounts.metadata.commonDir); attach keeps one project per repository. While
 -- cloning, clone_url keeps the address the person typed with any user and password taken out,
 -- clone_outcome where the clone stands, clone_failure git's last error line after a failed clone,
--- and clone_staging_folder the folder the daemon made beside the destination for git to clone
--- into, with clone_staging_identity its <device>:<inode>: the one folder a failure or a restart
--- removes, and only while that path still holds that folder. place is where the folder is and its
--- sessions run, fixed at attach: the place's wire JSON (Windows itself or a WSL 2 distribution),
--- NULL on macOS and Linux; folder_path is in that place's own form.
+-- and clone_staging_folder the folder the daemon names beside the destination for git to clone
+-- into, recorded before it is made, with clone_staging_identity its <device>:<inode> once made:
+-- the one folder a failure or a restart removes, and only while that path still holds that folder,
+-- at folder_path too once it is renamed there; a folder with no identity yet is removed only while
+-- it is empty. place is where the folder is and its sessions run, fixed at attach: the place's
+-- wire JSON (Windows itself or a WSL 2 distribution), NULL on macOS and Linux; folder_path is in
+-- that place's own form.
 CREATE TABLE projects (
   id                     TEXT PRIMARY KEY,
   name                   TEXT NOT NULL,
@@ -102,9 +105,25 @@ CREATE TABLE projects (
   updated_at             TEXT NOT NULL,
   CHECK ((state = '{cloning}') = (clone_url IS NOT NULL)),
   CHECK ((state = '{cloning}') = (clone_outcome IS NOT NULL)),
-  CHECK ((clone_staging_folder IS NULL) = (clone_staging_identity IS NULL)),
+  CHECK (clone_staging_identity IS NULL OR clone_staging_folder IS NOT NULL),
   CHECK (state = '{cloning}' OR clone_staging_folder IS NULL),
   CHECK ((clone_outcome IS '{failed}') = (clone_failure IS NOT NULL))
+) STRICT;
+
+-- A clone start's own record, written with the project row the start inserts or retargets: a
+-- resend under the same client_idempotency_key answers project_id when its fields equal these,
+-- and is refused when any differs. clone_url is the address with any user and password taken
+-- out, so no credential is kept, and two starts differing only in their credentials answer the
+-- first project. parent_folder, place and rerun_project_id are the request's parentFolder, place
+-- and projectId as sent, each NULL when it named none; place is stored as projects.place stores
+-- it. Forgetting the project deletes its keys, after which a resend is a new start.
+CREATE TABLE project_clone_requests (
+  client_idempotency_key TEXT PRIMARY KEY,
+  project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  clone_url              TEXT NOT NULL,
+  parent_folder          TEXT,
+  place                  TEXT,
+  rerun_project_id       TEXT
 ) STRICT;
 
 -- A mount belongs to the machine, not to a session. local_path is what the

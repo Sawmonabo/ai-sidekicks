@@ -101,35 +101,35 @@ static UNREBUILT_SESSIONS_DETAIL: LazyLock<FreeFormText<PROVIDER_FAILURE_DETAIL_
     });
 
 /// What the pass reads, writes and reports through.
-pub(crate) struct StartupRecoveryDeps {
+pub struct StartupRecoveryDeps {
     /// This machine, which every recovery event names.
-    pub(crate) machine_id: MachineId,
+    pub machine_id: MachineId,
     /// The listing's reads and the count of earlier failed passes.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The writer a copy aside holds while it reads the store's files.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The appends of the recovery events on the service's own session.
-    pub(crate) appender: Arc<SessionEventAppender>,
+    pub appender: Arc<SessionEventAppender>,
     /// The sessions to rebuild and their rebuilds.
-    pub(crate) projection_rebuild: Arc<ProjectionRebuildService>,
+    pub projection_rebuild: Arc<ProjectionRebuildService>,
     /// The last good point of a session no rebuild can take whole.
-    pub(crate) damaged_history: Arc<DamagedHistory>,
+    pub damaged_history: Arc<DamagedHistory>,
     /// What the restart left in each session, settled.
-    pub(crate) restart_settle: Arc<RestartSettle>,
+    pub restart_settle: Arc<RestartSettle>,
     /// The recovery state the pass moves.
-    pub(crate) status: Arc<RecoveryStatusTracker>,
+    pub status: Arc<RecoveryStatusTracker>,
     /// Told of the failure that ends the pass, so a damaged file is repaired.
-    pub(crate) damage: Arc<DatabaseDamageWatch>,
+    pub damage: Arc<DatabaseDamageWatch>,
     /// The database file, whose files a heal copies aside.
-    pub(crate) database_path: PathBuf,
+    pub database_path: PathBuf,
     /// The data folder the copies aside go in.
-    pub(crate) data_folder: PathBuf,
+    pub data_folder: PathBuf,
     /// The copy each file is copied aside with.
-    pub(crate) copier: Arc<DatabaseFileCopier>,
+    pub copier: Arc<DatabaseFileCopier>,
 }
 
 /// Runs the recovery pass a start makes before the daemon takes writes.
-pub(crate) struct StartupRecovery {
+pub struct StartupRecovery {
     deps: StartupRecoveryDeps,
 }
 
@@ -177,15 +177,13 @@ struct PassListing {
 
 impl StartupRecovery {
     /// The pass over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) fn new(deps: StartupRecoveryDeps) -> Self {
+    pub fn new(deps: StartupRecoveryDeps) -> Self {
         Self { deps }
     }
 
     /// Runs the pass and returns once it has ended, either way; the recovery state then says how
     /// it ended. `stop` ends it before its next step.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) async fn run(&self, stop: &CancellationToken) {
+    pub async fn run(&self, stop: &CancellationToken) {
         let started = Instant::now();
         let mut pass = PassRecord {
             machine_id: self.deps.machine_id.clone(),

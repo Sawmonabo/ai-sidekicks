@@ -23,11 +23,7 @@ use sidekicks_provider::run::delivery::DeliveryOperation;
 
 /// The provider operations a binding remembers: past it the oldest one opened is dropped, and a
 /// late delivery of it may read as from before the last cut.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the execution epochs under this cap"
-)]
-pub(crate) const MAX_ASSOCIATIONS_PER_BINDING: NonZeroUsize =
+pub const MAX_ASSOCIATIONS_PER_BINDING: NonZeroUsize =
     NonZeroUsize::new(4096).expect("the cap is not zero");
 
 // Why an eviction is reported, in the words the diagnostic carries.

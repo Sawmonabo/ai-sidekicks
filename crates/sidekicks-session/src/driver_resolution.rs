@@ -18,7 +18,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::events::session::read::{DamagedFromSequenceReader, session_read_bound};
 
-use crate::run::agent::read_lead_binding;
+use crate::run::agent::read_session_lead;
 use crate::run::read::read_run_provider;
 
 /// Why the driver of a live run was not resolved.
@@ -114,12 +114,14 @@ where
     Failure: From<DatabaseReadError> + From<rusqlite::Error> + From<DomainError> + Send + 'static,
 {
     let read_bound = session_read_bound(read_damaged_from_sequence, &session_id, None);
-    let bound = pool
+    let lead = pool
         .read(ReadLength::Short, move |reader| -> Result<_, Failure> {
-            Ok(read_lead_binding(reader, &session_id, read_bound)?)
+            Ok(read_session_lead(reader, &session_id, read_bound)?)
         })
         .await?;
-    let (provider, provider_account_id) = bound.unzip();
+    let (provider, provider_account_id) = lead
+        .map(|lead| (lead.binding.provider_name, lead.binding.provider_account_id))
+        .unzip();
     let (provider, driver) = resolve_session_driver(providers, &session_id, provider)?;
     Ok((provider, provider_account_id.flatten(), driver))
 }

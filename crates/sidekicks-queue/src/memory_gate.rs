@@ -40,19 +40,11 @@ const INGEST_BYTES_PER_PIXEL: u64 = 9;
 
 /// A quick Code step's thread beyond its interpreter's budget, the gate's
 /// [`MemoryGateFigures::quick_thread_bytes`].
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the memory gate's figures"
-)]
-pub(crate) const QUICK_THREAD_BYTES: u64 = 32 * MEBIBYTE;
+pub const QUICK_THREAD_BYTES: u64 = 32 * MEBIBYTE;
 
 /// An ingest worker's own memory beyond the file it reads and the picture it draws, the gate's
 /// [`MemoryGateFigures::ingest_worker_bytes`].
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the memory gate's figures"
-)]
-pub(crate) const INGEST_WORKER_BYTES: u64 = 128 * MEBIBYTE;
+pub const INGEST_WORKER_BYTES: u64 = 128 * MEBIBYTE;
 
 /// Reads the bytes the system can give now; blocking, so the gate calls it off the runtime.
 pub(crate) type AvailableMemoryRead = Arc<dyn Fn() -> io::Result<u64> + Send + Sync>;
@@ -386,6 +378,10 @@ impl MemoryAdmission {
 
     /// Keeps a quick step's interpreter peak, in bytes, for the release to learn. Refused unless
     /// admitted or parked.
+    #[expect(
+        dead_code,
+        reason = "the workflow step runner reports a quick Code step's interpreter peak here"
+    )]
     pub(crate) fn observe_interpreter_peak(
         &self,
         peak_bytes: u64,

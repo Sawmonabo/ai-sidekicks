@@ -8,7 +8,6 @@ use std::sync::Arc;
 
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_std::mutex_lock::lock;
@@ -32,10 +31,10 @@ use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 
 impl ClaudeSessionEstablishment {
-    /// Resumes the conversation `params` names in a fresh process, or answers the session's live
-    /// process when it runs that conversation at the settings `params` asks for, on the binding
-    /// the resume that brought it up answered; every failure answers the `Failed` arm, nothing
-    /// left running.
+    /// Resumes the conversation `params` names in a fresh process under the binding the caller
+    /// minted into it, or answers the session's live process when it runs that conversation at the
+    /// settings `params` asks for, on the binding the resume that brought it up answered, else on
+    /// the minted one; every failure answers the `Failed` arm, nothing left running.
     pub(crate) async fn resume(&self, params: ResumeSessionParams) -> ClaudeResumeAnswer {
         match self.try_resume(params).await {
             Ok(answer) => answer,
@@ -52,6 +51,7 @@ impl ClaudeSessionEstablishment {
         params: ResumeSessionParams,
     ) -> Result<ClaudeResumeAnswer, ClaudeEstablishmentError> {
         let session_id = params.session_id;
+        let binding_id = params.binding_id.clone();
         if params.larger_window.is_some() {
             return Err(claude_session_unavailable(
                 ClaudeSessionUnavailableReason::LargerWindowFigureUnsupported,
@@ -74,7 +74,7 @@ impl ClaudeSessionEstablishment {
                 }
                 ClaudeResumeSlot::CameUp(live) if runs_as_asked(&live, &params) => {
                     return Ok(ClaudeResumeAnswer {
-                        result: answer_came_up(&live).await?,
+                        result: answer_came_up(&live, binding_id).await?,
                         has_started_process: false,
                     });
                 }
@@ -82,7 +82,6 @@ impl ClaudeSessionEstablishment {
             }
         };
         let resume_handle = params.resume_handle.clone();
-        let binding_id = mint_binding_id();
         let request = ClaudeSpawnRequest {
             session_id,
             agent_id: params.agent_id,
@@ -181,9 +180,10 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
 }
 
 // The `Resumed` arm for the live process running the conversation asked for, on the binding its
-// resume answered; a create's process has none, so it is answered on a new one.
+// resume answered; a create's process has none, so it is answered on `binding_id`.
 async fn answer_came_up(
     live: &LiveClaudeSession,
+    binding_id: RuntimeBindingId,
 ) -> Result<DriverResumeResult, ClaudeEstablishmentError> {
     let resume_handle = live.provider_session_id.clone();
     let session_position =
@@ -194,17 +194,11 @@ async fn answer_came_up(
                 source,
             })?;
     Ok(resumed(
-        live.resumed_binding_id
-            .clone()
-            .unwrap_or_else(mint_binding_id),
+        live.resumed_binding_id.clone().unwrap_or(binding_id),
         session_position,
         resume_handle,
         live.spawned_version.clone(),
     ))
-}
-
-fn mint_binding_id() -> RuntimeBindingId {
-    RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a binding id")
 }
 
 // The `Resumed` arm for a process running conversation `resume_handle`, on `binding_id`.

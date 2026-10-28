@@ -18,6 +18,7 @@ use sidekicks_contracts::session::methods::SessionFileSearchEntryKind;
 use sidekicks_platforms::path_from_program_output;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::retry::read::{is_retryable_read_failure, read_with_one_retry};
+use sidekicks_workspace::git::GITLINK_MODE;
 use sidekicks_workspace::git::process::{GitCall, GitError, GitRunner};
 use tokio::task::JoinError;
 
@@ -40,9 +41,6 @@ const UNTRACKED_TAG: &[u8] = b"? ";
 
 /// The length of every tag `-t` prints, its letter and a space.
 const TAG_LENGTH: usize = 2;
-
-/// The mode of a tracked repository inside the working tree (a submodule).
-const GITLINK_MODE: &[u8] = b"160000";
 
 /// The mode of a tracked link.
 const LINK_MODE: &[u8] = b"120000";
@@ -257,7 +255,7 @@ fn git_entry_of(listed: &[u8]) -> Option<GitEntry<'_>> {
     let staged = listed.get(TAG_LENGTH..)?;
     let mode = staged.get(..MODE_LENGTH)?;
     let path_start = staged.iter().position(|byte| *byte == b'\t')? + 1;
-    let kind = if mode == GITLINK_MODE {
+    let kind = if mode == GITLINK_MODE.as_bytes() {
         GitEntryKind::Folder
     } else if mode == LINK_MODE {
         GitEntryKind::Target

@@ -119,10 +119,6 @@ pub(crate) struct DetachRepoMount {
     pub(crate) correlation_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the repository mount detach handler")
-)]
 impl RepoMountService {
     /// Detaches a mount and archives its workspaces (nothing changes when it is not `attached`),
     /// running `following_statements` (the project writer's forgetting of the record) in the same

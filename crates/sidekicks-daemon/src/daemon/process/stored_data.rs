@@ -20,6 +20,7 @@ use sidekicks_session::conversation_purge::ConversationPurge;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::writer::repack::RepackJobDeps;
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
 use crate::daemon::backup::run::{BACKUP_BUDGET, Backups};
 use crate::daemon::configuration::ConfigurationStore;
@@ -32,10 +33,6 @@ use crate::data_acts::purge::{SessionPurge, SessionPurgeDeps};
 
 /// What the stored data's methods are built from: the services the start has built, and the two
 /// recovery services the start's recovery pass shares with damaged history.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the method tables from it"
-)]
 pub(crate) struct StoredDataMethodsStart<'start> {
     /// The open database file.
     pub(crate) database: &'start DatabaseFile,
@@ -47,6 +44,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) payloads: Arc<PayloadStore>,
     /// The terminals' shells, which a purge ends.
     pub(crate) shells: Arc<ShellTable>,
+    /// The project list, which a purge tells of each session it marks and removes.
+    pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// Every driver, through which a purge deletes the provider's copy of each conversation.
     pub(crate) providers: Arc<ProviderRegistry>,
     /// This machine, named in each purge's receipt.
@@ -68,10 +67,6 @@ pub(crate) struct StoredDataMethodsStart<'start> {
 }
 
 /// The inputs of the retention, lifecycle and damaged-history methods.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the method tables from it"
-)]
 pub(crate) struct StoredDataMethods {
     /// The retention methods' inputs.
     pub(crate) retention: RetentionMethodsDeps,
@@ -83,10 +78,6 @@ pub(crate) struct StoredDataMethods {
 
 /// Builds the one session purge over `start`'s services, then the retention methods' and damaged
 /// history's inputs over it and the lifecycle verbs' flush over the database's writer.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the method tables from it"
-)]
 pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> StoredDataMethods {
     let StoredDataMethodsStart {
         database,
@@ -94,6 +85,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         session_services,
         payloads,
         shells,
+        project_list_feed,
         providers,
         machine_id,
         configuration,
@@ -119,6 +111,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         snapshots: Arc::clone(&repo.snapshots),
         project_rules: Arc::clone(&session_services.approvals.rules),
         list_feed: Arc::clone(&session_services.list_feed),
+        project_list_feed,
         ranking: Arc::clone(&session_services.related_ranking),
         payloads,
         truncation: Arc::clone(&database.truncation),

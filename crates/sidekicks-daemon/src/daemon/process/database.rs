@@ -51,7 +51,9 @@ use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
 use sidekicks_session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
+use sidekicks_session::directory::provider_port::SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::directory::run_activity::PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY;
 use sidekicks_session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
@@ -61,6 +63,7 @@ use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
 use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use sidekicks_session::run::folders::SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
 use sidekicks_session::run::live_count::count_live_runs_after_commits;
 use sidekicks_session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
@@ -92,6 +95,7 @@ use sidekicks_store::events::log_service::{
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::machine::registry::MACHINE_REGISTRY_STATEMENT_CAPACITY;
 use sidekicks_workflow::definitions::drafts::WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY;
 use sidekicks_workflow::definitions::kept_values::WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY;
@@ -102,9 +106,13 @@ use sidekicks_workflow::runs::attention::WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACI
 use sidekicks_workflow::runs::deletion::WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY;
 use sidekicks_workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY;
 use sidekicks_workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
+use sidekicks_workspace::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::creation::WORKTREE_CREATOR_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
+use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
 use tokio::sync::{oneshot, watch};
@@ -134,6 +142,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + APPROVAL_RULES_STATEMENT_CAPACITY
     + ARTIFACT_STATEMENT_CAPACITY
     + BACKUP_STATEMENT_CAPACITY
+    + CLONE_REQUESTS_STATEMENT_CAPACITY
     + CONVERSATION_PURGE_STATEMENT_CAPACITY
     + DAEMON_CONFIGURATION_STATEMENT_CAPACITY
     + DAMAGED_HISTORY_STATEMENT_CAPACITY
@@ -147,6 +156,8 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + MOUNT_OCCUPANCY_STATEMENT_CAPACITY
     + OUTBOX_STATEMENT_CAPACITY
     + PLANS_STATEMENT_CAPACITY
+    + PROJECT_RECORDS_STATEMENT_CAPACITY
+    + PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY
     + PROJECTION_REBUILD_STATEMENT_CAPACITY
     + PROVIDER_CHOICE_STATEMENT_CAPACITY
     + PROVIDER_SESSIONS_STATEMENT_CAPACITY
@@ -165,9 +176,11 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + RUNTIME_BINDING_STORE_STATEMENT_CAPACITY
     + SESSION_AUTO_TITLE_STATEMENT_CAPACITY
     + SESSION_CHANGES_STATEMENT_CAPACITY
+    + SESSION_DIRECTORY_PROVIDER_PORT_STATEMENT_CAPACITY
     + SESSION_DRAFT_STORE_STATEMENT_CAPACITY
     + SESSION_LINK_SERVICE_STATEMENT_CAPACITY
     + SESSION_LIST_ROWS_STATEMENT_CAPACITY
+    + SESSION_LIVE_RUN_FOLDERS_STATEMENT_CAPACITY
     + SESSION_PURGE_STATEMENT_CAPACITY
     + SESSION_SERVICE_STATEMENT_CAPACITY
     + SESSION_TAG_SERVICE_STATEMENT_CAPACITY
@@ -182,7 +195,9 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY
     + WORKFLOW_RUN_STORE_STATEMENT_CAPACITY
     + WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY
-    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
+    + WORKFLOW_VERSIONS_STATEMENT_CAPACITY
+    + WORKTREE_CREATOR_STATEMENT_CAPACITY
+    + WORKTREE_SERVICE_STATEMENT_CAPACITY;
 
 /// How the writer's open fails, as [`DatabaseWriter::open`] reports the schema's opener.
 type WriterOpenFailure =
@@ -310,6 +325,8 @@ pub(crate) struct DatabaseFile {
     pub(crate) live_runs: watch::Receiver<u32>,
     /// Truncates the write-ahead log, asked once the check has answered and after each purge.
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
+    /// Where each damaged session's log stops being readable, as the recovery status says.
+    pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     check: CheckFollower,
     // Ends the writer once damage is found; aborted with the file.
     damage_follower: AbortOnDropHandle<()>,
@@ -443,6 +460,10 @@ pub(crate) async fn open_database_file(
         Arc::clone(&writer),
     )));
     let followers = Arc::new(SessionEventFollowers::default());
+    let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> = Arc::new({
+        let status = Arc::clone(&status);
+        move |session_id| status.read_damaged_from_sequence(session_id)
+    });
     let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
         writer: Arc::clone(&writer),
         pool: Arc::clone(&pool),
@@ -452,10 +473,7 @@ pub(crate) async fn open_database_file(
             let status = Arc::clone(&status);
             move |session_id, event_type| refuse_session_event(&status, session_id, event_type)
         })),
-        read_damaged_from_sequence: Some(Arc::new({
-            let status = Arc::clone(&status);
-            move |session_id| status.read_damaged_from_sequence(session_id)
-        })),
+        read_damaged_from_sequence: Some(Arc::clone(&read_damaged_from_sequence)),
     }));
     Ok(DatabaseFile {
         database_path,
@@ -467,6 +485,7 @@ pub(crate) async fn open_database_file(
         followers,
         live_runs,
         truncation,
+        read_damaged_from_sequence,
         check,
         damage_follower,
         is_vouched,

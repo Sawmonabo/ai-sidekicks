@@ -49,7 +49,8 @@ impl ClaudeDriver {
         &self,
         params: ResumeSessionParams,
     ) -> Result<DriverResumeResult, DriverError> {
-        Ok(self.parts()?.establishment.resume(params).await.result)
+        let establishment = &self.parts()?.establishment;
+        Ok(establishment.resume(params).await.result)
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any

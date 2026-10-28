@@ -216,31 +216,72 @@ pub(crate) enum StagedCloneError {
     Interrupted(#[from] JoinError),
 }
 
-/// Makes the folder git clones into, hidden beside `destination` in its parent (made when
-/// missing), by a create that fails if the folder exists, so the folder answered is one this call
-/// made. The folder takes the system's default mode, since it becomes the project's folder.
-/// `destination` is a parent folder joined with a repository name.
-pub(crate) async fn make_staged_clone(destination: &Path) -> Result<StagedClone, StagedCloneError> {
+/// Names the folder git clones into, hidden beside `destination` in its parent, with random bytes
+/// so two clones of one name never meet; nothing is made. Fails when the system gives no random
+/// bytes. `destination` is a parent folder joined with a repository name.
+pub(crate) fn name_staged_clone(destination: &Path) -> Result<PathBuf, StagedCloneError> {
     let parent = destination
         .parent()
         .expect("the caller joins a repository name to a parent folder");
     let name = destination
         .file_name()
         .expect("the caller joins a repository name to a parent folder");
-    tokio::fs::create_dir_all(parent).await?;
     let suffix = random_hex(STAGED_CLONE_SUFFIX_BYTES).map_err(StagedCloneError::Naming)?;
     let mut folder_name = OsString::from(".");
     folder_name.push(name);
     folder_name.push(format!(".clone-{suffix}"));
-    let folder = parent.join(folder_name);
-    tokio::fs::create_dir(&folder).await?;
-    let identity = read_folder_identity(folder.clone())
+    Ok(parent.join(folder_name))
+}
+
+/// Makes the folder `folder` names (see [`name_staged_clone`]), its parent made when missing, by a
+/// create that fails if the folder exists, so the folder answered is one this call made. The
+/// folder takes the system's default mode, since it becomes the project's folder. Fails with the
+/// create's error, or `Replaced` when something else stood there when it was read.
+pub(crate) async fn make_staged_clone(folder: &Path) -> Result<StagedClone, StagedCloneError> {
+    let parent = folder
+        .parent()
+        .expect("a staged clone's folder is named inside a parent folder");
+    tokio::fs::create_dir_all(parent).await?;
+    tokio::fs::create_dir(folder).await?;
+    let identity = read_folder_identity(folder.to_owned())
         .await?
         .ok_or(StagedCloneError::Replaced)?;
     Ok(StagedClone {
-        path: folder,
+        path: folder.to_owned(),
         identity,
     })
+}
+
+/// A clone's staged folder as its record keeps it: named before it is made, then made and known
+/// by its identity.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum StagedFolder {
+    /// Named and recorded; it may not be made yet, and git never ran in it.
+    Named(PathBuf),
+    /// Made, at its path now.
+    Made(StagedClone),
+}
+
+/// Removes a staged folder while its path still holds what the daemon made there: a named folder
+/// only while it is an empty folder, since git runs only in a made one, and a made one as
+/// [`remove_staged_clone`] does. Fails with the read's or the removal's error.
+pub(crate) async fn remove_staged_folder(folder: &StagedFolder) -> Result<(), StagedCloneError> {
+    match folder {
+        StagedFolder::Named(path) => match tokio::fs::remove_dir(path).await {
+            Ok(()) => Ok(()),
+            // Gone, never made, or holding something the daemon did not put there.
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty | ErrorKind::NotADirectory
+                ) =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        },
+        StagedFolder::Made(staged) => remove_staged_clone(staged).await,
+    }
 }
 
 /// Removes a staged clone's folder only while the path still holds that same folder; a path gone,
@@ -308,8 +349,8 @@ mod tests {
 
     use super::{
         DestinationState, StagedCloneError, address_without_credentials, make_staged_clone,
-        move_staged_clone_into_place, read_destination_state, remove_staged_clone,
-        repository_key_of, repository_name_of, scp_like_parts_of,
+        move_staged_clone_into_place, name_staged_clone, read_destination_state,
+        remove_staged_clone, repository_key_of, repository_name_of, scp_like_parts_of,
     };
 
     #[rstest]
@@ -407,9 +448,10 @@ mod tests {
         let destination = scratch.path().join("projects").join("app");
 
         // A folder replaced at the staged path after it was made survives the removal.
-        let replaced = make_staged_clone(&destination)
-            .await
-            .expect("the folder is made");
+        let replaced =
+            make_staged_clone(&name_staged_clone(&destination).expect("the folder is named"))
+                .await
+                .expect("the folder is made");
         fs::rename(&replaced.path, scratch.path().join("moved")).expect("the folder moves away");
         fs::create_dir(&replaced.path).expect("another folder takes the path");
         remove_staged_clone(&replaced)
@@ -418,9 +460,10 @@ mod tests {
         assert!(replaced.path.is_dir());
 
         // A filled destination refuses the move and keeps both folders.
-        let staged = make_staged_clone(&destination)
-            .await
-            .expect("the folder is made");
+        let staged =
+            make_staged_clone(&name_staged_clone(&destination).expect("the folder is named"))
+                .await
+                .expect("the folder is made");
         fs::create_dir(&destination).expect("the destination is made");
         fs::write(destination.join("note"), "kept").expect("the destination fills");
         assert_eq!(
@@ -455,9 +498,10 @@ mod tests {
         );
 
         // A destination whose parent is gone answers the rename's own error and keeps the clone.
-        let staged = make_staged_clone(&destination)
-            .await
-            .expect("the folder is made");
+        let staged =
+            make_staged_clone(&name_staged_clone(&destination).expect("the folder is named"))
+                .await
+                .expect("the folder is made");
         let orphaned = scratch.path().join("gone").join("app");
         let refusal = move_staged_clone_into_place(&staged, &orphaned)
             .await
@@ -479,9 +523,10 @@ mod tests {
             .expect("the removal runs");
 
         // A staged clone whose parent became a file answers the read's error.
-        let staged = make_staged_clone(&destination)
-            .await
-            .expect("the folder is made");
+        let staged =
+            make_staged_clone(&name_staged_clone(&destination).expect("the folder is named"))
+                .await
+                .expect("the folder is made");
         let parent = destination.parent().expect("the destination has a parent");
         fs::rename(parent, scratch.path().join("projects-moved")).expect("the parent moves away");
         fs::write(parent, "a file").expect("a file takes the parent's path");
@@ -502,9 +547,11 @@ mod tests {
             return;
         }
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let staged = make_staged_clone(&scratch.path().join("app"))
-            .await
-            .expect("the folder is made");
+        let staged = make_staged_clone(
+            &name_staged_clone(&scratch.path().join("app")).expect("the folder is named"),
+        )
+        .await
+        .expect("the folder is made");
         let locked = staged.path.join("objects");
         fs::create_dir(&locked).expect("a folder is made inside");
         let held = UnremovableFile::create_in(&locked, "pack").expect("a held file is made");

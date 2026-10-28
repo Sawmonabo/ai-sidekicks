@@ -9,7 +9,7 @@ pub(super) mod intake;
 mod naming;
 mod runs;
 mod service_events;
-mod sessions;
+pub(super) mod sessions;
 #[cfg(test)]
 mod tests;
 mod views;

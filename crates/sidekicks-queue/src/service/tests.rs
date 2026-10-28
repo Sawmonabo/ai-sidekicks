@@ -42,6 +42,7 @@ use sidekicks_provider::driver::session_control::ProviderSessionHandle;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
@@ -154,6 +155,7 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
             Ok(ProviderSessionHandle {
                 provider_session_id: "provider-session".to_owned(),
                 resume_handle: "conversation-1".to_owned(),
+                spawned_version: spawned_build("1.0.0", "/opt/provider/bin"),
             })
         }
         .boxed()
@@ -278,14 +280,13 @@ fn queue_over(
     ));
     let engine = test_engine(database, Arc::clone(&log.service), home.path());
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-    record_first_provider_capabilities(&providers);
-    let runtime_bindings = Arc::new(RuntimeBindingStore::new(
-        Arc::clone(&pool),
-        Arc::clone(&log.writer),
-    ));
+    record_first_provider_capabilities(&providers, true);
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&pool),
-        Arc::clone(&runtime_bindings),
+        Arc::new(RuntimeBindingStore::new(
+            Arc::clone(&pool),
+            Arc::clone(&log.writer),
+        )),
         Arc::new(Mutex::new(ExecutionEpochs::new(
             NonZeroUsize::new(8).expect("the cap is not zero"),
         ))),
@@ -293,7 +294,6 @@ fn queue_over(
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&pool),
         writer: Arc::clone(&log.writer),
-        runtime_bindings,
         binding_cursors,
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),

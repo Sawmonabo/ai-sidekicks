@@ -14,17 +14,18 @@ use tokio_util::task::TaskTracker;
 
 use super::{CodexServiceRecovery, CodexServiceRecoveryDependencies};
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
+use crate::driver::codex::run::turn_end_waiters::CodexRecordExit;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, TestCodexSession, fork_reply, no_turns, one_folder_provider_accounts,
+    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, TestCodexSession, fork_reply, no_turns,
+    one_folder_provider_accounts,
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
-use crate::driver::session_control::DriverResumeResult;
 use crate::driver::test_registry::new_run_id;
 use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
@@ -95,23 +96,13 @@ impl ProcessGoneListener for HeardGone {
     }
 }
 
-struct TakenRelaunches;
-
-impl SessionRelaunchListener for TakenRelaunches {
-    fn session_relaunched(
-        &self,
-        _session_id: SessionId,
-        _result: DriverResumeResult,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        async { Ok(()) }.boxed()
-    }
-}
-
-// Recovery on the test session's service and database, its ports the stand-ins above.
+// Recovery on the test session's service and database, its ports the stand-ins above, the session
+// directory's refusing what `refused` names.
 fn test_recovery(
     session: &TestCodexSession,
     folder: &Path,
     steps: &Arc<Steps>,
+    refused: RefusedRelaunchStep,
 ) -> Arc<CodexServiceRecovery> {
     let reviewer_denials = Arc::new(PortRegistration::new("reviewer denial"));
     reviewer_denials
@@ -122,8 +113,13 @@ fn test_recovery(
         .register(Arc::new(HeardGone(Arc::clone(steps))) as Arc<dyn ProcessGoneListener>)
         .expect("the port registers once");
     let session_relaunched = Arc::new(PortRegistration::new("session relaunched"));
+    let heard = Arc::clone(steps);
+    let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches {
+        heard: Box::new(move |step| heard.push(step)),
+        refused,
+    });
     session_relaunched
-        .register(Arc::new(TakenRelaunches) as Arc<dyn SessionRelaunchListener>)
+        .register(relaunches)
         .expect("the port registers once");
     Arc::new(CodexServiceRecovery::new(
         CodexServiceRecoveryDependencies {
@@ -152,12 +148,20 @@ fn restart_failure() -> CodexError {
     }
 }
 
-// Serves, as the service, every conversation it is asked to resume, with no turns on it.
-async fn serve_resumes(mut script: ScriptedService, settings: CodexThreadSettings) {
+// Serves, as the service, every conversation it is asked to resume, with no turns on it, each
+// resume a step of `steps`.
+async fn serve_resumes(
+    mut script: ScriptedService,
+    settings: CodexThreadSettings,
+    steps: Arc<Steps>,
+) {
     loop {
         let sent = script.next_sent().await;
         let answer = match sent["method"].as_str() {
-            Some("thread/resume") => fork_reply(TEST_THREAD, &settings),
+            Some("thread/resume") => {
+                steps.push("resume".to_owned());
+                fork_reply(TEST_THREAD, &settings)
+            }
             Some("thread/turns/list") => no_turns(),
             Some("thread/settings/update") => json!({}),
             Some("account/rateLimits/read") => json!({"rateLimits": null}),
@@ -165,6 +169,18 @@ async fn serve_resumes(mut script: ScriptedService, settings: CodexThreadSetting
         };
         script.answer(&sent, &answer);
     }
+}
+
+// The steps of each relaunch: its opening, its resume and its report.
+fn relaunch_steps(steps: &Steps) -> Vec<String> {
+    steps
+        .read()
+        .into_iter()
+        .map(|(step, _)| step)
+        .filter(|step| {
+            step.starts_with("opened") || step == "resume" || step.starts_with("relaunched")
+        })
+        .collect()
 }
 
 fn exit_code(code: u8) -> ProcessExit {
@@ -180,7 +196,12 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
     let mut session = TestCodexSession::start().await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let steps = Arc::new(Steps::new(&session));
-    let recovery = test_recovery(&session, folder.path(), &steps);
+    let recovery = test_recovery(
+        &session,
+        folder.path(),
+        &steps,
+        RefusedRelaunchStep::Nothing,
+    );
     let binding_id = session.record_binding().await;
     let run_id = new_run_id();
     let session_id = session.task.record.session_id;
@@ -226,11 +247,20 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session));
-        let recovery = test_recovery(&session, folder.path(), &steps);
+        let recovery = test_recovery(
+            &session,
+            folder.path(),
+            &steps,
+            RefusedRelaunchStep::Nothing,
+        );
         let service = Arc::clone(&session.scripted.service);
         let settings = session.task.record.thread_settings.clone();
         let session_id = session.task.record.session_id;
-        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
         let notices = || {
             notices_on(&session.engine, session_id)
                 .into_iter()
@@ -292,6 +322,16 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                 ("providerRestarted".to_owned(), None),
             ]
         );
+        // Each relaunch's binding is opened before its resume and is the one it reports.
+        let relaunch_steps = relaunch_steps(&steps);
+        assert_eq!(relaunch_steps.len(), 6, "{relaunch_steps:?}");
+        for relaunch in relaunch_steps.chunks(3) {
+            let opened = relaunch[0]
+                .strip_prefix("opened ")
+                .expect("a relaunch opens its binding first");
+            assert_eq!(relaunch[1], "resume", "{relaunch:?}");
+            assert_eq!(relaunch[2], format!("relaunched Some({opened})"));
+        }
         service_side.abort();
     })
     .await
@@ -308,11 +348,20 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
         session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session));
-        let recovery = test_recovery(&session, folder.path(), &steps);
+        let recovery = test_recovery(
+            &session,
+            folder.path(),
+            &steps,
+            RefusedRelaunchStep::Nothing,
+        );
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
         let settings = session.task.record.thread_settings.clone();
-        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
 
         session
             .task
@@ -367,7 +416,12 @@ async fn a_crash_loop_while_resumes_are_owed_reads_down_at_the_notice() {
     let session = TestCodexSession::start().await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let steps = Arc::new(Steps::new(&session));
-    let recovery = test_recovery(&session, folder.path(), &steps);
+    let recovery = test_recovery(
+        &session,
+        folder.path(),
+        &steps,
+        RefusedRelaunchStep::Nothing,
+    );
     let service = Arc::clone(&session.scripted.service);
     let session_id = session.task.record.session_id;
     recovery.owe_resumes(&service);
@@ -392,12 +446,21 @@ async fn a_recovery_s_end_leaves_the_resumes_a_later_recovery_owes() {
         session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session));
-        let recovery = test_recovery(&session, folder.path(), &steps);
+        let recovery = test_recovery(
+            &session,
+            folder.path(),
+            &steps,
+            RefusedRelaunchStep::Nothing,
+        );
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
         let slots = Arc::clone(&session.slots);
         let settings = session.task.record.thread_settings.clone();
-        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
 
         let first = recovery.owe_resumes(&service);
         let second = recovery.owe_resumes(&service);
@@ -442,4 +505,115 @@ fn notices_on(engine: &RecordingRunEngine, session_id: SessionId) -> Vec<Value> 
         })
         .map(|delivery| delivery.payload.expect("a notice carries its payload"))
         .collect()
+}
+
+// Killed by a resume sent after the relaunch's binding could not be opened: the relaunch is
+// reported failed, the service is asked no `thread/resume`, and the failure is taken as a refusal,
+// the record let go and the queue told once. Real time under a bound, the service answering on its
+// own task.
+#[tokio::test]
+async fn a_relaunch_whose_binding_cannot_open_resumes_nothing() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut session = TestCodexSession::start().await;
+        session.scripted.report_version("codex-cli 0.163.0");
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let steps = Arc::new(Steps::new(&session));
+        let recovery = test_recovery(
+            &session,
+            folder.path(),
+            &steps,
+            RefusedRelaunchStep::Opening,
+        );
+        let service = Arc::clone(&session.scripted.service);
+        let settings = session.task.record.thread_settings.clone();
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
+
+        session
+            .task
+            .drive(async {
+                recovery.forget_exit(&service);
+                let generation = recovery.owe_resumes(&service);
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
+                    .await;
+            })
+            .await;
+
+        let relaunch = relaunch_steps(&steps);
+        assert_eq!(relaunch.len(), 2, "{relaunch:?}");
+        assert!(relaunch[0].starts_with("opened "), "{relaunch:?}");
+        assert_eq!(relaunch[1], "relaunched None");
+        assert_eq!(
+            session.task.let_go_exits,
+            [CodexRecordExit::SessionContinues],
+            "the conversation is let go"
+        );
+        assert_eq!(
+            steps.holders_at_gone(),
+            [None],
+            "the queue hears once, the slot empty"
+        );
+        service_side.abort();
+    })
+    .await
+    .expect("the recovery ends within the bound");
+}
+
+// Killed by a resumed conversation left running when its record is refused: the conversation is
+// let go and the queue told its process is gone. Real time under a bound, the service answering
+// on its own task.
+#[tokio::test]
+async fn a_relaunch_whose_record_is_refused_lets_its_conversation_go() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut session = TestCodexSession::start().await;
+        session.scripted.report_version("codex-cli 0.163.0");
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let steps = Arc::new(Steps::new(&session));
+        let recovery = test_recovery(&session, folder.path(), &steps, RefusedRelaunchStep::Record);
+        let service = Arc::clone(&session.scripted.service);
+        let session_id = session.task.record.session_id;
+        let settings = session.task.record.thread_settings.clone();
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
+
+        session
+            .task
+            .drive(async {
+                recovery.forget_exit(&service);
+                let generation = recovery.owe_resumes(&service);
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
+                    .await;
+            })
+            .await;
+
+        let heard: Vec<String> = steps.read().into_iter().map(|(step, _)| step).collect();
+        let relaunched = heard
+            .iter()
+            .position(|step| step.starts_with("relaunched Some"))
+            .expect("the relaunch resumed and was reported");
+        assert!(
+            heard[relaunched + 1..].contains(&format!("gone {session_id}")),
+            "the queue hears the process gone after the report: {heard:?}"
+        );
+        assert_eq!(
+            session.task.let_go_exits,
+            [CodexRecordExit::SessionContinues],
+            "the conversation is let go"
+        );
+        assert!(
+            session.slots.require_live(session_id).is_err(),
+            "the slot holds no live record"
+        );
+        service_side.abort();
+    })
+    .await
+    .expect("the recovery ends within the bound");
 }

@@ -29,10 +29,12 @@ use crate::driver::codex::session::side_questions::test_copies::{
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
+use crate::driver::codex::session::test_fixture::{
+    RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, turn_completed, turn_reply,
+};
 use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::daemon_stop::DaemonStopIntent;
-use crate::driver::ports::ProcessGoneListener;
+use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::CloseSessionParams;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -474,6 +476,17 @@ async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: Re
             .ports
             .process_gone
             .register(Arc::clone(&heard) as Arc<dyn ProcessGoneListener>)
+            .is_ok()
+    );
+    let relaunches = TakenRelaunches {
+        heard: Box::new(drop),
+        refused: RefusedRelaunchStep::Nothing,
+    };
+    assert!(
+        parts
+            .ports
+            .session_relaunched
+            .register(Arc::new(relaunches) as Arc<dyn SessionRelaunchListener>)
             .is_ok()
     );
     let service = Arc::clone(&scripted.service);

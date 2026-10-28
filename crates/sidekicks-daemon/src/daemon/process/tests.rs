@@ -19,7 +19,8 @@ use sidekicks_store::data_folder::lock::DataFolderLock;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
-use super::{DaemonProcess, DaemonStartError, DaemonStartFailure};
+use super::DaemonProcess;
+use super::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, CRASH_MONITOR_MODE, crash_monitor_socket_path, serve_crash_monitor,
 };

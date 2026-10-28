@@ -23,7 +23,7 @@ use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarri
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::store::{
     CreateRuntimeBindingInput, RUNTIME_BINDING_STORE_STATEMENT_CAPACITY, RuntimeBindingSpawnConfig,
-    RuntimeBindingStore,
+    RuntimeBindingStore, mint_runtime_binding_id,
 };
 
 /// The binding store on `database`, through a writer of its own that creates the daemon's schema.
@@ -52,6 +52,7 @@ pub fn binding_input(
     spawned_version: SpawnedVersionBindingCarriers,
 ) -> CreateRuntimeBindingInput {
     CreateRuntimeBindingInput {
+        id: mint_runtime_binding_id(),
         run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
         provider_name: ProviderId::new(PROVIDERS[0].id.to_owned())
             .expect("a table id is a provider id"),

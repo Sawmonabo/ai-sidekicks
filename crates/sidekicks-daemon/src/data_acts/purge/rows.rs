@@ -37,14 +37,6 @@ pub(super) const UPPER_BOUND_GUARD_INDEX: usize = 1;
 
 /// The states a purge marks a session from, by the deletion that asks for it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the retention handler purges as `Retention`, `session.recovery.delete` as \
-                  `DamagedHistory`"
-    )
-)]
 pub(crate) enum PurgeCaller {
     /// `Delete old data`: an archived or closed session, or one a failed purge left marked.
     Retention,

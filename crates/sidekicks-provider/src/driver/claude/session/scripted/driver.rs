@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -90,6 +91,14 @@ impl SessionSpawnContextResolver for FolderContexts {
         }
         .boxed()
     }
+
+    fn resolve_run_folder(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>> {
+        let run_folder = self.work.clone();
+        async move { Ok(run_folder) }.boxed()
+    }
 }
 
 impl ProviderAccountReader for FolderContexts {
@@ -133,14 +142,26 @@ impl SessionAdvisorStore for RecordedAdvisors {
     }
 }
 
-/// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed.
+/// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
+/// and each binding it had opened before its resume; every opening is refused once a test sets
+/// `is_open_refused`, and every report once it sets `is_relaunch_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
+    opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
     reported: Notify,
+    /// Whether each opening is refused.
+    pub(crate) is_open_refused: AtomicBool,
+    /// Whether each report is refused, after it is kept.
+    pub(crate) is_relaunch_refused: AtomicBool,
 }
 
 impl RecordedRelaunches {
+    /// The bindings opened so far, in the order the driver opened them.
+    pub(crate) fn opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
+        lock(&self.opened).clone()
+    }
+
     /// The relaunches once `count` are reported, each after the process it started, which a start
     /// reader sees first.
     pub(crate) async fn reported(
@@ -159,6 +180,22 @@ impl RecordedRelaunches {
 }
 
 impl SessionRelaunchListener for RecordedRelaunches {
+    fn open_relaunch_binding(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        lock(&self.opened).push((session_id, binding_id));
+        let is_refused = self.is_open_refused.load(Ordering::SeqCst);
+        async move {
+            if is_refused {
+                return Err("the test refuses the opening".into());
+            }
+            Ok(())
+        }
+        .boxed()
+    }
+
     fn session_relaunched(
         &self,
         session_id: SessionId,
@@ -170,7 +207,14 @@ impl SessionRelaunchListener for RecordedRelaunches {
         };
         lock(&self.taken).push((session_id, binding_id));
         self.reported.notify_waiters();
-        async { Ok(()) }.boxed()
+        let is_refused = self.is_relaunch_refused.load(Ordering::SeqCst);
+        async move {
+            if is_refused {
+                return Err("the test refuses the relaunch's record".into());
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }
 

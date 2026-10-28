@@ -739,7 +739,11 @@ methods! {
             mutating: true,
             params: MachineSettingsUpdateRequest,
             result: MachineSettingsUpdateResponse,
-            refusals: [ProjectEnvironmentNameRefused, ProjectBranchPatternRefused],
+            refusals: [
+                ProjectEnvironmentNameRefused,
+                ProjectBranchPatternRefused,
+                RepoMountDistributionNotFound,
+            ],
         },
         /// The first emission is the file as it stands; each written change follows.
         MachineSettingsSubscribe = subscription "machine.settings.subscribe" {
