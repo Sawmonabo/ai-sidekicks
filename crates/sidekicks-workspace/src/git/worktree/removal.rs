@@ -758,7 +758,8 @@ fn retired(worktree_id: WorktreeId, kept: Option<KeptWorktree>) -> WorktreeRetir
     }
 }
 
-fn new_removed_worktree_id() -> RemovedWorktreeId {
+/// A new kept copy's id, minted.
+pub(crate) fn new_removed_worktree_id() -> RemovedWorktreeId {
     RemovedWorktreeId::try_from(mint_uuid_v7()).expect("a minted UUID is a removed worktree id")
 }
 

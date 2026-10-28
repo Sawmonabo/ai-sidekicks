@@ -35,6 +35,7 @@ use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, LeftoverNamesInUse};
 use crate::git::worktree::kept_copy::{KeptCopyTools, WorktreeAside, move_worktree_aside};
 use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::removal::new_removed_worktree_id;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{
@@ -214,8 +215,7 @@ impl KeptCopyFixture {
     /// Discards `tree` as the removal does: its kept copy moved aside through the store's row
     /// writes, its retirement recorded with the copy listed, and git's record of it removed.
     pub(crate) async fn discard(&self, tree: &WorktreeRow) -> RemovedWorktreeId {
-        let removed_worktree_id =
-            RemovedWorktreeId::new(&mint_uuid_v7().to_string()).expect("a minted id");
+        let removed_worktree_id = new_removed_worktree_id();
         let kept_folder = kept_folder_for(tree, &removed_worktree_id);
         let tree_folder = PathBuf::from(tree.fs_root.as_str());
         let name = tree_folder

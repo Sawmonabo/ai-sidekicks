@@ -20,7 +20,7 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 use super::{
     FolderProcessOwner, WorktreeRemoval, WorktreeRemovalDeps, WorktreeRemovalError,
-    WorktreeSessionSweep, WorktreeSweep,
+    WorktreeSessionSweep, WorktreeSweep, new_removed_worktree_id,
 };
 use crate::git::process::{
     GitRunner, StartedFileWatch, find_git_executable, test_git_runner,
@@ -256,10 +256,6 @@ impl RemovalFixture {
         .expect("the tree moves aside");
         (removed_worktree_id, moved.state.record_folder)
     }
-}
-
-fn new_removed_worktree_id() -> RemovedWorktreeId {
-    RemovedWorktreeId::try_from(mint_uuid_v7()).expect("a minted UUID is a removed worktree id")
 }
 
 fn retire_request(tree: &WorktreeRow, discard: bool) -> WorktreeRetireRequest {
