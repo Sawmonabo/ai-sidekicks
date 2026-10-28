@@ -2,15 +2,15 @@
 //! folder empty, and git's record by git's own name rule and counter, locking the record at once so
 //! no prune takes it half written; then it has the caller mark the kept copy's row with what it is
 //! doing, so one a crash cut short is undone from that mark; the names a crash before the mark
-//! leaves are the cleanup's to remove. A new branch is made next, git
-//! refusing a name another branch took; a folder or branch name taken this way moves to the next
-//! number. Its steps then run side by side and all settle: the tree by one rename (across volumes a
-//! copy, which leaves the kept tree whole) and its `.git` file; the record copied from the kept
-//! one, its `commondir`, the refs a repository keeps apart, its `gitdir` and, on a new branch, its
-//! HEAD put on that branch through git; and the pack and the LFS objects back into the repository.
-//! After a copy the index is refreshed, the record's lock goes unless the tree was locked, and
-//! everything written is flushed to disk before the caller records the tree. Nothing here runs
-//! `git worktree add`, `unlock`, `prune` or `repair`.
+//! leaves are the cleanup's to remove. A new branch is made next, git refusing a name another
+//! branch took; a folder or branch name taken this way moves to the next number. Its steps then run
+//! side by side and all settle: the tree by one rename (across volumes a copy, which leaves the
+//! kept tree whole) and its `.git` file; the record copied from the kept one, its `commondir`, the
+//! refs a repository keeps apart, its `gitdir` and, on a new branch, its HEAD put on that branch
+//! through git; and the pack and the LFS objects back into the repository. After a copy the index
+//! is refreshed, the record's lock goes unless the tree was locked, and everything written is
+//! flushed to disk before the caller records the tree. Nothing here runs `git worktree add`,
+//! `unlock`, `prune` or `repair`.
 
 pub(crate) mod branch;
 mod flush;

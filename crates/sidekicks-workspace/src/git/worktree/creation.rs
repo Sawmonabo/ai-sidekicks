@@ -80,9 +80,6 @@ static MARK_FAILED_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The record's insert is the first statement of its write, before the event rows.
-const RECORD_INSERT_STATEMENT_INDEX: usize = 0;
-
 /// A run of another session live in a folder: the session, the agent the run is for, and the
 /// folder as recorded.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -847,9 +844,8 @@ fn is_active_branch_refusal(failure: &SessionEventEmitError) -> bool {
     else {
         return false;
     };
-    write.failed_statement().is_some_and(|(index, error)| {
-        index == RECORD_INSERT_STATEMENT_INDEX
-            && error.sqlite_extended_error_code() == Some(rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE)
+    write.failed_statement().is_some_and(|(_index, error)| {
+        error.sqlite_extended_error_code() == Some(rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE)
     })
 }
 

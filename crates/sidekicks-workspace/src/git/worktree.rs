@@ -7,8 +7,8 @@
 //! figures current; git's reads of trees and branches, and what a removal would lose; the index's
 //! staged change checked out on its own; the discards a crash cut short; who stands and runs in
 //! each folder; the watch of each working folder; how a tree and its branch are named; the owners
-//! whose processes a removal ends; git's records of a daemon-made tree, found by what they name; and
-//! the folder reads and flushes their services share.
+//! whose processes a removal ends; git's records of a daemon-made tree, found by what they name;
+//! and the folder reads and flushes their services share.
 
 pub mod branch_list;
 pub mod carry;

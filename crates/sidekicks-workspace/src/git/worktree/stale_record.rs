@@ -377,8 +377,9 @@ mod tests {
 
     // Kills comparing the record's `gitdir` with the original path as written, which keeps a stale
     // record whose path git wrote through another spelling; and dropping either live-tree
-    // judgment: the records folder is read-only while a live row stands, so a record renamed aside
-    // fails the removal where the system refuses that rename, even when it would go back.
+    // judgment: while a live row stands the records folder must keep its modification time, which a
+    // record renamed aside changes even when it goes back, and it is read-only, so the system
+    // refuses that rename where it can.
     #[rstest]
     #[case::stale_record_named_through_another_spelling(false)]
     #[case::record_held_by_a_live_row_s_tree(true)]
@@ -436,9 +437,9 @@ mod tests {
         };
 
         let records_folder = record_folder.parent().expect("a record sits in a folder");
-        let permissions = fs::metadata(records_folder)
-            .expect("the records folder's permissions read")
-            .permissions();
+        let records_folder_before =
+            fs::metadata(records_folder).expect("the records folder's metadata reads");
+        let permissions = records_folder_before.permissions();
         if is_live_row {
             let mut read_only = permissions.clone();
             read_only.set_readonly(true);
@@ -448,7 +449,19 @@ mod tests {
 
         let removal = remove_stale_tree_record(tools, &record_folder, &original_path).await;
 
+        let records_folder_modified = fs::metadata(records_folder)
+            .and_then(|metadata| metadata.modified())
+            .expect("the records folder's modification time reads");
         fs::set_permissions(records_folder, permissions).expect("the permissions are put back");
+        if is_live_row {
+            assert_eq!(
+                records_folder_modified,
+                records_folder_before
+                    .modified()
+                    .expect("the records folder's modification time reads"),
+                "no `.removing-` name was ever made"
+            );
+        }
         let is_removed = removal.expect("the record is judged with nothing renamed");
         let is_record_kept = is_live_row;
         assert_eq!(is_removed, !is_record_kept);

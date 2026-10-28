@@ -72,6 +72,10 @@ pub(crate) async fn remove_records_naming(
         let is_tree_record = match read_record_git_file(&record_folder).await {
             Ok(Some(git_file)) => is_contained_within(&git_file, &real_folder),
             Ok(None) => false,
+            Err(source) if source.kind() == io::ErrorKind::InvalidData => {
+                skip_unreadable_record(&source);
+                false
+            }
             Err(source) => {
                 failures.push(TreeRecordRemovalError {
                     path: record_folder,
@@ -99,12 +103,27 @@ pub(crate) async fn has_record_naming(
     let records_folder = common_git_folder.join(LINKED_RECORDS_FOLDER_NAME);
     let real_folder = resolve_real_location(tree_folder).await?;
     for name in read_folder_names(&records_folder).await? {
-        if read_record_git_file(&records_folder.join(name))
-            .await?
-            .is_some_and(|git_file| is_contained_within(&git_file, &real_folder))
-        {
+        let record_folder = records_folder.join(name);
+        let git_file = match read_record_git_file(&record_folder).await {
+            Ok(git_file) => git_file,
+            Err(source) if source.kind() == io::ErrorKind::InvalidData => {
+                skip_unreadable_record(&source);
+                None
+            }
+            Err(source) => return Err(source),
+        };
+        if git_file.is_some_and(|git_file| is_contained_within(&git_file, &real_folder)) {
             return Ok(true);
         }
     }
     Ok(false)
+}
+
+// A record whose `gitdir` cannot be resolved names no tree the daemon made, since the daemon's
+// trees have paths it can resolve, so it is left as the person's and passed over.
+fn skip_unreadable_record(source: &io::Error) {
+    tracing::debug!(
+        error = source as &(dyn std::error::Error + 'static),
+        "a worktree record whose gitdir cannot be resolved is passed over"
+    );
 }

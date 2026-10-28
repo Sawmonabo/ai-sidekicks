@@ -16,9 +16,9 @@
 //! while it is the one source to rebuild a live tree put back that git cannot read.
 //!
 //! One lock per kept copy, shared with the removal, runs its discard, its repair, its put-back, its
-//! size read and its deletion one at a time, so each reads the row as the one before left it. The size reads and
-//! the restored copies' deletions run in the background after their call answered, one size read
-//! at a time, and [`RemovedWorktreeStore::settle`] waits for them.
+//! size read and its deletion one at a time, so each reads the row as the one before left it. The
+//! size reads and the restored copies' deletions run in the background after their call answered,
+//! one size read at a time, and [`RemovedWorktreeStore::settle`] waits for them.
 
 mod restore;
 pub(crate) mod rows;
@@ -326,8 +326,8 @@ impl RemovedWorktreeStore {
 
     /// Removes a kept copy's old tree record when it is still the copy's own, under the copy's
     /// lock, so git never counts it a duplicate of a tree put back, then the names a put-back cut
-    /// short before its mark left; once a run per copy. Fails as
-    /// the removal does, the copy looked at again next time.
+    /// short before its mark left; once a run per copy. Fails as the removal does, the copy looked
+    /// at again next time.
     pub(crate) async fn remove_stale_record_of(
         &self,
         removed_worktree_id: RemovedWorktreeId,
@@ -657,9 +657,9 @@ impl RemovedWorktreeStore {
         .map_err(RemovedWorktreeStoreError::failed)
     }
 
-    // Removes the tree's old record when it is still the copy's own, and its refs in a refs payload,
-    // then the names a put-back of a copy of that tree took before a crash cut it short, under the
-    // copy's lock.
+    // Removes the tree's old record when it is still the copy's own, and its refs in a refs
+    // payload, then the names a put-back of a copy of that tree took before a crash cut it short,
+    // under the copy's lock.
     async fn remove_stale_record(
         &self,
         kept: &RemovedWorktreeRow,

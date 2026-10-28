@@ -326,9 +326,9 @@ BEGIN
   INSERT INTO clash VALUES ('taken');
 END;";
 
-// Kills a primary-code check that reads another constraint's refusal as a collision, the collision
-// read from a unique refusal anywhere in the write rather than at the record's insert, and an undo
-// that leaves the folder or the branch the creation made.
+// Kills a primary-code check that reads another constraint's refusal as a collision, a unique
+// refusal outside the write's statements read as a collision, and an undo that leaves the folder or
+// the branch the creation made.
 #[rstest]
 #[case::active_branch_index(ACTIVE_BRANCH_TRIGGER, true)]
 #[case::other_constraint(OTHER_CONSTRAINT_TRIGGER, false)]
