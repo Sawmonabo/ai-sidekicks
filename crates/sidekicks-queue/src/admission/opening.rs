@@ -232,6 +232,7 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                     | ProviderSessionError::Closed { .. }
                     | ProviderSessionError::BeingDeleted { .. }
                     | ProviderSessionError::Cursor(_)
+                    | ProviderSessionError::Store(_)
                     | ProviderSessionError::LevelNotStored { .. }
                     | ProviderSessionError::LevelNotMovedBack { .. }
                     | ProviderSessionError::ModeNotStored { .. }

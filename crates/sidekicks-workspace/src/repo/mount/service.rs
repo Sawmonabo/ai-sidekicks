@@ -261,10 +261,6 @@ struct ActiveMount {
 /// Owns the `repo_mounts` table's attach, read and detach. The detach also archives the mount's
 /// `workspaces` rows and a managed mount's deletion deletes them, because each must share one
 /// write with the mount row it follows.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the repository mount methods' handlers")
-)]
 pub struct RepoMountService {
     writer: Arc<DatabaseWriter>,
     reads: Arc<DatabaseReadPool>,

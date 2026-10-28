@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use rusqlite::{Connection, params};
 use serde_json::json;
 use sidekicks_contracts::project::{ProjectId, ProjectList};

@@ -41,7 +41,7 @@ use sidekicks_provider::runtime_binding::resume::{
 };
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
-    mint_runtime_binding_id,
+    RuntimeBindingStoreError, mint_runtime_binding_id,
 };
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::console_state::read_session_mode;
@@ -181,6 +181,9 @@ pub enum ProviderSessionError {
     /// The binding or its cursor was not recorded.
     #[error(transparent)]
     Cursor(#[from] RunBindingCursorError),
+    /// The session's leg could not be read.
+    #[error(transparent)]
+    Store(#[from] RuntimeBindingStoreError),
     /// The level the session moved to was not stored, and a process it runs moved back.
     #[error("the level session {session_id} moved to was not stored")]
     LevelNotStored {
@@ -266,6 +269,7 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NotOpen { .. }
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
+            | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {
                 cause: SessionWriteError::Write(_),
                 ..

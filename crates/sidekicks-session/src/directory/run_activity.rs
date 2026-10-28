@@ -389,7 +389,8 @@ mod tests {
     #[test]
     fn the_facts_list_a_projects_sessions_but_a_chat_and_one_being_purged() {
         let database = TestDatabase::new(schema_parts());
-        let connection = database.reader();
+        // The writer's open makes the file with its schema.
+        let connection = database.opener()().expect("the test database opens");
         let project_id =
             ProjectId::try_from(mint_uuid_v7()).expect("a minted UUID is a project id");
         let other_id = ProjectId::try_from(mint_uuid_v7()).expect("a minted UUID is a project id");
