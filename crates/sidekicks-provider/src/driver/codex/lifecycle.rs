@@ -184,6 +184,7 @@ impl CodexDriver {
             command_output: Arc::clone(&services.ports.command_output),
             wrapper_program: command_wrapper_program_path(&services.daemon_program),
             askpass_program: command_askpass_program_path(&services.daemon_program),
+            snapshot_sweep: Arc::default(),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,

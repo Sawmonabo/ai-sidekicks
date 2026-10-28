@@ -148,6 +148,7 @@ pub(crate) fn test_codex_service_dependencies(
         command_output: Arc::new(PortRegistration::new("running commands")),
         wrapper_program: command_wrapper_program_path(&daemon_program),
         askpass_program: command_askpass_program_path(&daemon_program),
+        snapshot_sweep: Arc::default(),
     });
     Arc::new(CodexServiceDependencies {
         spawner,

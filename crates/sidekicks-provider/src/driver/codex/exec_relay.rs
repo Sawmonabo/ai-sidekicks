@@ -88,6 +88,8 @@ pub(crate) struct CodexExecRelayDependencies {
     pub(crate) wrapper_program: PathBuf,
     /// The command askpass's link, absolute.
     pub(crate) askpass_program: PathBuf,
+    /// The one removal, per daemon run, of the shell snapshot folders a former run left.
+    pub(crate) snapshot_sweep: Arc<OnceCell<()>>,
 }
 
 /// The session a conversation of the relay's service belongs to and what kind it is; `None` for
@@ -172,8 +174,11 @@ impl CodexExecRelay {
         thread_sessions: CodexThreadSessions,
         on_executor_ended: Arc<dyn Fn() + Send + Sync>,
     ) -> Arc<Self> {
-        let snapshots =
-            ShellSnapshots::new(dependencies.spawner.clone(), &dependencies.data_folder);
+        let snapshots = ShellSnapshots::new(
+            dependencies.spawner.clone(),
+            &dependencies.data_folder,
+            Arc::clone(&dependencies.snapshot_sweep),
+        );
         Arc::new_cyclic(|me| Self {
             dependencies,
             thread_sessions,

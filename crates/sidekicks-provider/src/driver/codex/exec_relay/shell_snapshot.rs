@@ -80,19 +80,27 @@ struct SnapshotKey {
 /// or the relay ends.
 pub(super) struct ShellSnapshots {
     spawner: Spawner,
+    // Every relay's folders, one per relay.
+    root: PathBuf,
     folder: PathBuf,
+    // The one removal, per daemon run, of the folders a former run left, done before the first
+    // snapshot of any relay is written.
+    sweep: Arc<OnceCell<()>>,
     environment: Mutex<Vec<(String, String)>>,
     taken: Mutex<HashMap<SnapshotKey, Arc<OnceCell<Option<PathBuf>>>>>,
 }
 
 impl ShellSnapshots {
-    /// Snapshots kept in a folder of their own under `data_folder`, captured on `spawner`.
-    pub(super) fn new(spawner: Spawner, data_folder: &Path) -> Self {
+    /// Snapshots kept in a folder of their own under `data_folder`, captured on `spawner`; `sweep`
+    /// is shared by every relay of the daemon run, so the folders a former run left are removed
+    /// once, ahead of the first snapshot written.
+    pub(super) fn new(spawner: Spawner, data_folder: &Path, sweep: Arc<OnceCell<()>>) -> Self {
+        let root = data_folder.join(SNAPSHOTS_FOLDER);
         Self {
             spawner,
-            folder: data_folder
-                .join(SNAPSHOTS_FOLDER)
-                .join(mint_uuid_v7().to_string()),
+            folder: root.join(mint_uuid_v7().to_string()),
+            root,
+            sweep,
             environment: Mutex::new(Vec::new()),
             taken: Mutex::new(HashMap::new()),
         }
@@ -183,6 +191,9 @@ impl ShellSnapshots {
         let snapshot = render_snapshot(snapshot_shell, &captured).ok_or_else(|| {
             io::Error::new(ErrorKind::InvalidData, "the shell's capture is no snapshot")
         })?;
+        self.sweep
+            .get_or_init(|| remove_left_snapshot_folders(&self.root))
+            .await;
         let folder = self.folder.clone();
         let path = folder.join(format!("{}.sh", mint_uuid_v7()));
         let written = path.clone();
@@ -277,6 +288,34 @@ impl Drop for ShellSnapshots {
             && error.kind() != ErrorKind::NotFound
         {
             tracing::warn!(%error, "a Codex relay's shell snapshots could not be removed");
+        }
+    }
+}
+
+// Removes every folder under `root` a former daemon run's relays left, which their ends did not; a
+// folder that cannot be removed is logged and left, since a later run tries again.
+async fn remove_left_snapshot_folders(root: &Path) {
+    let mut entries = match tokio::fs::read_dir(root).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == ErrorKind::NotFound => return,
+        Err(error) => {
+            tracing::warn!(%error, "the left Codex shell snapshots could not be listed");
+            return;
+        }
+    };
+    loop {
+        let entry = match entries.next_entry().await {
+            Ok(Some(entry)) => entry,
+            Ok(None) => return,
+            Err(error) => {
+                tracing::warn!(%error, "the left Codex shell snapshots could not be listed");
+                return;
+            }
+        };
+        if let Err(error) = tokio::fs::remove_dir_all(entry.path()).await
+            && error.kind() != ErrorKind::NotFound
+        {
+            tracing::warn!(%error, "a left Codex shell snapshot folder could not be removed");
         }
     }
 }

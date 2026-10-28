@@ -1,4 +1,5 @@
 use std::process::Command;
+use std::sync::Arc;
 
 use serde_json::{Map, Value, json};
 use sidekicks_platforms::Spawner;
@@ -28,7 +29,7 @@ async fn runs_a_login_start_with_the_profiles_exports_from_its_capture() {
     )
     .expect("the rc is written");
     let spawner = Spawner::new(Handle::current()).expect("a spawner");
-    let snapshots = ShellSnapshots::new(spawner, folder.path());
+    let snapshots = ShellSnapshots::new(spawner, folder.path(), Arc::default());
     snapshots.set_environment(vec![
         ("HOME".to_owned(), home.to_string_lossy().into_owned()),
         ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
@@ -82,7 +83,7 @@ async fn captures_a_login_shells_functions_once() {
     std::fs::create_dir(&home).expect("the home is made");
     std::fs::write(home.join(".bashrc"), "greet() { echo seen; }\n").expect("the rc is written");
     let spawner = Spawner::new(Handle::current()).expect("a spawner");
-    let snapshots = ShellSnapshots::new(spawner, folder.path());
+    let snapshots = ShellSnapshots::new(spawner, folder.path(), Arc::default());
     snapshots.set_environment(vec![
         ("HOME".to_owned(), home.to_string_lossy().into_owned()),
         ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
@@ -108,4 +109,43 @@ async fn captures_a_login_shells_functions_once() {
         .output()
         .expect("the snapshot sources");
     assert_eq!(String::from_utf8_lossy(&sourced.stdout), "seen\n");
+}
+
+// The first snapshot any relay writes removes what a former daemon run left, and only then: a
+// second relay's first snapshot keeps the first relay's. Killed by no removal, and by a removal
+// at each relay's first snapshot.
+#[tokio::test]
+async fn the_first_snapshot_of_a_run_removes_only_what_a_former_run_left() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let left = folder
+        .path()
+        .join("codex-shell-snapshots")
+        .join("former-run");
+    std::fs::create_dir_all(&left).expect("a former run's folder is made");
+    std::fs::write(left.join("old.sh"), "true\n").expect("a former snapshot is written");
+    let home = folder.path().join("home");
+    std::fs::create_dir(&home).expect("the home is made");
+    let spawner = Spawner::new(Handle::current()).expect("a spawner");
+    let sweep = Arc::default();
+    let environment = vec![
+        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+    ];
+    let first_relay = ShellSnapshots::new(spawner.clone(), folder.path(), Arc::clone(&sweep));
+    first_relay.set_environment(environment.clone());
+    let second_relay = ShellSnapshots::new(spawner, folder.path(), sweep);
+    second_relay.set_environment(environment);
+
+    let first = first_relay
+        .snapshot_for(new_session_id(), "thread-1", "/bin/bash", folder.path())
+        .await
+        .expect("the first relay's snapshot is taken");
+    let is_left_gone = !left.exists();
+    second_relay
+        .snapshot_for(new_session_id(), "thread-2", "/bin/bash", folder.path())
+        .await
+        .expect("the second relay's snapshot is taken");
+
+    assert!(is_left_gone, "the former run's folder is removed");
+    assert!(first.exists(), "the first relay's snapshot is kept");
 }

@@ -135,6 +135,7 @@ fn relay_reporting_to(
         command_output,
         wrapper_program: folder.join("wrapper"),
         askpass_program: folder.join("askpass"),
+        snapshot_sweep: Arc::default(),
     });
     CodexExecRelay::new(dependencies, thread_sessions, Arc::new(|| {}))
 }
