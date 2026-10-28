@@ -80,6 +80,15 @@ pub(crate) fn read_taken_branch_line(stderr: &str) -> Option<&str> {
     (is_named_branch || is_nested_branch).then_some(line)
 }
 
+/// Git's line refusing `worktree add` at `folder` because something already stands there, printed
+/// under `LC_ALL=C` with the folder quoted as given: its last `fatal: ` line whole. `None` for any
+/// other failure, a taken branch's `already exists` line among them.
+pub(crate) fn read_taken_folder_line<'a>(stderr: &'a str, folder: &Path) -> Option<&'a str> {
+    let line = last_fatal_line(stderr)?;
+    let taken_words = format!("'{}' already exists", folder.display());
+    (line.strip_prefix(GIT_FATAL_PREFIX)? == taken_words).then_some(line)
+}
+
 // A tail shaped as typed: lowercased, every character outside `a-z 0-9 . _ -` turned into a
 // hyphen, and any leading `.`, `_` or `-` dropped, so it is empty or starts with a letter or digit.
 fn shape_typed_tail(typed: &str) -> String {

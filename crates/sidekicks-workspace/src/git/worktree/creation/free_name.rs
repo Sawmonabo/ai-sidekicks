@@ -1,8 +1,9 @@
 //! The first name a new tree can take, and the tree made at it. Git's branch-name rule judges each
 //! candidate first. A name the daemon derived then moves to its next ordinal while a live tree, a
 //! branch or a folder holds it, and a name the caller supplied is refused instead. `worktree add
-//! -b` makes the tree; its taken line moves a derived name on and refuses a supplied one, and a
-//! tree git made before its checkout hook failed is kept, the hook's words beside it.
+//! -b` makes the tree; its taken-branch or taken-folder line moves a derived name on and refuses a
+//! supplied one, and a tree git made before its checkout hook failed is kept, the hook's words
+//! beside it.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -15,15 +16,17 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
 use super::{
-    MadeTree, NameCollision, WorktreeCreationError, create_failed, refused, undo_unrecorded_tree,
-    with_undo_failures,
+    MadeTree, NameCollision, WorktreeCreationError, create_failed, delete_new_branch, refused,
+    undo_unrecorded_tree, with_undo_failures,
 };
 use crate::git::branch_name_pattern::read_branch_name_refusal;
 use crate::git::process::{
     GitCall, GitError, GitRunner, background_read, in_folder, read_git_common_folder,
 };
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
-use crate::git::worktree::naming::{WorktreeName, WorktreeNamePlan, read_taken_branch_line};
+use crate::git::worktree::naming::{
+    WorktreeName, WorktreeNamePlan, read_taken_branch_line, read_taken_folder_line,
+};
 use crate::git::worktree::reads::{
     RECORD_LOCK_FILE_NAME, has_branch, read_branch_names, read_linked_tree_record,
 };
@@ -67,6 +70,8 @@ enum AddOutcome {
     Made(MadeTree),
     // Git refused the branch as taken, with its line.
     Taken(String),
+    // Git refused the folder as taken by something it did not make.
+    FolderTaken,
 }
 
 impl NameWalk<'_> {
@@ -113,6 +118,12 @@ impl NameWalk<'_> {
                         return Err(refused(WorktreeCreateFailureReason::BranchNameTaken {
                             git_line,
                         }));
+                    }
+                    NameCollision::Suffix => ordinal += 1,
+                },
+                AddOutcome::FolderTaken => match collision {
+                    NameCollision::Refuse => {
+                        return Err(refused(WorktreeCreateFailureReason::WorktreeFolderTaken));
                     }
                     NameCollision::Suffix => ordinal += 1,
                 },
@@ -235,8 +246,10 @@ impl NameWalk<'_> {
 
     // `git worktree add -b` at the name's folder, with the repository's hooks and file watch, as
     // the person's own tree gets them, holding the records of the repository whose git common
-    // folder is `common_folder` while git writes its record. A failure that is neither git's taken
-    // line nor a made tree whose checkout hook failed undoes what git left and fails.
+    // folder is `common_folder` while git writes its record. On git's taken-folder line only the
+    // branch it made before that check is deleted, so whatever stands at the folder stays. Any
+    // other failure that is neither git's taken-branch line nor a made tree whose checkout hook
+    // failed undoes what git left and fails.
     async fn add_worktree(
         &self,
         name: WorktreeName,
@@ -286,6 +299,23 @@ impl NameWalk<'_> {
             && let Some(git_line) = read_taken_branch_line(stderr)
         {
             return Ok(AddOutcome::Taken(git_line.to_owned()));
+        }
+        if let GitError::Exited { stderr, .. } = &failure
+            && read_taken_folder_line(stderr, &name.folder_path).is_some()
+        {
+            let undo_failures = if is_branch_new {
+                delete_new_branch(self.git, self.place(), self.repository(), &name.branch_name)
+                    .await
+            } else {
+                Vec::new()
+            };
+            if undo_failures.is_empty() {
+                return Ok(AddOutcome::FolderTaken);
+            }
+            return Err(with_undo_failures(
+                refused(WorktreeCreateFailureReason::WorktreeFolderTaken),
+                undo_failures,
+            ));
         }
         // git runs the checkout hook only once the tree is made, and a failing hook does not undo
         // it, so a tree whose record stands unlocked with its HEAD resolving is kept.
@@ -385,11 +415,12 @@ fn do_branches_conflict(existing: &str, candidate: &str) -> bool {
 mod tests {
     use rstest::rstest;
 
-    use super::{NameWalk, do_branches_conflict};
+    use super::{AddOutcome, NameWalk, do_branches_conflict};
     use crate::git::process::test_repository::git_in;
     use crate::git::worktree::creation::tests::{CreationFixture, plan_for};
     use crate::git::worktree::creation::{NameCollision, WorktreeCreationError};
     use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
+    use crate::git::worktree::reads::has_branch;
 
     // Kills dropping the inside-or-above conflict, either way round, and a prefix that is no
     // folder of the other (`feat` beside `feature`) read as one.
@@ -498,6 +529,57 @@ mod tests {
         assert!(
             git_line.contains("'refs/heads/release/x' exists"),
             "{git_line}"
+        );
+    }
+
+    // The person's own tree appears at the name between the walk's free check and `worktree add`,
+    // which git refuses as existing after it made the branch. Kills an undo run on that refusal,
+    // which would remove the person's tree and its record, and a made branch left behind.
+    #[tokio::test]
+    async fn an_add_refused_as_existing_leaves_the_tree_standing_at_the_folder() {
+        let fixture = CreationFixture::new().await;
+        let name = plan_for(&fixture, "fix").name_at(1);
+        git_in(
+            &fixture.git,
+            &fixture.repository,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "-b",
+                "own",
+                &name.folder_path.to_string_lossy(),
+            ],
+        )
+        .await;
+        std::fs::write(name.folder_path.join("notes.txt"), "kept").expect("its file is written");
+        let walk = NameWalk {
+            git: &fixture.git,
+            reads: &fixture.reads,
+            mount: &fixture.mount,
+        };
+        let branch_name = name.branch_name.clone();
+        let folder = name.folder_path.clone();
+
+        let outcome = walk
+            .add_worktree(name, &fixture.base_ref(), &fixture.repository.join(".git"))
+            .await
+            .expect("the taken folder is an outcome, not a failure");
+
+        assert!(matches!(outcome, AddOutcome::FolderTaken));
+        assert_eq!(
+            std::fs::read_to_string(folder.join("notes.txt")).expect("the tree's file is left"),
+            "kept"
+        );
+        let records = std::fs::read_dir(fixture.repository.join(".git").join("worktrees"))
+            .expect("the records are listed")
+            .count();
+        assert_eq!(records, 1, "the person's tree keeps its record");
+        assert!(
+            !has_branch(&fixture.git, None, &fixture.repository, &branch_name)
+                .await
+                .expect("the branches are read"),
+            "the branch git made before refusing the folder is left"
         );
     }
 }

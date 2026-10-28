@@ -742,19 +742,31 @@ async fn undo_unrecorded_tree(
         Err(read_failure) => failures.push(read_failure.into()),
     }
     if is_branch_new {
-        match has_branch(git, place, repository, &name.branch_name).await {
-            Ok(true) => {
-                let delete_branch =
-                    GitCall::write(in_folder(repository, &["branch", "-D", &name.branch_name]));
-                if let Err(branch_failure) = git.run(place, delete_branch).await {
-                    failures.push(branch_failure.into());
-                }
-            }
-            Ok(false) => {}
-            Err(read_failure) => failures.push(read_failure.into()),
-        }
+        failures.extend(delete_new_branch(git, place, repository, &name.branch_name).await);
     }
     failures
+}
+
+/// Deletes `branch_name`, which this call made and nothing else names, while it is there. Answers
+/// the read's or the deletion's failure for the caller to carry.
+async fn delete_new_branch(
+    git: &GitRunner,
+    place: Option<&Place>,
+    repository: &Path,
+    branch_name: &str,
+) -> Vec<Box<dyn Error + Send + Sync>> {
+    match has_branch(git, place, repository, branch_name).await {
+        Ok(true) => {
+            let delete_branch =
+                GitCall::write(in_folder(repository, &["branch", "-D", branch_name]));
+            match git.run(place, delete_branch).await {
+                Ok(_) => Vec::new(),
+                Err(branch_failure) => vec![branch_failure.into()],
+            }
+        }
+        Ok(false) => Vec::new(),
+        Err(read_failure) => vec![read_failure.into()],
+    }
 }
 
 // Removes the tree at `folder`, then every record of the repository at `repository` naming it,

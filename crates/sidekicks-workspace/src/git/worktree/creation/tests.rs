@@ -660,9 +660,9 @@ async fn an_undo_removes_a_tree_git_left_without_its_git_file() {
     );
 }
 
-// A folder made at the name between the walk's free check and `worktree add` makes git refuse the
-// add, and `worktree remove` refuses it as no tree. Kills an undo that deletes such a folder, which
-// no record names and so no add of the creation made.
+// An add that failed otherwise than on a taken branch or folder leaves the undo a folder at the
+// name that no record names, which `worktree remove` refuses as no tree. Kills an undo that deletes
+// such a folder, which no add of the creation made.
 #[tokio::test]
 async fn an_undo_leaves_a_folder_that_appeared_at_the_name_after_the_free_check() {
     let fixture = CreationFixture::new().await;
