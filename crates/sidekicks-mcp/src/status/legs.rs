@@ -216,8 +216,8 @@ impl McpLegs {
             )
         };
         // The leg's status on this binding before the reading, `None` when the leg had none or was
-        // switched off, so its return reads as new; the binding the leg served the name from
-        // before, when it moved; and whether a switch-off took the leg out of this binding's
+        // switched off, so its return reads as new; the entry the leg held for the name on another
+        // binding, when it moved; and whether a switch-off took the leg out of this binding's
         // aggregate.
         let (previous, moved_from, is_new_on_binding, has_left_aggregate) =
             match leg.servers.entry(update.server_name) {
@@ -244,7 +244,7 @@ impl McpLegs {
                 // leaves nothing.
                 Entry::Occupied(mut held) => {
                     let moved_from = mem::replace(held.get_mut(), new_entry());
-                    (None, Some(moved_from.binding_key), true, false)
+                    (None, Some(moved_from), true, false)
                 }
                 Entry::Vacant(vacant) => {
                     vacant.insert(new_entry());
@@ -252,14 +252,19 @@ impl McpLegs {
                 }
             };
         if let Some(moved_from) = moved_from {
-            if let Some(binding_status) = self.bindings.get_mut(&moved_from) {
+            if let Some(binding_status) = self.bindings.get_mut(&moved_from.binding_key) {
                 binding_status.legs.remove(&leg_id);
             }
-            outcome.changes.extend(
-                self.refold(&moved_from).map(|fold| {
-                    fold.change(moved_from, ChangeOrigin::SessionEnded(leg_id.clone()))
-                }),
-            );
+            let aggregate = self.refold(&moved_from.binding_key);
+            // A switched-off entry already left the aggregate, so its move sends nothing.
+            if !moved_from.is_switched_off {
+                outcome.changes.extend(aggregate.map(|fold| {
+                    fold.change(
+                        moved_from.binding_key,
+                        ChangeOrigin::SessionEnded(leg_id.clone()),
+                    )
+                }));
+            }
         }
         if is_new_on_binding {
             self.bindings
@@ -295,8 +300,8 @@ impl McpLegs {
         outcome
     }
 
-    /// Retires `leg`: its servers leave every binding's aggregate, each touched binding answering
-    /// a `sessionEnded` change, and what it reports later is ignored. The leg is forgotten at once
+    /// Retires `leg`: its servers leave every binding's aggregate, each binding whose aggregate it
+    /// was in answering a `sessionEnded` change, and what it reports later is ignored. The leg is forgotten at once
     /// when no sink of it is open, else when its last sink closes.
     pub(super) fn retire(&mut self, leg_id: &LegId) -> Vec<StatusChange> {
         let Some(leg) = self.legs.get_mut(leg_id) else {
@@ -312,12 +317,16 @@ impl McpLegs {
             if let Some(binding_status) = self.bindings.get_mut(&server.binding_key) {
                 binding_status.legs.remove(leg_id);
             }
-            changes.extend(self.refold(&server.binding_key).map(|fold| {
-                fold.change(
-                    server.binding_key,
-                    ChangeOrigin::SessionEnded(leg_id.clone()),
-                )
-            }));
+            let aggregate = self.refold(&server.binding_key);
+            // A switched-off entry already left the aggregate, so its retire sends nothing.
+            if !server.is_switched_off {
+                changes.extend(aggregate.map(|fold| {
+                    fold.change(
+                        server.binding_key,
+                        ChangeOrigin::SessionEnded(leg_id.clone()),
+                    )
+                }));
+            }
         }
         changes
     }
