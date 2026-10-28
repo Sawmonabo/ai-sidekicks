@@ -28,7 +28,8 @@ use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{
-    GitCall, GitError, GitRunner, background_read, strip_carriage_return, strip_line_end,
+    GitCall, GitError, GitRunner, NOT_A_REPOSITORY_EXIT_CODE, background_read,
+    strip_carriage_return, strip_line_end,
 };
 
 /// The prefix of every local branch's full ref name.
@@ -54,8 +55,6 @@ const CLONE_REMOTE_NAME: &[u8] = b"origin";
 // git's exit when it refuses an option it does not know, as a git older than 2.36 refuses `-z`
 // on `worktree list`.
 const UNKNOWN_OPTION_EXIT_CODE: i32 = 129;
-// git's exit when the folder it was asked from is in no repository.
-const NOT_A_REPOSITORY_EXIT_CODE: i32 = 128;
 // `symbolic-ref --quiet`'s exit for a HEAD that names no branch.
 const DETACHED_HEAD_EXIT_CODE: i32 = 1;
 
