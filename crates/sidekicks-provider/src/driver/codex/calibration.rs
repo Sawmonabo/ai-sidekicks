@@ -123,8 +123,10 @@ impl CodexCompactionLimits {
         catalog: &CodexCatalogReading,
     ) {
         let digest = blake3::hash(catalog.dump.as_bytes());
-        lock(&self.catalogs).insert(provider_version.to_owned(), (digest, catalog.clone()));
+        // `limits` is taken before `catalogs` wherever both are held, so a settle reads the
+        // catalog and stores its limit with no newer catalog put in between.
         let mut limits = lock(&self.limits);
+        lock(&self.catalogs).insert(provider_version.to_owned(), (digest, catalog.clone()));
         let due = select_due_limits(
             &limits,
             list_catalog_keys(provider_version, catalog),
@@ -150,13 +152,15 @@ impl CodexCompactionLimits {
             compaction_limits.sweep_left_scratch(&service).await;
             loop {
                 let (digest, state) = compaction_limits.read_or_measure(&service, &key).await;
+                let mut limits = lock(&compaction_limits.limits);
                 let current = lock(&compaction_limits.catalogs)
                     .get(&key.provider_version)
                     .map(|(current, _catalog)| *current);
                 if digest.is_none() || digest == current {
-                    lock(&compaction_limits.limits).insert(key, state);
+                    limits.insert(key, state);
                     return;
                 }
+                drop(limits);
             }
         });
     }
