@@ -16,16 +16,21 @@ use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::TestStoreAccess;
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::DataFolderLock;
+use sidekicks_store::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, open_database,
+};
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::DaemonProcess;
+use super::database::DatabaseFileOpenError;
 use super::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, CRASH_MONITOR_MODE, crash_monitor_socket_path, serve_crash_monitor,
 };
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::release_version::this_build_release_version;
+use crate::daemon::schema::schema_parts;
 use crate::daemon::service_log::open_service_log;
 use crate::data_acts::erase::{DataErase, DataEraseDeps};
 
@@ -279,4 +284,45 @@ async fn a_stop_before_ready_fails_the_start_as_stopped_and_leaves_no_socket() {
     );
     assert!(!home.run_folder.socket_path.exists());
     assert!(!home.monitor_socket_path().exists());
+}
+
+// A store another build made fails the start as another version's saved sessions, and the start
+// leaves its file byte for byte as it found it. Killed by the open taking that refusal for any
+// other failure of the writer's open.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_store_of_another_build_fails_the_start_and_is_left_as_it_was() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    create_missing_private_folders(&home.data_folder()).expect("the data folder is made");
+    let database_path = home.data_folder().join(DAEMON_DATABASE_FILE_NAME);
+    let schema = schema_parts().into_schema();
+    open_database(&database_path, &schema)
+        .expect("the store opens")
+        .pragma_update(None, "user_version", schema.fingerprint() ^ 1)
+        .expect("the store takes another build's fingerprint");
+    let before = std::fs::read(&database_path).expect("the store reads");
+
+    let failure = home
+        .start(CancellationToken::new())
+        .await
+        .err()
+        .expect("the start fails");
+
+    assert!(
+        matches!(
+            failure.failures.original(),
+            DaemonStartError::DatabaseFile(DatabaseFileOpenError::SavedSessionsFromAnotherVersion {
+                path,
+            }) if *path == database_path
+        ),
+        "{:?}",
+        failure.failures
+    );
+    assert_eq!(
+        std::fs::read(&database_path).expect("the store reads"),
+        before,
+        "the store is as it was"
+    );
 }
