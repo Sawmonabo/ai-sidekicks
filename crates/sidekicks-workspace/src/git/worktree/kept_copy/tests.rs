@@ -1,5 +1,5 @@
 //! The keep's saved state: the commit a tree on a branch is kept at when its branch moves while the
-//! keep runs.
+//! keep runs, and the keep refused when it moves while the record is copied.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -13,6 +13,9 @@ use super::{
     keep_saved_state,
 };
 use crate::git::process::test_git_runner_with_environment;
+use crate::git::worktree::kept_copy::saved_state::{
+    SavedStateError, read_kept_head_commit, read_tree_head_commit,
+};
 use crate::git::worktree::reads::tree_name_of;
 use crate::git::worktree::removal::new_removed_worktree_id;
 use crate::git::worktree::removed_store::kept_folder_for;
@@ -133,4 +136,34 @@ async fn a_tree_on_a_branch_is_kept_at_the_commit_its_branch_names_as_the_record
         kept.state.head_commit.as_str(),
         fixture.git(&tree_folder, &["rev-parse", "HEAD"]).await
     );
+}
+
+// A commit lands on the tree's branch after the commit was read before the record's copy and
+// before it is read again. Kills the comparison of the two reads dropped, which keeps an index
+// made on the first commit pinned at the second.
+#[tokio::test]
+async fn a_branch_that_moves_while_the_record_is_copied_refuses_the_keep() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let tree_folder = PathBuf::from(tree.fs_root.as_str());
+    let record_folder = PathBuf::from(
+        fixture
+            .git(&tree_folder, &["rev-parse", "--absolute-git-dir"])
+            .await,
+    );
+
+    let before = read_tree_head_commit(&fixture.git, None, &tree_folder)
+        .await
+        .expect("the branch's commit reads");
+    fixture
+        .commit(&tree_folder, "landed while the record was copied")
+        .await;
+    let kept =
+        read_kept_head_commit(&fixture.git, None, &tree_folder, &record_folder, &before).await;
+
+    let is_refused = matches!(
+        &kept,
+        Err(SavedStateError::HeadMoved { before: moved_from, .. }) if *moved_from == before
+    );
+    assert!(is_refused, "the keep is refused: {kept:?}");
 }
