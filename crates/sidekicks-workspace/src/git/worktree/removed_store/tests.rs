@@ -408,7 +408,7 @@ async fn a_put_back_that_finds_its_name_taken_leaves_the_other_put_back_s_hold()
         "the first put-back's folder stays while it holds the name"
     );
     drop(first_hold);
-    assert!(!tools.names_in_use.is_in_use(original_path));
+    assert!(!tools.names_in_use.is_held(original_path));
 }
 
 // Kills a put-back that reads the commit the tree stood on from its pin alone, which anything

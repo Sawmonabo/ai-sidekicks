@@ -8,7 +8,7 @@
 //! staged change checked out on its own; the discards a crash cut short; who stands and runs in
 //! each folder; the watch of each working folder; how a tree and its branch are named; the owners
 //! whose processes a removal ends; git's records of a daemon-made tree, found by what they name;
-//! and the folder reads and flushes their services share.
+//! the paths held in use; and the folder reads and flushes their services share.
 
 pub mod branch_list;
 pub mod carry;
@@ -23,6 +23,7 @@ pub(crate) mod folder_names;
 pub mod kept_copy;
 pub mod naming;
 pub mod occupancy;
+pub mod path_holds;
 pub(crate) mod projector;
 pub(crate) mod put_back;
 pub mod reads;

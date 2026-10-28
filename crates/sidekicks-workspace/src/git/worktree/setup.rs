@@ -41,7 +41,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 
-use self::closing_folders::{ClosingFolders, tree_key_of};
+use self::closing_folders::tree_key_of;
 pub use self::steps::SetupCommandEndError;
 use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
@@ -49,6 +49,7 @@ use self::steps::{
 };
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
+use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
 
 /// How long a command ended because its tree is being removed has after it is asked to stop
@@ -187,8 +188,9 @@ struct RunnerState {
     cards: HashMap<WorktreeId, Card>,
     // The commands of dropped cards still being ended, so the stop reaches them too.
     ending: HashMap<u64, Arc<RunningCommand>>,
-    // The folders being moved or deleted, in which no step starts.
-    closing_folders: ClosingFolders,
+    // The folders being moved or deleted, in which no step starts, each held under this state's
+    // lock so a mark and the commands read with it agree.
+    closing_folders: Arc<PathHolds>,
     next_id: u64,
     is_stopped: bool,
 }
@@ -238,7 +240,7 @@ impl RunnerState {
     // Whether the tree whose key is `tree_key` lies in a folder being moved or deleted; `false`
     // for a card whose tree was never made.
     fn is_closing(&self, tree_key: Option<&Path>) -> bool {
-        tree_key.is_some_and(|tree_key| self.closing_folders.is_closing(tree_key))
+        tree_key.is_some_and(|tree_key| self.closing_folders.is_held_within(tree_key))
     }
 
     fn next_id(&mut self) -> u64 {
@@ -645,7 +647,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
             let action = {
                 let mut state = self.lock();
                 let is_stopped = state.is_stopped;
-                let is_closing = state.closing_folders.is_closing(&tree_key);
+                let is_closing = state.closing_folders.is_held_within(&tree_key);
                 let Some(card) = state.held_card(&worktree_id, card_id) else {
                     // A dropped card runs no further step, so nothing starts in a tree being
                     // removed.
@@ -749,7 +751,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
             if state.is_stopped {
                 return StepOutcome::failed(STOPPED_END_REASON);
             }
-            if state.closing_folders.is_closing(tree_key) {
+            if state.closing_folders.is_held_within(tree_key) {
                 return StepOutcome::failed(REMOVED_END_REASON);
             }
             let Some(card) = state.held_card(&worktree_id, card_id) else {

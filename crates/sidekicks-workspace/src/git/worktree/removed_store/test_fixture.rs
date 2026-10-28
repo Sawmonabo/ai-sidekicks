@@ -32,9 +32,10 @@ use crate::git::process::test_repository::{commit_empty, git_in, make_test_repos
 use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, NamesInUse};
+use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
 use crate::git::worktree::kept_copy::{KeptCopyTools, WorktreeAside, move_worktree_aside};
 use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::removal::new_removed_worktree_id;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
@@ -67,7 +68,7 @@ pub(crate) struct KeptCopyFixture {
     /// The store under test.
     pub(crate) store: Arc<RemovedWorktreeStore>,
     copies: WorktreeCopiesUnderWay,
-    names_in_use: Arc<NamesInUse>,
+    names_in_use: Arc<PathHolds>,
 }
 
 impl KeptCopyFixture {
@@ -119,7 +120,7 @@ impl KeptCopyFixture {
             worktrees_folder: worktrees_folder.clone(),
         }));
         let copies = WorktreeCopiesUnderWay::default();
-        let names_in_use = Arc::new(NamesInUse::default());
+        let names_in_use = Arc::new(PathHolds::default());
         let store = Arc::new(RemovedWorktreeStore::new(RemovedWorktreeStoreDeps {
             git: git.clone(),
             reads,

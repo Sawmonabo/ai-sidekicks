@@ -61,13 +61,14 @@ use crate::git::process::GitRunner;
 use crate::git::worktree::claims::KeptCopyClaims;
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
-use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, NamesInUse};
+use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
 use crate::git::worktree::kept_copy::held_work::{HeldWorkEnd, held_answer, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KeptCopyRowWrites, KeptCopyTools, KeptWorktreeState, RowWriteError, delete_kept_copy,
     measure_kept_copy,
 };
 use crate::git::worktree::naming::REMOVED_WORKTREES_FOLDER_NAME;
+use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::put_back::undo::undo_put_back;
 use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{PutBackTools, UnsoundTreeError, require_sound_restored_tree};
@@ -94,7 +95,7 @@ pub struct RemovedWorktreeStoreDeps {
     /// Where a put-back's copy across volumes, and its undo's, reports its progress.
     pub copies: WorktreeCopiesUnderWay,
     /// The names in use, shared with everything that makes or sweeps one.
-    pub names_in_use: Arc<NamesInUse>,
+    pub names_in_use: Arc<PathHolds>,
     /// The lock per kept copy, by its id, which the removal holds for its discards and repairs.
     pub kept_copy_lock: Arc<KeyedLock<RemovedWorktreeId>>,
     /// The daemon's worktrees folder; a kept folder is deleted only from inside it.
