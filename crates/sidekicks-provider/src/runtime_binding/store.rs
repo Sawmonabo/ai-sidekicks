@@ -743,8 +743,9 @@ fn stored_column_unreadable(
     )
 }
 
-// The stored text of a spawn record: the legs and the build's path as one JSON object.
-fn compose_spawn_config_text(
+/// The stored text of a spawn record: the legs and the build's path as one JSON object, which the
+/// binding reader reads back.
+pub(crate) fn compose_spawn_config_text(
     spawn_config: &RuntimeBindingSpawnConfig,
     resolved_executable_path: &str,
 ) -> String {
