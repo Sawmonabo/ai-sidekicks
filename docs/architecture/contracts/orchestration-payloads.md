@@ -559,7 +559,7 @@ type AgentRunQueuedPayload = {
   runId: RunId;
   runVersion: number;
   newState: "queued";
-  parentRunId?: RunId; // absent on a lead run, Claude Code's staged review among them
+  parentRunId?: RunId; // absent on a lead run, Claude Code's staged review among them, which runs in a process of its own
   reachedBy?: ChildRunProvenance; // present with parentRunId: how the child was reached
   effectiveRunConfig?: OrchestrationRunConfig;
   // ── Path-independent admission stamps: agent.run.queued carries them for EVERY provider run,

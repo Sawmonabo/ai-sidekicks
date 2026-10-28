@@ -211,7 +211,7 @@ The run's state is event-sourced: each `agent.run.*` state change, and each appl
 CREATE TABLE runs (
   run_id         TEXT NOT NULL PRIMARY KEY,
   session_id     TEXT NOT NULL,
-  parent_run_id  TEXT,                          -- NULL on a lead run, Claude Code's staged review among them
+  parent_run_id  TEXT,                          -- NULL on a lead run, Claude Code's staged review among them, which runs in a process of its own
   reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
