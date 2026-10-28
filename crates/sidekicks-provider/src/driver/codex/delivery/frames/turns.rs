@@ -402,8 +402,11 @@ impl CodexFrameDelivery {
         record: &mut CodexSessionRecord,
         turn_id: &str,
     ) {
-        // Only a live turn is remembered, since only its end forgets it.
-        if record.active_turn_run(turn_id).is_some() {
+        // Only a live turn is remembered, since only its end forgets it; a turn already
+        // remembered takes no new copy of its id.
+        if record.active_turn_run(turn_id).is_some()
+            && !record.delivery.spent_safety_hold_turn_ids.contains(turn_id)
+        {
             record
                 .delivery
                 .spent_safety_hold_turn_ids

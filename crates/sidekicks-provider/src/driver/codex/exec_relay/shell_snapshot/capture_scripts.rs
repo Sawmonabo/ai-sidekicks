@@ -9,13 +9,13 @@ use crate::driver::codex::exec_relay::shell_snapshot::SnapshotShell;
 
 /// Runs a capture's helper commands from `PATH`, or the system's default path where `PATH` lacks
 /// one.
-const COMMAND_HELPER: &str = r##"__codex_snapshot_command() {
+const COMMAND_HELPER: &str = r#"__codex_snapshot_command() {
   if command -v "$1" >/dev/null 2>&1; then
     "$@"
   else
     command -p "$@"
   fi
-}"##;
+}"#;
 
 /// The POSIX shell's environment, each entry NUL-ended.
 const ENVIRONMENT_ENTRIES: &str = r#"if command -v env >/dev/null 2>&1; then
@@ -92,7 +92,7 @@ fi
 "#;
 
 /// Zsh's interactive startup file, read before the capture.
-const ZSH_STARTUP: &str = r##"if [[ -n "${ZDOTDIR-}" ]]; then
+const ZSH_STARTUP: &str = r#"if [[ -n "${ZDOTDIR-}" ]]; then
   rc="$ZDOTDIR/.zshrc"
 elif [[ -n "${HOME-}" ]]; then
   rc="$HOME/.zshrc"
@@ -100,17 +100,17 @@ else
   rc=
 fi
 [[ -r "$rc" ]] && . "$rc"
-"##;
+"#;
 
 /// Bash's interactive startup file, read before the capture where `BASH_ENV` names none.
-const BASH_STARTUP: &str = r##"if [ -z "${BASH_ENV-}" ] && [ -n "${HOME-}" ] && [ -r "$HOME/.bashrc" ]; then
+const BASH_STARTUP: &str = r#"if [ -z "${BASH_ENV-}" ] && [ -n "${HOME-}" ] && [ -r "$HOME/.bashrc" ]; then
   . "$HOME/.bashrc"
 fi
-"##;
+"#;
 
 /// The POSIX shell's startup file `ENV` names, its path expanded only in the forms that run no
 /// code, read before the capture.
-const SH_STARTUP: &str = r##"__codex_snapshot_expand_env() (
+const SH_STARTUP: &str = r#"__codex_snapshot_expand_env() (
   set +u
   __codex_snapshot_getenv() {
     # Preserve the value separately from lookup status and its formatting newline.
@@ -194,7 +194,7 @@ if [ -n "${ENV-}" ]; then
   command unset __codex_env_file
 fi
 command unset -f __codex_snapshot_expand_env
-"##;
+"#;
 
 const ZSH_STATE: &str = r##"print '# Snapshot file'
 print '# Unset all aliases to avoid conflicts with functions'
