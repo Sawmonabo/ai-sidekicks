@@ -476,7 +476,7 @@ pub struct DriverServices {
     /// Whether the daemon's program runs the hook mode a provider's hook command starts, so a
     /// driver composes and trusts a hook that runs this program only while it does.
     pub dispatches_hook_mode: bool,
-    /// The daemon's own program, beside which the command wrapper's and askpass's links sit.
+    /// The daemon's own program.
     pub daemon_program: PathBuf,
     /// Reads where a command channel's party runs, for its admission under the provider's process.
     pub caller_processes: Arc<dyn CallerProcessReader>,

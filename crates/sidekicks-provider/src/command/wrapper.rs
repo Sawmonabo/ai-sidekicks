@@ -36,9 +36,9 @@ use crate::driver::shell_prefix_command_of;
 /// The name of the link a provider runs every shell command through, which reaches this mode.
 pub const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";
 
-/// The command wrapper's link beside `daemon_program`, the running daemon's own program.
-pub fn command_wrapper_program_path(daemon_program: &Path) -> PathBuf {
-    daemon_program.with_file_name(format!("{COMMAND_WRAPPER_PROGRAM_NAME}{EXE_SUFFIX}"))
+/// The command wrapper's link in `program_link_folder`, the folder of the daemon's mode links.
+pub fn command_wrapper_program_path(program_link_folder: &Path) -> PathBuf {
+    program_link_folder.join(format!("{COMMAND_WRAPPER_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 
 /// The variable naming the provider whose shell prefix the wrapper serves, so it reads that

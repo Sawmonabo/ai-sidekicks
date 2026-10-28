@@ -19,9 +19,9 @@ use crate::command::channel::{DaemonRequest, PartyRecord};
 /// The name of the link git and ssh run as their askpass, which reaches this mode.
 pub const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";
 
-/// The command askpass's link beside `daemon_program`, the running daemon's own program.
-pub fn command_askpass_program_path(daemon_program: &Path) -> PathBuf {
-    daemon_program.with_file_name(format!("{COMMAND_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
+/// The command askpass's link in `program_link_folder`, the folder of the daemon's mode links.
+pub fn command_askpass_program_path(program_link_folder: &Path) -> PathBuf {
+    program_link_folder.join(format!("{COMMAND_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 
 /// The variables that send a command's git and ssh prompts to the askpass at

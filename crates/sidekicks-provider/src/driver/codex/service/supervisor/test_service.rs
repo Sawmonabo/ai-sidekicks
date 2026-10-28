@@ -19,6 +19,7 @@ use sidekicks_platforms::{
     bind_socket_listener, write_stand_in_program,
 };
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::WebSocketStream;
@@ -134,7 +135,7 @@ pub(crate) fn test_codex_service_dependencies(
         std::fs::create_dir_all(folder.join(made)).expect("a service folder is made");
     }
     let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
-    let daemon_program = folder.join("daemon-program");
+    let link_folder = program_link_folder(&folder.join("data"));
     let exec_relay = Arc::new(CodexExecRelayDependencies {
         spawner: spawner.clone(),
         data_folder: folder.join("data"),
@@ -146,8 +147,8 @@ pub(crate) fn test_codex_service_dependencies(
             spawner: spawner.clone(),
         }),
         command_output: Arc::new(PortRegistration::new("running commands")),
-        wrapper_program: command_wrapper_program_path(&daemon_program),
-        askpass_program: command_askpass_program_path(&daemon_program),
+        wrapper_program: command_wrapper_program_path(&link_folder),
+        askpass_program: command_askpass_program_path(&link_folder),
         snapshot_sweep: Arc::default(),
     });
     Arc::new(CodexServiceDependencies {

@@ -20,6 +20,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_platforms::PathRules;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_store::data_folder::program_link_folder;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use self::controls::ClaudeRegisteredPlacesAddresser;
@@ -140,6 +141,7 @@ impl ClaudeDriver {
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
     ) -> Self {
+        let link_folder = program_link_folder(&services.data_folder);
         Self {
             figures: Arc::new(ClaudeHeldFigures::new(
                 Arc::clone(&starts),
@@ -160,8 +162,8 @@ impl ClaudeDriver {
                 command_channels: Arc::new(ClaudeCommandChannels::new(
                     &services.data_folder,
                     ClaudeCommandPrograms {
-                        wrapper_program: command_wrapper_program_path(&services.daemon_program),
-                        askpass_program: command_askpass_program_path(&services.daemon_program),
+                        wrapper_program: command_wrapper_program_path(&link_folder),
+                        askpass_program: command_askpass_program_path(&link_folder),
                     },
                     Arc::clone(&services.caller_processes),
                     Arc::clone(&services.input_waits),

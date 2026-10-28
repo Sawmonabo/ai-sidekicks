@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::data_folder::service_log_folder;
+use sidekicks_store::data_folder::{program_link_folder, service_log_folder};
 use tokio_util::task::TaskTracker;
 
 use crate::background_work::BackgroundWorkForms;
@@ -186,6 +186,7 @@ impl CodexDriver {
         let link = Arc::new(CodexDriverLink::default());
         let release = Arc::new(CodexConversationRelease::default());
         let command_channel_root = command_channel_root(&services.data_folder);
+        let link_folder = program_link_folder(&services.data_folder);
         let exec_relay = Arc::new(CodexExecRelayDependencies {
             spawner: services.spawner.clone(),
             data_folder: services.data_folder.clone(),
@@ -193,8 +194,8 @@ impl CodexDriver {
             caller_processes: Arc::clone(&services.caller_processes),
             input_waits: Arc::clone(&services.input_waits),
             command_output: Arc::clone(&services.ports.command_output),
-            wrapper_program: command_wrapper_program_path(&services.daemon_program),
-            askpass_program: command_askpass_program_path(&services.daemon_program),
+            wrapper_program: command_wrapper_program_path(&link_folder),
+            askpass_program: command_askpass_program_path(&link_folder),
             snapshot_sweep: Arc::default(),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
