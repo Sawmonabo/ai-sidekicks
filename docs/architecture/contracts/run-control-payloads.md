@@ -94,21 +94,41 @@ type QueueItemNotDeliveredReason =
   | { kind: "failed" }
   | { kind: "refusedByHook"; words: string };
 
-// One queued message, as a pending row draws it.
-interface QueueItemSummary {
-  id: QueueItemId;
-  state: QueueItemState;
-  // Its place in its queue's order, lowest first; an edit takes the place of the message it
-  // replaced.
-  position: number;
+// One queue item as a pending row draws it, tagged on `kind`: a message the person sent, or the
+// provider's own review queued as the session's next item, whose report lands as the agent's reply.
+type QueueItemSummary =
+  | ({ kind: "message" } & QueueMessageSummary)
+  | ({ kind: "review" } & QueueReviewSummary);
+
+// A queued message: its words and files, and the child whose queue holds it.
+type QueueMessageSummary = QueueItemByState<{
   content: string;
   attachments?: ArtifactId[];
   childHandle?: ChildHandle; // the child whose queue holds it; absent on the lead's
+}>;
+
+// A queued review of the session's changes, on the lead's queue: what it covers.
+type QueueReviewSummary = QueueItemByState<{
+  target: SessionReviewTarget;
+}>;
+
+// What a review covers: the working tree, the staged set, or the branch against its base.
+type SessionReviewTarget = "workingTree" | "staged" | "branch";
+
+// Each kind's members with the ones every item carries, tagged on `state`; only a `notDelivered`
+// item carries the daemon's reason.
+type QueueItemByState<Members> = Members & {
+  id: QueueItemId;
+  // Its place in its queue's order, lowest first; an edit takes the place of the message it
+  // replaced.
+  position: number;
   isSentNow: boolean; // `Send now` marked it and no later order moved it off first place
-  notDeliveredReason?: QueueItemNotDeliveredReason; // present exactly on a notDelivered item
   createdAt: string;
   updatedAt: string;
-}
+} & (
+    | { state: "queued" | "admitted" | "superseded" | "canceled" }
+    | { state: "notDelivered"; notDeliveredReason: QueueItemNotDeliveredReason }
+  );
 
 // `agent.queueItem.cancel`: `Remove`. Refused for an item the queue does not hold
 // (`agent.queueItem.notFound`), one the agent has taken (`agent.queueItem.changeRefused`,

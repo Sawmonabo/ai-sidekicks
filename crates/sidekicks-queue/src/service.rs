@@ -335,15 +335,19 @@ impl RunQueue {
     /// Queues the provider's own review of the session's changes as its lead's next item, which
     /// opens a run of its own: behind the live lead run's turn or the messages waiting to continue
     /// the interrupted one, else at once, waking a session with no live process as a message does;
-    /// its report lands as the agent's reply. Refuses a
-    /// session the daemon does not hold or whose provider has no driver, one closed
-    /// (`session.alreadyClosed`) or being purged (`session.changeRefused`), a review the store
-    /// cannot keep and one whose lead run kept moving under it, writing nothing.
+    /// its report lands as the agent's reply. A start again under the same key answers the review
+    /// the first queued. Refuses a session the daemon does not hold or whose provider has no
+    /// driver, one closed (`session.alreadyClosed`) or being purged (`session.changeRefused`), a
+    /// review the store cannot keep and one whose lead run kept moving under it, writing nothing.
     pub async fn queue_review(
         &self,
         request: SessionCodeReviewStartRequest,
-    ) -> Result<(), QueueError> {
-        let SessionCodeReviewStartRequest { session_id, target } = request;
+    ) -> Result<AgentQueueItemCreateResponse, QueueError> {
+        let SessionCodeReviewStartRequest {
+            session_id,
+            client_idempotency_key: key,
+            target,
+        } = request;
         read_session_driver::<QueueError>(
             &self.pool,
             &self.providers,
@@ -351,17 +355,24 @@ impl RunQueue {
             session_id,
         )
         .await?;
+        if let Some(saved) = self.read_saved(session_id, &key).await? {
+            return Ok(created_response_of(saved));
+        }
         let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
         if let Some(state) = state {
             refuse_unchangeable_session(&session_id, state)?;
         }
         let hold = self.session_lock.hold_session(session_id).await;
+        if let Some(saved) = self.read_saved(session_id, &key).await? {
+            return Ok(created_response_of(saved));
+        }
         let item = QueueSendItem::Review {
             item_id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is an id"),
             target,
+            client_idempotency_key: key,
         };
-        self.sends.send(&hold, item, None).await?;
-        Ok(())
+        let written = self.sends.send(&hold, item, None).await?;
+        Ok(created_response_of(written.item))
     }
 
     /// A queue, the lead's or a child's, in its order, only the items in `state` when it is

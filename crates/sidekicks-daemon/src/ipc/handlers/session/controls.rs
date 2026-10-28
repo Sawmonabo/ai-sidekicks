@@ -1,6 +1,6 @@
 //! The session controls a client calls on the session's provider: `session.permissionLevel.update`
 //! and `session.mode.update` move the level and the Build or Plan mode, `session.sideQuestion.ask`
-//! asks on a throwaway copy of the conversation, `session.codeReview.start` starts the provider's
+//! asks on a throwaway copy of the conversation, `session.codeReview.start` queues the provider's
 //! own review, and `session.providerCommand.subscribe` follows the live `/` list. Each refuses a
 //! session the daemon does not hold, then one whose provider no driver answers, before anything
 //! changes or opens.
@@ -14,9 +14,9 @@ use sidekicks_contracts::provider::driver::commands::{
 };
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::{
-    SessionAcknowledgment, SessionAddressedRequest, SessionCodeReviewStart,
-    SessionCodeReviewStartRequest, SessionModeUpdate, SessionModeUpdateRequest,
-    SessionModeUpdateResponse, SessionPermissionLevelUpdate, SessionPermissionLevelUpdateRequest,
+    SessionAddressedRequest, SessionCodeReviewStart, SessionCodeReviewStartRequest,
+    SessionModeUpdate, SessionModeUpdateRequest, SessionModeUpdateResponse,
+    SessionPermissionLevelUpdate, SessionPermissionLevelUpdateRequest,
     SessionPermissionLevelUpdateResponse, SessionProviderCommandList,
     SessionProviderCommandSubscribe, SessionServerPrompt, SessionSideQuestionAsk,
     SessionSideQuestionAskRequest, SessionSideQuestionAskResponse, SideQuestionId,
@@ -24,7 +24,6 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::ComposedText;
-use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -38,45 +37,18 @@ use sidekicks_provider::driver::session_control::{
 use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_queue::service::RunQueue;
 use sidekicks_session::driver_resolution::read_session_driver;
-use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 
-use crate::ipc::handlers::driver::DriverMethodSources;
+use crate::ipc::handlers::driver::{DriverMethodReadError, DriverMethodSources};
 
 /// What the session controls read and act through.
 pub(crate) struct SessionControlMethods {
     /// The reads that resolve a session's driver, and the drivers.
     pub(crate) sources: Arc<DriverMethodSources>,
-    /// Moves a session's level and mode, starts a review on a running process and composes a side
-    /// question's resume material, each by where the session's process stands.
+    /// Moves a session's level and mode by where the session's process stands, and composes a side
+    /// question's resume material.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
-    /// Queues a review as a session's next item when no process runs it.
+    /// Queues a review as a session's next item.
     pub(crate) run_queue: Arc<RunQueue>,
-}
-
-/// Why a session's driver was not resolved: a refusal the caller reads by its code, or a read that
-/// did not run.
-#[derive(Debug, thiserror::Error)]
-enum SessionControlFailure {
-    /// The session is not one the daemon holds, or no driver answers its provider.
-    #[error(transparent)]
-    Refused(#[from] DomainError),
-    /// SQLite refused the read, or a stored value does not read as its type.
-    #[error("a session control's read of the session's lead failed")]
-    Read(#[from] rusqlite::Error),
-    /// The read pool did not run the read.
-    #[error("the read pool did not run a session control's read of the session's lead")]
-    Pool(#[from] DatabaseReadError),
-}
-
-impl From<SessionControlFailure> for HandlerError {
-    fn from(failure: SessionControlFailure) -> Self {
-        match failure {
-            SessionControlFailure::Refused(refusal) => Self::Refused(refusal),
-            fault @ (SessionControlFailure::Read(_) | SessionControlFailure::Pool(_)) => {
-                Self::Internal(Box::new(fault))
-            }
-        }
-    }
 }
 
 /// Registers the five session controls over `methods`, each refusing by the codes its method lists,
@@ -130,17 +102,7 @@ pub(crate) fn register_session_controls(
     registry.register::<SessionCodeReviewStart, _>(
         move |request: SessionCodeReviewStartRequest, _context: HandlerContext| {
             let methods = Arc::clone(&reviewing);
-            async move {
-                let session_id = request.session_id;
-                resolve_driver(&methods.sources, session_id).await?;
-                let run_queue = &methods.run_queue;
-                methods
-                    .provider_sessions
-                    .start_review(request, |queued| run_queue.queue_review(queued))
-                    .await?;
-                Ok(SessionAcknowledgment { session_id })
-            }
-            .boxed()
+            async move { Ok(methods.run_queue.queue_review(request).await?) }.boxed()
         },
     )?;
     registry.register_subscription::<SessionProviderCommandSubscribe, _>(
@@ -162,8 +124,8 @@ pub(crate) fn register_session_controls(
 async fn resolve_driver(
     sources: &DriverMethodSources,
     session_id: SessionId,
-) -> Result<(ProviderId, Arc<dyn ProviderDriver>), SessionControlFailure> {
-    let (provider, _, driver) = read_session_driver::<SessionControlFailure>(
+) -> Result<(ProviderId, Arc<dyn ProviderDriver>), DriverMethodReadError> {
+    let (provider, _, driver) = read_session_driver::<DriverMethodReadError>(
         &sources.pool,
         &sources.providers,
         sources.read_damaged_from_sequence.as_ref(),
@@ -174,7 +136,8 @@ async fn resolve_driver(
 }
 
 // Asks on a copy forked from the session's newest conversation, which the driver takes from its
-// live process where one runs; the answer arrives later as an event under the minted id.
+// live process where one runs; the answer lands as an event under the minted id, before the call
+// answers or after it, as the provider answers.
 async fn ask_side_question(
     methods: &SessionControlMethods,
     request: SessionSideQuestionAskRequest,

@@ -387,8 +387,8 @@ macro_rules! queue_item_by_state {
 }
 
 queue_item_by_state! {
-    /// The queued message, as a send or a child's steer answers, and, when a send again under the
-    /// same key answers one whose delivery failed, the daemon's reason.
+    /// The queued item, as a send, a child's steer or a review's start answers, and, when a send
+    /// again under the same key answers one whose delivery failed, the daemon's reason.
     AgentQueueItemCreateResponse {
         /// The item.
         queue_item_id: QueueItemId,
@@ -489,7 +489,7 @@ queue_item_summary_by_state! {
 }
 
 /// One queue item as a pending row draws it, tagged on `kind`: a message the person sent, or the
-/// provider's own review queued behind the session's running turn; each also tagged on `state`.
+/// provider's own review queued as the session's next item; each also tagged on `state`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum QueueItemSummary {

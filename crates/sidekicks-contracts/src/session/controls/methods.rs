@@ -17,9 +17,11 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::commands::ProviderCommandEntry;
 use crate::provider::id::ProviderId;
+use crate::run::queue::AgentQueueItemCreateResponse;
 use crate::session::cost::{SessionBudgetState, TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::named_scalar;
 use crate::wire::number::number;
@@ -390,15 +392,17 @@ pub enum SessionReviewTarget {
     Branch,
 }
 
-/// Starts the provider's own review: at once while the session's process runs, else as the
-/// session's next queued item, which wakes it as a message does. Its report lands as the agent's
-/// reply.
+/// Starts the provider's own review as the session's next queued item: admitted at once on an
+/// idle session, behind a running turn otherwise, and waking a session with no process as a
+/// message does. Its report lands as the agent's reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionCodeReviewStartRequest {
     /// The session.
     pub session_id: SessionId,
+    /// A start again under the same key answers the review the first queued.
+    pub client_idempotency_key: ClientUuid,
     /// What the review covers.
     pub target: SessionReviewTarget,
 }
@@ -581,17 +585,16 @@ methods! {
             result: SessionSideQuestionAskResponse,
             refusals: [SessionNotFound, ProviderNotFound, ProviderUnavailable, ProviderTimeout],
         },
-        /// Starts the provider's own review.
+        /// Queues the provider's own review.
         SessionCodeReviewStart = mutation "session.codeReview.start" {
             mutating: true,
             params: SessionCodeReviewStartRequest,
-            result: SessionAcknowledgment,
+            result: AgentQueueItemCreateResponse,
             refusals: [
                 SessionNotFound,
                 SessionAlreadyClosed,
                 SessionChangeRefused,
                 ProviderNotFound,
-                ProviderUnavailable,
                 AgentQueueItemPersistenceUnavailable,
                 AgentQueueItemRunChanged,
             ],

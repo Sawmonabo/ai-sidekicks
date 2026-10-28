@@ -1,19 +1,15 @@
-//! The session controls that act on a session's provider process: its level and mode moves, the
-//! start of the provider's own review, and the resume material a side question's copy is forked
-//! from. Each reads where the process stands from its driver under the session's transition lock:
-//! a process that runs, or that the driver brings back itself, takes the move first; a session
-//! with none takes it from the store when its next process opens.
+//! The session controls that act on a session's provider process: its level and mode moves, and
+//! the resume material a side question's copy is forked from. A move reads where the process
+//! stands from its driver under the session's transition lock: a process that runs, or that the
+//! driver brings back itself, takes the move first; a session with none takes it from the store
+//! when its next process opens.
 
-use std::future::Future;
-
-use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionCodeReviewStartRequest, SessionMode,
-};
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_provider::driver::contract::SessionProcessState;
 use sidekicks_provider::driver::session_control::{
-    ResumeSessionParams, StartReviewParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
+    ResumeSessionParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_session::console_state::session_mode_change_statement;
@@ -25,7 +21,6 @@ use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::{OpenedProcess, ProviderSessionError, ProviderSessions, ResumeOpening};
-use crate::error::QueueError;
 
 impl ProviderSessions {
     /// Moves the session to `level` and stores it, unless it stands there already. A process that
@@ -154,48 +149,6 @@ impl ProviderSessions {
                 moved_back,
             }),
         }
-    }
-
-    /// Starts the provider's own review of `request`'s target: at once through the driver while
-    /// the session's process runs, else through `queue_review`, which queues it as the session's
-    /// next item so it opens the process as a message does. Where the process stands is read under
-    /// the session's transition lock, which is let go before either start, since the queue's
-    /// admission opens the session under it. Fails as the driver's start or the queueing fails.
-    pub async fn start_review<Queue, Queued>(
-        &self,
-        request: SessionCodeReviewStartRequest,
-        queue_review: Queue,
-    ) -> Result<(), QueueError>
-    where
-        Queue: FnOnce(SessionCodeReviewStartRequest) -> Queued,
-        Queued: Future<Output = Result<(), QueueError>>,
-    {
-        let session_id = request.session_id;
-        let live_driver = {
-            let _hold = self.deps.transition_lock.acquire(session_id).await;
-            match self.process_state(session_id)? {
-                Some(OpenedProcess {
-                    state: SessionProcessState::Live,
-                    driver,
-                    ..
-                }) => Some(driver),
-                Some(OpenedProcess {
-                    state: SessionProcessState::Restarting | SessionProcessState::Down,
-                    ..
-                })
-                | None => None,
-            }
-        };
-        let Some(driver) = live_driver else {
-            return queue_review(request).await;
-        };
-        driver
-            .start_review(StartReviewParams {
-                session_id,
-                target: request.target,
-            })
-            .await?;
-        Ok(())
     }
 
     /// The resume material a side question's throwaway copy is forked from: the session's newest

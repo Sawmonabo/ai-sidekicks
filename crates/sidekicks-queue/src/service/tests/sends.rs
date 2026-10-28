@@ -8,10 +8,11 @@ use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::queue::{QueueItemId, QueuedSkillPick};
+use sidekicks_contracts::run::queue::{AgentQueueItemCreateResponse, QueueItemId, QueuedSkillPick};
 use sidekicks_contracts::session::controls::methods::{
     SessionCodeReviewStartRequest, SessionReviewTarget,
 };
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{DriverError, RunOpeningItem};
@@ -19,7 +20,7 @@ use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_session::queue_store::{QueueItemBody, QueueItemRecord, RecordedQueueItemState};
 use tokio::time::timeout;
 
-use super::{DriverCalls, Fixture, WAIT, fixture, recording_driver};
+use super::{DriverCalls, Fixture, WAIT, client_key, fixture, recording_driver};
 use crate::error::QueueError;
 
 // A send into a paused run resumes it with the message, which the provider is handed on the
@@ -159,18 +160,25 @@ async fn a_send_picking_a_skill_its_provider_does_not_list_is_refused() {
 }
 
 impl Fixture {
-    /// Queues a review of the session's staged set as `session.codeReview.start` does.
-    async fn queue_review(&self) {
-        timeout(
+    /// Queues a review of the session's staged set under `key` as `session.codeReview.start` does,
+    /// and answers the queued item's id.
+    async fn queue_review(&self, key: ClientUuid) -> QueueItemId {
+        let queued = timeout(
             WAIT,
             self.queue.queue_review(SessionCodeReviewStartRequest {
                 session_id: self.session_id,
+                client_idempotency_key: key,
                 target: SessionReviewTarget::Staged,
             }),
         )
         .await
         .expect("the review answers")
         .expect("the review is queued");
+        match queued {
+            AgentQueueItemCreateResponse::Queued { queue_item_id, .. }
+            | AgentQueueItemCreateResponse::Admitted { queue_item_id, .. } => queue_item_id,
+            other => panic!("the review waits or is admitted: {other:?}"),
+        }
     }
 
     /// The session's one stored review.
@@ -188,18 +196,25 @@ impl Fixture {
     }
 }
 
-// A review on a session with no live run is queued as the lead's one item, a review, and the run
-// it queues starts through the driver opening with that review, which reads admitted. Killed by a
-// review that skips the queue, or one whose run opens with a message.
+// A review on a session whose process runs idle, with no live run, is queued as the lead's one
+// item, a review, and admitted at once: the run it queues starts through the driver opening with
+// that review, which reads admitted. A start again under the same key answers the same review and
+// queues nothing more. Killed by a review that skips the queue, one whose run opens with a
+// message, and a review queued with no key.
 #[tokio::test]
 async fn a_review_on_a_session_with_no_live_run_opens_a_run_of_its_own() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
+    let key = client_key();
 
-    fixture.queue_review().await;
+    let first = fixture.queue_review(key.clone()).await;
+    fixture.queue.stop().await;
+    let again = fixture.queue_review(key).await;
     fixture.queue.stop().await;
 
     let review = fixture.stored_review();
+    assert_eq!(again, first);
+    assert_eq!(review.id, first);
     assert_eq!(fixture.count_items(), 1);
     assert_eq!(
         review.body,
@@ -228,7 +243,7 @@ async fn a_review_behind_a_running_turn_is_never_handed_into_it() {
     let run_id = fixture.insert_run("running");
     bind_run_to_first_provider(&fixture.database, run_id);
 
-    fixture.queue_review().await;
+    fixture.queue_review(client_key()).await;
     let message_id = timeout(WAIT, fixture.send())
         .await
         .expect("the send answers")

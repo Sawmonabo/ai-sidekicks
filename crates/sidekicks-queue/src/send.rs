@@ -75,6 +75,8 @@ pub(crate) enum QueueSendItem {
         item_id: QueueItemId,
         /// What the review covers.
         target: SessionReviewTarget,
+        /// The start's own key.
+        client_idempotency_key: ClientUuid,
     },
 }
 
@@ -428,7 +430,7 @@ enum SendFailure {
     Error(Box<QueueError>),
 }
 
-// The row `item` writes for `run_id`: a message under its device and key, a review under neither.
+// The row `item` writes for `run_id`: a message under its device and key, a review under its key.
 fn new_item(
     session_id: SessionId,
     item: &QueueSendItem,
@@ -442,11 +444,15 @@ fn new_item(
             Some(device_id.clone()),
             Some(message.client_idempotency_key.clone()),
         ),
-        QueueSendItem::Review { item_id, target } => (
+        QueueSendItem::Review {
+            item_id,
+            target,
+            client_idempotency_key,
+        } => (
             *item_id,
             QueueItemBody::Review { target: *target },
             None,
-            None,
+            Some(client_idempotency_key.clone()),
         ),
     };
     NewQueueItem {

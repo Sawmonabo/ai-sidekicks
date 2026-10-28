@@ -12,9 +12,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionCodeReviewStartRequest, SessionMode, SessionReviewTarget,
-};
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -542,54 +540,4 @@ async fn a_gone_process_is_forgotten_only_with_no_restart_pending(
         .expect("the session opens again");
 
     assert_eq!(resumes.load(Ordering::SeqCst), expected_resumes);
-}
-
-// On a session whose process runs, a review starts through the driver at once and nothing is
-// queued; on one whose process is down or being brought back, the review is queued as the
-// session's next item and the driver is not called. Killed by a direct driver call that skips the
-// queue, and by queueing a review a running process could start.
-#[rstest]
-#[case::live(SessionProcessState::Live)]
-#[case::restarting(SessionProcessState::Restarting)]
-#[case::down(SessionProcessState::Down)]
-#[tokio::test]
-async fn a_review_starts_at_once_only_on_a_running_process(#[case] state: SessionProcessState) {
-    let is_live = state == SessionProcessState::Live;
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver| {
-        driver.expect_session_process_state().return_const(state);
-        driver
-            .expect_start_review()
-            .times(usize::from(is_live))
-            .returning(|_params| async { Ok(()) }.boxed());
-    })
-    .await;
-    opening
-        .sessions
-        .open(opening.session_id, opening.run_id)
-        .await
-        .expect("the conversation resumes");
-    let request = SessionCodeReviewStartRequest {
-        session_id: opening.session_id,
-        target: SessionReviewTarget::WorkingTree,
-    };
-    let queued = Mutex::new(Vec::new());
-
-    opening
-        .sessions
-        .start_review(request.clone(), |request| {
-            queued
-                .lock()
-                .expect("the queued reviews' lock holds")
-                .push(request);
-            std::future::ready(Ok(()))
-        })
-        .await
-        .expect("the review starts");
-
-    let queued = queued.into_inner().expect("the queued reviews' lock holds");
-    if is_live {
-        assert!(queued.is_empty(), "{queued:?}");
-    } else {
-        assert_eq!(queued, [request]);
-    }
 }

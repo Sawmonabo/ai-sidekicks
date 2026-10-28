@@ -60,9 +60,13 @@ pub(crate) struct DriverMethodSources {
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
-/// A read the driver methods make did not run: a fault in the daemon.
+/// Why a driver method's read of a session did not answer: a refusal the caller reads by its code,
+/// or a read that did not run, a fault in the daemon.
 #[derive(Debug, thiserror::Error)]
-enum DriverMethodReadError {
+pub(crate) enum DriverMethodReadError {
+    /// The session is not one the daemon holds, or no driver answers its provider.
+    #[error(transparent)]
+    Refused(#[from] DomainError),
     /// SQLite refused the read, or a stored value does not read as its type.
     #[error("a driver method's read failed")]
     Read(#[from] rusqlite::Error),
@@ -73,7 +77,12 @@ enum DriverMethodReadError {
 
 impl From<DriverMethodReadError> for HandlerError {
     fn from(error: DriverMethodReadError) -> Self {
-        Self::Internal(Box::new(error))
+        match error {
+            DriverMethodReadError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (DriverMethodReadError::Read(_) | DriverMethodReadError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
     }
 }
 
