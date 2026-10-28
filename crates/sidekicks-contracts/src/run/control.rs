@@ -85,6 +85,14 @@ pub struct ProcessExitWithCode {
     )]
     #[schemars(with = "Never")]
     pub signal: Option<Never>,
+    /// Never present beside an exit code.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub silent_seconds: Option<Never>,
     /// The last lines it printed.
     pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
@@ -104,6 +112,14 @@ pub struct ProcessExitWithSignal {
     )]
     #[schemars(with = "Never")]
     pub exit_code: Option<Never>,
+    /// Never present beside a signal.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "Never")]
+    pub silent_seconds: Option<Never>,
     /// The last lines it printed.
     pub output_tail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
 }
@@ -137,9 +153,8 @@ pub struct ProcessExitAfterSilence {
 
 /// How a process ended under work it carried: exactly one of its exit code, the signal that ended
 /// it and the silence the daemon ended a provider service for, and the last lines it printed.
-/// `agent.run.failed` carries a provider process's under the turn, and a failed workflow step the
-/// process it ran; a process the daemon closed itself for any other reason, or a sleep, records
-/// none.
+/// `agent.run.failed` carries a provider process's under the turn; a process the daemon closed
+/// itself for any other reason, or a sleep, records none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ProcessExit {
