@@ -4,7 +4,7 @@
 //! `thread/name/set`, so its own session list shows it. A conversation the person's own terminal
 //! already named keeps that name.
 
-mod lockdown;
+pub(crate) mod lockdown;
 #[cfg(test)]
 mod tests;
 
@@ -153,7 +153,7 @@ impl CodexDriver {
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
                     () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    service = self.registry.service_for(account.as_ref()) => (service?, None),
+                    service = self.registry.service_for(&account) => (service?, None),
                 }
             };
         tokio::select! {
@@ -189,7 +189,7 @@ impl CodexDriver {
             };
             let service = self
                 .registry
-                .service_for(leg.spawn_config.provider_account_id.as_ref())
+                .service_for(&leg.spawn_config.provider_account_id)
                 .await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)

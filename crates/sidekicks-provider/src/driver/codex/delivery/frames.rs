@@ -22,6 +22,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::TurnTasksUpdate;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
@@ -29,6 +30,7 @@ use crate::command::running_set::RunningCommandSets;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
+use crate::driver::codex::delivery::turn_readings::deliver_codex_plan_update;
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::server_requests::CodexAskKind;
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -53,7 +55,7 @@ pub(crate) trait CodexFrameEffects: Send + Sync {
     fn withdraw_ask(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<&ProviderAccountId>,
+        provider_account_id: &ProviderAccountId,
         request_id: &str,
         ask_kind: CodexAskKind,
     );
@@ -151,6 +153,8 @@ pub(crate) struct CodexFrameDispatch {
     pub(crate) run_moves: Vec<CodexRunMove>,
     /// The turns that ended.
     pub(crate) turns_ended: Vec<CodexTurnMove>,
+    /// Each turn task list that changed, whole, in frame order.
+    pub(crate) turn_tasks: Vec<TurnTasksUpdate>,
 }
 
 /// How a turn's run stands when one of its frames arrives.
@@ -248,7 +252,9 @@ impl CodexFrameDelivery {
             | "item/plan/delta"
             | "item/reasoning/summaryTextDelta"
             | "item/reasoning/summaryPartAdded"
-            | "item/reasoning/textDelta" => self.deliver_prose_delta(record, method, &members),
+            | "item/reasoning/textDelta" => {
+                self.deliver_prose_delta(record, method, &members).await;
+            }
             "item/commandExecution/outputDelta" => self.deliver_command_output(record, &members),
             "error" => self.deliver_turn_error(record, &members).await,
             "guardianWarning"
@@ -260,6 +266,7 @@ impl CodexFrameDelivery {
             "serverRequest/resolved" => {
                 dispatch.resolved_request_id = self.forget_resolved_request(record, &members);
             }
+            "turn/plan/updated" => deliver_codex_plan_update(record, &members, &mut dispatch),
             "model/safetyBuffering/updated" => {
                 self.deliver_safety_buffering(record, &members).await;
             }
@@ -301,7 +308,7 @@ impl CodexFrameDelivery {
     ) -> Option<InboundOutcome> {
         let origin = DeliveryOrigin {
             provider: DESCRIPTOR.provider_id(),
-            provider_account_id: record.provider_account_id.clone(),
+            provider_account_id: Some(record.provider_account_id.clone()),
             raw_wire_type: Some(method),
         };
         // Boxed per delivery, so the engine's dispatch never sits inside every frame's future.

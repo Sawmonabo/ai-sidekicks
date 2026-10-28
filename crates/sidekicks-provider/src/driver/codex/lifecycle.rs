@@ -6,7 +6,7 @@
 mod controls;
 mod effects;
 pub(super) mod intake;
-mod naming;
+pub(super) mod naming;
 mod runs;
 mod service_events;
 mod sessions;
@@ -16,7 +16,6 @@ mod views;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -26,14 +25,20 @@ use sidekicks_store::data_folder::service_log_folder;
 use tokio_util::task::TaskTracker;
 
 use crate::background_work::BackgroundWorkForms;
+use crate::command::askpass::command_askpass_program_path;
+use crate::command::channel::command_channel_root;
+use crate::command::waiting_checks::SystemInputWaitReader;
+use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
+use crate::driver::codex::calibration::CodexCompactionLimits;
 use crate::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
 use crate::driver::codex::delivery::asks::attribution::CodexAskIntake;
 use crate::driver::codex::delivery::asks::{
     CodexAskHandOff, CodexAskHandOffDependencies, CodexAskOwners,
 };
 use crate::driver::codex::delivery::frames::{CodexFrameDelivery, CodexFrameDeliveryDependencies};
+use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::goals::CodexSessionGoals;
 use crate::driver::codex::intervention::CodexInterventionDispatcher;
 use crate::driver::codex::lifecycle::effects::{CodexDriverEffects, CodexDriverLink};
@@ -101,7 +106,8 @@ pub(crate) struct CodexDriver {
     processes: Arc<ProviderProcessRegistry>,
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,
-    is_terminal_reach_on: Arc<AtomicBool>,
+    // The folder each session's command channel opens under.
+    command_channel_root: PathBuf,
     log_expiry: AccountHomeLogExpiry,
     pub(super) registry: Arc<CodexServiceRegistry>,
     release: Arc<CodexConversationRelease>,
@@ -110,9 +116,13 @@ pub(crate) struct CodexDriver {
     config_forks: Arc<CodexConfigForks>,
     provider_commands: Arc<CodexProviderCommandCache>,
     project_rules: Arc<CodexProjectRuleFiles>,
-    views: Arc<CodexSessionViews>,
+    pub(super) views: Arc<CodexSessionViews>,
+    compaction_limits: Arc<CodexCompactionLimits>,
     // The services whose rate limits were read since they first started.
     rate_limits_read: Mutex<HashSet<CodexServiceId>>,
+    // Held through a capability read, so a second one never empties the scratch home the first
+    // runs in.
+    capability_read: tokio::sync::Mutex<()>,
     tasks: TaskTracker,
     link: Arc<CodexDriverLink>,
     parts: OnceLock<Arc<CodexDriverParts>>,
@@ -149,6 +159,8 @@ pub(crate) struct CodexDriverParts {
     pub(crate) adoptions: Arc<CodexBindingAdoptions>,
     pub(crate) rate_limits: CodexRateLimitFiling,
     pub(crate) tasks: TaskTracker,
+    /// The compaction limit each Codex version, model and window was measured at.
+    pub(crate) compaction_limits: Arc<CodexCompactionLimits>,
 }
 
 impl CodexDriver {
@@ -156,15 +168,24 @@ impl CodexDriver {
     /// I/O and no process started; must be called within the daemon's runtime.
     pub(crate) fn new(services: &DriverServices) -> Self {
         let tasks = TaskTracker::new();
-        let is_terminal_reach_on = Arc::new(AtomicBool::new(false));
         let homes = Arc::new(CodexHomes::new(
             Arc::clone(&services.ports.provider_accounts),
             &services.base_environment,
             &services.home_folder,
-            Arc::clone(&is_terminal_reach_on),
         ));
         let link = Arc::new(CodexDriverLink::default());
         let release = Arc::new(CodexConversationRelease::default());
+        let command_channel_root = command_channel_root(&services.data_folder);
+        let exec_relay = Arc::new(CodexExecRelayDependencies {
+            spawner: services.spawner.clone(),
+            data_folder: services.data_folder.clone(),
+            command_channel_root: command_channel_root.clone(),
+            caller_processes: Arc::clone(&services.caller_processes),
+            input_waits: Arc::clone(&services.input_waits),
+            command_output: Arc::clone(&services.ports.command_output),
+            wrapper_program: command_wrapper_program_path(&services.daemon_program),
+            askpass_program: command_askpass_program_path(&services.daemon_program),
+        });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,
             Arc::new(CodexServiceDependencies {
@@ -186,6 +207,7 @@ impl CodexDriver {
                 release: Arc::clone(&release),
                 drains: LastingServiceDrains::default(),
                 tasks: tasks.clone(),
+                exec_relay,
             }),
         ));
         let slots = Arc::new(CodexSessionSlots::new());
@@ -212,12 +234,12 @@ impl CodexDriver {
             processes: Arc::clone(&services.processes),
             ports: Arc::clone(&services.ports),
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
+            command_channel_root,
             project_rules: Arc::new(CodexProjectRuleFiles {
                 codex_home: homes.personal_home().to_owned(),
                 home_folder: services.home_folder.clone(),
                 repositories: Arc::clone(&services.ports.repositories),
             }),
-            is_terminal_reach_on,
             log_expiry: AccountHomeLogExpiry::default(),
             registry,
             release,
@@ -226,7 +248,13 @@ impl CodexDriver {
             run_routes: Arc::new(CodexRunRoutes::default()),
             provider_commands,
             views,
+            compaction_limits: Arc::new(CodexCompactionLimits::new(
+                Arc::clone(&services.pool),
+                Arc::clone(&services.ports.database_writer),
+                tasks.clone(),
+            )),
             rate_limits_read: Mutex::default(),
+            capability_read: tokio::sync::Mutex::default(),
             tasks,
             link,
             parts: OnceLock::new(),
@@ -292,6 +320,8 @@ impl CodexDriver {
                 pending_compactions: self.pending_compactions.clone(),
                 provider_commands: Arc::clone(&self.provider_commands),
                 processes: Arc::clone(&self.processes),
+                reviewer_denials: Arc::clone(&ports.reviewer_denials),
+                command_channel_root: self.command_channel_root.clone(),
             },
         ));
         let rate_limits =
@@ -341,6 +371,7 @@ impl CodexDriver {
         }));
         let adoptions = Arc::new(CodexBindingAdoptions::default());
         Ok(CodexDriverParts {
+            compaction_limits: Arc::clone(&self.compaction_limits),
             ask_intake: CodexAskIntake {
                 hand_off: Arc::clone(&hand_off),
                 run_routes: Arc::clone(&self.run_routes),
@@ -419,6 +450,25 @@ impl CodexDriver {
         let intake = CodexSessionIntake::new(record, routing, Arc::clone(parts));
         self.tasks.spawn(intake.run(receiver, routed));
         self.read_rate_limits_once(parts, service);
+    }
+
+    // Closes `session_id`'s relayed command channel and forgets its relayed commands on every
+    // service, once the session has closed; a channel whose folder cannot be removed is logged.
+    async fn forget_relayed_commands(&self, session_id: SessionId) {
+        for relay in self
+            .registry
+            .services()
+            .iter()
+            .filter_map(|service| service.exec_relay())
+        {
+            if let Err(error) = relay.forget_session(session_id).await {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    "a closed codex session's relayed command channel could not be removed"
+                );
+            }
+        }
     }
 
     // Reads the account's rate limits after its service's first start; recovery reads them again

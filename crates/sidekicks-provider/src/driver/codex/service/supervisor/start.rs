@@ -1,7 +1,8 @@
 //! How each kind of Codex service starts, and what every start shares: the connect, the read of
 //! the loaded conversations and of the reported version, and the launch on Codex's native program.
-//! A service on an account home is the daemon's own child, dialed once it listens; the terminal
-//! service on the person's own Codex folder starts as `terminal` says.
+//! A service on an account home is the daemon's own child, dialed once it listens, with the
+//! daemon's relay to its executor added before it answers; the capability read's runs without one;
+//! the terminal service on the person's own Codex folder starts as `terminal` says.
 
 pub(super) mod kept_records;
 mod terminal;
@@ -20,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::ReportedVersionReading;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
+use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay};
 use crate::driver::codex::native_program::resolve_codex_native_program;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -58,6 +60,8 @@ const LOADED_THREADS_PAGE_LIMIT: u32 = 100;
 const LOADED_THREADS_PAGE_BOUND: usize = 20;
 
 const THREAD_LOADED_LIST_METHOD: &str = "thread/loaded/list";
+
+const ENVIRONMENT_ADD_METHOD: &str = "environment/add";
 
 /// A service process the daemon started or re-pinned.
 pub(crate) enum CodexServiceProcess {
@@ -154,14 +158,75 @@ pub(super) async fn start_codex_service(
             cause: Some(Box::new(error)),
         })?;
     match service.home().kind {
-        CodexHomeKind::Account
-        | CodexHomeKind::PersonalFolder {
-            is_terminal_reach_on: false,
-        } => start_account_service(&service, launch, &cancel, &executable).await,
-        CodexHomeKind::PersonalFolder {
-            is_terminal_reach_on: true,
-        } => start_terminal_service(&service, launch, &cancel, &executable, start_lock).await,
+        CodexHomeKind::Account(_) => {
+            start_relayed_service(&service, launch, &cancel, &executable).await
+        }
+        CodexHomeKind::CapabilityRead => {
+            start_account_service(&service, launch, &cancel, &executable).await
+        }
+        CodexHomeKind::PersonalFolder => {
+            start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
+        }
     }
+}
+
+// An account's service: its relay readied first, the service then started as every child of the
+// daemon is, and the relay's environment added on its connection before the start answers, so it
+// precedes any resume of a conversation there.
+async fn start_relayed_service(
+    service: &Arc<CodexService>,
+    launch: u64,
+    cancel: &CancellationToken,
+    executable: &ResolvedProviderExecutable,
+) -> Result<StartedService, StartFailure> {
+    let relay = service.exec_relay_or_insert_with(|| compose_exec_relay(service));
+    let executor_launch = compose_codex_native_launch(
+        &service.dependencies().data_folder,
+        executable,
+        CODEX_EXECUTOR_ARGUMENTS
+            .iter()
+            .map(|argument| (*argument).to_owned())
+            .collect(),
+    )
+    .await?;
+    let environment = executor_launch.environment.clone();
+    let environment_add = relay
+        .start(executor_launch.into_command(), environment)
+        .await?;
+    let started = start_account_service(service, launch, cancel, executable).await?;
+    match started
+        .connection
+        .request(ENVIRONMENT_ADD_METHOD, &environment_add)
+        .await
+    {
+        Ok(_added) => Ok(started),
+        Err(error) => Err(StartFailure {
+            error,
+            process: started.process,
+        }),
+    }
+}
+
+// The relay of `service`, reading its conversations' sessions and asking its planned restart when
+// its executor ends, so the next start brings a new one up.
+fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
+    let threads = Arc::downgrade(service);
+    let restarts = Arc::downgrade(service);
+    CodexExecRelay::new(
+        Arc::clone(&service.dependencies().exec_relay),
+        Arc::new(move |thread_id: &str| {
+            threads
+                .upgrade()?
+                .lock_threads()
+                .session_for(thread_id)
+                .copied()
+        }),
+        Arc::new(move || {
+            if let Some(service) = restarts.upgrade() {
+                service.request_planned_restart();
+            }
+        }),
+    )
 }
 
 // The daemon's own child: launched with the shared switches alone, dialed once it listens.

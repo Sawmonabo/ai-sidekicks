@@ -120,7 +120,7 @@ impl CodexFrameDelivery {
         };
         if let Err(error) = result {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: record.provider_account_id.clone(),
+                provider_account_id: Some(record.provider_account_id.clone()),
                 port: CodexDeliveryPort::ReviewerDenial,
                 session_id: Some(record.session_id),
                 error,

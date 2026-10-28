@@ -344,7 +344,7 @@ impl CodexRunStart {
             .await
         {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: settled.provider_account_id,
+                provider_account_id: Some(settled.provider_account_id),
                 port: CodexDeliveryPort::OutputSpeed,
                 session_id: Some(settled.session_id),
                 error,

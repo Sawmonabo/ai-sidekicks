@@ -111,7 +111,7 @@ impl CodexDriver {
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> Result<Vec<PickedSkill>, DriverError> {
         let listed = if let Some(source) = self.views.command_source(session_id) {
@@ -130,10 +130,7 @@ impl CodexDriver {
                 .resolve_spawn_context(session_id, provider_account_id.clone())
                 .await
                 .map_err(DriverError::Internal)?;
-            let service = self
-                .registry
-                .service_for(provider_account_id.as_ref())
-                .await?;
+            let service = self.registry.service_for(&provider_account_id).await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;

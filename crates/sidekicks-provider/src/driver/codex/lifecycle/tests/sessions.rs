@@ -350,7 +350,7 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
     );
 }
 
-// The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
+// The composed driver on the test's one account whose registry holds `scripted`'s service, every
 // session running in `folder`'s `work`, its runs on a recording engine.
 fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
     let engine = Arc::new(RecordingRunEngine::default());

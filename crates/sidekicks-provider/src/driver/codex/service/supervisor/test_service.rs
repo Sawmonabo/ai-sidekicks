@@ -14,16 +14,23 @@ use interprocess::local_socket::tokio::Listener;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
     bind_socket_listener, write_stand_in_program,
 };
+use sidekicks_std::port_registration::PortRegistration;
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
+use crate::command::askpass::command_askpass_program_path;
+use crate::command::channel::command_channel_root;
+use crate::command::waiting_checks::SystemInputWaitReader;
+use crate::command::wrapper::command_wrapper_program_path;
+use crate::driver::codex::exec_relay::CodexExecRelayDependencies;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
@@ -46,6 +53,7 @@ use crate::driver::codex::transport::connection::scripted_service::{
 use crate::driver::contract::DriverError;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
+use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
 };
@@ -126,8 +134,24 @@ pub(crate) fn test_codex_service_dependencies(
     for made in ["data", "logs"] {
         std::fs::create_dir_all(folder.join(made)).expect("a service folder is made");
     }
+    let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
+    let daemon_program = folder.join("daemon-program");
+    let exec_relay = Arc::new(CodexExecRelayDependencies {
+        spawner: spawner.clone(),
+        data_folder: folder.join("data"),
+        command_channel_root: command_channel_root(&folder.join("data")),
+        caller_processes: Arc::new(
+            ProcessTableReader::for_this_program().expect("this program's reader builds"),
+        ),
+        input_waits: Arc::new(SystemInputWaitReader {
+            spawner: spawner.clone(),
+        }),
+        command_output: Arc::new(PortRegistration::new("running commands")),
+        wrapper_program: command_wrapper_program_path(&daemon_program),
+        askpass_program: command_askpass_program_path(&daemon_program),
+    });
     Arc::new(CodexServiceDependencies {
-        spawner: Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts"),
+        spawner,
         provider_services: Arc::new(ProviderServiceProcesses::default()),
         processes: Arc::new(ProviderProcessRegistry::default()),
         program,
@@ -140,6 +164,7 @@ pub(crate) fn test_codex_service_dependencies(
         release: Arc::new(CodexConversationRelease::default()),
         drains: LastingServiceDrains::default(),
         tasks: TaskTracker::new(),
+        exec_relay,
     })
 }
 
@@ -172,18 +197,16 @@ impl CodexProgramResolver for TestCodexProgram {
 /// Starts a service on an account's home whose connection the test scripts. Must be called within
 /// a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
-    start_scripted_codex_service_on(CodexHomeKind::Account, CodexServiceKind::Account)
+    start_scripted_codex_service_on(
+        CodexHomeKind::Account(test_provider_account_id()),
+        CodexServiceKind::Account,
+    )
 }
 
-/// Starts the terminal service on the person's own folder with terminal reach on, its connection
-/// scripted by the test. Must be called within a runtime.
+/// Starts the terminal service on the person's own folder, its connection scripted by the test.
+/// Must be called within a runtime.
 pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
-    start_scripted_codex_service_on(
-        CodexHomeKind::PersonalFolder {
-            is_terminal_reach_on: true,
-        },
-        CodexServiceKind::Terminal,
-    )
+    start_scripted_codex_service_on(CodexHomeKind::PersonalFolder, CodexServiceKind::Terminal)
 }
 
 // A service of `kind` on a home of `home_kind` whose connection the test scripts.
@@ -201,7 +224,6 @@ fn start_scripted_codex_service_on(
     let (service, script) = script_codex_service(
         CodexServiceHome {
             codex_home: folder.path().join("home"),
-            provider_account_id: None,
             kind: home_kind,
         },
         CodexServiceSocket {

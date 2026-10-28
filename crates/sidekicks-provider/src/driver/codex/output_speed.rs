@@ -29,8 +29,8 @@ pub(crate) struct CodexSettledOutputSpeed {
     pub(crate) session_id: SessionId,
     /// The run.
     pub(crate) run_id: RunId,
-    /// The account the session runs on, `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the session runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The tier the thread declared.
     pub(crate) state: ProviderOutputSpeedState,
 }

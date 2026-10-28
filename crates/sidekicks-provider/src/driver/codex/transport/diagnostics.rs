@@ -77,6 +77,8 @@ pub(crate) enum CodexDeliveryPort {
     TurnStart,
     /// The run engine counting a step a tool call ended.
     StepCount,
+    /// The usage record.
+    Usage,
 }
 
 /// Everything the Codex transport, service and deliveries could not route or carry out, and the
@@ -263,7 +265,8 @@ pub(crate) enum CodexTransportDiagnostic {
     /// An item's final text does not continue the pieces already streamed for it; those pieces
     /// stand and nothing more of it is written.
     StreamedTextDiverged {
-        /// The account the service runs on; `None` on the machine's default home.
+        /// The account the service runs on; `None` on a service no account owns, the terminal
+        /// service's.
         provider_account_id: Option<ProviderAccountId>,
         /// The conversation.
         thread_id: String,
@@ -292,7 +295,8 @@ pub(crate) enum CodexTransportDiagnostic {
     },
     /// A helper definition's field its role file cannot carry; the helper runs without it.
     SubagentDefinitionFieldWithheld {
-        /// The account the service runs on; `None` on the machine's default home.
+        /// The account the service runs on; `None` on a service no account owns, the terminal
+        /// service's.
         provider_account_id: Option<ProviderAccountId>,
         /// The helper's name.
         definition_name: String,
@@ -307,7 +311,8 @@ pub(crate) enum CodexTransportDiagnostic {
     },
     /// A port the daemon wired refused what the driver handed it.
     PortDeliveryFailed {
-        /// The account the service runs on; `None` on the machine's default home.
+        /// The account the service runs on; `None` on a service no account owns, the terminal
+        /// service's.
         provider_account_id: Option<ProviderAccountId>,
         /// The port.
         port: CodexDeliveryPort,

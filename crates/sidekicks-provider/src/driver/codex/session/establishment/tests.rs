@@ -20,6 +20,7 @@ use crate::driver::codex::session::test_fixture::{
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::process_identity::ProviderProcessIds as _;
 use crate::run::posture::compose_execution_posture;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.
@@ -46,7 +47,7 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
         subagent_policy: None,
         tool_servers: None,
         output_schema: None,
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         on_mcp_server_status: None,
     };
 

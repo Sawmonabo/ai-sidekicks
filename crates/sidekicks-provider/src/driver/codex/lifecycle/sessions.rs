@@ -100,7 +100,7 @@ impl CodexDriver {
         let parts = self.parts()?;
         let service = parts
             .registry
-            .service_for(params.provider_account_id.as_ref())
+            .service_for(&params.provider_account_id)
             .await?;
         match parts
             .recovery
@@ -223,6 +223,7 @@ impl CodexDriver {
         drop(claim);
         parts.release.forget_session(&session_id).await;
         parts.adoptions.forget_session(session_id);
+        self.forget_relayed_commands(session_id).await;
         Ok(())
     }
 
@@ -257,15 +258,11 @@ impl CodexDriver {
     pub(crate) async fn starts_process(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> bool {
         let service = match self.views.service(session_id) {
             Some(service) => service,
-            None => match self
-                .registry
-                .service_for(provider_account_id.as_ref())
-                .await
-            {
+            None => match self.registry.service_for(&provider_account_id).await {
                 Ok(service) => service,
                 Err(_) => return true,
             },

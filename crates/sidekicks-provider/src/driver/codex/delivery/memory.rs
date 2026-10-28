@@ -16,6 +16,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexProseRowType, CodexRowDelivery, CodexRowRun};
+use crate::driver::codex::delivery::turn_readings::CodexTurnReadings;
 use crate::driver::reorder_buffer::NormalizedEventReorderBuffer;
 use crate::driver::streamed_text::StreamedText;
 use crate::run::turn_end::StartedTurn;
@@ -166,6 +167,10 @@ pub(crate) struct CodexDeliveryMemory {
     /// The turns Codex holds for a safety check, by turn id, with the run each hold shows on;
     /// each leaves as its hold is lifted.
     pub(crate) safety_hold_run_by_turn_id: HashMap<String, CodexRowRun>,
+    /// Each turn's output tokens and task list.
+    pub(crate) turn_readings: CodexTurnReadings,
+    /// Turns whose safety hold was released, never held again.
+    pub(crate) spent_safety_hold_turn_ids: HashSet<String>,
     /// The tool rows waiting for their start.
     pub(crate) reorder_buffer: NormalizedEventReorderBuffer<CodexRowDelivery>,
     /// The replies, reasoning and plans being streamed, by item id, sent as stored pieces.
@@ -200,6 +205,8 @@ impl CodexDeliveryMemory {
             unowned_turn_ids: HashSet::new(),
             self_started_turn_ids: HashSet::new(),
             safety_hold_run_by_turn_id: HashMap::new(),
+            turn_readings: CodexTurnReadings::default(),
+            spent_safety_hold_turn_ids: HashSet::new(),
             reorder_buffer: NormalizedEventReorderBuffer::new(
                 DESCRIPTOR.provider_id(),
                 REORDER_MAX_BUFFERED_EVENTS,

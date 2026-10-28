@@ -200,7 +200,7 @@ impl CodexService {
             // session's frame handler reads the route itself.
             let _route = resolve_codex_frame_emission_route(
                 method,
-                self.home().provider_account_id.clone(),
+                self.home().provider_account_id().cloned(),
                 &mut routing.reports,
             );
             if method == CODEX_THREAD_CLOSED_METHOD

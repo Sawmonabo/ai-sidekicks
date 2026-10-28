@@ -22,7 +22,7 @@ use crate::driver::codex::session::state::CodexSessionRecord;
 struct CodexSessionView {
     service: Arc<CodexService>,
     thread_id: String,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     working_directory: PathBuf,
     model: String,
     run_id: Option<RunId>,

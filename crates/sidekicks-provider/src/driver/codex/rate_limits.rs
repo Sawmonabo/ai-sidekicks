@@ -96,13 +96,14 @@ impl CodexRateLimitFiling {
 
     /// Files `service`'s readings as they stand, one row per window whose reading changed since
     /// the account's last filing; a row the dispatch refused is filed again with the next reading.
-    /// A service on the machine's default home names no account, which a row requires, so its
-    /// readings stay unfiled, logged once.
+    /// A service no account owns, the terminal service on the person's own folder, names no
+    /// account, which a row requires, so its readings stay unfiled, logged once.
     pub(crate) async fn file(&self, service: &CodexService) {
-        let Some(provider_account_id) = service.home().provider_account_id.clone() else {
+        let Some(provider_account_id) = service.home().provider_account_id().cloned() else {
             if !mem::replace(&mut lock(&self.filed).is_unfiled_reading_logged, true) {
                 tracing::debug!(
-                    "the default home's rate limits name no account, so no usage row is filed"
+                    "the person's own folder's rate limits name no account, so no usage row is \
+                     filed"
                 );
             }
             return;

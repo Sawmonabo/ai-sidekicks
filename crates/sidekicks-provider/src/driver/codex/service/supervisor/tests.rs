@@ -154,10 +154,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     let service = CodexService::new(
         CodexServiceHome {
             codex_home,
-            provider_account_id: None,
-            kind: CodexHomeKind::PersonalFolder {
-                is_terminal_reach_on: true,
-            },
+            kind: CodexHomeKind::PersonalFolder,
         },
         CodexServiceSocket {
             path: socket.clone(),

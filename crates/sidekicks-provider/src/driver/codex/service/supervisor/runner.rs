@@ -540,7 +540,7 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
 fn report_crash_loop(service: &CodexService) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: service.home.provider_account_id.clone(),
+        provider_account_id: service.home.provider_account_id().cloned(),
         kind: DriverDiagnosticKind::ProviderCrashLoop,
         raw_wire_type: None,
         disposition_reason: "the Codex service ended on its own too many times in the crash \

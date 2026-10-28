@@ -1,0 +1,113 @@
+use std::process::Command;
+
+use serde_json::{Map, Value, json};
+use sidekicks_platforms::Spawner;
+use tokio::runtime::Handle;
+
+use super::ShellSnapshots;
+use super::wrap::wrap_with_snapshot;
+
+fn words(argv: &[&str]) -> Vec<String> {
+    argv.iter().map(|word| (*word).to_owned()).collect()
+}
+
+// A relayed `-lc` start runs Codex's local snapshot form: the snapshot sourced in a plain shell,
+// the command's runtime variables put back over it, then the command's shell run on its line.
+#[test]
+fn wraps_a_login_start_in_the_local_snapshot_form() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let snapshot = folder.path().join("snapshot.sh");
+    std::fs::write(
+        &snapshot,
+        "export SNAPSHOT_SEEN=from-snapshot\nexport CODEX_THREAD_ID=stale\n",
+    )
+    .expect("the snapshot is written");
+    let mut environment = Map::new();
+    environment.insert("CODEX_THREAD_ID".to_owned(), json!("thread-1"));
+    environment.insert("PATH".to_owned(), json!("/usr/bin:/bin"));
+    let line = r#"echo "${SNAPSHOT_SEEN-unset}:$CODEX_THREAD_ID:$0:$1""#;
+    let argv = words(&["/bin/sh", "-lc", line, "first", "second"]);
+
+    let wrapped = wrap_with_snapshot(&argv, &snapshot, &environment).expect("a login start");
+
+    assert_eq!(wrapped[..2], words(&["/bin/sh", "-c"]));
+    let script = &wrapped[2];
+    let source = format!(
+        "\n\nif . '{}' >/dev/null 2>&1; then :; fi\n\n",
+        snapshot.display()
+    );
+    let (captures, after) = script.split_once(&source).expect("the snapshot is sourced");
+    assert!(
+        captures.starts_with(
+            "__CODEX_SNAPSHOT_OVERRIDE_SET_0=\"${CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS+x}\""
+        ),
+        "{captures}"
+    );
+    assert!(captures.contains("=\"${CODEX_THREAD_ID+x}\""), "{captures}");
+    assert!(!captures.contains("${PATH+x}"), "{captures}");
+    assert!(after.ends_with(
+        "\n\nexec '/bin/sh' -c 'echo \"${SNAPSHOT_SEEN-unset}:$CODEX_THREAD_ID:$0:$1\"' 'first' 'second'"
+    ));
+
+    let output = Command::new(&wrapped[0])
+        .args(&wrapped[1..])
+        .env_clear()
+        .env("CODEX_THREAD_ID", "thread-1")
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .expect("the wrapped start runs");
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "from-snapshot:thread-1:first:second\n"
+    );
+}
+
+// Any start but a login shell's runs as it is.
+#[test]
+fn leaves_a_start_that_is_no_login_shell() {
+    let environment: Map<String, Value> = Map::new();
+    let snapshot = std::path::Path::new("/nonexistent/snapshot.sh");
+    for argv in [
+        words(&["/bin/sh", "-c", "true"]),
+        words(&["/usr/bin/env", "true"]),
+    ] {
+        assert_eq!(wrap_with_snapshot(&argv, snapshot, &environment), None);
+    }
+}
+
+// A conversation's first command captures the login shell's functions once; a second asks the
+// same file back.
+#[tokio::test]
+async fn captures_a_login_shells_functions_once() {
+    let folder = tempfile::tempdir().expect("a test folder");
+    let home = folder.path().join("home");
+    std::fs::create_dir(&home).expect("the home is made");
+    std::fs::write(home.join(".bashrc"), "greet() { echo seen; }\n").expect("the rc is written");
+    let spawner = Spawner::new(Handle::current()).expect("a spawner");
+    let snapshots = ShellSnapshots::new(spawner, folder.path());
+    snapshots.set_environment(vec![
+        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+    ]);
+
+    let first = snapshots
+        .snapshot_for("thread-1", "/bin/bash", folder.path())
+        .await
+        .expect("the snapshot is taken");
+    let second = snapshots
+        .snapshot_for("thread-1", "/bin/bash", folder.path())
+        .await
+        .expect("the snapshot is kept");
+
+    assert_eq!(first, second);
+    let written = std::fs::read_to_string(&first).expect("the snapshot is readable");
+    assert!(written.starts_with("# Snapshot file"), "{written}");
+    assert!(written.contains("greet"), "{written}");
+    let sourced = Command::new("/bin/bash")
+        .args(["-c", &format!(". '{}' && greet", first.display())])
+        .env_clear()
+        .output()
+        .expect("the snapshot sources");
+    assert_eq!(String::from_utf8_lossy(&sourced.stdout), "seen\n");
+}

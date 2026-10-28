@@ -139,8 +139,8 @@ pub(crate) struct CodexSessionRecord {
     /// The runtime binding whose resume handle names `thread_id`, rewritten as soon as a fork
     /// answers; `None` until the daemon names one.
     pub(crate) binding_id: Option<RuntimeBindingId>,
-    /// The account the conversation runs on, `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the conversation runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation's turn ids, oldest first; a fork position N is entry N - 1. Uncapped, since
     /// dropping the head would shift every later position.
     pub(crate) turn_boundaries: Vec<String>,
@@ -216,7 +216,7 @@ pub(crate) struct CodexEstablishedConversation {
     /// The binding whose resume handle names the conversation; `None` until the first run.
     pub(crate) binding_id: Option<RuntimeBindingId>,
     /// The account the conversation runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation's turn ids, oldest first.
     pub(crate) turn_boundaries: Vec<String>,
     /// The settings the conversation was established with.

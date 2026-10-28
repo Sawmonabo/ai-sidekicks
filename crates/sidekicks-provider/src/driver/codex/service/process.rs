@@ -67,7 +67,7 @@ pub(crate) struct CodexProcessLaunch {
 
 impl CodexProcessLaunch {
     /// The command that runs the launch, on its own environment alone.
-    pub(super) fn into_command(self) -> Command {
+    pub(crate) fn into_command(self) -> Command {
         let mut command = Command::new(self.program);
         command
             .args(self.arguments)

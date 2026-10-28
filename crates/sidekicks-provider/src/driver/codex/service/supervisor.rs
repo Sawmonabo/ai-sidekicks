@@ -21,7 +21,7 @@ mod transition;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 use std::time::{Duration, SystemTime};
 
 use futures::future::{BoxFuture, join_all};
@@ -35,6 +35,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
 use crate::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
@@ -116,6 +117,8 @@ pub(crate) struct CodexServiceDependencies {
     /// The driver's tracked tasks, which the driver's shutdown waits for: a switch-off's wait to
     /// retire a service, and a joined service's check that Codex's managed daemon is free.
     pub(crate) tasks: TaskTracker,
+    /// What the account services' executor relays start and report through.
+    pub(crate) exec_relay: Arc<CodexExecRelayDependencies>,
 }
 
 /// The socket one service listens on.
@@ -194,6 +197,8 @@ pub(crate) struct CodexService {
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
     routing: Mutex<CodexServiceRouting>,
+    // The executor relay its first account start made; a terminal service never has one.
+    exec_relay: OnceLock<Arc<CodexExecRelay>>,
 }
 
 impl CodexService {
@@ -233,6 +238,7 @@ impl CodexService {
                 }),
             ))),
             routing: Mutex::default(),
+            exec_relay: OnceLock::new(),
         });
         tokio::spawn(ServiceRunner::new(Arc::downgrade(&service), received).run());
         service
@@ -703,6 +709,19 @@ impl CodexService {
     /// What the service starts, connects and reports through.
     pub(crate) fn dependencies(&self) -> &CodexServiceDependencies {
         &self.dependencies
+    }
+
+    /// The service's executor relay, once its first account start made it.
+    pub(crate) fn exec_relay(&self) -> Option<Arc<CodexExecRelay>> {
+        self.exec_relay.get().cloned()
+    }
+
+    /// The service's executor relay, made by `make` at the first ask.
+    pub(crate) fn exec_relay_or_insert_with(
+        &self,
+        make: impl FnOnce() -> Arc<CodexExecRelay>,
+    ) -> Arc<CodexExecRelay> {
+        Arc::clone(self.exec_relay.get_or_init(make))
     }
 
     fn is_routed_dial(&self, dial: u64) -> bool {

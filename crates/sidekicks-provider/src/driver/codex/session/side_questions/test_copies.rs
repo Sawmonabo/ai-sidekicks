@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SideQuestionId,
 };
@@ -25,6 +26,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::run::posture::compose_execution_posture;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The resting session's stored conversation.
 pub(crate) const STORED_THREAD: &str = "stored-thread";
@@ -38,7 +40,7 @@ pub(crate) const COPY_TURN: &str = "copy-turn";
 /// The copy's answer.
 pub(super) const ANSWER: &str = "It reads the worktree.";
 
-/// The resume material of `session_id` at rest in `folder` on the person's own sign-in.
+/// The resume material of `session_id` at rest in `folder` on the test's account.
 pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
@@ -58,16 +60,18 @@ pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSes
         subagent_policy: None,
         tool_servers: None,
         output_schema: None,
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         on_mcp_server_status: None,
     }
 }
 
 /// A side question asked on `session_id` at rest in `folder`, its stored conversation
-/// `stored-thread`, at Ask on the person's own sign-in.
+/// `stored-thread`, at Ask on the test's account.
 pub(crate) fn resting_question(session_id: SessionId, folder: &Path) -> AskSideQuestionParams {
     AskSideQuestionParams {
         session_id,
+        binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+            .expect("a minted UUID is a binding id"),
         side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
         question: "What does this read?".to_owned(),
         resume: Some(resting_session(session_id, folder)),
@@ -82,6 +86,7 @@ pub(crate) fn read_only_profile(folder: &Path) -> String {
             working_directory: folder.join("work"),
             git_common_folder: None,
             deny_paths: Vec::new(),
+            command_channel_folder: folder.join("command-channel"),
         },
     )
 }

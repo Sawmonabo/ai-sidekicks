@@ -5,7 +5,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -22,16 +21,16 @@ use sidekicks_std::port_registration::PortRegistration;
 const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";
 
 /// What a Codex home is to the daemon.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CodexHomeKind {
-    /// A home the app manages for one of its accounts.
-    Account,
-    /// The person's own Codex folder; whether terminals started there reach the daemon's service
-    /// is the person's switch.
-    PersonalFolder {
-        /// Whether `Reach Codex sessions started in a terminal` is on.
-        is_terminal_reach_on: bool,
-    },
+    /// The home the app manages for the account it names.
+    Account(ProviderAccountId),
+    /// The person's own Codex folder, which the daemon runs a service on only while terminal reach
+    /// is on.
+    PersonalFolder,
+    /// An empty folder of the daemon's own that the capability read runs one short-lived service
+    /// in, signed in to no account.
+    CapabilityRead,
 }
 
 /// The Codex home one service runs on.
@@ -39,10 +38,19 @@ pub(crate) enum CodexHomeKind {
 pub(crate) struct CodexServiceHome {
     /// The home, absolute.
     pub(crate) codex_home: PathBuf,
-    /// The account the home belongs to, or `None` for the person's own Codex folder.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
     /// What the home is to the daemon.
     pub(crate) kind: CodexHomeKind,
+}
+
+impl CodexServiceHome {
+    /// The account the home belongs to; `None` for the person's own folder and the capability
+    /// read's.
+    pub(crate) fn provider_account_id(&self) -> Option<&ProviderAccountId> {
+        match &self.kind {
+            CodexHomeKind::Account(provider_account_id) => Some(provider_account_id),
+            CodexHomeKind::PersonalFolder | CodexHomeKind::CapabilityRead => None,
+        }
+    }
 }
 
 /// Which kind of service a supervisor holds, which decides how it starts, how its end is read and
@@ -50,9 +58,7 @@ pub(crate) struct CodexServiceHome {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CodexServiceKind {
     /// The daemon's own child, prepared as every child of the daemon is, which the daemon's stop
-    /// ends and which carries no hook switch: on an account home, and on the person's own folder
-    /// while terminal reach is off, then on a socket of its own so no terminal joins it (an
-    /// inference: off means no terminal joins anything of the daemon's).
+    /// ends and which carries no hook switch: on an account home and on the capability read's.
     Account,
     /// The lasting service on the person's own Codex folder that terminals join: started by the
     /// daemon in a session of its own with the daemon's two hooks, kept in its record, outliving a
@@ -87,28 +93,23 @@ impl CodexServiceKind {
 }
 
 /// The homes the driver's services run on: an account the app manages runs in its own folder, and
-/// every other on the person's own Codex folder, which the person's terminal-reach switch decides
-/// the service of.
+/// the person's own Codex folder is terminal reach's alone.
 pub(crate) struct CodexHomes {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     personal_home: PathBuf,
-    is_terminal_reach_on: Arc<AtomicBool>,
 }
 
 impl CodexHomes {
     /// The homes resolved through `provider_accounts`, the person's own folder named by
-    /// `base_environment`'s `CODEX_HOME`, else `.codex` under `home_folder`; the switch reads
-    /// `is_terminal_reach_on`.
+    /// `base_environment`'s `CODEX_HOME`, else `.codex` under `home_folder`.
     pub(crate) fn new(
         provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
         base_environment: &[(String, String)],
         home_folder: &Path,
-        is_terminal_reach_on: Arc<AtomicBool>,
     ) -> Self {
         Self {
             provider_accounts,
             personal_home: read_codex_personal_home(base_environment, home_folder),
-            is_terminal_reach_on,
         }
     }
 
@@ -116,46 +117,33 @@ impl CodexHomes {
     pub(crate) fn personal_home(&self) -> &Path {
         &self.personal_home
     }
-
-    // The person's own folder as a service's home.
-    fn personal_service_home(&self) -> CodexServiceHome {
-        CodexServiceHome {
-            codex_home: self.personal_home.clone(),
-            provider_account_id: None,
-            kind: CodexHomeKind::PersonalFolder {
-                is_terminal_reach_on: self.is_terminal_reach_on.load(Ordering::Acquire),
-            },
-        }
-    }
 }
 
 impl CodexHomeResolver for CodexHomes {
     fn codex_home_for<'call>(
         &'call self,
-        provider_account_id: Option<&'call ProviderAccountId>,
+        provider_account_id: &'call ProviderAccountId,
     ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
         async move {
-            let Some(provider_account_id) = provider_account_id else {
-                return Ok(self.personal_service_home());
-            };
             let folders = self
                 .provider_accounts
                 .require_port()
                 .map_err(|error| DriverError::Internal(Box::new(error)))?
                 .resolve_account_folders(provider_account_id.clone())
-                .await
-                .map_err(DriverError::Internal)?;
-            // An account whose home the app does not manage signs in on the person's own folder.
-            Ok(match folders {
-                Some(folders) => CodexServiceHome {
-                    codex_home: folders.configuration_folder,
-                    provider_account_id: Some(provider_account_id.clone()),
-                    kind: CodexHomeKind::Account,
-                },
-                None => self.personal_service_home(),
+                .await?;
+            Ok(CodexServiceHome {
+                codex_home: folders.configuration_folder,
+                kind: CodexHomeKind::Account(provider_account_id.clone()),
             })
         }
         .boxed()
+    }
+
+    fn terminal_reach_home(&self) -> CodexServiceHome {
+        CodexServiceHome {
+            codex_home: self.personal_home.clone(),
+            kind: CodexHomeKind::PersonalFolder,
+        }
     }
 }
 

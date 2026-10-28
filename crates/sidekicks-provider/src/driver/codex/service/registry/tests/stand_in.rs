@@ -32,6 +32,7 @@ use crate::driver::codex::service::supervisor::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The stand-in Codex service: this test program, run by the script the registry's services
@@ -119,16 +120,13 @@ fn write_stand_in_script(folder: &Path) -> PathBuf {
     script
 }
 
-// The home on the person's own Codex folder with terminal reach on, under `folder`.
+// The home on the person's own Codex folder, under `folder`.
 fn terminal_home(folder: &Path) -> CodexServiceHome {
     let codex_home = folder.join("home");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
     CodexServiceHome {
         codex_home,
-        provider_account_id: None,
-        kind: CodexHomeKind::PersonalFolder {
-            is_terminal_reach_on: true,
-        },
+        kind: CodexHomeKind::PersonalFolder,
     }
 }
 
@@ -329,7 +327,7 @@ pub(super) async fn cut_short_planned_restart(
 ) -> (u32, u32, Option<PathBuf>) {
     let former_daemon = another_daemon(services);
     let first = former_daemon
-        .service_for(None)
+        .service_for(&test_provider_account_id())
         .await
         .expect("the home resolves");
     first

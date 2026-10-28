@@ -63,7 +63,7 @@ pub(crate) struct CodexSessionReading {
     /// The session's conversation.
     pub(crate) thread_id: String,
     /// The account the conversation runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The session's level and roots as they stand now.
     pub(crate) execution_posture: ExecutionPosture,
     /// Whether a turn runs, starts or still ends, so a turn the daemon starts would fold into it.

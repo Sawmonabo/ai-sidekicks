@@ -4,11 +4,12 @@
 //! its conversation registered on the service. A failed resume never becomes a new conversation:
 //! it answers the failure.
 
+mod settings;
+
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -17,11 +18,9 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_platforms::PathRules;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::SessionSpawnContextResolver;
-use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::auth_status::classify_codex_resume_recovery_condition;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::commands::CodexProviderCommandCache;
@@ -31,7 +30,6 @@ use crate::driver::codex::notification_routing::{CodexRoutedFrames, CodexSession
 use crate::driver::codex::output_speed::{
     compose_codex_service_tier, read_codex_declared_tier, resolve_codex_output_speed_level,
 };
-use crate::driver::codex::permission_level::CodexProfileFolders;
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
@@ -41,9 +39,6 @@ use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::{
     CodexForkBoundary, CodexForkSource, read_codex_fork_or_let_go, request_codex_fork,
-};
-use crate::driver::codex::session::helper_roles::{
-    read_codex_role_file_withheld_fields, write_codex_helper_roles,
 };
 use crate::driver::codex::session::history::{CodexListedTurn, read_codex_turns};
 use crate::driver::codex::session::inbound::{CodexSessionInboundReceiver, codex_session_inbound};
@@ -62,19 +57,20 @@ use crate::driver::contract::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
-    SessionToolServer, SubagentDefinition, SubagentPolicy,
 };
+use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::process_identity::ProviderProcessIds as _;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::spawn_environment::{
-    ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
-    build_conversation_command_environment,
-};
+use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::spawned_version::to_binding_version_carriers;
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
 use sidekicks_std::port_registration::PortRegistration;
+
+use crate::driver::codex::session::establishment::settings::{
+    CodexSettingsRequest, compose_resume_settings_request, require_execution_posture,
+};
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";
@@ -103,6 +99,10 @@ pub(crate) struct CodexSessionEstablishmentDependencies {
     pub(crate) provider_commands: Arc<CodexProviderCommandCache>,
     /// Which provider process runs each session, where each session's service process is kept.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// The approval pipeline's reviewer blocks, whose held presses a retired binding lets go.
+    pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
+    /// The folder each session's command channel folder sits in, named by the session.
+    pub(crate) command_channel_root: PathBuf,
 }
 
 /// A conversation established and not yet open: its record and queue, the claim that holds its
@@ -146,17 +146,6 @@ pub(crate) struct CodexInPlaceResume {
     pub(crate) routed: CodexRoutedFrames,
 }
 
-/// What a start or a resume composes the conversation's settings from.
-struct CodexSettingsRequest<'params> {
-    session_id: SessionId,
-    model: &'params str,
-    larger_window: Option<SafeInt<1>>,
-    execution_posture: Option<&'params ExecutionPosture>,
-    subagent_policy: Option<&'params SubagentPolicy>,
-    tool_servers: Option<&'params [SessionToolServer]>,
-    provider_account_id: Option<&'params ProviderAccountId>,
-}
-
 /// Starts, reopens and resumes the conversations of the driver's sessions; the caller holds each
 /// session's slot. The service stays up whatever a leg does to its own conversation.
 pub(crate) struct CodexSessionEstablishment {
@@ -187,13 +176,11 @@ impl CodexSessionEstablishment {
                 execution_posture: params.execution_posture.as_ref(),
                 subagent_policy: params.subagent_policy.as_ref(),
                 tool_servers: params.tool_servers.as_deref(),
-                provider_account_id: params.provider_account_id.as_ref(),
+                provider_account_id: &params.provider_account_id,
             })
             .await?;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
-        let service = self
-            .start_service(params.provider_account_id.as_ref())
-            .await?;
+        let service = self.start_service(&params.provider_account_id).await?;
         service.check_takes_new_work(THREAD_START_METHOD)?;
         if let Some(larger_window) = params.larger_window {
             confirm_larger_window(&service, &settings.model, larger_window.get()).await?;
@@ -286,12 +273,8 @@ impl CodexSessionEstablishment {
             .compose_thread_settings(compose_resume_settings_request(params))
             .await?;
         let execution_posture = require_execution_posture(params.execution_posture.as_ref())?;
-        let service = Arc::clone(
-            started.insert(
-                self.start_service(params.provider_account_id.as_ref())
-                    .await?,
-            ),
-        );
+        let service =
+            Arc::clone(started.insert(self.start_service(&params.provider_account_id).await?));
         let connection = service.connection()?;
         let output_speed_request = params
             .output_speed
@@ -366,9 +349,7 @@ impl CodexSessionEstablishment {
         let settings = self
             .compose_thread_settings(compose_resume_settings_request(params))
             .await?;
-        let service = self
-            .start_service(params.provider_account_id.as_ref())
-            .await?;
+        let service = self.start_service(&params.provider_account_id).await?;
         Ok((service, settings))
     }
 
@@ -463,9 +444,10 @@ impl CodexSessionEstablishment {
     }
 
     // Moves the record onto the resumed conversation: its service, binding, turns, tier and
-    // effort, its mode sent again, and its routing band rebound on the sum already metered. The
-    // record changes only once every step that can fail is done; a failure releases the
-    // conversation's registration on `service` when the resume made it.
+    // effort, its mode sent again, and its routing band rebound on the sum already metered; the
+    // binding it retires lets go of its held presses. The record changes only once every step that
+    // can fail is done; a failure releases the conversation's registration on `service` when the
+    // resume made it.
     async fn adopt_resumed_thread(
         &self,
         task: &mut CodexSessionTask<'_>,
@@ -485,7 +467,12 @@ impl CodexSessionEstablishment {
         };
         let record = &mut *task.record;
         record.service = service;
-        record.binding_id = Some(binding_id);
+        let retired = record.binding_id.replace(binding_id);
+        // An `Allow once` held on the retired binding's blocks can be pressed again.
+        if let (Some(retired), Some(denials)) = (retired, self.dependencies.reviewer_denials.port())
+        {
+            denials.release_held_presses(&retired);
+        }
         record.turn_boundaries = resumed
             .listed_turns
             .iter()
@@ -570,104 +557,10 @@ impl CodexSessionEstablishment {
         }
     }
 
-    // The settings a session's conversation runs with, resolved afresh at every start and resume,
-    // with its helpers' role files written again. Fails with `CodexError::DriverConfig` with no
-    // posture, since every conversation runs at a level, and as the context, the credential list,
-    // the environment or the role files fail.
-    async fn compose_thread_settings(
-        &self,
-        request: CodexSettingsRequest<'_>,
-    ) -> Result<CodexThreadSettings, CodexError> {
-        let posture = require_execution_posture(request.execution_posture)?;
-        let dependencies = &self.dependencies;
-        let spawn_contexts = &dependencies.spawn_contexts;
-        let context = spawn_contexts
-            .require_port()
-            .map_err(|error| CodexError::Driver(DriverError::Internal(Box::new(error))))?
-            .resolve_spawn_context(request.session_id, request.provider_account_id.cloned())
-            .await
-            .map_err(|cause| CodexError::PortFailed {
-                port: spawn_contexts.port_name(),
-                cause,
-            })?;
-        let credential_policy = dependencies
-            .execution_postures
-            .resolve_credential_policy(posture.credential_policy_ref().as_str())
-            .await
-            .map_err(|error| config_error("credentialPolicy", "the credential list", error))?;
-        // An account's own Codex home is the commands' too; the person's own sign-in sets none.
-        let credential_homes: Vec<(String, String)> = context
-            .account_folders
-            .iter()
-            .flat_map(|folders| {
-                DESCRIPTOR
-                    .credential_home_environment_names
-                    .iter()
-                    .map(|name| {
-                        (
-                            (*name).to_owned(),
-                            folders.configuration_folder.to_string_lossy().into_owned(),
-                        )
-                    })
-            })
-            .collect();
-        let command_environment =
-            build_conversation_command_environment(&ProviderEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &dependencies.base_environment,
-                    every_project_rows: &context.every_project_rows,
-                    project_rows: &context.project_rows,
-                    reserved_names: &dependencies.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                descriptor: &DESCRIPTOR,
-                deny_env_vars: credential_policy.deny_env_vars,
-                credential_homes: &credential_homes,
-            })
-            .map_err(|error| config_error("environment", "the commands' environment", error))?;
-        let definitions = match request.subagent_policy {
-            Some(SubagentPolicy::Enabled { definitions, .. }) => definitions.as_slice(),
-            Some(SubagentPolicy::Disabled {}) | None => &[],
-        };
-        let helper_roles = write_codex_helper_roles(
-            &dependencies.helper_roles_folder,
-            request.session_id,
-            definitions,
-        )
-        .await
-        .map_err(CodexError::Driver)?;
-        report_withheld_definition_fields(definitions, request.provider_account_id);
-        Ok(CodexThreadSettings {
-            session_id: request.session_id,
-            working_directory: context.working_directory.clone(),
-            model: request.model.to_owned(),
-            // A resume sends the recorded figure whatever the catalog offers now; Codex refuses
-            // one it cannot run, and that failure surfaces like any other.
-            model_context_window: request.larger_window.map(SafeInt::get),
-            level: posture.permission_level(),
-            profile_folders: CodexProfileFolders {
-                working_directory: context.working_directory,
-                git_common_folder: context.git_common_folder,
-                // Codex denies a folder's whole tree and a file alike by its path.
-                deny_paths: credential_policy
-                    .deny_paths
-                    .into_iter()
-                    .map(|denied| denied.path)
-                    .collect(),
-            },
-            command_environment,
-            subagent_policy: request.subagent_policy.cloned(),
-            helper_roles,
-            tool_servers: request.tool_servers.map(<[_]>::to_vec).unwrap_or_default(),
-            // The daemon's spawn context carries no instructions for a conversation.
-            base_instructions: None,
-        })
-    }
-
     // The account's service, started or joined. Fails as the home's resolve or the start does.
     async fn start_service(
         &self,
-        provider_account_id: Option<&ProviderAccountId>,
+        provider_account_id: &ProviderAccountId,
     ) -> Result<Arc<CodexService>, CodexError> {
         let service = self
             .dependencies
@@ -758,19 +651,6 @@ async fn prepare_adoption(
     Ok((result, binding_id))
 }
 
-// What a resume composes its conversation's settings from.
-fn compose_resume_settings_request(params: &ResumeSessionParams) -> CodexSettingsRequest<'_> {
-    CodexSettingsRequest {
-        session_id: params.session_id,
-        model: params.model.as_str(),
-        larger_window: params.larger_window,
-        execution_posture: params.execution_posture.as_ref(),
-        subagent_policy: params.subagent_policy.as_ref(),
-        tool_servers: params.tool_servers.as_deref(),
-        provider_account_id: params.provider_account_id.as_ref(),
-    }
-}
-
 /// Refuses a create whose larger window the service's catalog does not offer `model` at that
 /// figure now, so a picker row read before the catalog changed starts no conversation. A failed
 /// catalog read, or an unreadable row for the model, fails as itself.
@@ -791,50 +671,6 @@ async fn confirm_larger_window(
         requested: larger_window,
         offered,
     })
-}
-
-// The session's posture. Fails with `CodexError::DriverConfig` with none: every conversation
-// runs at a level.
-fn require_execution_posture(
-    posture: Option<&ExecutionPosture>,
-) -> Result<ExecutionPosture, CodexError> {
-    posture.cloned().ok_or_else(|| CodexError::DriverConfig {
-        field: "executionPosture".to_owned(),
-        detail: "a Codex conversation always runs at a permission level, so the session needs an \
-                 execution posture"
-            .to_owned(),
-        cause: None,
-    })
-}
-
-fn config_error(
-    field: &str,
-    what: &str,
-    error: impl std::error::Error + Send + Sync + 'static,
-) -> CodexError {
-    CodexError::DriverConfig {
-        field: field.to_owned(),
-        detail: format!("{what} could not be composed"),
-        cause: Some(Box::new(error)),
-    }
-}
-
-// Reports each field of a helper definition its role file cannot carry, so the helper is known
-// to run without it.
-fn report_withheld_definition_fields(
-    definitions: &[SubagentDefinition],
-    provider_account_id: Option<&ProviderAccountId>,
-) {
-    for definition in definitions {
-        for field in read_codex_role_file_withheld_fields(definition) {
-            CodexTransportDiagnostic::SubagentDefinitionFieldWithheld {
-                provider_account_id: provider_account_id.cloned(),
-                definition_name: definition.name.clone(),
-                field,
-            }
-            .report();
-        }
-    }
 }
 
 // A failed resume's result: the recovery its failure needs, read from the service where one was

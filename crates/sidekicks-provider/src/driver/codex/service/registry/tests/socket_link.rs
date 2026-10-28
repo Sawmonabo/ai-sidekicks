@@ -20,6 +20,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     drop_service_connection, script_codex_service, wait_until_disconnected,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Fails when a planned restart leaves the home's socket on the first service, when the first's
 // stop clears the link the second now holds, when a crash leaves the link naming the socket its
@@ -35,7 +36,10 @@ async fn the_home_socket_follows_the_service_that_holds_it() {
     let startup_timeout = services.dependencies.startup_timeout;
     let home_socket = home_socket_path(&services.home.codex_home);
     let registry = this_daemon(&services);
-    let first = registry.service_for(None).await.expect("the home resolves");
+    let first = registry
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     first
         .ensure_started(startup_timeout)
         .await
@@ -95,7 +99,10 @@ async fn a_second_service_that_fails_to_start_leaves_the_first_the_home_s() {
     });
     let home_socket = home_socket_path(&services.home.codex_home);
     let registry = this_daemon(&services);
-    let first = registry.service_for(None).await.expect("the home resolves");
+    let first = registry
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     first
         .ensure_started(services.dependencies.startup_timeout)
         .await
@@ -126,7 +133,10 @@ async fn a_redial_reaches_the_service_s_own_socket_whatever_the_link_names() {
     let startup_timeout = services.dependencies.startup_timeout;
     let home_socket = home_socket_path(&services.home.codex_home);
     let registry = this_daemon(&services);
-    let service = registry.service_for(None).await.expect("the home resolves");
+    let service = registry
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     service
         .ensure_started(startup_timeout)
         .await
@@ -171,7 +181,10 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     let mut services = stand_in_services(folder.path(), |program| Arc::new(program));
     let startup_timeout = services.dependencies.startup_timeout;
     let daemon = this_daemon(&services);
-    let home_service = daemon.service_for(None).await.expect("the home resolves");
+    let home_service = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     home_service
         .ensure_started(startup_timeout)
         .await
@@ -180,7 +193,7 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     // Another daemon on the folder joins it and moves the home's link to a second of its own.
     let other_daemon = another_daemon(&services);
     let joined = other_daemon
-        .service_for(None)
+        .service_for(&test_provider_account_id())
         .await
         .expect("the home resolves");
     joined
@@ -249,8 +262,6 @@ async fn a_planned_restart_during_the_switch_off_leaves_the_socket_link_and_fail
 
     let retiring = registry
         .stop_terminal_service()
-        .await
-        .expect("the home resolves")
         .expect("the folder's terminal service is retired");
     for _read in 0..2 {
         let loaded = script.next_sent().await;

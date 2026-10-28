@@ -445,7 +445,7 @@ impl CodexServiceRecovery {
         };
         if let Err(error) = listener.session_relaunched(session_id, result).await {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: service.home().provider_account_id.clone(),
+                provider_account_id: service.home().provider_account_id().cloned(),
                 port: CodexDeliveryPort::SessionRelaunched,
                 session_id: Some(session_id),
                 error,
@@ -499,7 +499,7 @@ impl CodexServiceRecovery {
                     .await
                 {
                     CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: service.home().provider_account_id.clone(),
+                        provider_account_id: service.home().provider_account_id().cloned(),
                         port: CodexDeliveryPort::RunEnd,
                         session_id: Some(session_id),
                         error,
@@ -538,7 +538,7 @@ impl CodexServiceRecovery {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: service.home().provider_account_id.clone(),
+                provider_account_id: service.home().provider_account_id().cloned(),
                 raw_wire_type: None,
             },
             InboundDelivery::SessionNotice {

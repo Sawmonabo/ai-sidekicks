@@ -3,6 +3,7 @@
 //! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
 mod caller_check;
+mod capability_read;
 mod intake;
 mod sessions;
 mod terminal_reach;
@@ -45,8 +46,9 @@ use crate::driver::test_registry::{
 };
 use crate::port::question::QuestionPort;
 use crate::port::run_host::test_host::RecordingRunEngine;
-use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
-use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 use sidekicks_std::port_registration::PortRegistration;
 
 /// The live turn the session's run is on.
@@ -130,7 +132,7 @@ impl LiveCodexSession {
         let run_id = new_run_id();
         let binding_id = bindings
             .create(binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("0.130.0", "/opt/codex/bin"),
             ))
             .await

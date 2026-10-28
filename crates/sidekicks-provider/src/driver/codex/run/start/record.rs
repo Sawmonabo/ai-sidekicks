@@ -33,7 +33,7 @@ use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::slots::closing_session_refusal;
 use crate::driver::codex::session::state::{CodexSessionRecord, CodexTurnInput, CodexTurnMessage};
 use crate::driver::codex::thread::settings::{
-    CodexTurnStartParams, compose_codex_collaboration_mode,
+    CodexTurnStartParams, compose_codex_collaboration_mode, compose_codex_relay_environments,
 };
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
@@ -357,6 +357,10 @@ async fn compose_run_turn(
         // Codex applies it to this turn's copy of the settings alone, and reads `default` as
         // standard.
         service_tier_for_turn: output_speed_for_turn,
+        // A resumed or forked conversation carries none until its next turn names it.
+        environments: Some(compose_codex_relay_environments(
+            &record.thread_settings.working_directory,
+        )),
     };
     Ok((
         params,

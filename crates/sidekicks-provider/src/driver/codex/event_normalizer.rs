@@ -473,7 +473,7 @@ pub(crate) enum CodexFrameEmissionRoute {
 }
 
 /// The driver core's entry point onto the table for the frame whose method is `method`, for the
-/// account `provider_account_id` names. Never fails: a method outside the table, or an opted-out
+/// account `provider_account_id` names, `None` on a service no account owns. Never fails: a method outside the table, or an opted-out
 /// notification that arrived anyway, is routed to a diagnostic logged once per method on the
 /// connection `reports` belongs to, never forced into an event or dropped.
 pub(crate) fn resolve_codex_frame_emission_route(

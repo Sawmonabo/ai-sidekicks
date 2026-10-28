@@ -48,8 +48,8 @@ pub(crate) struct CodexCommandSource {
     pub(crate) session_id: SessionId,
     /// The service its conversation is loaded on.
     pub(crate) service: Arc<CodexService>,
-    /// The account, `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The session's own folder: one service holds every session of the account, so the default
     /// folder would be the service's.
     pub(crate) working_directory: String,
@@ -283,7 +283,7 @@ impl CodexProviderCommandCache {
         &self,
         session_id: SessionId,
         reply: &Value,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> Result<CodexSkillListing, CodexError> {
         let reading = read_codex_skill_listing(reply, provider_account_id)?;
         let mut reported = lock(&self.rejections);
@@ -429,7 +429,7 @@ pub(crate) struct CodexSkillListReading {
 /// has none.
 pub(crate) fn read_codex_skill_listing(
     reply: &Value,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
 ) -> Result<CodexSkillListReading, CodexError> {
     let Some(groups) = reply.get("data").and_then(Value::as_array) else {
         return Err(CodexError::Transport {

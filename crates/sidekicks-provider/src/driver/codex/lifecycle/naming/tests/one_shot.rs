@@ -21,6 +21,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // A stand-in for Codex's program in `folder`: `codex mcp list --json` prints `listing` and exits
 // with `list_exit`; any other call records its arguments in `arguments` and fails.
@@ -62,8 +63,7 @@ fn service_running(folder: &Path, program: PathBuf) -> (Arc<CodexService>, Scrip
     script_codex_service(
         CodexServiceHome {
             codex_home: folder.join("home"),
-            provider_account_id: None,
-            kind: CodexHomeKind::Account,
+            kind: CodexHomeKind::Account(test_provider_account_id()),
         },
         CodexServiceSocket {
             path: socket.clone(),

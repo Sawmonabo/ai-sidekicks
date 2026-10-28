@@ -310,7 +310,7 @@ impl CodexAskHandOff {
     pub(crate) fn withdraw(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         request_id: &str,
         ask_kind: CodexAskKind,
     ) {
@@ -656,7 +656,7 @@ impl CodexAskHandOff {
     fn withdraw_approval_card(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         request_id: String,
     ) {
         let Some(port) = self.dependencies.owners.permission_asks.port().cloned() else {
@@ -681,7 +681,7 @@ impl CodexAskHandOff {
     fn withdraw_question_card(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         request_id: String,
     ) {
         let Some(port) = self.dependencies.owners.questions.port().cloned() else {
@@ -797,13 +797,13 @@ fn codex_approval_tool(method: CodexRoutedMethod) -> Option<&'static str> {
 }
 
 fn report_owner_failure(
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
     port: CodexDeliveryPort,
     session_id: SessionId,
     error: Box<dyn std::error::Error + Send + Sync>,
 ) {
     CodexTransportDiagnostic::PortDeliveryFailed {
-        provider_account_id,
+        provider_account_id: Some(provider_account_id),
         port,
         session_id: Some(session_id),
         error,

@@ -227,7 +227,7 @@ fn report_window_read_failed(home: &CodexServiceHome, detail: &str, slug: Option
     }
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: home.provider_account_id.clone(),
+        provider_account_id: home.provider_account_id().cloned(),
         kind: DriverDiagnosticKind::ModelWindowReadFailed,
         raw_wire_type: None,
         disposition_reason: detail.to_owned(),

@@ -9,11 +9,13 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::events::SessionSideQuestionAnsweredPayload;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SideQuestionId, SideQuestionText,
@@ -42,23 +44,22 @@ use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::slots::let_go_codex_thread;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::settings::{
-    CodexThreadSettings, CodexTurnStartParams, compose_codex_thread_fork_params,
+    CodexThreadSettings, CodexTurnStartParams, compose_codex_relay_environments,
+    compose_codex_thread_fork_params,
 };
 use crate::driver::codex::thread::view::{
     TURN_START_METHOD, assert_active_permission_profile, read_thread, read_turn_id,
 };
 use crate::driver::codex::token_usage::read_codex_token_usage;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
+use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::usage_sink::UsageSink;
+use crate::port::usage_sink::{MeteredUsage, UsageSink};
 use crate::run::delivery::{InboundDelivery, SessionScopedRow};
-use crate::usage_delta_accountant::{
-    MeteredUsageDelta, ThreadBaseEstablishment, UsageDeltaAccountant,
-};
+use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageDeltaAccountant};
 use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -69,29 +70,21 @@ const CODEX_AGENT_MESSAGE_ITEM_TYPE: &str = "agentMessage";
 /// Why a copy's turn gave no answer when Codex named no error.
 const NO_ANSWER_DETAIL: &str = "The copy's turn ended with no answer.";
 
-/// The cost one frame of a side question's copy metered, for the session's account.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct CodexSideQuestionUsage {
-    /// The session the question was asked in, whose cost it is.
-    pub(crate) session_id: SessionId,
-    /// The account the copy ran on, `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The copy's metered turn; it belongs to no run.
-    pub(crate) delta: MeteredUsageDelta,
-}
-
 /// A frame of a side question's copy, taken before the session's routing.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexDivertedFrame {
-    /// The cost the frame metered, where it was a usage reading.
-    pub(crate) usage: Option<CodexSideQuestionUsage>,
+    /// The cost the frame metered, where it was a usage reading, filed under the session's
+    /// binding as the lead's own.
+    pub(crate) usage: Option<MeteredUsage>,
 }
 
 /// One side question being answered on its copy.
 struct CodexSideQuestion {
     service: Arc<CodexService>,
     session_id: SessionId,
-    provider_account_id: Option<ProviderAccountId>,
+    // The session's binding, which the copy's cost is filed under.
+    binding_id: RuntimeBindingId,
+    provider_account_id: ProviderAccountId,
     side_question_id: SideQuestionId,
     question: SideQuestionText,
     answer: Option<String>,
@@ -131,7 +124,7 @@ struct CopyTurnError {
 /// What one frame of a copy did.
 enum CopyFrameTaken {
     /// The frame was kept, with the cost it metered where it was a usage reading.
-    Kept(Option<CodexSideQuestionUsage>),
+    Kept(Option<MeteredUsage>),
     /// The copy's turn ended, as the frame's turn reads where it carried one.
     Ended(Option<CopyTurn>),
 }
@@ -141,7 +134,7 @@ impl CodexSideQuestion {
     // stopped through `stop`.
     fn new(
         service: Arc<CodexService>,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         params: &AskSideQuestionParams,
         copy_thread_id: &str,
         stop: CancellationToken,
@@ -151,6 +144,7 @@ impl CodexSideQuestion {
         Self {
             service,
             session_id: params.session_id,
+            binding_id: params.binding_id.clone(),
             provider_account_id,
             side_question_id: params.side_question_id,
             question: SideQuestionText(
@@ -182,9 +176,10 @@ impl CodexSideQuestion {
             CODEX_THREAD_TOKEN_USAGE_METHOD => CopyFrameTaken::Kept(
                 read_codex_token_usage(params)
                     .and_then(|reading| self.accountant.meter_reading(reading))
-                    .map(|delta| CodexSideQuestionUsage {
+                    .map(|delta| MeteredUsage {
                         session_id: self.session_id,
-                        provider_account_id: self.provider_account_id.clone(),
+                        binding_id: self.binding_id.clone(),
+                        subagent_id: None,
                         delta,
                     }),
             ),
@@ -291,7 +286,15 @@ impl CodexSideQuestions {
             &read_only_profile,
             THREAD_FORK_METHOD,
         ) {
-            Ok(()) => start_turn(&connection, &copy_thread_id, &params.question).await,
+            Ok(()) => {
+                start_turn(
+                    &connection,
+                    &copy_thread_id,
+                    &record.thread_settings.working_directory,
+                    &params.question,
+                )
+                .await
+            }
             Err(error) => Err(error),
         };
         let turn_id = match started {
@@ -341,7 +344,12 @@ impl CodexSideQuestions {
             None => return Ok(()),
         };
         let started = {
-            let start = start_turn(&copy.connection, &copy.thread_id, &params.question);
+            let start = start_turn(
+                &copy.connection,
+                &copy.thread_id,
+                &copy.working_directory,
+                &params.question,
+            );
             tokio::pin!(start);
             tokio::select! {
                 biased;
@@ -544,10 +552,12 @@ fn compose_copy_fork(
     (fork, read_only_profile)
 }
 
-// Starts the copy's one turn on `question` and answers the turn's id.
+// Starts the copy's one turn on `question`, its commands on the daemon's relay in
+// `working_directory` as the session's own, and answers the turn's id.
 async fn start_turn(
     connection: &CodexAppServerConnection,
     copy_thread_id: &str,
+    working_directory: &Path,
     question: &str,
 ) -> Result<String, CodexError> {
     let reply = connection
@@ -564,6 +574,7 @@ async fn start_turn(
                 effort: None,
                 service_tier: None,
                 service_tier_for_turn: None,
+                environments: Some(compose_codex_relay_environments(working_directory)),
             },
         )
         .await?;
@@ -591,6 +602,7 @@ async fn fork_resting_copy(
             connection,
             frames,
             thread_id,
+            working_directory: settings.working_directory,
         },
     ))
 }
@@ -601,6 +613,7 @@ struct CodexRestingCopy {
     connection: CodexAppServerConnection,
     frames: mpsc::UnboundedReceiver<CodexDetachedFrame>,
     thread_id: String,
+    working_directory: PathBuf,
 }
 
 // Reads a resting session's copy's frames until its turn ended and delivers its answer, its cost
@@ -628,7 +641,7 @@ async fn answer_at_rest(
 }
 
 // Reads the copy's frames until its turn ended, as the turn's end reads, or `None` once its
-// connection dropped; each usage reading is filed through `usage`.
+// connection dropped; each usage reading is filed through `usage`, a refused one reported.
 async fn read_copy_turn(
     question: &mut CodexSideQuestion,
     copy: &mut CodexRestingCopy,
@@ -641,8 +654,16 @@ async fn read_copy_turn(
         }
         match question.take_frame(&method, &params) {
             CopyFrameTaken::Kept(Some(metered)) => {
-                if let Some(sink) = usage.port() {
-                    sink.record_metered(metered.session_id, metered.delta);
+                if let Some(sink) = usage.port()
+                    && let Err(error) = sink.record_metered(metered).await
+                {
+                    CodexTransportDiagnostic::PortDeliveryFailed {
+                        provider_account_id: Some(question.provider_account_id.clone()),
+                        port: CodexDeliveryPort::Usage,
+                        session_id: Some(question.session_id),
+                        error,
+                    }
+                    .report();
                 }
             }
             CopyFrameTaken::Kept(None) => {}
@@ -705,7 +726,7 @@ async fn deliver_answer(
                 dispatch,
                 DeliveryOrigin {
                     provider: DESCRIPTOR.provider_id(),
-                    provider_account_id: question.provider_account_id.clone(),
+                    provider_account_id: Some(question.provider_account_id.clone()),
                     raw_wire_type: Some(CODEX_TURN_COMPLETED_METHOD),
                 },
                 InboundDelivery::SessionEvent {

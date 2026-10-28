@@ -15,6 +15,7 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
@@ -83,16 +84,18 @@ use crate::driver::run_control::{
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
-    PROVIDERS, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
-    SessionSpawnContextResolver,
+    AccountFoldersError, CurrentProviderAccount, PROVIDERS, ProviderAccountFolders,
+    ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
 };
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
-use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::runtime_binding::store::RuntimeBindingStore;
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 use crate::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -283,7 +286,7 @@ impl TestCodexSession {
     pub(crate) async fn record_binding(&self) -> RuntimeBindingId {
         self.bindings
             .create(binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("0.130.0", "/opt/codex/bin"),
             ))
             .await
@@ -294,7 +297,7 @@ impl TestCodexSession {
 
 impl TestCodexSession {
     /// An establishment on the session's service and delivery, every conversation it composes
-    /// running in `folder`'s `work` on the person's own sign-in.
+    /// running in `folder`'s `work` on the test's account, its command channels under `folder`.
     pub(crate) fn establishment(&self, folder: &Path) -> CodexSessionEstablishment {
         CodexSessionEstablishment::new(CodexSessionEstablishmentDependencies {
             services: CodexServiceRegistry::holding(&self.scripted),
@@ -314,6 +317,8 @@ impl TestCodexSession {
                 Arc::new(|_session_id| None),
             ),
             processes: Arc::clone(&self.processes),
+            reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
+            command_channel_root: folder.join("command-channels"),
         })
     }
 }
@@ -340,23 +345,36 @@ pub(super) fn one_folder_provider_accounts(
     provider_accounts
 }
 
-/// Every session runs in one folder on the person's own sign-in, whose generation is never read.
+/// Every session runs in one folder on the test's one account, whose home sits beside the folder
+/// and whose generation is never read.
 pub(crate) struct OneFolder(pub(crate) PathBuf);
+
+impl OneFolder {
+    // The test account's folders, both its Codex home beside the working folder.
+    fn account_folders(&self) -> ProviderAccountFolders {
+        let codex_home = self.0.with_file_name("codex-home");
+        ProviderAccountFolders {
+            configuration_folder: codex_home.clone(),
+            credential_store_folder: codex_home,
+        }
+    }
+}
 
 impl SessionSpawnContextResolver for OneFolder {
     fn resolve_spawn_context(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         let working_directory = self.0.clone();
+        let account_folders = self.account_folders();
         async move {
             Ok(SessionSpawnContext {
                 working_directory,
                 git_common_folder: None,
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
-                account_folders: None,
+                account_folders,
                 step_bound: None,
                 advisor_model: None,
             })
@@ -369,11 +387,17 @@ impl ProviderAccountReader for OneFolder {
     fn resolve_account_folders(
         &self,
         _provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<
-        '_,
-        Result<Option<ProviderAccountFolders>, Box<dyn std::error::Error + Send + Sync>>,
-    > {
-        async { Ok(None) }.boxed()
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
+        let account_folders = self.account_folders();
+        async move { Ok(account_folders) }.boxed()
+    }
+
+    fn current_account(
+        &self,
+        _provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn std::error::Error + Send + Sync>>>
+    {
+        async { Ok(CurrentProviderAccount::Current(test_provider_account_id())) }.boxed()
     }
 
     fn read_credential_generation(
@@ -515,7 +539,7 @@ pub(crate) async fn open_test_record(
         inbound,
         thread_id: TEST_THREAD.to_owned(),
         binding_id: None,
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         turn_boundaries: Vec::new(),
         thread_settings: test_thread_settings(session_id),
         execution_posture: compose_execution_posture(
@@ -550,6 +574,7 @@ pub(crate) fn test_thread_settings(session_id: SessionId) -> CodexThreadSettings
             working_directory: PathBuf::from("/work/repository"),
             git_common_folder: None,
             deny_paths: Vec::new(),
+            command_channel_folder: PathBuf::from("/data/command-channels/session"),
         },
         command_environment: Vec::new(),
         subagent_policy: None,
@@ -754,7 +779,7 @@ impl CodexFrameEffects for NoEffects {
     fn withdraw_ask(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<&ProviderAccountId>,
+        _provider_account_id: &ProviderAccountId,
         _request_id: &str,
         _ask_kind: CodexAskKind,
     ) {

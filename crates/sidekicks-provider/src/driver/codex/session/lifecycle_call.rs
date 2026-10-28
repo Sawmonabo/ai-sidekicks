@@ -62,7 +62,7 @@ pub(crate) struct CodexCompactionReading {
     /// The connection, or why the service has none.
     pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
     /// The account the conversation runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation.
     pub(crate) thread_id: String,
     /// The compaction wait's key for it.
