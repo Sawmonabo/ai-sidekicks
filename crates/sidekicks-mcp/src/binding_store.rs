@@ -6,6 +6,7 @@ use std::sync::{Arc, LazyLock};
 
 use sidekicks_contracts::mcp::server::{McpBindingScope, McpServerBindingRef};
 use sidekicks_contracts::place::WslPlace;
+use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
 use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
 };
@@ -202,6 +203,43 @@ impl McpBindingStore {
             .map_err(McpBindingStoreError::Write)?;
         Ok(())
     }
+}
+
+/// Opens the drain that records each binding the status core observes for the first time in this
+/// process: answers the outlet the core is built with and the drain's run, which writes each
+/// binding's row through `store` and ends once the core, holding the outlet, is dropped. A
+/// binding whose write fails is logged and left without a row until the next start observes it.
+#[expect(
+    dead_code,
+    reason = "the daemon's start builds the status core over it and spawns the run"
+)]
+pub(crate) async fn open_first_observation_drain(
+    store: McpBindingStore,
+) -> (
+    KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
+    impl Future<Output = ()> + Send,
+) {
+    let mut outlet = None;
+    let feed = KeyedLatestValueFeed::open(|source| {
+        outlet = Some(source);
+        async { Ok(|| {}) }
+    })
+    .await;
+    let (Some(outlet), Ok(mut feed)) = (outlet, feed) else {
+        unreachable!("the drain's follow takes its outlet and never fails");
+    };
+    let run = async move {
+        // The outlet never fails, so the feed ends only with `None` once the core is gone.
+        while let Ok(Some(binding)) = feed.recv().await {
+            if let Err(error) = store.record_first_observation(&binding).await {
+                tracing::error!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "an MCP binding's first observation was not recorded"
+                );
+            }
+        }
+    };
+    (outlet, run)
 }
 
 #[cfg(test)]

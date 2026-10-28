@@ -44,12 +44,18 @@ uuid.workspace = true
 [dev-dependencies]
 axum = { workspace = true, features = ["http1", "tokio"] }
 rstest.workspace = true
+# The credit gate the status tests read the notice board through.
+sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The question port's test card the tests answer through.
 sidekicks-provider = { workspace = true, features = ["test-support"] }
 # The test database the tests build on.
 sidekicks-store = { workspace = true, features = ["test-support"] }
 # The paused clock the client's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# What other crates' tests use: the notice board's probe notice.
+test-support = []
 
 [lints]
 workspace = true
