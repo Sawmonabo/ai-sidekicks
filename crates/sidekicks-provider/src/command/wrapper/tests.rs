@@ -1,6 +1,6 @@
 use std::ffi::OsString;
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc::RecvTimeoutError;
@@ -69,9 +69,18 @@ fn a_wrapper_process_runs_its_arguments() {
         .map(OsString::from)
         .collect();
     assert_eq!(
-        run_command_wrapper_with(&process_arguments, &own),
+        run_command_wrapper_with(&process_arguments, &own, stand_in_program),
         ExitCode::SUCCESS
     );
+}
+
+/// The program a wrapper process restarts as for its inner form: the stand-in it was started as,
+/// since this binary itself would read the inner form's arguments as the harness's.
+fn stand_in_program() -> std::io::Result<PathBuf> {
+    std::env::args_os()
+        .next()
+        .map(PathBuf::from)
+        .ok_or_else(|| std::io::Error::other("the wrapper process has no name"))
 }
 
 /// A script standing in for the wrapper's link inside a command's terminal: it starts this binary

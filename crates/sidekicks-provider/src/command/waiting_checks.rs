@@ -351,8 +351,9 @@ async fn run_checks(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
+    use std::ffi::OsStr;
     use std::io::Read as _;
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
 
@@ -361,8 +362,9 @@ mod tests {
     use rstest::rstest;
     use sidekicks_platforms::{
         InputTerminal, InputWaitReading, POSIX_SHELL, SELECT_READER_SCRIPT, Spawner,
-        TerminalDevice, TerminalMasterReading, blocking_terminal_master, read_input_wait,
-        read_terminal_master, start_inner_terminal, terminal_options,
+        TerminalDevice, TerminalMasterReading, TestProgram, blocking_terminal_master,
+        harness_test_name, read_input_wait, read_terminal_master, run_terminal_taking_stand_in,
+        start_inner_terminal, terminal_taking_start,
     };
     use sidekicks_std::mutex_lock::lock;
     use tokio::time::Instant;
@@ -370,6 +372,16 @@ mod tests {
     use super::{
         CheckKind, InputWaitReader, WaitingChecks, is_marked_waiting, last_line, reads_as_prompt,
     };
+
+    /// The stand-in the reader test starts its command through, which takes the terminal first.
+    const STAND_IN: &str = "the_terminal_taking_stand_in_starts_the_command";
+
+    #[test]
+    #[ignore = "run only as the terminal-taking stand-in, in a test's terminal"]
+    fn the_terminal_taking_stand_in_starts_the_command() {
+        let error = run_terminal_taking_stand_in();
+        panic!("the stand-in did not start the command: {error:?}");
+    }
 
     // Fails when the trailing line ends are kept (the `\n` row), when a carriage return is deleted
     // rather than the text before it dropped (the `50%` row), or when one family is dropped.
@@ -495,14 +507,16 @@ mod tests {
     }
 
     // Fails when a `select` sleeper is marked waiting without a prompt for its last line, or not
-    // marked with one.
+    // marked with one. Mutation: drop the `reads_as_prompt` conjunct in `is_marked_waiting`, which
+    // the no-prompt assert catches where the reader is read waiting in `select`.
     #[tokio::test]
     async fn a_select_reader_is_marked_waiting_with_a_prompt_line_and_not_without_one() {
-        let options = terminal_options(
-            POSIX_SHELL.to_owned(),
-            vec!["-c".to_owned(), SELECT_READER_SCRIPT.to_owned()],
-            None,
-            HashMap::new(),
+        let start = terminal_taking_start(
+            &harness_test_name(module_path!(), STAND_IN),
+            &TestProgram {
+                program: POSIX_SHELL.to_owned(),
+                arguments: vec!["-c".to_owned(), SELECT_READER_SCRIPT.to_owned()],
+            },
         );
         let window = alacritty_terminal::event::WindowSize {
             num_lines: 24,
@@ -510,7 +524,13 @@ mod tests {
             cell_width: 0,
             cell_height: 0,
         };
-        let inner = start_inner_terminal(&options, window).expect("the reader starts");
+        let inner = start_inner_terminal(
+            Path::new(&start.program),
+            OsStr::new(&start.program),
+            &start.arguments,
+            window,
+        )
+        .expect("the reader starts");
         let mut master = blocking_terminal_master(&inner.pty).expect("the master opens");
         let mut shown = Vec::new();
         let mut buffer = [0_u8; 256];
