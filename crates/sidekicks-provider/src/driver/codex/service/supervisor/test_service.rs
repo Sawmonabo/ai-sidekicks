@@ -128,8 +128,11 @@ impl ScriptedCodexService {
             at: std::time::Instant::now(),
             kind,
         });
-        assert!(
-            matches!(supervision.state(), SupervisorState::Up { dial, .. } if *dial == SCRIPTED_DIAL),
+        let SupervisorState::Up { dial, .. } = supervision.state() else {
+            panic!("the started service is up");
+        };
+        assert_eq!(
+            *dial, SCRIPTED_DIAL,
             "the scripted connection is the one up"
         );
     }

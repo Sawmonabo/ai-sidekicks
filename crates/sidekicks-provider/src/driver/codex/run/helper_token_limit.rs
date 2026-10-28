@@ -159,10 +159,18 @@ mod tests {
     // interrupt and its stop succeeds. The last case is killed by reading Codex's refusal for a
     // conversation with no turn as a failed stop.
     #[rstest]
-    #[case::running(json!({ "result": { "data": [{ "id": HELPER_TURN, "status": "inProgress" }] } }), true)]
-    #[case::ended(json!({ "result": { "data": [{ "id": HELPER_TURN, "status": "completed" }] } }), false)]
+    #[case::running(
+        json!({ "result": { "data": [{ "id": HELPER_TURN, "status": "inProgress" }] } }),
+        true
+    )]
+    #[case::ended(
+        json!({ "result": { "data": [{ "id": HELPER_TURN, "status": "completed" }] } }),
+        false
+    )]
     #[case::no_turn_yet(
-        json!({ "error": { "code": -32600, "message": "thread helper-thread is not materialized yet" } }),
+        json!({
+            "error": { "code": -32600, "message": "thread helper-thread is not materialized yet" }
+        }),
         false
     )]
     #[tokio::test]
