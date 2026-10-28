@@ -115,7 +115,7 @@ const INSERT_RELAUNCHED_BINDING_SQL: &str = "
      resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
   SELECT @id, run_id, provider_name, contract_version, @cli_version_raw, @cli_version_semver,
          @resume_handle,
-         json_set(spawn_config, @path_member, @resolved_executable_path), '{}',
+         json_set(spawn_config, @path_member, @resolved_executable_path), runtime_metadata,
          @timestamp, @timestamp
     FROM runtime_bindings
    WHERE id = @predecessor_id";
@@ -532,11 +532,12 @@ impl RuntimeBindingStore {
     }
 
     /// Records the binding a driver minted when it resumed a session on its own: a new row on the
-    /// predecessor's run, provider and legs, with the relaunched build's own version and path,
-    /// naming the conversation the leg runs on now, and each conversation it left in the same
-    /// write. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle,
-    /// and with [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing
-    /// was recorded.
+    /// predecessor's run, provider, legs and recovery data, so the new binding holds that data from
+    /// its first instant, with the relaunched build's own version and path, naming the
+    /// conversation the leg runs on now, and each conversation it left in the same write. Fails
+    /// with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle, and with
+    /// [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing was
+    /// recorded.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
