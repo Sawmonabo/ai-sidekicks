@@ -1,5 +1,5 @@
-//! A live session's level and mode moves Codex refuses, and a run started while the session is
-//! being established again, through the driver.
+//! A live session's level and mode moves Codex refuses, and a settle while the session comes back,
+//! through the driver.
 
 use std::pin::pin;
 use std::sync::Arc;
@@ -7,22 +7,16 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::json;
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::queue::QueueItemId;
-use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SessionReviewTarget,
-};
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
 use super::LiveCodexSession;
-use crate::driver::codex::session::test_fixture::turn_reply;
-use crate::driver::contract::{DriverError, RunOpening, RunOpeningItem, StartRunParams};
+use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
 use crate::run::posture::compose_execution_posture;
 
-/// How long a test waits before it counts a start or a move as stuck.
+/// How long a test waits before it counts a settle or a move as stuck.
 const SETTLE_BOUND: Duration = Duration::from_secs(10);
 
 /// A move of a live session's settings.
@@ -90,60 +84,61 @@ async fn a_level_or_mode_codex_refuses_is_refused_as_not_offered(
     assert_eq!(refusal.code, code);
 }
 
-// Killed by a run start that does not wait for the establishment in flight on its session: it is
-// refused at once as being re-established instead of starting once the establishment ended.
+/// What brings a live session back while a settle waits.
+#[derive(Clone, Copy, Debug)]
+enum ComingBack {
+    /// An establishment claimed on the session.
+    Establishment,
+    /// The session's service reconnecting.
+    Service,
+}
+
+// Killed by a settle that does not wait for an establishment in flight on its session, or for its
+// service on its way back: it answers at once, so a run would be bound on the conversation about
+// to change.
+#[rstest]
+#[case::establishment(ComingBack::Establishment)]
+#[case::service(ComingBack::Service)]
 #[tokio::test]
-async fn a_run_started_while_its_session_is_established_again_starts_once_it_settled() {
+async fn a_settle_waits_until_its_session_came_back_live(#[case] coming_back: ComingBack) {
     let LiveCodexSession {
         driver,
         session_id,
-        run_id,
-        binding_id,
-        mut scripted,
+        scripted,
         ..
     } = LiveCodexSession::idle().await;
     let parts = Arc::clone(driver.parts().expect("the driver composes"));
-    let establishing = parts
-        .slots
-        .claim_establishing(session_id)
-        .await
-        .expect("the session's slot is claimed");
-    let params = StartRunParams {
-        run_id,
-        opening: RunOpening {
-            session_id,
-            binding_id,
-            agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
-            message_id: QueueItemId::new(&mint_uuid_v7().to_string())
-                .expect("a minted UUID is an item id"),
-            item: RunOpeningItem::Review {
-                target: SessionReviewTarget::WorkingTree,
-            },
-        },
-        conversation_history: None,
-        output_speed: None,
-        options: Vec::new(),
-        output_speed_for_turn: None,
-        execution_posture: None,
-        output_schema: None,
-        step_bound: None,
+    let (establishing, connection) = match coming_back {
+        ComingBack::Establishment => (
+            Some(
+                parts
+                    .slots
+                    .claim_establishing(session_id)
+                    .await
+                    .expect("the session's slot is claimed"),
+            ),
+            None,
+        ),
+        ComingBack::Service => (None, Some(scripted.publish_reconnecting())),
     };
+    assert_eq!(
+        driver.session_process_state(session_id),
+        SessionProcessState::Restarting
+    );
 
-    let mut starting = pin!(driver.start_run(params));
-    let early = tokio::time::timeout(Duration::from_millis(100), &mut starting).await;
+    let mut settling = pin!(driver.settle_session(session_id));
+    let early = tokio::time::timeout(Duration::from_millis(100), &mut settling).await;
     assert!(
         early.is_err(),
-        "the run waits for the establishment: {early:?}"
+        "the settle waits for the session: {early:?}"
     );
     drop(establishing);
-    let serving = async {
-        let sent = scripted.next_request("review/start").await;
-        scripted.script.answer(&sent, &turn_reply("turn-review"));
-    };
-    let (started, ()) =
-        tokio::time::timeout(SETTLE_BOUND, async { tokio::join!(starting, serving) })
-            .await
-            .expect("the run's start settles");
+    if let Some(connection) = connection {
+        scripted.publish_up(connection);
+    }
 
-    started.expect("the run starts once its session settled");
+    tokio::time::timeout(SETTLE_BOUND, settling)
+        .await
+        .expect("the settle answers")
+        .expect("the session settles live");
 }

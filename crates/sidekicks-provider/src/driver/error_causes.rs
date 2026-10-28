@@ -1,7 +1,8 @@
 //! The typed causes a driver error carries where its caller acts on more than a code: a provider
 //! command that names no runnable build, a request the provider got with no answer back, a model
 //! catalog that cannot be read, and a provider axis set to a value the provider does not offer;
-//! and the refusal every driver answers a provider's own failure with.
+//! the refusal every driver answers a provider's own failure with, and the one a run meets on a
+//! session whose process is not running.
 
 use std::error::Error;
 use std::io;
@@ -12,6 +13,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
@@ -46,6 +48,16 @@ pub(crate) fn provider_failure_refusal(
             "providerFailureDetail": provider_failure_detail.as_str(),
         }))
         .with_source(error)
+}
+
+/// The refusal of a run on a session whose provider process is down, or did not come back within
+/// the bound its caller set: `provider.unavailable`, which a later send may clear.
+pub fn session_process_unavailable(session_id: SessionId) -> DomainError {
+    DomainError::new(
+        "The session's provider process is not running",
+        RefusalCode::ProviderUnavailable,
+    )
+    .with_detail(json!({ "sessionId": session_id }))
 }
 
 /// The configured provider command names no runnable build, or one whose real path cannot be

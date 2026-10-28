@@ -137,7 +137,8 @@ impl QueueAdmission {
     }
 
     // Opens the session's provider session once the setup gates have made its working folder,
-    // then hands the driver the run's opening on the run's own binding.
+    // waits for its process to settle, then hands the driver the run's opening on the run's own
+    // binding, opened on the leg the process settled on.
     async fn start_driver(
         &self,
         session_id: SessionId,
@@ -161,6 +162,7 @@ impl QueueAdmission {
             }
         }
         self.deps.provider_sessions.open(session_id, run_id).await?;
+        self.settle_session(session_id, driver).await?;
         let binding_id = self
             .deps
             .provider_sessions

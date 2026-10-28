@@ -152,10 +152,10 @@ async fn a_mode_move_during_the_crash_wait_is_the_relaunched_process_mode() {
     assert_eq!(relaunch.permission_mode, Some(ClaudePermissionMode::Plan));
 }
 
-// Killed by a run start that does not wait for the process a crash wait brings back: it finds no
-// live process and fails at once instead of starting on the relaunched one.
+// Killed by a settle that does not wait for the process a crash wait brings back: it answers
+// before the relaunch, which leaves the run's start no live process.
 #[tokio::test(start_paused = true)]
-async fn a_run_started_during_the_crash_wait_starts_once_the_restart_settled() {
+async fn a_settle_during_the_crash_wait_answers_once_the_restart_relaunched() {
     let fixture = ScriptedDriver::new();
     let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
     let first = fixture.next_start().await;
@@ -163,7 +163,7 @@ async fn a_run_started_during_the_crash_wait_starts_once_the_restart_settled() {
         .starts
         .script_session(Arc::new(ScriptedChannel::default()));
     ScriptedDriver::exit(&first);
-    // The first restart waits nothing; the second waits a second, which the run starts in.
+    // The first restart waits nothing; the second waits a second, which the settle starts in.
     let second = fixture.next_start().await;
     fixture.relaunches.reported(1).await;
     let relaunched = Arc::new(ScriptedChannel::default());
@@ -175,19 +175,20 @@ async fn a_run_started_during_the_crash_wait_starts_once_the_restart_settled() {
         SessionProcessState::Restarting
     );
 
-    let mut starting = pin!(
-        fixture
-            .driver
-            .start_run(start_params(session_id, new_run_id()))
-    );
-    let early = tokio::time::timeout(Duration::from_millis(100), &mut starting).await;
+    let mut settling = pin!(fixture.driver.settle_session(session_id));
+    let early = tokio::time::timeout(Duration::from_millis(100), &mut settling).await;
     assert!(
         early.is_err(),
-        "the run waits out the crash wait: {early:?}"
+        "the settle waits out the crash wait: {early:?}"
     );
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
+    settling
+        .await
+        .expect("the session settles on the relaunched process");
 
-    starting
+    fixture
+        .driver
+        .start_run(start_params(session_id, new_run_id()))
         .await
         .expect("the run starts on the relaunched process");
     assert_eq!(relaunched.user_frames().len(), 1);

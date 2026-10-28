@@ -202,6 +202,11 @@ pub trait ProviderDriver: Send + Sync {
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>>;
 
+    /// Waits until the session's process no longer comes back on its own, so a run's binding is
+    /// opened on the leg it settles on: answers once the process is live, and fails
+    /// `provider.unavailable` once it reads down. Has no bound of its own; the caller bounds it.
+    fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>>;
+
     /// Starts one run's turn.
     fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>>;
 

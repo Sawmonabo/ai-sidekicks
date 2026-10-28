@@ -273,6 +273,10 @@ impl ProviderDriver for ClaudeDriver {
         self.resume_session(params).boxed()
     }
 
+    fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.settle_session(session_id).boxed()
+    }
+
     fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
         self.start_run(params).boxed()
     }

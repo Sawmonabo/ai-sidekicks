@@ -1,4 +1,4 @@
-//! A Codex run's calls: its start, interrupt, steer, pause and continue, a retry of its held turn
+//! A Codex run's calls: its session's settle, its start, interrupt, steer, pause and continue, a retry of its held turn
 //! on a faster model, the answer to an ask it raised, `Allow once` on a block of Codex's own
 //! reviewer, and the skills a person picked for its message.
 
@@ -10,7 +10,10 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::{DriverError, RespondToRequestParams, StartRunParams};
+use crate::driver::contract::{
+    DriverError, RespondToRequestParams, SessionProcessState, StartRunParams,
+};
+use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, FasterModelRetryOutcome,
     FasterModelRetryParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams, PickedSkill,
@@ -18,17 +21,31 @@ use crate::driver::run_control::{
 };
 
 impl CodexDriver {
-    /// Starts one run's turn on its session's conversation once the session settled: a service on
-    /// its way back is waited for, then the resume or establishment in flight on the session; see
-    /// the run start.
-    pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), DriverError> {
-        let parts = self.parts()?;
-        let session_id = params.opening.session_id;
-        if let Some(service) = self.views.service(session_id) {
-            service.when_back().await;
+    /// Waits until the session's conversation settled: a service on its way back is waited for,
+    /// then the resume or establishment in flight on the session. Answers once the session reads
+    /// live; fails `provider.unavailable` once it reads down.
+    pub(crate) async fn settle_session(&self, session_id: SessionId) -> Result<(), DriverError> {
+        loop {
+            if let Some(service) = self.views.service(session_id) {
+                service.when_back().await;
+            }
+            self.slots.settle(session_id).await;
+            match self.session_process_state(session_id) {
+                SessionProcessState::Live => return Ok(()),
+                SessionProcessState::Down => {
+                    return Err(DriverError::Refused(session_process_unavailable(
+                        session_id,
+                    )));
+                }
+                // An establishment claimed, or a service gone back, since the waits answered.
+                SessionProcessState::Restarting => {}
+            }
         }
-        self.slots.settle(session_id).await;
-        Ok(parts.run_start.start_run(params).await?)
+    }
+
+    /// Starts one run's turn on its session's conversation; see the run start.
+    pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), DriverError> {
+        Ok(self.parts()?.run_start.start_run(params).await?)
     }
 
     /// Interrupts the run's live turn; a run with no turn in flight answers at once.

@@ -1,11 +1,12 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
 //! session that takes no change and the removal of a queued run's last message here; sends,
-//! run ends and the interrupts' queue in the modules below.
+//! starts, run ends and the interrupts' queue in the modules below.
 
 mod interrupt;
 mod run_ends;
 mod sends;
+mod starts;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -91,6 +92,8 @@ struct DriverCalls {
     steers: Mutex<Vec<(QueueItemId, bool)>>,
     /// Each resume, with the messages it carried.
     resumes: Mutex<Vec<(RunId, Vec<QueueItemId>)>>,
+    /// Holds a settle of the session's process before it answers.
+    settle_pause: PausePoint,
     /// Holds a start before it answers.
     start_pause: PausePoint,
     /// Holds a steer before it answers.
@@ -155,6 +158,17 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
         }
         .boxed()
     });
+    let settling = Arc::clone(calls);
+    driver
+        .expect_settle_session()
+        .returning(move |_session_id| {
+            let calls = Arc::clone(&settling);
+            async move {
+                calls.settle_pause.pass().await;
+                Ok(())
+            }
+            .boxed()
+        });
     let starting = Arc::clone(calls);
     driver.expect_start_run().returning(move |params| {
         let calls = Arc::clone(&starting);

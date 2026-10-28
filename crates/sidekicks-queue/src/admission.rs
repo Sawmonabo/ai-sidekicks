@@ -2,9 +2,11 @@
 //! it. The run waits its turn at the memory gate, then passes the run's setup gates; the session's
 //! provider session is opened at its first admission after them, and the driver is handed the
 //! run's first waiting item as the turn's opening: a message, or a review, which opens a run of its
-//! own and is never a continue's opening. A run still waiting at the gate past the
-//! delivery timeout ends failed with its messages not delivered, and so does a run whose start
-//! failed while it still read queued. An interrupt that ends a run during its start leaves the
+//! own and is never a continue's opening. Before the run's binding is opened the driver is waited
+//! on until the session's process no longer comes back on its own, so the binding names the leg
+//! it settled on. A run still waiting at the gate past the delivery timeout ends failed with its
+//! messages not delivered, and so does a run whose start failed while it still read queued; a
+//! process not settled within that same timeout fails the start `provider.unavailable`. An interrupt that ends a run during its start leaves the
 //! opening to the interrupt's choice.
 //!
 //! The place the gate grants is the run's until it ends: the run lifecycle parks it while the run
@@ -34,7 +36,8 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{ProviderDriver, bound_failure_detail};
+use sidekicks_provider::driver::contract::{DriverError, ProviderDriver, bound_failure_detail};
+use sidekicks_provider::driver::error_causes::session_process_unavailable;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::state_entry::RunStateEntry;
@@ -67,8 +70,9 @@ use crate::provider_session::ProviderSessions;
 use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
 use crate::session_lock::QueueSessionLock;
 
-/// How long a queued run waits for the memory gate before its messages are not delivered: past
-/// five minutes a run is not getting memory soon, and the person is better told so.
+/// How long a queued run waits for the memory gate before its messages are not delivered, and
+/// then for its session's process to settle: past five minutes a run is not starting soon, and the
+/// person is better told so.
 pub(crate) const QUEUE_DELIVERY_TIMEOUT: Duration = Duration::from_mins(5);
 
 // The detail of a run that waited past the delivery timeout.
@@ -109,7 +113,7 @@ pub(crate) struct QueueAdmissionDeps {
     pub(crate) openings: Arc<RunOpenings>,
     /// Hands the messages a newer lead run took over from a continue given up.
     pub(crate) delivery: QueueDelivery,
-    /// How long a run waits at the gate.
+    /// How long a run waits at the gate, and then for its session's process to settle.
     pub(crate) delivery_timeout: Duration,
 }
 
@@ -544,6 +548,24 @@ impl QueueAdmission {
                 "ending a run after its failed start failed",
             );
         }
+    }
+
+    // Waits until the session's process no longer comes back on its own, within the delivery
+    // timeout; past it the start fails `provider.unavailable`, as it does for a process down.
+    async fn settle_session(
+        &self,
+        session_id: SessionId,
+        driver: &dyn ProviderDriver,
+    ) -> Result<(), QueueError> {
+        tokio::time::timeout(
+            self.deps.delivery_timeout,
+            driver.settle_session(session_id),
+        )
+        .await
+        .map_err(|elapsed| {
+            DriverError::Refused(session_process_unavailable(session_id).with_source(elapsed))
+        })??;
+        Ok(())
     }
 
     // Puts `run_id` in the gate's line and waits for its turn within the delivery timeout. The

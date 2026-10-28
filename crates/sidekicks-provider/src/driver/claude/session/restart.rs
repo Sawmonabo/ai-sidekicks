@@ -40,7 +40,9 @@ use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
-use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::error_causes::{
+    UNSPECIFIED_PROVIDER_FAILURE_DETAIL, session_process_unavailable,
+};
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     DriverResumeResult, ProviderBuildChange, ResumeSessionParams,
@@ -335,12 +337,17 @@ impl ClaudeSessionRestarts {
     }
 
     /// Waits until the session's process no longer comes back on its own: a restart held for its
-    /// crash window's wait, a relaunch or a bring-up in flight each waited out; answers at once
-    /// for a live process or none.
-    pub(crate) async fn settle(&self, session_id: SessionId) {
+    /// crash window's wait, a relaunch or a bring-up in flight each waited out. Answers once the
+    /// process is live; fails `provider.unavailable` once none serves the session.
+    pub(crate) async fn settle(&self, session_id: SessionId) -> Result<(), DriverError> {
         loop {
             match self.standing(session_id) {
-                ClaudeSessionStanding::Live(_) | ClaudeSessionStanding::Down => return,
+                ClaudeSessionStanding::Live(_) => return Ok(()),
+                ClaudeSessionStanding::Down => {
+                    return Err(DriverError::Refused(session_process_unavailable(
+                        session_id,
+                    )));
+                }
                 ClaudeSessionStanding::Held { left, .. } => {
                     left.wait().await;
                 }
