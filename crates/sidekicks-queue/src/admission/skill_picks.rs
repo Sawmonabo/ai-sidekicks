@@ -30,7 +30,7 @@ impl QueueAdmission {
         &self,
         session_id: SessionId,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         picks: Option<Vec<QueuedSkillPick>>,
     ) -> Result<Option<Vec<PickedSkill>>, QueueError> {

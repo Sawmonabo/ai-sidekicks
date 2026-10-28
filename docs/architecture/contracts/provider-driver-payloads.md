@@ -309,11 +309,10 @@ interface ProviderModeListResponse {
 // untrusted provider-output strings enumerated at the head of this section are. The list carries
 // every entry the provider publishes, with no count of the driver's own; the palette draws only the
 // rows in view. The binding an enumeration belongs to: the driver, by its open provider id
-// (`ProviderId`, checked against the registered drivers), and the account. `providerAccountId` is
-// null where the session has bound no account; absence is stated, never synthesized.
+// (`ProviderId`, checked against the registered drivers), and the account the session runs on.
 interface ProviderCommandBinding {
   providerName: ProviderId;
-  providerAccountId: string | null;
+  providerAccountId: string;
 }
 interface ProviderCommandEntry {
   name: string;
@@ -431,8 +430,9 @@ interface CreateSessionParams {
   // and no client-supplied value to reconcile against the resolution. Spawn-bound because a run's
   // paying account is bound for the run's LIFETIME — `ResumeSessionParams` re-realizes it below
   // from the durable record rather than re-resolving whichever account is current at the resume.
-  // Omitting it is the unchanged default path.
-  providerAccountId?: string;
+  // A provider with no account to resolve refuses the run before spawn
+  // (`provider.account.notRegistered`, `provider.account.current.notSet`).
+  providerAccountId: string;
   // THIS SESSION'S OWN bound on how many steps one turn may take, carried onto the spawn because
   // one leg realizes it as a start flag (Spec-003 §The Step Bound On A Turn). Absent means the
   // session set no bound of its own, in which case the machine's own Runtime value applies and
@@ -503,7 +503,7 @@ interface ResumeSessionParams {
   // from the durable `runtime_bindings.spawn_config` record written at the original spawn — never
   // re-resolved, and never re-supplied: no wire request carries an account, and recovery holds none
   // to take one from. Same opacity rule as on `CreateSessionParams` above.
-  providerAccountId?: string;
+  providerAccountId: string;
   // A reconstructed data leg: a resume that dropped the session's own step bound would relaunch the
   // Claude leg without its `--max-turns` backstop while the session record still holds the number
   // the person set, which is the silent shedding this list exists to prevent. Read back from

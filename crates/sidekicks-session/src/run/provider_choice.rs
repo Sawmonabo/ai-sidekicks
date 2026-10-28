@@ -412,7 +412,6 @@ impl ProviderChoiceResolver {
     /// provider ended drops an answer that would have returned it to `running`. A driver's own
     /// signal that the provider resolved the choice settles the held answer the same way. Answers
     /// whether it wrote the settlement; fails as the settlement's write fails.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
     pub(crate) async fn settle_held_answer(
         &self,
         run_id: RunId,

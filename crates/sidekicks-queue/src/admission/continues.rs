@@ -26,7 +26,8 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) =
+            self.read_run_driver(session_id, run_id).await?;
         if !self
             .admit_continue(
                 &provider,
@@ -204,7 +205,7 @@ impl QueueAdmission {
     async fn admit_continue(
         &self,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,

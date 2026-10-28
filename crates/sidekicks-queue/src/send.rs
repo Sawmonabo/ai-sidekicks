@@ -9,6 +9,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::orchestration::OrchestrationRunConfig;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{AgentQueueItemChangeRefusedReason, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
@@ -44,10 +46,15 @@ use crate::run_lifecycle::QueueRunLifecycle;
 /// Reads and writes of a send before a lead run that keeps moving under it is refused.
 const SEND_ATTEMPTS: usize = 3;
 
-/// One message as a send writes it: its new id, what it carries and the key it was sent under.
+/// One message as a send writes it: its new id, what it carries, the key it was sent under and the
+/// account a run it opens is admitted against.
 pub(crate) struct QueueSendMessage {
     /// The new item.
     pub(crate) item_id: QueueItemId,
+    /// The account the run this message opens is admitted against, resolved before the send.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// The limits the run this message opens is admitted with, read before the send.
+    pub(crate) run_config: Option<OrchestrationRunConfig>,
     /// What it carries.
     pub(crate) body: QueueItemBody,
     /// The send's own key.
@@ -120,7 +127,13 @@ impl QueueSends {
                         RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
                     let agent_id =
                         read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
-                    let queued = lead_run_queued(session_id, run_id, agent_id);
+                    let queued = lead_run_queued(
+                        session_id,
+                        run_id,
+                        agent_id,
+                        message.provider_account_id.clone(),
+                        message.run_config.clone(),
+                    );
                     (run_id, SendRoute::NewRun { queued })
                 }
             };

@@ -18,10 +18,10 @@ use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
-use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
+use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
 };
-use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
 use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::questions::schema::schema_parts;
@@ -128,7 +128,7 @@ impl Opening {
             .create(CreateRuntimeBindingInput {
                 run_id: earlier_run_id,
                 ..binding_input(
-                    RuntimeBindingSpawnConfig::default(),
+                    spawn_config_on(test_provider_account_id()),
                     spawned_build("1.0.0", "/opt/provider/bin"),
                 )
             })

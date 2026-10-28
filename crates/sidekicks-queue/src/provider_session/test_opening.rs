@@ -32,9 +32,10 @@ pub(crate) fn first_provider() -> ProviderId {
     ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id is a provider id")
 }
 
-/// Composes every session's opening on the table's first provider, read-only over the root.
+/// Composes every session's opening on the table's first provider, read-only over the root, on
+/// the account it is given.
 pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
-    Arc::new(|session_id| {
+    Arc::new(|session_id, provider_account_id| {
         async move {
             let root = FilesystemPath::new("/".to_owned()).expect("the root is a path");
             Ok(ProviderSessionOpening {
@@ -58,7 +59,7 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     subagent_policy: None,
                     tool_servers: None,
                     output_schema: None,
-                    provider_account_id: None,
+                    provider_account_id,
                     on_mcp_server_status: None,
                 },
                 spawned_version: spawned_build("1.0.0", "/opt/provider/bin"),

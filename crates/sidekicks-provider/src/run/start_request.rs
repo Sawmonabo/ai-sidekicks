@@ -21,8 +21,8 @@ pub struct DaemonTurnStartRequest {
     pub session_id: SessionId,
     /// The provider the turn runs on.
     pub provider: ProviderId,
-    /// The account the session's process was admitted against, or `None` for none.
-    pub admitted_provider_account_id: Option<ProviderAccountId>,
+    /// The account the session's process was admitted against.
+    pub admitted_provider_account_id: ProviderAccountId,
     /// The session's current level and roots, which the turn runs at like any run.
     pub execution_posture: ExecutionPosture,
     /// Whether the provider started the turn itself: its run takes over, in its `running` write,

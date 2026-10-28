@@ -125,7 +125,7 @@ const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 /// The spawn-bound legs a resume rebuilds from, stored at every binding write, since a resume is a
 /// fresh spawn and recovery has no client request; a leg left out relaunches without it (no
 /// posture relaunches unsandboxed). The function legs are injected again at each spawn instead.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeBindingSpawnConfig {
     /// How the session may touch the machine.
@@ -165,13 +165,8 @@ pub struct RuntimeBindingSpawnConfig {
     )]
     pub output_schema: Option<Map<String, Value>>,
     /// The account the run was admitted against, bound for the run's life, so a resume never moves
-    /// onto the current default account.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// onto the provider's current account.
+    pub provider_account_id: ProviderAccountId,
     /// The requested output-speed level, never the provider's observed state, which would read a
     /// level that stopped being offered as accepted after a restart.
     #[serde(

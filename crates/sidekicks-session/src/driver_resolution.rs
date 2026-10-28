@@ -1,6 +1,6 @@
 //! The provider driver a handler acts through, found from the run it runs or the session it
-//! serves. The address is refused before the provider, so an id that never existed is never
-//! reported as a provider problem.
+//! serves, and the account a run is admitted against. The address is refused before the provider,
+//! so an id that never existed is never reported as a provider problem.
 
 use std::sync::Arc;
 
@@ -11,8 +11,10 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
 use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::{ProviderAccountReader, read_current_account};
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -122,4 +124,58 @@ where
     let (provider, provider_account_id) = bound.unzip();
     let (provider, driver) = resolve_session_driver(providers, &session_id, provider)?;
     Ok((provider, provider_account_id.flatten(), driver))
+}
+
+/// The account a run on `provider` is admitted against: `bound`, the account the session is bound
+/// to, else the provider's current account read through `provider_accounts`, resolved before any
+/// driver call. Refused `provider.account.notRegistered` with no account registered and
+/// `provider.account.current.notSet` with none current; fails as the accounts cannot be read.
+pub async fn resolve_admitted_account(
+    provider_accounts: &PortRegistration<Arc<dyn ProviderAccountReader>>,
+    provider: &ProviderId,
+    bound: Option<ProviderAccountId>,
+) -> Result<ProviderAccountId, DriverError> {
+    match bound {
+        Some(bound) => Ok(bound),
+        None => read_current_account(provider_accounts, provider.clone()).await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rstest::rstest;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_provider::driver::CurrentProviderAccount;
+    use sidekicks_provider::driver::registry::test_provider;
+    use sidekicks_provider::driver::test_registry::registered_test_accounts;
+
+    use sidekicks_provider::driver::contract::DriverError;
+
+    use super::resolve_admitted_account;
+
+    // Killed by answering any account, the person's own sign-in among them, where the provider
+    // has no current account: each case refuses with its own code before any driver call.
+    #[rstest]
+    #[case::nothing_registered(
+        CurrentProviderAccount::NoneRegistered,
+        RefusalCode::ProviderAccountNotRegistered
+    )]
+    #[case::none_current(
+        CurrentProviderAccount::NoneCurrent,
+        RefusalCode::ProviderAccountCurrentNotSet
+    )]
+    #[tokio::test]
+    async fn admission_refuses_a_provider_with_no_account_to_run_on(
+        #[case] current: CurrentProviderAccount,
+        #[case] code: RefusalCode,
+    ) {
+        let provider_accounts = registered_test_accounts(current);
+
+        let resolved = resolve_admitted_account(&provider_accounts, &test_provider(), None).await;
+
+        assert!(
+            matches!(&resolved, Err(DriverError::Refused(refusal)) if refusal.code == code),
+            "the admission was not refused {code:?}: {resolved:?}"
+        );
+    }
 }

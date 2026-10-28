@@ -48,6 +48,7 @@ use crate::run::engine::turns::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
+use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, refused_statement_index};
 use crate::transcript::reasoning::split_reasoning_text;
@@ -75,6 +76,7 @@ pub struct RunInboundDispatch {
     epochs: Arc<Mutex<ExecutionEpochs>>,
     run_state_publisher: Arc<dyn RunStatePublisher>,
     appender: SessionEventAppender,
+    choices: Arc<ProviderChoiceResolver>,
 }
 
 // A delivery attributed to its execution, with what is left to do for it.
@@ -182,19 +184,21 @@ impl RunWork {
 
 impl RunInboundDispatch {
     /// A dispatch moving runs through `engine`, attributing on `epochs`, the cursors the binding
-    /// cursors keep, sending live states to `run_state_publisher` and appending rows to
-    /// `event_log`.
+    /// cursors keep, sending live states to `run_state_publisher`, appending rows to `event_log`
+    /// and settling an answer `choices` holds once the provider reports its run.
     pub fn new(
         engine: Arc<RunEngine>,
         epochs: Arc<Mutex<ExecutionEpochs>>,
         run_state_publisher: Arc<dyn RunStatePublisher>,
         event_log: Arc<EventLogService>,
+        choices: Arc<ProviderChoiceResolver>,
     ) -> Self {
         Self {
             engine,
             epochs,
             run_state_publisher,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
+            choices,
         }
     }
 
@@ -500,9 +504,24 @@ impl RunInboundDispatch {
                 is_daemon_interrupt_end,
             } => {
                 let run_id = change.run_id;
+                let change = RunStateChange::from(change);
+                // An answer the provider got with no reply back settles before the report that
+                // shows it took, so the report finds the move made; a failed settle leaves the
+                // report to apply.
+                if let Err(error) = self
+                    .choices
+                    .settle_held_answer(run_id, RunState::from(change.entry.state()))
+                    .await
+                {
+                    tracing::error!(
+                        error = &error as &(dyn Error + 'static),
+                        run_id = %run_id,
+                        "the answer held on the run's choice could not be settled"
+                    );
+                }
                 match self
                     .engine
-                    .apply_provider_state_change(RunStateChange::from(change), turn_end)
+                    .apply_provider_state_change(change, turn_end)
                     .await
                 {
                     Ok(written) => InboundOutcome::Transitioned {

@@ -31,6 +31,7 @@ use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use sidekicks_provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -120,7 +121,7 @@ impl Fixture {
             is_apart: None,
             effective_run_config: None,
             admitted_model_family: None,
-            admitted_provider_account_id: None,
+            admitted_provider_account_id: test_provider_account_id(),
         });
         let insert_run = insert_queued_run_statement(&queued);
         self.append(

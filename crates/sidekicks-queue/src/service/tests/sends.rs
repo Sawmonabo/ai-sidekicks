@@ -153,3 +153,29 @@ async fn a_send_picking_a_skill_its_provider_does_not_list_is_refused() {
     assert_eq!(detail["reason"], json!("notListed"));
     assert_eq!(fixture.count_items(), 0);
 }
+
+// A send that opens the session's next lead run admits it under the daemon's configured
+// `Tokens per run`, kept on its creation record. Killed by admission that writes no limit.
+#[tokio::test]
+async fn a_new_lead_run_is_admitted_with_the_configured_token_limit() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+
+    timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers")
+        .expect("the send is saved");
+    fixture.queue.stop().await;
+
+    let token_limit: Option<i64> = fixture
+        .database
+        .reader()
+        .query_row(
+            "SELECT json_extract(payload, '$.effectiveRunConfig.tokenLimit') FROM session_events
+             WHERE type = 'agent.run.queued'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the test reads the run's creation record");
+    assert_eq!(token_limit, Some(500_000));
+}

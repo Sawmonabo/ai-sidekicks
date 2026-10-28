@@ -1,7 +1,8 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
-//! and the session inbox addresser the table's own drivers answer; the run, session and message
-//! ids the drivers' tests mint, and the run queue's intake as a driver tells it.
+//! the session inbox addresser the table's own drivers answer, and an accounts reader answering
+//! one current account; the run, session and message ids the drivers' tests mint, and the run
+//! queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -15,17 +16,21 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 #[cfg(test)]
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 #[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
@@ -35,6 +40,7 @@ use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
 use crate::background_work::BackgroundWorkForms;
+use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
@@ -45,7 +51,10 @@ use crate::driver::ports::{
     MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
-use crate::driver::{DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS, ProviderRegistration};
+use crate::driver::{
+    AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
+    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration,
+};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
@@ -87,6 +96,45 @@ impl AttachmentResolver for NothingServed {
     }
 }
 
+/// An accounts reader answering every provider's current account as it holds it, for a test that
+/// admits runs; it resolves no account's folders and reads no credential generation.
+pub struct TestProviderAccounts(pub CurrentProviderAccount);
+
+impl ProviderAccountReader for TestProviderAccounts {
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
+        async { Err(AccountFoldersError::NotFound) }.boxed()
+    }
+
+    fn current_account(
+        &self,
+        _provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
+        let current = self.0.clone();
+        async move { Ok(current) }.boxed()
+    }
+
+    fn read_credential_generation(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("credential generation").into()) }.boxed()
+    }
+}
+
+/// A registration holding [`TestProviderAccounts`] answering `current`.
+pub fn registered_test_accounts(
+    current: CurrentProviderAccount,
+) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
+    let provider_accounts = PortRegistration::new("provider accounts");
+    provider_accounts
+        .register(Arc::new(TestProviderAccounts(current)) as Arc<dyn ProviderAccountReader>)
+        .expect("a new registration takes its port");
+    Arc::new(provider_accounts)
+}
+
 /// The shared services every driver's build takes, with every port unregistered, the spawn
 /// contexts among them, no attachment or binding rebind served, the read pool on a database no
 /// test opens, every folder under a relative one that no test makes, and a set of held provider
@@ -120,7 +168,7 @@ pub fn test_driver_services() -> DriverServices {
         )),
         base_environment,
         reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
-        command_search: Arc::new(ProviderCommandSearch::new(spawner)),
+        command_search: Arc::new(ProviderCommandSearch::new(spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
@@ -128,6 +176,11 @@ pub fn test_driver_services() -> DriverServices {
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         dispatches_hook_mode: false,
+        daemon_program: folder.join("daemon-program"),
+        caller_processes: Arc::new(
+            ProcessTableReader::for_this_program().expect("this program's reader builds"),
+        ),
+        input_waits: Arc::new(SystemInputWaitReader { spawner }),
         ports: Arc::new(DriverPorts::new()),
     }
 }

@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::future::BoxFuture;
 use serde_json::Map;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
@@ -29,7 +30,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{
-    CreateSessionParams, DriverResumeResult, UpdatePermissionLevelParams,
+    CreateSessionParams, DriverResumeResult, ResumeSessionParams, UpdatePermissionLevelParams,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::run::posture::compose_execution_posture;
@@ -44,6 +45,7 @@ use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::permission_level::{
     permission_level_change_statement, read_session_permission_level,
 };
+use sidekicks_session::run::agent::{RunAgentReadError, RunAgentReader};
 use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
@@ -80,16 +82,29 @@ pub struct ProviderSessionOpening {
     pub function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
 
-/// Composes a session's opening from its lead. Fails when the session has no lead or no
-/// workspace, or its repository's git folder cannot be read.
+/// Composes a session's opening from its lead, on the account given, which its create carries.
+/// Fails when the session has no lead or no workspace, or its repository's git folder cannot be
+/// read.
 pub type ProviderSessionOpeningComposer = Arc<
     dyn Fn(
             SessionId,
+            ProviderAccountId,
         )
             -> BoxFuture<'static, Result<ProviderSessionOpening, Box<dyn Error + Send + Sync>>>
         + Send
         + Sync,
 >;
+
+/// A session's resume composed from its stored leg: the params its driver resumes it with, and
+/// the posture and git folder the resumed process then runs at.
+pub struct ComposedResume {
+    /// The params the session's driver resumes it with.
+    pub params: ResumeSessionParams,
+    // The posture the resumed process runs at.
+    execution_posture: ExecutionPosture,
+    // The git folder each level's posture is built on.
+    git_folder: FilesystemPath,
+}
 
 /// What the provider sessions read, write and call.
 pub struct ProviderSessionsDeps {
@@ -123,6 +138,9 @@ pub enum ProviderSessionError {
         #[source]
         cause: Box<dyn Error + Send + Sync>,
     },
+    /// The account the session's first run was admitted against could not be read.
+    #[error(transparent)]
+    AdmittedAccount(#[from] RunAgentReadError),
     /// The session's lead runs at no posture.
     #[error("the lead of session {session_id} runs at no posture")]
     NoPosture {
@@ -434,12 +452,23 @@ impl ProviderSessions {
         Ok(binding.id)
     }
 
+    // A session with no conversation yet is created on the account `run_id` was admitted
+    // against.
     async fn create(
         &self,
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<OpenedSession, ProviderSessionError> {
-        let opening = self.compose(session_id).await?;
+        let provider_account_id = self
+            .deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, ProviderSessionError>(
+                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
+                )
+            })
+            .await?;
+        let opening = self.compose(session_id, provider_account_id).await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let ProviderSessionOpening {
             provider,
@@ -509,16 +538,19 @@ impl ProviderSessions {
         })
     }
 
-    // The session ran before this daemon started: its conversation is resumed in a fresh process,
-    // and the binding the resume minted carries its cursor on; the run gets a binding of its own.
-    async fn resume(
+    /// The resume of `session_id`'s conversation from its stored `leg`, composed from the
+    /// session's lead as it stands now on the account the leg ran on, at its mode and level. Fails
+    /// as the composition, the posture or the mode's read fails, and with
+    /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
+    pub async fn compose_resume(
         &self,
-        hold: &KeyHold<'_, SessionId>,
         session_id: SessionId,
-        leg: RuntimeBinding,
-        run_id: RunId,
-    ) -> Result<OpenedSession, ProviderSessionError> {
-        let opening = self.compose(session_id).await?;
+        leg: &RuntimeBinding,
+    ) -> Result<ComposedResume, ProviderSessionError> {
+        // The resume runs on the account the leg ran on, read back from its spawn record.
+        let opening = self
+            .compose(session_id, leg.spawn_config.provider_account_id.clone())
+            .await?;
         let execution_posture = posture_of(session_id, &opening)?;
         let mode = self
             .deps
@@ -530,7 +562,7 @@ impl ProviderSessions {
         let params = compose_resume_session_params(
             session_id,
             opening.create_params.agent_id,
-            &leg,
+            leg,
             opening.create_params.model.clone(),
             opening.create_params.larger_window,
             mode,
@@ -539,6 +571,27 @@ impl ProviderSessions {
             opening.create_params.row_values.clone(),
             (opening.function_legs_for)(&leg.id),
         )?;
+        Ok(ComposedResume {
+            params,
+            execution_posture,
+            git_folder: opening.git_folder,
+        })
+    }
+
+    // The session ran before this daemon started: its conversation is resumed in a fresh process,
+    // and the binding the resume minted carries its cursor on; the run gets a binding of its own.
+    async fn resume(
+        &self,
+        hold: &KeyHold<'_, SessionId>,
+        session_id: SessionId,
+        leg: RuntimeBinding,
+        run_id: RunId,
+    ) -> Result<OpenedSession, ProviderSessionError> {
+        let ComposedResume {
+            params,
+            execution_posture,
+            git_folder,
+        } = self.compose_resume(session_id, &leg).await?;
         let driver = self.deps.providers.lookup(&leg.provider_name)?;
         let (binding_id, resume_handle, spawned_version) =
             match driver.resume_session(params).await? {
@@ -584,7 +637,7 @@ impl ProviderSessions {
         let opened = OpenedSession {
             provider: leg.provider_name,
             execution_posture,
-            git_folder: opening.git_folder,
+            git_folder,
         };
         // The resumed leg sits on the run it was first opened for; this run gets its own.
         self.lock_opened().insert(session_id, opened.clone());
@@ -598,8 +651,9 @@ impl ProviderSessions {
     async fn compose(
         &self,
         session_id: SessionId,
+        provider_account_id: ProviderAccountId,
     ) -> Result<ProviderSessionOpening, ProviderSessionError> {
-        (self.deps.compose_opening)(session_id)
+        (self.deps.compose_opening)(session_id, provider_account_id)
             .await
             .map_err(|cause| ProviderSessionError::Compose { session_id, cause })
     }

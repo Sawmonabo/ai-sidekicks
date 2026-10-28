@@ -407,7 +407,7 @@ CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 CREATE TABLE left_conversations (
   session_id           TEXT NOT NULL,
   provider_name          TEXT NOT NULL,           -- 'claude' or 'codex'
-  provider_account_id  TEXT,                    -- NULL on the machine's default home
+  provider_account_id  TEXT NOT NULL,           -- the account the conversation ran on
   conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,

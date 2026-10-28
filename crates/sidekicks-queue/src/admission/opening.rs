@@ -209,6 +209,7 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                         DaemonTurnBindingError::NoConversation { session_id }
                     }
                     other @ (ProviderSessionError::Compose { .. }
+                    | ProviderSessionError::AdmittedAccount(_)
                     | ProviderSessionError::NoPosture { .. }
                     | ProviderSessionError::NoContractVersion { .. }
                     | ProviderSessionError::Provider(_)

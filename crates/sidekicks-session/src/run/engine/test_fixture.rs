@@ -1,5 +1,6 @@
-//! What the session's tests and other crates' tests share: an engine over a test database, the
-//! running runs and events they seed, and a read of a run's stored state.
+//! What the session's tests and other crates' tests share: an engine over a test database and a
+//! resolver of its runs' choices, the running runs and events they seed, and a read of a run's
+//! stored state.
 
 use std::path::Path;
 use std::sync::Arc;
@@ -19,6 +20,7 @@ use sidekicks_workspace::run_setup_gates::RunSetupGate;
 
 use crate::plan_holds::{NoPlanHolds, PlanHolds};
 use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+use crate::run::provider_choice::{PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceResolver};
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
 /// interventions service, no plan holds and its posture files under `home`; a test makes the
@@ -61,6 +63,25 @@ pub fn test_engine_with(
         }
         engine
     })
+}
+
+/// A resolver of the choices `engine`'s runs wait on, reading `database`, with no registered
+/// driver.
+pub fn test_choices(
+    database: &TestDatabase,
+    engine: &Arc<RunEngine>,
+) -> Arc<ProviderChoiceResolver> {
+    Arc::new(ProviderChoiceResolver::new(
+        Arc::new(DatabaseReadPool::new(
+            database.path(),
+            PROVIDER_CHOICE_STATEMENT_CAPACITY,
+        )),
+        Arc::clone(engine),
+        Arc::new(ProviderRegistry::register_from(
+            &[],
+            &test_driver_services(),
+        )),
+    ))
 }
 
 /// Writes `run_id` of `session_id` running at version 1.

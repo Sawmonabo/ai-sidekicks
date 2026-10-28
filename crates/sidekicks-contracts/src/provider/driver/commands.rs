@@ -17,17 +17,14 @@ use crate::wire::list::BoundedVec;
 use crate::wire::text::FreeFormText;
 
 /// The binding a command list was read under: the routing pair a group and each of its entries
-/// carry. `providerAccountId` is `null` when the session bound no account, and `null` matches
-/// nothing: an account-less list can be read but never routes a dispatch onto another binding.
+/// carry.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderCommandBinding {
     /// The provider.
     pub provider_name: ProviderId,
-    /// The account the session bound, or `null` for none.
-    #[serde(deserialize_with = "crate::wire::nullable")]
-    #[schemars(with = "crate::wire::NullableSchema<ProviderAccountId>")]
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// The account the session's binding runs on.
+    pub provider_account_id: ProviderAccountId,
 }
 
 /// Declares [`ProviderCommandEntry`]: per kind, the members every entry carries, then the kind's

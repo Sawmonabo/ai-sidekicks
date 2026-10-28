@@ -185,6 +185,8 @@ refusal_codes! {
     AgentChildRunNotFound = "agent.childRun.notFound" (NotFound, 404);
     /// `agent.command.background` named a command that is not waiting in the foreground.
     AgentCommandNotInForeground = "agent.command.notInForeground" (FailedPrecondition, 409);
+    /// `agent.command.stop` reached the provider, which answered that the command still runs.
+    AgentCommandNotStopped = "agent.command.notStopped" (FailedPrecondition, 409);
     /// `agent.command.write` named a command that takes no input and has no prompt open.
     AgentCommandTakesNoInput = "agent.command.takesNoInput" (FailedPrecondition, 409);
     /// `agent.definition.export` could not write a definition's file into the chosen folder.

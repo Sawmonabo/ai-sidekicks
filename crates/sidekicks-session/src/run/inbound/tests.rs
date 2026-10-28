@@ -28,13 +28,16 @@ use sidekicks_provider::run::delivery::{
     LateEventAbsorbReason, MachineScopedRow, SessionScopedRow,
 };
 use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use tempfile::TempDir;
 
 use super::{InboundDispatchError, RunInboundDispatch};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::engine::test_fixture::{
+    append, insert_running_run, stored_run_state, test_choices, test_engine,
+};
 use crate::run::engine::tests::{
     DRIVER_HOLD, SETTLE_WAIT, continue_request, held_driver, turn_completed_at, turn_started_at,
 };
@@ -78,6 +81,7 @@ impl Harness {
             Arc::clone(&epochs),
             Arc::new(UnreadRunStates),
             Arc::clone(&log.service),
+            test_choices(&database, &engine),
         ));
         let run_id = new_run_id();
         insert_running_run(&database, test_session_id(), run_id);
@@ -98,7 +102,7 @@ impl Harness {
                     id: binding_id.clone(),
                     run_id,
                     provider_name: test_provider(),
-                    provider_account_id: None,
+                    provider_account_id: test_provider_account_id(),
                 },
                 RUN_START_POSITION,
             )

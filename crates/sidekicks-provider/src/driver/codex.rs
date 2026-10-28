@@ -67,12 +67,14 @@ mod account_home_logs;
 mod app_server_protocol;
 mod attachments;
 mod auth_status;
+mod calibration;
 mod capabilities;
 mod capability_probe;
 mod commands;
 mod compaction;
 mod delivery;
 mod event_normalizer;
+mod exec_relay;
 mod goals;
 mod hooks;
 mod input_limit;
@@ -461,7 +463,7 @@ impl ProviderDriver for CodexDriver {
     }
 
     fn stop_command(&self, params: RunningCommandParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(command_act_unsupported(&params.command_id).into())).boxed()
+        self.stop_command(params).boxed()
     }
 
     fn move_command_to_background(
@@ -475,10 +477,7 @@ impl ProviderDriver for CodexDriver {
         &self,
         params: WriteCommandInputParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        std::future::ready(Err(
-            command_act_unsupported(&params.command.command_id).into()
-        ))
-        .boxed()
+        self.write_command_input(params).boxed()
     }
 
     fn idle_sleep_holds(

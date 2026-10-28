@@ -5,7 +5,6 @@ use std::fmt::Write as _;
 
 use rstest::rstest;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -19,7 +18,9 @@ use super::{
 use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{SessionToolServer, SubagentDefinition, SubagentPolicy};
 use crate::left_conversations::LeftConversation;
-use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 
 fn token(text: &str) -> ProviderToken {
     FreeFormText::new(text.to_owned()).expect("the test's token is valid text")
@@ -46,7 +47,7 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
         &store,
         RuntimeBindingSpawnConfig {
             output_speed: Some(token("fast")),
-            ..RuntimeBindingSpawnConfig::default()
+            ..spawn_config_on(test_provider_account_id())
         },
     )
     .await;
@@ -82,10 +83,10 @@ async fn a_relaunch_records_its_own_build_and_keeps_the_predecessors_legs() {
 async fn an_update_records_the_left_conversation_in_its_own_write() {
     let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
-    let binding = create(&store, RuntimeBindingSpawnConfig::default()).await;
+    let binding = create(&store, spawn_config_on(test_provider_account_id())).await;
     let left = LeftConversation {
         session_id: test_session_id(),
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         conversation_id: "conversation-1".to_owned(),
     };
 
@@ -135,7 +136,7 @@ const STORED_MARKER: &str = "stored-marker-text";
 async fn a_stored_column_that_does_not_read_fails_the_read_without_its_value(#[case] change: &str) {
     let database = TestDatabase::new(schema_parts());
     let store = open_store(&database).await;
-    let binding = create(&store, RuntimeBindingSpawnConfig::default()).await;
+    let binding = create(&store, spawn_config_on(test_provider_account_id())).await;
     let connection = database.reader();
     connection
         .execute(
@@ -188,10 +189,7 @@ async fn a_binding_with_helpers_and_tool_servers_reads_back_as_recorded() {
                 server_name: FreeFormText::new("docs".to_owned()).expect("a server name"),
                 is_enabled: true,
             }]),
-            provider_account_id: Some(
-                ProviderAccountId::new("account-1".to_owned()).expect("an account id"),
-            ),
-            ..RuntimeBindingSpawnConfig::default()
+            ..spawn_config_on(test_provider_account_id())
         },
     )
     .await;

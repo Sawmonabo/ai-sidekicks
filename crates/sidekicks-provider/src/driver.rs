@@ -16,16 +16,19 @@ use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::background_work::BackgroundWorkForms;
+use crate::command::waiting_checks::InputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
@@ -42,6 +45,7 @@ pub mod callback_tool;
 pub mod capabilities;
 mod claude;
 mod codex;
+pub(crate) mod context_window;
 pub mod contract;
 pub mod daemon_stop;
 pub(crate) mod delivery_dispatch;
@@ -147,10 +151,6 @@ pub struct ProviderDescriptor {
 /// its hooks', status line's and tool servers' starts.
 pub(crate) struct ShellPrefixCommand {
     /// The variable the provider reads the link's absolute path from.
-    #[expect(
-        dead_code,
-        reason = "the provider's process environment sets the link's path in this variable"
-    )]
     pub(crate) variable: &'static str,
     /// The variable the provider sets, in an agent's command's environment, to the absolute path
     /// of the shell it wrote the command's line for, which runs the line.
@@ -471,6 +471,12 @@ pub struct DriverServices {
     /// Whether the daemon's program runs the hook mode a provider's hook command starts, so a
     /// driver composes and trusts a hook that runs this program only while it does.
     pub dispatches_hook_mode: bool,
+    /// The daemon's own program, beside which the command wrapper's and askpass's links sit.
+    pub daemon_program: PathBuf,
+    /// Reads where a command channel's party runs, for its admission under the provider's process.
+    pub caller_processes: Arc<dyn CallerProcessReader>,
+    /// Reads whether a running command waits for input.
+    pub input_waits: Arc<dyn InputWaitReader>,
     /// The handles the daemon builds after the drivers, each registered by its start.
     pub ports: Arc<DriverPorts>,
 }
@@ -593,6 +599,40 @@ pub enum CurrentProviderAccount {
     NoneRegistered,
     /// Accounts of the provider are registered and none is current.
     NoneCurrent,
+}
+
+impl CurrentProviderAccount {
+    /// The current account. Refuses `provider.account.notRegistered` with no account of the
+    /// provider registered and `provider.account.current.notSet` with none current.
+    pub fn into_required(self) -> Result<ProviderAccountId, DriverError> {
+        match self {
+            Self::Current(provider_account_id) => Ok(provider_account_id),
+            Self::NoneRegistered => Err(DriverError::Refused(DomainError::new(
+                "No account of the provider is registered",
+                RefusalCode::ProviderAccountNotRegistered,
+            ))),
+            Self::NoneCurrent => Err(DriverError::Refused(DomainError::new(
+                "No account of the provider is current",
+                RefusalCode::ProviderAccountCurrentNotSet,
+            ))),
+        }
+    }
+}
+
+/// The current account of `provider_id`, read through `provider_accounts`. Refused
+/// `provider.account.notRegistered` or `provider.account.current.notSet` as the accounts answer;
+/// fails as no reader is registered or the accounts cannot be read.
+pub async fn read_current_account(
+    provider_accounts: &PortRegistration<Arc<dyn ProviderAccountReader>>,
+    provider_id: ProviderId,
+) -> Result<ProviderAccountId, DriverError> {
+    provider_accounts
+        .require_port()
+        .map_err(|error| DriverError::Internal(Box::new(error)))?
+        .current_account(provider_id)
+        .await
+        .map_err(DriverError::Internal)?
+        .into_required()
 }
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared

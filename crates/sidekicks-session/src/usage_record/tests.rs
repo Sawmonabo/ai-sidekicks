@@ -36,7 +36,7 @@ use tempfile::TempDir;
 
 use super::{USAGE_RECORD_STATEMENT_CAPACITY, UsageRecord, UsageRecordError};
 use crate::questions::schema::schema_parts;
-use crate::run::engine::test_fixture::{append, insert_running_run, test_engine};
+use crate::run::engine::test_fixture::{append, insert_running_run, test_choices, test_engine};
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
@@ -149,6 +149,7 @@ impl Harness {
             epochs,
             Arc::new(UnreadRunStates),
             log.service,
+            test_choices(&database, &engine),
         ));
         let record = UsageRecord::new(
             Arc::new(DatabaseReadPool::new(

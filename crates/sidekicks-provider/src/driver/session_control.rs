@@ -89,10 +89,9 @@ pub struct CreateSessionParams {
     /// on `structuredOutput`); one that binds it per turn reads
     /// [`StartRunParams::output_schema`](super::contract::StartRunParams::output_schema).
     pub output_schema: Option<Map<String, Value>>,
-    /// The account the leg is admitted against, resolved by the daemon; `None` spawns on the
-    /// machine's default for the provider. The spawn path pins the account's credential home, so
-    /// the driver only carries it.
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
+    /// path pins the account's credential home, so the driver only carries it.
+    pub provider_account_id: ProviderAccountId,
     /// The MCP server-status sink, bound to this leg's session and binding at spawn, so a driver
     /// cannot report for another leg and needs no id for the census it reports while opening.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
@@ -136,7 +135,7 @@ pub struct ResumeSessionParams {
     pub output_schema: Option<Map<String, Value>>,
     /// The account read back from the stored spawn record, never resolved again, so a live run's
     /// spend never moves onto an account it was not admitted against.
-    pub provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: ProviderAccountId,
     /// The status sink, bound to the resumed leg, through which it reports its census again.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
 }
@@ -222,8 +221,8 @@ pub struct StartingLevelParams {
     pub(crate) working_folder: PathBuf,
     /// The session's model.
     pub(crate) model: ProviderToken,
-    /// The account the session runs on; `None` on the person's own sign-in.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the session runs on, whose own settings the level is read from.
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 /// The level and mode a new session starts at.
@@ -297,13 +296,13 @@ pub struct ProviderBuildChange {
 }
 
 /// One provider conversation a session opened, by the handle it was resumed from, and the account
-/// home it ran in; `provider_account_id` is `None` for one that ran on the machine's default home.
+/// home it ran in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PurgedConversation {
     /// The handle the conversation was resumed from.
     pub resume_handle: String,
     /// The account whose home it ran in.
-    pub provider_account_id: Option<ProviderAccountId>,
+    pub provider_account_id: ProviderAccountId,
 }
 
 /// Params of `purge_session`: every conversation the session's own bindings opened, newest first,
@@ -333,6 +332,8 @@ pub struct UpdateSessionModeParams {
 pub struct AskSideQuestionParams {
     /// The session.
     pub(crate) session_id: SessionId,
+    /// The session's binding, which the side question's usage is recorded on.
+    pub(crate) binding_id: RuntimeBindingId,
     /// The id the answer carries.
     pub(crate) side_question_id: SideQuestionId,
     /// The question.
