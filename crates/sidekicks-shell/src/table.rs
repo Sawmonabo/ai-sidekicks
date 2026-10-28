@@ -86,6 +86,8 @@ pub(crate) struct ShellTableDeps {
     pub(crate) machine_device_id: DeviceId,
     /// What each shell's terminal answers a program asking its name and version.
     pub(crate) terminal_version: String,
+    /// This build's release version, which each shell reads as `TERM_PROGRAM_VERSION`.
+    pub(crate) release_version: String,
     /// Appends one change of a shell's holder to its session's event log.
     pub(crate) append_control_change: LeaseBroadcast,
     /// Reads a session's shape and working folder.

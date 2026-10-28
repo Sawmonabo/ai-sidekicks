@@ -8868,7 +8868,6 @@ dependencies = [
  "sidekicks-search",
  "sidekicks-std",
  "sidekicks-store",
- "sidekicks-terminal",
  "sidekicks-workspace",
  "strum 0.28.0",
  "tempfile",

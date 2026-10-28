@@ -29,7 +29,6 @@ pub mod review_note;
 pub mod run;
 pub mod search;
 pub mod service;
-pub mod spawn_cwd_translator;
 pub mod staged_attachments;
 pub mod tags;
 pub mod transcript;

@@ -84,6 +84,7 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
         terminals: Arc::clone(&terminals),
         machine_device_id: DeviceId::new("device-machine".to_owned()).expect("a device id"),
         terminal_version: "test".to_owned(),
+        release_version: "0.0.0-test".to_owned(),
         append_control_change: Arc::new(|_change| async { Ok(()) }.boxed()),
         read_working_folder: working_folder_read(working_folder, gate),
         read_shell_settings: Arc::new(|_session| {
