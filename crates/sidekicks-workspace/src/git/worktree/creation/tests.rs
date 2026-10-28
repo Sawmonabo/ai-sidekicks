@@ -512,7 +512,8 @@ async fn a_failing_checkout_hook_keeps_a_ready_tree_with_the_hook_s_line_on_its_
         .as_ref()
         .map(FreeFormText::as_str)
         .unwrap_or_default();
-    assert!(output.contains("hook refused the checkout"), "{output:?}");
+    // git's own `Preparing worktree` line stays off the card.
+    assert_eq!(output, "hook refused the checkout");
 }
 
 // A stop between the row and `ready` leaves a `creating` row holding its branch. Kills the

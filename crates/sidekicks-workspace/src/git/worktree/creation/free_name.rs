@@ -38,6 +38,9 @@ static SELECT_LIVE_WORKTREE_ON_BRANCH_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// How the line `worktree add` prints before it makes the tree starts.
+const GIT_PREPARING_LINE_START: &str = "Preparing worktree ";
+
 /// Where the walk names and makes trees: the daemon's git and read pool, and the attached mount
 /// whose repository every git call runs in.
 pub(super) struct NameWalk<'a> {
@@ -243,7 +246,7 @@ impl NameWalk<'_> {
         let judgment_failure = match is_tree_made(self.git, self.place(), &name.folder_path).await {
             Ok(true) => {
                 let hook_output = match &failure {
-                    GitError::Exited { stderr, .. } => stderr.trim().to_owned(),
+                    GitError::Exited { stderr, .. } => without_git_preamble(stderr),
                     GitError::WslPlace { .. }
                     | GitError::NotFound
                     | GitError::Start(_)
@@ -270,6 +273,18 @@ impl NameWalk<'_> {
             undo_failures,
         ))
     }
+}
+
+// What the checkout hook printed: git's standard error without the line `worktree add` opens
+// with, trimmed.
+fn without_git_preamble(stderr: &str) -> String {
+    stderr
+        .lines()
+        .filter(|line| !line.starts_with(GIT_PREPARING_LINE_START))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_owned()
 }
 
 // Whether `folder` holds a tree git finished making: its own record stands with no `locked` file,
