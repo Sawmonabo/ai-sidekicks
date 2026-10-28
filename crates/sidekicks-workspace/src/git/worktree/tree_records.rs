@@ -5,7 +5,7 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use sidekicks_platforms::real_path;
+use sidekicks_std::file::real_location::resolve_real_location;
 
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_record_git_file};
@@ -31,7 +31,7 @@ pub(crate) async fn remove_records_naming(
     tree_folder: &Path,
 ) -> Vec<TreeRecordRemovalError> {
     let records_folder = common_git_folder.join(LINKED_RECORDS_FOLDER_NAME);
-    let real_folder = match real_tree_folder(tree_folder).await {
+    let real_folder = match resolve_real_location(tree_folder).await {
         Ok(real_folder) => real_folder,
         Err(source) => {
             return vec![TreeRecordRemovalError {
@@ -73,15 +73,21 @@ pub(crate) async fn remove_records_naming(
     failures
 }
 
-// `tree_folder` as git's records name it, from real paths: its parent's real path joined with its
-// name, so a tree already removed still resolves.
-async fn real_tree_folder(tree_folder: &Path) -> io::Result<PathBuf> {
-    let (Some(parent), Some(name)) = (tree_folder.parent(), tree_folder.file_name()) else {
-        return Ok(tree_folder.to_path_buf());
-    };
-    let parent = parent.to_path_buf();
-    let real_parent = tokio::task::spawn_blocking(move || real_path(&parent))
-        .await
-        .map_err(io::Error::other)??;
-    Ok(real_parent.join(name))
+/// Whether a record in `common_git_folder` names a `.git` in `tree_folder`, as one a crash left
+/// for a tree whose folder is gone does. Fails with a listing's or a record's read.
+pub(crate) async fn has_record_naming(
+    common_git_folder: &Path,
+    tree_folder: &Path,
+) -> io::Result<bool> {
+    let records_folder = common_git_folder.join(LINKED_RECORDS_FOLDER_NAME);
+    let real_folder = resolve_real_location(tree_folder).await?;
+    for name in read_folder_names(&records_folder).await? {
+        if read_record_git_file(&records_folder.join(name))
+            .await?
+            .is_some_and(|git_file| is_contained_within(&git_file, &real_folder))
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }

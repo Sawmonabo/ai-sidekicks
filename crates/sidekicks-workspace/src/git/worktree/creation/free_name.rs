@@ -6,7 +6,7 @@
 
 use std::error::Error;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use sidekicks_contracts::git::shared::GitRefName;
@@ -19,13 +19,16 @@ use super::{
     with_undo_failures,
 };
 use crate::git::branch_name_pattern::read_branch_name_refusal;
-use crate::git::process::{GitCall, GitError, GitRunner, background_read, in_folder};
+use crate::git::process::{
+    GitCall, GitError, GitRunner, background_read, in_folder, read_git_common_folder,
+};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 use crate::git::worktree::naming::{WorktreeName, WorktreeNamePlan, read_taken_branch_line};
 use crate::git::worktree::reads::{
     RECORD_LOCK_FILE_NAME, has_branch, read_branch_names, read_linked_tree_record,
 };
 use crate::git::worktree::rows::{AttachedMountRow, LIVE_WORKTREE_STATE_PREDICATE};
+use crate::git::worktree::tree_records::has_record_naming;
 
 // The index's own predicate, read before git runs so a daemon-made live tree on the name is the
 // typed collision rather than git's line.
@@ -52,6 +55,13 @@ pub(super) struct NameWalk<'a> {
     pub(super) mount: &'a AttachedMountRow,
 }
 
+// What a walk judges a name against: every local branch, and the repository's git common folder,
+// whose records may name a folder.
+struct TakenNames {
+    branches: Vec<String>,
+    common_folder: PathBuf,
+}
+
 // What one `worktree add -b` did.
 enum AddOutcome {
     Made(MadeTree),
@@ -73,9 +83,9 @@ impl NameWalk<'_> {
         collision: NameCollision,
         base_ref: &GitRefName,
     ) -> Result<MadeTree, WorktreeCreationError> {
-        let branches = match collision {
-            NameCollision::Suffix => self.read_branch_names().await?,
-            NameCollision::Refuse => Vec::new(),
+        let taken = match collision {
+            NameCollision::Suffix => Some(self.read_taken_names().await?),
+            NameCollision::Refuse => None,
         };
         // `Refuse` stops at ordinal 1, made or refused; `Suffix` walks until a name is free, which
         // it reaches because only finitely many names are taken.
@@ -83,14 +93,14 @@ impl NameWalk<'_> {
         loop {
             let name = plan.name_at(ordinal);
             self.require_valid_branch_name(&name.branch_name).await?;
-            match collision {
-                NameCollision::Suffix => {
-                    if !self.is_name_free(&name, &branches).await? {
+            match &taken {
+                Some(taken) => {
+                    if !self.is_name_free(&name, taken).await? {
                         ordinal += 1;
                         continue;
                     }
                 }
-                NameCollision::Refuse => self.refuse_taken_name(&name).await?,
+                None => self.refuse_taken_name(&name).await?,
             }
             match self.add_worktree(name, base_ref).await? {
                 AddOutcome::Made(tree) => return Ok(tree),
@@ -113,9 +123,9 @@ impl NameWalk<'_> {
         &self,
         plan: &WorktreeNamePlan,
     ) -> Result<u32, WorktreeCreationError> {
-        let branches = self.read_branch_names().await?;
+        let taken = self.read_taken_names().await?;
         let mut ordinal = 1;
-        while !self.is_name_free(&plan.name_at(ordinal), &branches).await? {
+        while !self.is_name_free(&plan.name_at(ordinal), &taken).await? {
             ordinal += 1;
         }
         Ok(ordinal)
@@ -172,17 +182,36 @@ impl NameWalk<'_> {
     }
 
     // Free when no live tree holds the branch, no branch git has holds it or sits inside or above
-    // it, and the folder does not exist.
+    // it, the folder does not exist, and no record git keeps names it, as one a crash left would.
     async fn is_name_free(
         &self,
         name: &WorktreeName,
-        branches: &[String],
+        taken: &TakenNames,
     ) -> Result<bool, WorktreeCreationError> {
         Ok(!self.has_live_worktree_on(&name.branch_name).await?
-            && !branches
+            && !taken
+                .branches
                 .iter()
                 .any(|branch| do_branches_conflict(branch, &name.branch_name))
-            && !is_folder_present(&name.folder_path).await?)
+            && !is_folder_present(&name.folder_path).await?
+            && !has_record_naming(&taken.common_folder, &name.folder_path)
+                .await
+                .map_err(WorktreeCreationError::TreeFolder)?)
+    }
+
+    // The branches and the git common folder a walk judges names against, read once per walk; a
+    // read that does not complete fails the creation.
+    async fn read_taken_names(&self) -> Result<TakenNames, WorktreeCreationError> {
+        let branches = self.read_branch_names().await?;
+        let common_folder = read_git_common_folder(self.git, self.place(), self.repository(), None)
+            .await
+            .map_err(|failure| {
+                create_failed(WorktreeCreateFailureReason::GitInvocationFailed, failure)
+            })?;
+        Ok(TakenNames {
+            branches,
+            common_folder,
+        })
     }
 
     async fn has_live_worktree_on(&self, branch_name: &str) -> Result<bool, WorktreeCreationError> {
@@ -359,6 +388,44 @@ mod tests {
         #[case] expected: bool,
     ) {
         assert_eq!(do_branches_conflict(existing, candidate), expected);
+    }
+
+    // A crash left git's record of a tree whose folder is gone, on another branch; `worktree add`
+    // refuses that folder as missing but registered. Kills a walk that reads only the branch, the
+    // index and the folder, and stops on git's refusal.
+    #[tokio::test]
+    async fn suffix_moves_past_a_folder_a_stale_record_names() {
+        let fixture = CreationFixture::new().await;
+        let plan = plan_for(&fixture, "stale");
+        let stale_folder = plan.name_at(1).folder_path;
+        git_in(
+            &fixture.git,
+            &fixture.repository,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "-b",
+                "elsewhere",
+                &stale_folder.to_string_lossy(),
+            ],
+        )
+        .await;
+        tokio::fs::remove_dir_all(&stale_folder)
+            .await
+            .expect("the tree's folder goes missing");
+        let walk = NameWalk {
+            git: &fixture.git,
+            reads: &fixture.reads,
+            mount: &fixture.mount,
+        };
+
+        let made = walk
+            .make_tree_at_first_free_name(&plan, NameCollision::Suffix, &fixture.base_ref())
+            .await
+            .expect("a suffixed name is made");
+
+        assert_eq!(made.name.branch_name, "stale-2");
     }
 
     // Kills a derived name that does not move past a taken branch, and git's taken line for a
