@@ -3,6 +3,7 @@
 
 use std::pin::pin;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use rstest::rstest;
@@ -80,6 +81,32 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .filter(|delivery| delivery.kind == "sessionNotice")
         .count();
     assert_eq!(notices, 1);
+}
+
+// Killed by a relaunch that starts its process after its binding could not be opened: the
+// relaunch is reported failed and nothing starts.
+#[tokio::test(start_paused = true)]
+async fn a_relaunch_whose_binding_cannot_open_starts_nothing() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .relaunches
+        .is_open_refused
+        .store(true, Ordering::SeqCst);
+
+    ScriptedDriver::exit(&first);
+
+    assert_eq!(
+        fixture.relaunches.reported(1).await,
+        [(session_id, None)],
+        "the relaunch is reported failed"
+    );
+    assert_eq!(fixture.relaunches.opened().len(), 1);
+    assert!(fixture.starts.take_started().is_empty());
 }
 
 // Killed by a waited restart that resumes a session a create or resume took meanwhile: it would

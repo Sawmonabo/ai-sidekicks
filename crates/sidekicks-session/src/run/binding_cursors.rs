@@ -2,10 +2,10 @@
 //! the binding is recorded or, for a binding its caller minted, before its row is written, and
 //! drops once its run has ended and the session has opened a newer binding, or the session closed,
 //! so the provider's last deliveries on an ended run still find it and are absorbed as late, and a
-//! session holds the cursors of its newest bindings alone. A binding a driver mints when it resumes
-//! a session in a new process carries the cursor of the session's leg on, opened before its row is
-//! written, since the resumed provider delivers under it at once. A cursor whose row is not written
-//! is forgotten.
+//! session holds the cursors of its newest bindings alone. A binding minted for a resume of a
+//! session in a new process carries the cursor of the session's leg on, opened before the resume
+//! runs, since the resumed provider delivers under it at once. A cursor whose row is not written is
+//! forgotten.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -62,11 +62,13 @@ pub enum RunBindingCursorError {
     Pool(#[from] DatabaseReadError),
 }
 
-// One session's bindings with a cursor open, and the ended runs whose cursors wait to drop.
+// One session's bindings with a cursor open, the ended runs whose cursors wait to drop, and the
+// binding a driver's own relaunch opened with the leg it continued, until its result is recorded.
 #[derive(Default)]
 struct SessionCursors {
     binding_ids_by_run: HashMap<RunId, Vec<RuntimeBindingId>>,
     ended_run_ids: HashSet<RunId>,
+    driver_relaunch: Option<(RuntimeBindingId, RuntimeBinding)>,
 }
 
 /// Records each run's binding with its epoch cursor open, and drops the cursors runs left. The
@@ -153,13 +155,26 @@ impl RunBindingCursors {
         }
     }
 
-    /// Opens the cursor of `binding_id`, which a driver minted for its resume of `session_id`'s
-    /// conversation in a new process, where the cursor of the session's leg, its newest binding
-    /// with a conversation, stands, as `RunBindingCursors::continue_binding` opens it; a session
-    /// with no leg has no cursor to carry on, and nothing opens. Fails with
-    /// [`RunBindingCursorError::RunNotHeld`] for a leg whose run no session holds,
+    /// Opens the cursor of `binding_id`, minted for a resume of `leg`'s conversation in a new
+    /// process, where `leg`'s cursor stands, as `RunBindingCursors::continue_binding` opens it.
+    /// Fails with [`RunBindingCursorError::RunNotHeld`] for a leg whose run no session holds,
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
     pub async fn open_relaunch(
+        &self,
+        leg: &RuntimeBinding,
+        binding_id: RuntimeBindingId,
+    ) -> Result<(), RunBindingCursorError> {
+        self.continue_binding(&epoch_binding_of(leg), binding_id)
+            .await
+    }
+
+    /// Opens the cursor of `binding_id`, which a driver minted for its own resume of
+    /// `session_id`'s conversation, where the cursor of the session's leg, its newest binding with
+    /// a conversation, stands, and keeps the binding with that leg for the relaunch's result, until
+    /// [`RunBindingCursors::take_driver_relaunch`] takes it or the session closes; an earlier one
+    /// whose result never came is forgotten. A session with no leg has no cursor to carry on, and
+    /// nothing opens. Fails as [`RunBindingCursors::open_relaunch`] fails.
+    pub async fn open_driver_relaunch(
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
@@ -167,12 +182,33 @@ impl RunBindingCursors {
         let Some(leg) = read_session_leg(&self.pool, session_id).await? else {
             return Ok(());
         };
-        self.continue_binding(&epoch_binding_of(&leg), binding_id)
-            .await
+        self.open_relaunch(&leg, binding_id.clone()).await?;
+        let replaced = self
+            .lock_sessions()
+            .entry(session_id)
+            .or_default()
+            .driver_relaunch
+            .replace((binding_id, leg));
+        if let Some((replaced_id, _)) = replaced {
+            self.forget_binding(&replaced_id);
+        }
+        Ok(())
     }
 
-    /// Opens the cursor of `binding_id`, which a driver minted when it resumed `predecessor`'s
-    /// conversation in a new process, on `predecessor`'s run, where `predecessor`'s cursor stands.
+    /// Takes the binding a driver's own relaunch of `session_id` opened and the leg it continued,
+    /// for the relaunch's result; `None` when none is open.
+    pub fn take_driver_relaunch(
+        &self,
+        session_id: SessionId,
+    ) -> Option<(RuntimeBindingId, RuntimeBinding)> {
+        self.lock_sessions()
+            .get_mut(&session_id)?
+            .driver_relaunch
+            .take()
+    }
+
+    /// Opens the cursor of `binding_id`, minted for a resume of `predecessor`'s conversation in a
+    /// new process, on `predecessor`'s run, where `predecessor`'s cursor stands.
     /// Fails with [`RunBindingCursorError::RunNotHeld`] for a run no session holds, with
     /// [`RunBindingCursorError::Cursor`] for a binding that already has a cursor, and with the
     /// read's failure.
@@ -197,8 +233,8 @@ impl RunBindingCursors {
         Ok(())
     }
 
-    /// Records the binding a resume minted, whose cursor `open_relaunch` opened, without opening
-    /// it again. Fails as the store fails, its predecessor missing among the refused writes, and
+    /// Records the binding a resume runs under, whose cursor `open_relaunch` opened, without
+    /// opening it again. Fails as the store fails, its predecessor missing among the refused writes, and
     /// then forgets the binding's cursor, recording nothing.
     pub async fn record_relaunch(
         &self,
@@ -218,9 +254,10 @@ impl RunBindingCursors {
         let mut sessions = self.lock_sessions();
         lock(&self.epochs).close_binding(binding_id);
         for session in sessions.values_mut() {
-            for binding_ids in session.binding_ids_by_run.values_mut() {
+            session.binding_ids_by_run.retain(|_, binding_ids| {
                 binding_ids.retain(|held| held != binding_id);
-            }
+                !binding_ids.is_empty()
+            });
         }
     }
 

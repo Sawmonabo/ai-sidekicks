@@ -108,6 +108,9 @@ pub struct CreateSessionParams {
 pub struct ResumeSessionParams {
     /// The session.
     pub session_id: SessionId,
+    /// The binding the resumed process runs under, minted by the caller through the binding
+    /// store's mint, so its cursor can open before the process delivers.
+    pub binding_id: RuntimeBindingId,
     /// The session's lead, which a refusal of the session's model at its start names.
     pub agent_id: AgentId,
     /// The provider's own handle of the conversation.

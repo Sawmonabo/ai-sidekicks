@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -142,12 +143,15 @@ impl SessionAdvisorStore for RecordedAdvisors {
 }
 
 /// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
-/// and each binding it had opened before its resume.
+/// and each binding it had opened before its resume; every opening is refused once a test sets
+/// `is_open_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
     opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
     reported: Notify,
+    /// Whether each opening is refused.
+    pub(crate) is_open_refused: AtomicBool,
 }
 
 impl RecordedRelaunches {
@@ -180,7 +184,14 @@ impl SessionRelaunchListener for RecordedRelaunches {
         binding_id: RuntimeBindingId,
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
         lock(&self.opened).push((session_id, binding_id));
-        async { Ok(()) }.boxed()
+        let is_refused = self.is_open_refused.load(Ordering::SeqCst);
+        async move {
+            if is_refused {
+                return Err("the test refuses the opening".into());
+            }
+            Ok(())
+        }
+        .boxed()
     }
 
     fn session_relaunched(

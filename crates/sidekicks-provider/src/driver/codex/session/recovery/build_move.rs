@@ -166,6 +166,8 @@ impl CodexServiceRecovery {
                     let resumed = self.move_claimed(inbound, from, to, thread_id).await;
                     drop(claim);
                     if let Some(result) = resumed {
+                        self.report_relaunch(to, inbound.session_id(), result.clone())
+                            .await;
                         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
                         // The service the record runs on keeps the session; the other lets it go.
                         if is_resumed {
@@ -244,9 +246,7 @@ impl CodexServiceRecovery {
             let thread_id = thread_id.clone();
             async move { await_unloaded(&leaving, &thread_id, deadline).await }.boxed()
         });
-        let resumed = self.resume_claimed(to, inbound, writer_left).await?;
-        self.report_relaunch(to, session_id, resumed.clone()).await;
-        Some(resumed)
+        self.resume_claimed(to, inbound, writer_left).await
     }
 
     // Tells a session it moved to `change`'s build once its conversation resumed there.

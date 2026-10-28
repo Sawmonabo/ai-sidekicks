@@ -75,7 +75,11 @@ impl ProcessGoneListener for HeardGone {
     }
 }
 
-struct TakenRelaunches(Arc<Steps>);
+// The session directory's stand-in, refusing every opening where `is_open_refused`.
+struct TakenRelaunches {
+    steps: Arc<Steps>,
+    is_open_refused: bool,
+}
 
 impl SessionRelaunchListener for TakenRelaunches {
     fn open_relaunch_binding(
@@ -83,8 +87,15 @@ impl SessionRelaunchListener for TakenRelaunches {
         _session_id: SessionId,
         binding_id: RuntimeBindingId,
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
-        self.0.push(format!("opened {binding_id:?}"));
-        async { Ok(()) }.boxed()
+        self.steps.push(format!("opened {binding_id:?}"));
+        let is_refused = self.is_open_refused;
+        async move {
+            if is_refused {
+                return Err("the test refuses the opening".into());
+            }
+            Ok(())
+        }
+        .boxed()
     }
 
     fn session_relaunched(
@@ -96,16 +107,18 @@ impl SessionRelaunchListener for TakenRelaunches {
             DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
             DriverResumeResult::Failed { .. } => None,
         };
-        self.0.push(format!("relaunched {binding_id:?}"));
+        self.steps.push(format!("relaunched {binding_id:?}"));
         async { Ok(()) }.boxed()
     }
 }
 
-// Recovery on the test session's service and database, its ports the stand-ins above.
+// Recovery on the test session's service and database, its ports the stand-ins above, the session
+// directory's refusing every opening where `is_open_refused`.
 fn test_recovery(
     session: &TestCodexSession,
     folder: &Path,
     steps: &Arc<Steps>,
+    is_open_refused: bool,
 ) -> Arc<CodexServiceRecovery> {
     let reviewer_denials = Arc::new(PortRegistration::new("reviewer denial"));
     reviewer_denials
@@ -116,7 +129,10 @@ fn test_recovery(
         .register(Arc::new(HeardGone(Arc::clone(steps))) as Arc<dyn ProcessGoneListener>)
         .expect("the port registers once");
     let session_relaunched = Arc::new(PortRegistration::new("session relaunched"));
-    let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches(Arc::clone(steps)));
+    let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches {
+        steps: Arc::clone(steps),
+        is_open_refused,
+    });
     session_relaunched
         .register(relaunches)
         .expect("the port registers once");
@@ -170,6 +186,18 @@ async fn serve_resumes(
     }
 }
 
+// The steps of each relaunch: its opening, its resume and its report.
+fn relaunch_steps(steps: &Steps) -> Vec<String> {
+    steps
+        .read()
+        .into_iter()
+        .map(|(step, _)| step)
+        .filter(|step| {
+            step.starts_with("opened") || step == "resume" || step.starts_with("relaunched")
+        })
+        .collect()
+}
+
 fn exit_code(code: u8) -> ProcessExit {
     serde_json::from_value(json!({"exitCode": code, "outputTail": "the service ended"}))
         .expect("the test writes an exit")
@@ -183,7 +211,7 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
     let mut session = TestCodexSession::start().await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let steps = Arc::new(Steps::new(&session.engine));
-    let recovery = test_recovery(&session, folder.path(), &steps);
+    let recovery = test_recovery(&session, folder.path(), &steps, false);
     let binding_id = session.record_binding().await;
     let run_id = new_run_id();
     let session_id = session.task.record.session_id;
@@ -229,7 +257,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session.engine));
-        let recovery = test_recovery(&session, folder.path(), &steps);
+        let recovery = test_recovery(&session, folder.path(), &steps, false);
         let service = Arc::clone(&session.scripted.service);
         let settings = session.task.record.thread_settings.clone();
         let session_id = session.task.record.session_id;
@@ -291,14 +319,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
             ]
         );
         // Each relaunch's binding is opened before its resume and is the one it reports.
-        let relaunch_steps: Vec<String> = steps
-            .read()
-            .into_iter()
-            .map(|(step, _)| step)
-            .filter(|step| {
-                step.starts_with("opened") || step == "resume" || step.starts_with("relaunched")
-            })
-            .collect();
+        let relaunch_steps = relaunch_steps(&steps);
         assert_eq!(relaunch_steps.len(), 6, "{relaunch_steps:?}");
         for relaunch in relaunch_steps.chunks(3) {
             let opened = relaunch[0]
@@ -322,7 +343,7 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
         let mut session = TestCodexSession::start().await;
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session.engine));
-        let recovery = test_recovery(&session, folder.path(), &steps);
+        let recovery = test_recovery(&session, folder.path(), &steps, false);
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
         let settings = session.task.record.thread_settings.clone();
@@ -387,4 +408,43 @@ fn notices_on(engine: &RecordingRunEngine, session_id: SessionId) -> Vec<Value> 
         })
         .map(|delivery| delivery.payload.expect("a notice carries its payload"))
         .collect()
+}
+
+// Killed by a resume sent after the relaunch's binding could not be opened: the relaunch is
+// reported failed and the service is asked no `thread/resume`. Real time under a bound, the
+// service answering on its own task.
+#[tokio::test]
+async fn a_relaunch_whose_binding_cannot_open_resumes_nothing() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut session = TestCodexSession::start().await;
+        session.scripted.report_version("codex-cli 0.163.0");
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let steps = Arc::new(Steps::new(&session.engine));
+        let recovery = test_recovery(&session, folder.path(), &steps, true);
+        let service = Arc::clone(&session.scripted.service);
+        let settings = session.task.record.thread_settings.clone();
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
+
+        session
+            .task
+            .drive(async {
+                recovery.forget_exit(&service);
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .await;
+            })
+            .await;
+
+        let relaunch = relaunch_steps(&steps);
+        assert_eq!(relaunch.len(), 2, "{relaunch:?}");
+        assert!(relaunch[0].starts_with("opened "), "{relaunch:?}");
+        assert_eq!(relaunch[1], "relaunched None");
+        service_side.abort();
+    })
+    .await
+    .expect("the recovery ends within the bound");
 }

@@ -392,14 +392,17 @@ mod tests {
     }
 
     // Killed by the agent check dropped from the switch or the reroute, by the scope check dropped,
-    // by a switch's own `to` account kept over the one it landed on, and by the running model read
-    // from the binding alone.
+    // by a switch's own `to` account kept over the one it landed on, by the running model read
+    // from the binding alone, and by a switch or reroute written before the session's creation
+    // moving the lead.
     #[test]
     fn the_lead_moves_with_its_own_switches_and_session_long_reroutes_only() {
         let (first, second) = (PROVIDERS[0].id, PROVIDERS[1].id);
         let lead = mint_uuid_v7().to_string();
         let other = mint_uuid_v7().to_string();
         let mut log = Log::new();
+        log.switch(&lead, second, "model-z", "account-z");
+        log.reroute(None, "session", "model-z");
         log.write(
             SessionEventType::SessionCreated,
             json!({ "mainAgent": { "agentId": lead, "binding": binding(first, "model-a") } }),

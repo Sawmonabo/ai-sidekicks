@@ -31,16 +31,12 @@ use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 
 impl ClaudeSessionEstablishment {
-    /// Resumes the conversation `params` names in a fresh process under `binding_id`, which the
-    /// caller minted, or answers the session's live process when it runs that conversation at the
+    /// Resumes the conversation `params` names in a fresh process under the binding the caller
+    /// minted into it, or answers the session's live process when it runs that conversation at the
     /// settings `params` asks for, on the binding the resume that brought it up answered, else on
-    /// `binding_id`; every failure answers the `Failed` arm, nothing left running.
-    pub(crate) async fn resume(
-        &self,
-        params: ResumeSessionParams,
-        binding_id: RuntimeBindingId,
-    ) -> ClaudeResumeAnswer {
-        match self.try_resume(params, binding_id).await {
+    /// the minted one; every failure answers the `Failed` arm, nothing left running.
+    pub(crate) async fn resume(&self, params: ResumeSessionParams) -> ClaudeResumeAnswer {
+        match self.try_resume(params).await {
             Ok(answer) => answer,
             Err(error) => ClaudeResumeAnswer {
                 result: resume_failure(error.recovery_condition(), &error),
@@ -53,9 +49,9 @@ impl ClaudeSessionEstablishment {
     async fn try_resume(
         &self,
         params: ResumeSessionParams,
-        binding_id: RuntimeBindingId,
     ) -> Result<ClaudeResumeAnswer, ClaudeEstablishmentError> {
         let session_id = params.session_id;
+        let binding_id = params.binding_id.clone();
         if params.larger_window.is_some() {
             return Err(claude_session_unavailable(
                 ClaudeSessionUnavailableReason::LargerWindowFigureUnsupported,

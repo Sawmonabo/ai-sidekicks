@@ -13,6 +13,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use crate::driver::claude::session::scripted::binding_id;
 use crate::driver::contract::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::session_control::ResumeSessionParams;
+use crate::runtime_binding::store::mint_runtime_binding_id;
 
 mod bring_up;
 mod naming;
@@ -51,6 +52,7 @@ fn start_params(session_id: SessionId, run_id: RunId) -> StartRunParams {
 fn resume_params(session_id: SessionId) -> ResumeSessionParams {
     ResumeSessionParams {
         session_id,
+        binding_id: mint_runtime_binding_id(),
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         resume_handle: "conversation".to_owned(),
         model: ProviderToken::new("opus".to_owned()).expect("the model fits"),

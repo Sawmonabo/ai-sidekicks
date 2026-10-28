@@ -16,6 +16,7 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::run::id::RunId;
@@ -28,6 +29,7 @@ use tokio_util::task::TaskTracker;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
 use crate::driver::codex::event_normalizer::CODEX_TURN_COMPLETED_METHOD;
+use crate::driver::codex::lifecycle::sessions::let_go_codex_session_record;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::run::control::fail_codex_run;
@@ -408,20 +410,27 @@ impl CodexServiceRecovery {
 
     // The resume itself, the session's slot already claimed, under a binding whose cursor the
     // session directory opened first, so what the resumed conversation delivers at once is taken;
-    // a binding that cannot be opened fails the relaunch with no resume.
+    // a binding that cannot be opened, the directory unregistered among the causes, fails the
+    // relaunch with no resume. A session that closed or was established anew meanwhile answers
+    // `None`, its opened binding forgotten through a failed relaunch.
     async fn resume_claimed(
         &self,
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
     ) -> Option<DriverResumeResult> {
+        let session_id = inbound.session_id();
         let binding_id = mint_runtime_binding_id();
         let session_relaunched = &self.dependencies.session_relaunched;
-        if let Some(listener) = session_relaunched.port()
-            && let Err(cause) = listener
-                .open_relaunch_binding(inbound.session_id(), binding_id.clone())
-                .await
-        {
+        let opened = match session_relaunched.require_port() {
+            Ok(listener) => {
+                listener
+                    .open_relaunch_binding(session_id, binding_id.clone())
+                    .await
+            }
+            Err(unregistered) => Err(unregistered.into()),
+        };
+        if let Err(cause) = opened {
             let error = CodexError::PortFailed {
                 port: session_relaunched.port_name(),
                 cause,
@@ -434,22 +443,36 @@ impl CodexServiceRecovery {
             binding_id,
             writer_left,
         };
-        call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
+        let resumed = call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
             resume: Box::new(resume),
             reply,
         })
         .await
-        .ok()
+        .ok();
+        if resumed.is_none() {
+            let gone = DriverResumeResult::Failed {
+                recovery_condition: RecoveryCondition::RecoveryNeeded,
+                provider_failure_detail: bound_failure_detail(
+                    "The session closed or opened anew while its conversation resumed.",
+                    UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
+                ),
+            };
+            self.record_relaunch(service, session_id, gone).await;
+        }
+        resumed
     }
 
     // Hands the relaunch to the session directory, which records its binding; a failed resume is
-    // logged, as the person sees it on the session's next request.
+    // logged, as the person sees it on the session's next request. A resumed conversation whose
+    // binding was not recorded is let go, so none delivers under a binding with no row; the caller
+    // holds no claim on the session's slot.
     async fn report_relaunch(
         &self,
         service: &CodexService,
         session_id: SessionId,
         result: DriverResumeResult,
     ) {
+        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
         if let DriverResumeResult::Failed {
             provider_failure_detail,
             ..
@@ -461,17 +484,50 @@ impl CodexServiceRecovery {
                 "a codex conversation could not be resumed after its service came back"
             );
         }
-        let Some(listener) = self.dependencies.session_relaunched.port() else {
+        if !self.record_relaunch(service, session_id, result).await && is_resumed {
+            self.let_go_unrecorded(session_id).await;
+        }
+    }
+
+    // Whether the session directory recorded the relaunch; a failure, an unregistered directory
+    // among the causes, is reported.
+    async fn record_relaunch(
+        &self,
+        service: &CodexService,
+        session_id: SessionId,
+        result: DriverResumeResult,
+    ) -> bool {
+        let recorded = match self.dependencies.session_relaunched.require_port() {
+            Ok(listener) => listener.session_relaunched(session_id, result).await,
+            Err(unregistered) => Err(unregistered.into()),
+        };
+        let Err(error) = recorded else {
+            return true;
+        };
+        CodexTransportDiagnostic::PortDeliveryFailed {
+            provider_account_id: service.home().provider_account_id.clone(),
+            port: CodexDeliveryPort::SessionRelaunched,
+            session_id: Some(session_id),
+            error,
+        }
+        .report();
+        false
+    }
+
+    // Lets a resumed conversation whose binding has no row go, as a resume lets a live record go,
+    // and tells the queue its process is gone, so the next admission resumes it again.
+    async fn let_go_unrecorded(&self, session_id: SessionId) {
+        // A session that closed meanwhile had its conversation let go by its close.
+        let Ok(claim) = self.dependencies.slots.claim_establishing(session_id).await else {
             return;
         };
-        if let Err(error) = listener.session_relaunched(session_id, result).await {
-            CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: service.home().provider_account_id.clone(),
-                port: CodexDeliveryPort::SessionRelaunched,
-                session_id: Some(session_id),
-                error,
-            }
-            .report();
+        if let Some(inbound) = claim.live() {
+            let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
+            claim.vacate();
+        }
+        drop(claim);
+        if let Some(listener) = self.dependencies.process_gone.port() {
+            listener.process_gone(session_id);
         }
     }
 

@@ -16,6 +16,7 @@ use sidekicks_provider::driver::session_control::{
     ResumeSessionParams, StartReviewParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
 };
 use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_session::console_state::session_mode_change_statement;
 use sidekicks_session::directory::lookups::{SessionWriteError, write_while_session_exists};
 use sidekicks_session::permission_level::{
@@ -209,7 +210,10 @@ impl ProviderSessions {
         let Some(leg) = read_session_leg(&self.deps.pool, session_id).await? else {
             return Ok(None);
         };
-        let ResumeOpening { params, .. } = self.compose_resume(session_id, &leg).await?;
+        // The copy runs under no binding of the session's; the id only fills the material.
+        let ResumeOpening { params, .. } = self
+            .compose_resume(session_id, &leg, mint_runtime_binding_id())
+            .await?;
         Ok(Some(params))
     }
 

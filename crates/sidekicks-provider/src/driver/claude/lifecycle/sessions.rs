@@ -33,7 +33,7 @@ use crate::driver::session_control::{
     MoveSessionToForkResult, NameSessionParams, ProviderBuildChange, ProviderSessionHandle,
     PurgeSessionParams, ResumeSessionParams,
 };
-use crate::runtime_binding::store::{RuntimeBinding, mint_runtime_binding_id};
+use crate::runtime_binding::store::RuntimeBinding;
 
 impl ClaudeDriver {
     /// Opens a session on a new conversation; see the establishment's create.
@@ -50,10 +50,7 @@ impl ClaudeDriver {
         params: ResumeSessionParams,
     ) -> Result<DriverResumeResult, DriverError> {
         let establishment = &self.parts()?.establishment;
-        Ok(establishment
-            .resume(params, mint_runtime_binding_id())
-            .await
-            .result)
+        Ok(establishment.resume(params).await.result)
     }
 
     /// The person's restart of a session whose process stayed down: its crash window and any
@@ -66,10 +63,7 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let session_id = params.session_id;
         parts.restarts.clear_crash_window(session_id);
-        let answer = parts
-            .establishment
-            .resume(params, mint_runtime_binding_id())
-            .await;
+        let answer = parts.establishment.resume(params).await;
         if answer.has_started_process {
             parts.restarts.report_restarted(session_id, true).await;
         }

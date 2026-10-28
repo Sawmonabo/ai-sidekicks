@@ -39,7 +39,8 @@ pub struct RuntimeBindingNotResumable {
 
 /// Rebuilds a resumed leg's params from its stored binding and the session's lead, model, recorded
 /// larger window, mode, permission level's posture, option values and row values, as they stand
-/// now. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume handle.
+/// now, the resumed process to run under `binding_id`. Fails with [`RuntimeBindingNotResumable`]
+/// when the binding has no resume handle.
 #[expect(
     clippy::too_many_arguments,
     reason = "each argument is one part of the resume the caller holds apart"
@@ -48,6 +49,7 @@ pub fn compose_resume_session_params(
     session_id: SessionId,
     agent_id: AgentId,
     binding: &RuntimeBinding,
+    binding_id: RuntimeBindingId,
     model: ProviderToken,
     larger_window: Option<SafeInt<1>>,
     mode: SessionMode,
@@ -65,6 +67,7 @@ pub fn compose_resume_session_params(
     let spawn_config = binding.spawn_config.clone();
     Ok(ResumeSessionParams {
         session_id,
+        binding_id,
         agent_id,
         resume_handle,
         model,

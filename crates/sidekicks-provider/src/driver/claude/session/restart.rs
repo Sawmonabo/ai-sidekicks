@@ -29,7 +29,9 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::delivery::claude_delivery_origin;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::driver::claude::session::establishment::ClaudeSessionEstablishment;
+use crate::driver::claude::session::establishment::{
+    ClaudeResumeAnswer, ClaudeSessionEstablishment,
+};
 use crate::driver::claude::session::process::ClaudeProcessEnd;
 use crate::driver::claude::session::slots::{ClaudeCloseStart, ClaudeSessionSlots};
 use crate::driver::claude::session::state::{
@@ -285,7 +287,7 @@ impl ClaudeSessionRestarts {
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
         // The runs keep their binding, so the session directory records no new one.
-        let Some(result) = self.relaunch(live, false).await else {
+        let Some(ClaudeResumeAnswer { result, .. }) = self.relaunch(live, false).await else {
             return Ok(());
         };
         let DriverResumeResult::Failed {
@@ -438,11 +440,11 @@ impl ClaudeSessionRestarts {
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
         lock(&self.table).pending_build_moves.remove(&session_id);
-        let Some(result) = self.relaunch(live, true).await else {
+        let Some(answer) = self.relaunch(live, true).await else {
             return Ok(());
         };
-        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
-        self.report_relaunch(session_id, result).await?;
+        let is_resumed = matches!(answer.result, DriverResumeResult::Resumed { .. });
+        self.record_relaunch(session_id, answer).await?;
         if is_resumed
             && let (Ok(from_version), Ok(to_version)) = (
                 FreeFormText::new(change.from_version.clone()),
@@ -470,7 +472,7 @@ impl ClaudeSessionRestarts {
         &self,
         live: &Arc<LiveClaudeSession>,
         is_recorded: bool,
-    ) -> Option<DriverResumeResult> {
+    ) -> Option<ClaudeResumeAnswer> {
         let session_id = live.session_id;
         let close = {
             let is_own = self
@@ -518,15 +520,16 @@ impl ClaudeSessionRestarts {
             }
             (wait, self.mark_relaunching_in(&mut table, session_id))
         };
-        let result = self.resume(compose_claude_relaunch(&live), true).await;
-        let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
-        if let Err(error) = self.report_relaunch(session_id, result).await {
+        let answer = self.resume(compose_claude_relaunch(&live), true).await;
+        let is_resumed = matches!(answer.result, DriverResumeResult::Resumed { .. });
+        if let Err(error) = self.record_relaunch(session_id, answer).await {
             record_unheard_claude_failure(
                 DriverDiagnosticKind::ProcessReportFailed,
                 session_id,
                 "the record of a restart",
                 &error,
             );
+            return;
         }
         if is_resumed {
             self.report_restarted(session_id, false).await;
@@ -540,7 +543,7 @@ impl ClaudeSessionRestarts {
         &self,
         params: Option<ResumeSessionParams>,
         is_recorded: bool,
-    ) -> DriverResumeResult {
+    ) -> ClaudeResumeAnswer {
         let Some(params) = params else {
             return relaunch_failure(
                 "The model the session ran on has no name the relaunch can carry.",
@@ -549,15 +552,14 @@ impl ClaudeSessionRestarts {
         let Some(establishment) = self.establishment.upgrade() else {
             return relaunch_failure("The Claude Code driver has stopped.");
         };
-        let binding_id = mint_runtime_binding_id();
         if is_recorded
             && let Err(error) = self
-                .open_relaunch_binding(params.session_id, binding_id.clone())
+                .open_relaunch_binding(params.session_id, params.binding_id.clone())
                 .await
         {
             return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
         }
-        establishment.resume(params, binding_id).await.result
+        establishment.resume(params).await
     }
 
     // Has the session directory open the cursor of `binding_id`, the relaunch's binding.
@@ -575,6 +577,24 @@ impl ClaudeSessionRestarts {
             .open_relaunch_binding(session_id, binding_id)
             .await
             .map_err(DriverError::Internal)
+    }
+
+    // Hands the session directory a relaunch's answer, so it records the binding or the failure; a
+    // process the relaunch started whose binding was not recorded is ended, so none runs under a
+    // binding with no row.
+    async fn record_relaunch(
+        &self,
+        session_id: SessionId,
+        answer: ClaudeResumeAnswer,
+    ) -> Result<(), DriverError> {
+        let recorded = self.report_relaunch(session_id, answer.result).await;
+        if recorded.is_err()
+            && answer.has_started_process
+            && let ClaudeCloseStart::Closing(close) = self.slots.begin_close(session_id)
+        {
+            close.retire_for_bring_up(&self.routes, &self.ports).await;
+        }
+        recorded
     }
 
     // Hands the session directory the relaunch's result, so it records the binding or the failure.
@@ -696,14 +716,17 @@ impl ClaudeSessionRestarts {
     }
 }
 
-// A relaunch that failed for `detail`, which the run needs recovered.
-fn relaunch_failure(detail: &str) -> DriverResumeResult {
-    DriverResumeResult::Failed {
-        recovery_condition: RecoveryCondition::RecoveryNeeded,
-        provider_failure_detail: bound_failure_detail(
-            detail,
-            UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
-        ),
+// A relaunch that failed for `detail` before any process started, which the run needs recovered.
+fn relaunch_failure(detail: &str) -> ClaudeResumeAnswer {
+    ClaudeResumeAnswer {
+        result: DriverResumeResult::Failed {
+            recovery_condition: RecoveryCondition::RecoveryNeeded,
+            provider_failure_detail: bound_failure_detail(
+                detail,
+                UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
+            ),
+        },
+        has_started_process: false,
     }
 }
 
@@ -733,13 +756,14 @@ pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
 
 // The resume that brings `live` back on the legs and level it ran at, the person's later moves
 // included, under the account it was admitted on, asking for the callback tools and Settings rows
-// its process was asked for, which the session's own advisor and style still override; `None` when
-// the model it moved to has no name a resume carries.
+// its process was asked for, which the session's own advisor and style still override, under a
+// binding minted for it; `None` when the model it moved to has no name a resume carries.
 fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionParams> {
     let settings = lock(&live.settings).clone();
     let legs = &live.spawn_bound_legs;
     Some(ResumeSessionParams {
         session_id: live.session_id,
+        binding_id: mint_runtime_binding_id(),
         agent_id: live.agent_id,
         resume_handle: live.provider_session_id.clone(),
         // The model it runs on now, which a session-long switch by Claude Code may have moved.

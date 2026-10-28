@@ -66,7 +66,6 @@ use crate::port::tool_server_route::ToolServerRoute;
 use crate::process_identity::ProviderProcessIds as _;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     build_conversation_command_environment,
@@ -331,7 +330,7 @@ impl CodexSessionEstablishment {
                 cause: None,
             });
         };
-        let binding_id = mint_runtime_binding_id();
+        let binding_id = params.binding_id.clone();
         let result = DriverResumeResult::Resumed {
             binding_id: binding_id.clone(),
             session_position: count_turns(turn_ids.len()),
