@@ -685,6 +685,12 @@ impl ClaudeCommandChannel {
         self.apart_run.as_ref()
     }
 
+    /// The provider's process the channel is bound to; `None` before the first follow.
+    #[cfg(test)]
+    pub(crate) fn bound_process_id(&self) -> Option<u32> {
+        self.channel.bound_process_id()
+    }
+
     /// The channel's folder, which the process's sandbox lets its commands write.
     pub(crate) fn folder(&self) -> &Path {
         self.channel.folder()

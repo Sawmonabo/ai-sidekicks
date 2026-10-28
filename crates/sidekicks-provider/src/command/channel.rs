@@ -354,6 +354,12 @@ impl CommandChannel {
         *lock(&self.provider_process_id) = Some(provider_process_id);
     }
 
+    /// The provider's process the channel is bound to; `None` before the first bind.
+    #[cfg(test)]
+    pub(crate) fn bound_process_id(&self) -> Option<u32> {
+        *lock(&self.provider_process_id)
+    }
+
     /// The channel's folder, which a provider's command sandbox lets commands write in.
     pub(crate) fn folder(&self) -> &Path {
         &self.folder
