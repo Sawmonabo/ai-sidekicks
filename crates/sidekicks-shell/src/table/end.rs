@@ -82,6 +82,7 @@ impl ShellTable {
             let mut sessions = self.shared.lock_sessions();
             let session = self.shared.session_of(&mut sessions, session_id);
             session.close_holds += 1;
+            session.close_begun.send_replace(());
             session.opening.values().cloned().collect::<Vec<_>>()
         };
         let hold = SessionShellsClosed {

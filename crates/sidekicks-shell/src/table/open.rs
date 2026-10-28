@@ -97,7 +97,10 @@ impl TableShared {
         let folder = loop {
             let working_folder = (self.deps.read_working_folder)(*session_id).await?;
             let folder = check_working_folder(session_id, working_folder).await?;
-            if !self.wait_for_folder_hold(&folder, open_sequence).await? {
+            if !self
+                .wait_for_folder_hold(session_id, &folder, open_sequence)
+                .await?
+            {
                 break folder;
             }
         };

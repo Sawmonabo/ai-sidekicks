@@ -121,6 +121,8 @@ struct SessionShells {
     list: ShellListFollowers,
     /// The deletions of the session under way, each refusing its opens until it settles.
     close_holds: usize,
+    /// Changes as each deletion of the session begins, waking the opens a folder hold keeps.
+    close_begun: watch::Sender<()>,
 }
 
 /// A folder whose shells were closed before its move, holding back the opens begun after it of the
@@ -470,6 +472,7 @@ impl TableShared {
                     read_list(table.clone(), session).boxed()
                 })),
                 close_holds: 0,
+                close_begun: watch::channel(()).0,
             }
         })
     }

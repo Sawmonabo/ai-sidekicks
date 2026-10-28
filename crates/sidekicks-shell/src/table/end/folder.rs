@@ -17,6 +17,7 @@ use std::sync::{Arc, Weak};
 use futures::future::{BoxFuture, join_all};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_platforms::{
     DOES_SHELL_MODE_KEEP_ITS_FOLDER, end_processes, process_table, tree_under,
 };
@@ -187,17 +188,27 @@ impl ShellTable {
 }
 
 impl TableShared {
-    /// Waits for the folder hold taken before the open `open_sequence` over the session's working
+    /// Waits for the folder hold taken before the open `open_sequence` over `session_id`'s working
     /// `folder`, if one is in force; answers whether it waited, so the open reads its folder again.
-    /// Fails as a fault when the folder cannot be resolved.
+    /// Refuses `session.notFound` once the session's deletion begins, so a deletion never waits for
+    /// a move, and fails as a fault when the folder cannot be resolved.
     pub(in crate::table) async fn wait_for_folder_hold(
-        &self,
+        self: &Arc<Self>,
+        session_id: &SessionId,
         folder: &Path,
         open_sequence: u64,
     ) -> Result<bool, HandlerError> {
         let folder_key = canonical_folder_path(folder)
             .await
             .map_err(|error| HandlerError::Internal(Box::new(error)))?;
+        let mut close_begun = {
+            let mut sessions = self.lock_sessions();
+            let session = self.session_of(&mut sessions, session_id);
+            if session.close_holds > 0 {
+                return Err(session_not_found(session_id).into());
+            }
+            session.close_begun.subscribe()
+        };
         let released = self
             .lock_folder_holds()
             .iter()
@@ -209,8 +220,11 @@ impl TableShared {
             return Ok(false);
         };
         // The hold never sends; its sender drops as the hold does.
-        while released.changed().await.is_ok() {}
-        Ok(true)
+        let hold_released = async { while released.changed().await.is_ok() {} };
+        tokio::select! {
+            () = hold_released => Ok(true),
+            Ok(()) = close_begun.changed() => Err(session_not_found(session_id).into()),
+        }
     }
 }
 
@@ -419,8 +433,10 @@ mod tests {
 
     use std::sync::Arc;
 
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::terminal::TerminalOpenRequest;
     use sidekicks_contracts::wire::id::ClientUuid;
+    use sidekicks_ipc::registry::HandlerError;
     use tokio::sync::watch;
 
     use super::end_processes_inside;
@@ -713,5 +729,52 @@ mod tests {
             "no shell starts while the hold lasts"
         );
         opened.expect("the open goes on once the hold drops");
+    }
+
+    // Kills dropping the held open's wake on the session's deletion: a deletion begun while a
+    // folder hold keeps an open waiting settles with the hold still in force, and the open is
+    // refused as the session's other opens are.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_session_deleted_while_its_open_waits_on_a_folder_hold_refuses_the_open() {
+        let (_gate, gate_reader) = watch::channel(true);
+        let fixture = table_fixture(gate_reader).await;
+        let request = TerminalOpenRequest {
+            session_id: session(),
+            client_idempotency_key: ClientUuid::new(
+                "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0002".to_owned(),
+            )
+            .expect("a client UUID"),
+        };
+
+        let hold = fixture
+            .table
+            .close_shells_in_folder(&fixture.working_folder)
+            .await
+            .expect("the folder's shells close");
+        let mut opening = tokio::spawn({
+            let table = Arc::clone(&fixture.table);
+            async move { table.open(request).await }
+        });
+        let is_held = tokio::time::timeout(Duration::from_millis(300), &mut opening)
+            .await
+            .is_err();
+        let deleted =
+            tokio::time::timeout(LINE_WAIT, fixture.table.close_session_shells(&session())).await;
+        drop(hold);
+        let opened = opening.await.expect("the open's task ends");
+
+        assert!(is_held, "the open waits while the hold lasts");
+        drop(
+            deleted
+                .expect("the deletion settles while the folder's hold lasts")
+                .expect("the deletion ends every shell"),
+        );
+        let refusal = match opened.expect_err("the held open is refused") {
+            HandlerError::Refused(refusal) => refusal.code,
+            other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+                panic!("a refusal, not {other:?}")
+            }
+        };
+        assert_eq!(refusal, RefusalCode::SessionNotFound);
     }
 }
