@@ -68,7 +68,7 @@ async fn the_home_socket_follows_the_service_that_holds_it() {
     assert_eq!(after_retire, second_socket);
     assert!(is_killed);
     assert!(
-        matches!(crash_heard, Ok(Some(()))),
+        matches!(crash_heard, Ok(Some(_))),
         "the crash was not heard"
     );
     assert_ne!(

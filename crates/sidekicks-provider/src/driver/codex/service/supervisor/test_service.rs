@@ -22,6 +22,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::sync::mpsc;
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
@@ -41,6 +42,8 @@ use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
 };
 use crate::driver::codex::service::supervisor::transition::CodexServiceAvailability;
+use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
+use crate::driver::codex::service::supervisor::transition::state::SupervisorState;
 use crate::driver::codex::service::supervisor::{
     CodexProgramResolver, CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
@@ -112,6 +115,23 @@ impl ScriptedCodexService {
         let request = self.script.next_sent().await;
         assert_eq!(request["method"], method, "{request}");
         request
+    }
+
+    /// Moves the service's supervisor to up on the scripted connection, as a start the daemon
+    /// made leaves it, so the silence watch and a crash's restart run on it.
+    pub(crate) fn mark_started(&self) {
+        let mut supervision = self.service.lock_supervision();
+        let kind = supervision.kind();
+        supervision.transition(SupervisorEvent::Start);
+        supervision.transition(SupervisorEvent::Started {
+            launch: SCRIPTED_DIAL,
+            at: std::time::Instant::now(),
+            kind,
+        });
+        assert!(
+            matches!(supervision.state(), SupervisorState::Up { dial, .. } if *dial == SCRIPTED_DIAL),
+            "the scripted connection is the one up"
+        );
     }
 
     /// Publishes the service up again on `connection`.
@@ -198,29 +218,41 @@ impl CodexProgramResolver for TestCodexProgram {
 /// Starts a service on an account's home whose connection the test scripts. Must be called within
 /// a runtime.
 pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
+    start_scripted_account_service_told(Arc::new(UnheardEvents))
+}
+
+/// Starts a service on an account's home whose connection the test scripts, telling `events` what
+/// happens to it. Must be called within a runtime.
+pub(crate) fn start_scripted_account_service_told(
+    events: Arc<dyn CodexServiceEvents>,
+) -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Account(test_provider_account_id()),
         CodexServiceKind::Account,
+        events,
     )
 }
 
 /// Starts the terminal service on the person's own folder, its connection scripted by the test.
 /// Must be called within a runtime.
 pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
-    start_scripted_codex_service_on(CodexHomeKind::PersonalFolder, CodexServiceKind::Terminal)
+    start_scripted_codex_service_on(
+        CodexHomeKind::PersonalFolder,
+        CodexServiceKind::Terminal,
+        Arc::new(UnheardEvents),
+    )
 }
 
-// A service of `kind` on a home of `home_kind` whose connection the test scripts.
+// A service of `kind` on a home of `home_kind` whose connection the test scripts, telling `events`
+// what happens to it.
 fn start_scripted_codex_service_on(
     home_kind: CodexHomeKind,
     kind: CodexServiceKind,
+    events: Arc<dyn CodexServiceEvents>,
 ) -> ScriptedCodexService {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
-    let dependencies = test_codex_service_dependencies(
-        folder.path(),
-        Arc::new(UnstartedProgram),
-        Arc::new(UnheardEvents),
-    );
+    let dependencies =
+        test_codex_service_dependencies(folder.path(), Arc::new(UnstartedProgram), events);
     let socket: PathBuf = folder.path().join("codex.sock");
     let (service, script) = script_codex_service(
         CodexServiceHome {
@@ -288,6 +320,41 @@ impl CodexServiceEvents for UnheardEvents {
     fn process_exited(&self, _service: &Arc<CodexService>, _exit: Option<&ProcessExit>) {}
 
     fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {}
+
+    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
+
+    fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
+
+    fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
+}
+
+/// Tells a test how each service process ended, and each time a service is back after a crash.
+pub(crate) struct ExitsHeard {
+    exits: mpsc::UnboundedSender<Option<ProcessExit>>,
+    recoveries: mpsc::UnboundedSender<()>,
+}
+
+impl ExitsHeard {
+    /// The events, with the receivers of each exit and of each recovery.
+    pub(crate) fn new() -> (
+        Self,
+        mpsc::UnboundedReceiver<Option<ProcessExit>>,
+        mpsc::UnboundedReceiver<()>,
+    ) {
+        let (exits, exits_heard) = mpsc::unbounded_channel();
+        let (recoveries, recoveries_heard) = mpsc::unbounded_channel();
+        (Self { exits, recoveries }, exits_heard, recoveries_heard)
+    }
+}
+
+impl CodexServiceEvents for ExitsHeard {
+    fn process_exited(&self, _service: &Arc<CodexService>, exit: Option<&ProcessExit>) {
+        let _heard = self.exits.send(exit.cloned());
+    }
+
+    fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {
+        let _heard = self.recoveries.send(());
+    }
 
     fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
 

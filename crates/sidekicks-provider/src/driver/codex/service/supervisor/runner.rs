@@ -204,11 +204,12 @@ impl ServiceRunner {
                 self.silence = CancellationToken::new();
                 let watching = Arc::downgrade(service);
                 let cancel = self.silence.clone();
+                let rest_of_limit = SERVICE_SILENCE_LIMIT.saturating_sub(silent_for);
                 tokio::spawn(async move {
                     let watched = tokio::time::Instant::now();
                     tokio::select! {
                         () = cancel.cancelled() => {}
-                        () = tokio::time::sleep(SERVICE_SILENCE_LIMIT.saturating_sub(silent_for)) => {
+                        () = tokio::time::sleep(rest_of_limit) => {
                             if let Some(watching) = watching.upgrade() {
                                 watching.send(SupervisorEvent::SilenceElapsed {
                                     ticket,
