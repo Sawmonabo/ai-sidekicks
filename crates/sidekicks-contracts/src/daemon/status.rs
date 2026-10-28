@@ -224,6 +224,84 @@ pub struct DaemonStatusReadResponse {
     )]
     #[schemars(with = "DaemonSecretsFile")]
     pub secrets_file: Option<DaemonSecretsFile>,
+    /// Why this computer has no key for other devices: absent while the service holds its keys.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DaemonMachineKey")]
+    pub machine_key: Option<DaemonMachineKey>,
+}
+
+/// Why the service holds no key for other devices, and what reaches one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonMachineKey {
+    /// Whether no key was made yet, or the one made was lost or changed.
+    pub state: DaemonMachineKeyState,
+    /// What stopped the service; absent where the state says it all.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DaemonMachineKeyCause")]
+    pub cause: Option<DaemonMachineKeyCause>,
+}
+
+impl DaemonMachineKey {
+    /// What the person does to give this computer its key again, in the words the status line and
+    /// the service log both print.
+    pub const fn action(self) -> &'static str {
+        const LINK_AGAIN: &str = "If you reinstalled it, remove it on Devices and link it again.";
+        match self.state {
+            DaemonMachineKeyState::Lost | DaemonMachineKeyState::Changed => LINK_AGAIN,
+            DaemonMachineKeyState::NotMinted => match self.cause {
+                Some(DaemonMachineKeyCause::Locked) => "Unlock the login keychain.",
+                Some(DaemonMachineKeyCause::SecretsFile) => {
+                    "See why the secrets file cannot be opened."
+                }
+                Some(DaemonMachineKeyCause::Unavailable) | None => {
+                    "Make the system's credential store usable."
+                }
+                Some(DaemonMachineKeyCause::Random | DaemonMachineKeyCause::Database) => {
+                    "Restart the background service."
+                }
+                Some(DaemonMachineKeyCause::StoredPin) => LINK_AGAIN,
+            },
+        }
+    }
+}
+
+/// Where the service stands with its key for other devices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DaemonMachineKeyState {
+    /// No key was made: the store or the service could not make one yet.
+    NotMinted,
+    /// The key this computer made is gone from the store.
+    Lost,
+    /// The store holds another key than the one this computer made.
+    Changed,
+}
+
+/// What stopped the service from reading or making its key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum DaemonMachineKeyCause {
+    /// The keychain is locked.
+    Locked,
+    /// The system's credential store cannot be used now.
+    Unavailable,
+    /// The secrets file cannot be opened; `secretsFile` says why.
+    SecretsFile,
+    /// The system gave no random bytes to make the key from.
+    Random,
+    /// The service's database could not be read or written.
+    Database,
+    /// The service's record of its key is not a key.
+    StoredPin,
 }
 
 /// Declares the secrets file: each protection's arm repeats the file's path, then adds its own
@@ -427,6 +505,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonSecretsPlainReason>(),
         Definition::read::<DaemonSecretsFileUnopened>(),
         Definition::read::<DaemonSecretsFile>(),
+        Definition::read::<DaemonMachineKeyState>(),
+        Definition::read::<DaemonMachineKeyCause>(),
+        Definition::read::<DaemonMachineKey>(),
         Definition::read::<DaemonStatusReadResponse>().checked(),
         Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),

@@ -51,6 +51,11 @@ fn exact_pattern(bytes: usize) -> String {
 pub struct Base64Array<const N: usize>(Box<[u8; N]>);
 
 impl<const N: usize> Base64Array<N> {
+    /// The value holding `bytes`.
+    pub fn new(bytes: [u8; N]) -> Self {
+        Self(Box::new(bytes))
+    }
+
     /// The bytes.
     pub fn as_bytes(&self) -> &[u8; N] {
         &self.0
