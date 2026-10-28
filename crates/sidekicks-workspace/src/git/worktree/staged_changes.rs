@@ -4,9 +4,11 @@
 //! own checkout and index are only read. Each tree sits in a folder of its own beside a file
 //! naming its repository, written before git runs, so one a stopped daemon left behind is removed
 //! at the next start with its record, even when git was ended before the tree had its `.git`; that
-//! folder stays until its tree and records are gone. A record is removed by name, never by a
-//! repository-wide prune, which would also drop the records of the person's trees whose folders
-//! are missing, such as one on an unplugged drive.
+//! folder stays until its tree and records are gone, or until its repository is: one missing from
+//! a parent folder that is still there was deleted with its records, while one whose parent is
+//! missing too may sit on an unplugged drive and is tried again. A record is removed by name,
+//! never by a repository-wide prune, which would also drop the records of the person's trees whose
+//! folders are missing, such as one on an unplugged drive.
 
 use std::ffi::OsString;
 use std::io;
@@ -268,10 +270,30 @@ impl StagedChangesWorktrees {
         };
         let repository_root = path_from_program_output(root)
             .map_err(|failure| StagedChangesError::from(GitError::PathText(failure)))?;
+        if is_repository_deleted(&repository_root).await? {
+            return Ok(None);
+        }
         Ok(Some(
             read_git_common_folder(&self.git, None, &repository_root, None).await?,
         ))
     }
+}
+
+// Whether the repository at `repository_root` was deleted: it is missing while its parent folder
+// is there, so its volume is mounted. Fails when either cannot be read.
+async fn is_repository_deleted(repository_root: &Path) -> Result<bool, StagedChangesError> {
+    let is_present = |path: &Path| {
+        let path = path.to_path_buf();
+        async move {
+            tokio::fs::try_exists(&path)
+                .await
+                .map_err(|source| StagedChangesError::Folder { path, source })
+        }
+    };
+    let Some(parent) = repository_root.parent() else {
+        return Ok(false);
+    };
+    Ok(!is_present(repository_root).await? && is_present(parent).await?)
 }
 
 /// A temporary worktree holding only a folder's staged changes, removed by [`Self::close`].
