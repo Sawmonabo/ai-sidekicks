@@ -12,7 +12,6 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -234,7 +233,8 @@ impl CodexSessionEstablishment {
             turn_boundaries: Vec::new(),
             thread_settings: settings,
             execution_posture,
-            session_mode: SessionMode::Build,
+            // Every turn names its mode, so the first carries the one the session stores.
+            session_mode: params.mode,
             output_speed_request: params
                 .output_speed
                 .as_ref()

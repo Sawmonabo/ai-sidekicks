@@ -11,7 +11,7 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::claude::session::scripted::binding_id;
-use crate::driver::contract::{RunOpening, StartRunParams};
+use crate::driver::contract::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::session_control::ResumeSessionParams;
 
 mod bring_up;
@@ -30,11 +30,13 @@ fn start_params(session_id: SessionId, run_id: RunId) -> StartRunParams {
             session_id,
             binding_id: binding_id("lead"),
             agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an id"),
-            content: FreeFormText::new("go".to_owned()).expect("the words fit"),
-            attachments: Vec::new(),
             message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                 .expect("a minted UUID is an item id"),
-            skills: Vec::new(),
+            item: RunOpeningItem::Message {
+                content: FreeFormText::new("go".to_owned()).expect("the words fit"),
+                attachments: Vec::new(),
+                skills: Vec::new(),
+            },
         },
         conversation_history: None,
         output_speed: None,

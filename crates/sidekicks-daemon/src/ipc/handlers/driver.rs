@@ -739,19 +739,21 @@ mod tests {
         for index in 0..2 {
             live_run_of_agent(&fixture, &agent_id, index);
         }
-        fixture
-            .sources
-            .providers
-            .record_capabilities(
-                &provider(0),
-                DriverCapabilities {
-                    flags: DriverCapabilityFlags::from_fn(|flag| {
-                        flag == DriverCapabilityFlag::ProviderCommands
-                    }),
-                    contract_version: FreeFormText::new("1".to_owned()).expect("valid text"),
-                },
-            )
-            .expect("the first provider is registered");
+        for (index, offers_commands) in [(0, true), (1, false)] {
+            fixture
+                .sources
+                .providers
+                .record_capabilities(
+                    &provider(index),
+                    DriverCapabilities {
+                        flags: DriverCapabilityFlags::from_fn(|flag| {
+                            offers_commands && flag == DriverCapabilityFlag::ProviderCommands
+                        }),
+                        contract_version: FreeFormText::new("1".to_owned()).expect("valid text"),
+                    },
+                )
+                .expect("the provider is registered");
+        }
 
         let listed = list_provider_commands(
             &fixture.sources,

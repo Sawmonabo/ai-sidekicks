@@ -17,7 +17,7 @@ use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbou
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
@@ -248,6 +248,22 @@ impl CodexDriver {
             }
         }
         self.tasks.wait().await;
+    }
+
+    /// Where the session's process stands: a live record on a service that is up is `Live`; one
+    /// being established again, or whose service is on its way back, is `Restarting`; anything
+    /// else, a crash loop or a closing session included, is `Down`. A read of the driver's own
+    /// tables.
+    pub(crate) fn session_process_state(&self, session_id: SessionId) -> SessionProcessState {
+        match self.slots.describe_holder(session_id) {
+            Some(CodexSessionSlotState::Establishing) => SessionProcessState::Restarting,
+            Some(CodexSessionSlotState::Closing) | None => SessionProcessState::Down,
+            Some(CodexSessionSlotState::Live) => match self.views.service(session_id) {
+                Some(service) if service.is_coming_back() => SessionProcessState::Restarting,
+                Some(service) if service.is_serving() => SessionProcessState::Live,
+                Some(_) | None => SessionProcessState::Down,
+            },
+        }
     }
 
     /// Whether a run on `session_id` brings a Codex service up: `false` while the session's

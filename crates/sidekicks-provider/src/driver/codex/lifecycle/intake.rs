@@ -14,6 +14,7 @@ use futures::future::BoxFuture;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
@@ -211,9 +212,12 @@ impl CodexSessionIntake {
                 let _unheard = reply.send(moved);
             }
             CodexLifecycleCall::MoveMode { mode, reply } => {
-                let moved = match record.service.connection() {
-                    Ok(connection) => {
-                        update_codex_session_mode(
+                // A service on its way back resumes the conversation in the mode the record holds.
+                let moved = if record.service.is_coming_back() {
+                    Ok(())
+                } else {
+                    match record.service.connection() {
+                        Ok(connection) => update_codex_session_mode(
                             &connection,
                             &record.thread_id,
                             mode,
@@ -221,8 +225,14 @@ impl CodexSessionIntake {
                             record.reasoning_effort.as_deref(),
                         )
                         .await
+                        .map_err(|error| {
+                            error.refused_as(
+                                RefusalCode::SessionModeNotOffered,
+                                "Codex refused the mode",
+                            )
+                        }),
+                        Err(error) => Err(error),
                     }
-                    Err(error) => Err(error),
                 };
                 if moved.is_ok() {
                     // A resume and a move send the mode again.

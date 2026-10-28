@@ -4,7 +4,7 @@ use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::record::Record;
@@ -39,6 +39,7 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
             PermissionLevel::Ask,
             FilesystemPath::new("/".to_owned()).expect("the root is a path"),
         )),
+        mode: SessionMode::Build,
         output_speed: None,
         options: Vec::new(),
         row_values: Record::default(),

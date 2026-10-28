@@ -59,7 +59,7 @@ pub(crate) struct CodexReviewFlag {
 impl CodexReviewFlag {
     /// The flag's row, or `None` when the event it is about was never written.
     pub(crate) fn row(&self) -> Option<UnstampedRow> {
-        let event_id = ComposedText::new(self.about_event_id.as_ref()?.as_str().to_owned())?;
+        let event_id = ComposedText::from(self.about_event_id.clone()?);
         Some(UnstampedRow::ApprovalReviewerFlagged(
             ApprovalReviewerFlaggedPayload {
                 session_id: self.run.session_id,

@@ -1,4 +1,4 @@
-//! Claude Code's review of the staged set alone, as the session's own run apart from its process:
+//! Claude Code's review of the staged set alone, as a run apart from the session's process:
 //! a one-turn process in a worktree holding only the staged changes, on the session's account and
 //! model. Its report lands as the run's reply and the run completes; a refusal fails it refused, a
 //! stop ends it interrupted unless the daemon writes that end itself, and the worktree goes and the
@@ -21,8 +21,9 @@ use sidekicks_workspace::git::worktree::staged_changes::StagedChangesError;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::{ClaudeSessionControls, compose_review_command, one_turn_legs};
-use crate::driver::claude::run::routes::ClaudeBoundRun;
+use super::review::review_text;
+use super::{ClaudeSessionControls, one_turn_legs};
+use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::run::start::ClaudeDaemonTurnOpening;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -64,33 +65,31 @@ struct ClaudeStagedReviewStop {
     is_end_written: Arc<AtomicBool>,
 }
 
+impl ClaudeStagedReviewStop {
+    // A stop not yet asked for.
+    fn new() -> Self {
+        Self {
+            stop: CancellationToken::new(),
+            is_end_written: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
 impl ClaudeSessionControls {
-    // Starts the review's run apart from the session's process, stoppable from the moment it has
+    // Starts the review under a run the daemon starts itself, stoppable from the moment it has
     // an id; returns once the start notice is out, so its finish can never come first.
     pub(super) async fn start_staged_review(
         self: &Arc<Self>,
         live: &Arc<LiveClaudeSession>,
     ) -> Result<(), DriverError> {
         let session_id = live.session_id;
-        let stop = ClaudeStagedReviewStop {
-            stop: CancellationToken::new(),
-            is_end_written: Arc::new(AtomicBool::new(false)),
-        };
+        let stop = ClaudeStagedReviewStop::new();
         let (bound_sender, bound) = oneshot::channel::<ClaudeBoundRun>();
         let bound_sender = Mutex::new(Some(bound_sender));
         let routes = Arc::clone(&self.run_start.routes);
         let run_stop = stop.clone();
         let start = Arc::new(move |run: ClaudeBoundRun| {
-            let run_stop = run_stop.clone();
-            routes.bind_apart_run(
-                run.run_id,
-                Box::new(move |is_end_written| {
-                    run_stop
-                        .is_end_written
-                        .store(is_end_written, Ordering::Release);
-                    run_stop.stop.cancel();
-                }),
-            );
+            bind_staged_run(&routes, &run, &run_stop);
             if let Some(sender) = lock(&bound_sender).take() {
                 // The start stopped waiting only once it failed, which forgets the route.
                 sender.send(run).unwrap_or(());
@@ -110,6 +109,30 @@ impl ClaudeSessionControls {
         let run = bound.await.map_err(|_never_bound| {
             DriverError::Internal("the staged review's run was started but never bound".into())
         })?;
+        self.begin_staged_review(live, run, stop).await;
+        Ok(())
+    }
+
+    // Starts the review under the run the queue admitted, stoppable at once; returns once the
+    // start notice is out.
+    pub(super) async fn start_queued_staged_review(
+        self: &Arc<Self>,
+        live: &Arc<LiveClaudeSession>,
+        run: ClaudeBoundRun,
+    ) {
+        let stop = ClaudeStagedReviewStop::new();
+        bind_staged_run(&self.run_start.routes, &run, &stop);
+        self.begin_staged_review(live, run, stop).await;
+    }
+
+    // Posts the review's start, then runs it to its end in the background.
+    async fn begin_staged_review(
+        self: &Arc<Self>,
+        live: &Arc<LiveClaudeSession>,
+        run: ClaudeBoundRun,
+        stop: ClaudeStagedReviewStop,
+    ) {
+        let session_id = live.session_id;
         self.post_notice(
             session_id,
             SessionNotice::ReviewStarted {
@@ -120,7 +143,6 @@ impl ClaudeSessionControls {
         .await;
         let (controls, live) = (Arc::clone(self), Arc::clone(live));
         tokio::spawn(async move { controls.review_staged(&live, run, &stop).await });
-        Ok(())
     }
 
     // Runs the review to its end, ends its run as the turn ended, then lets the route go and
@@ -237,7 +259,7 @@ impl ClaudeSessionControls {
                 live.admitted_provider_account_id.clone(),
                 None,
                 None,
-                compose_review_command(SessionReviewTarget::Staged),
+                review_text(SessionReviewTarget::Staged).text,
                 stop.clone(),
             )
             .await;
@@ -317,4 +339,18 @@ impl ClaudeSessionControls {
             .await,
         );
     }
+}
+
+// Routes the review's run apart from the session's process, so its stop ends the review.
+fn bind_staged_run(routes: &ClaudeRunRoutes, run: &ClaudeBoundRun, stop: &ClaudeStagedReviewStop) {
+    let run_stop = stop.clone();
+    routes.bind_apart_run(
+        run.run_id,
+        Box::new(move |is_end_written| {
+            run_stop
+                .is_end_written
+                .store(is_end_written, Ordering::Release);
+            run_stop.stop.cancel();
+        }),
+    );
 }

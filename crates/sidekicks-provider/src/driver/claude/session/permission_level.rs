@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use serde_json::Value;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::capabilities::ProviderMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
@@ -20,7 +21,7 @@ use strum::VariantArray;
 
 use crate::driver::CommandSandboxAvailability;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
 use crate::driver::claude::session::ignored_settings::{
     ClaudeSettingsReadError, find_claude_setting, read_claude_managed_setting,
 };
@@ -221,7 +222,7 @@ pub(crate) async fn move_claude_permission_level(
                 mode: claude_permission_mode_for(Some(level)),
             })
             .await
-            .map_err(ClaudePermissionsError::from)?;
+            .map_err(level_request_failure)?;
     }
     live.channel
         .send_control_request(ClaudeControlRequest::ApplyFlagSettings {
@@ -237,9 +238,21 @@ pub(crate) async fn move_claude_permission_level(
             },
         })
         .await
-        .map_err(ClaudePermissionsError::from)?;
+        .map_err(level_request_failure)?;
     lock(&live.settings).execution_posture = Some(posture.clone());
     Ok(())
+}
+
+// Claude Code's own refusal of a level's request refuses the level as not offered, in its words;
+// any other failure is the request's.
+fn level_request_failure(error: ClaudeSessionError) -> ClaudeLevelMoveError {
+    match error.into_refusal_as(
+        RefusalCode::SessionPermissionLevelNotOffered,
+        "Claude Code refused the permission level",
+    ) {
+        Ok(refusal) => ClaudeLevelMoveError::NotOffered(refusal),
+        Err(error) => ClaudePermissionsError::from(error).into(),
+    }
 }
 
 /// The level a new session starts at from `permissions.defaultMode`, read by Claude Code's own

@@ -317,6 +317,7 @@ impl CodexDriver {
             engine: Arc::clone(&engine),
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings),
             attachments: Arc::clone(&self.attachments),
+            dispatch: Arc::clone(&dispatch),
         }));
         let retries = Arc::new(CodexFasterModelRetries::new(
             CodexFasterModelRetryDependencies {
@@ -351,11 +352,7 @@ impl CodexDriver {
                 Arc::clone(&self.config_forks),
                 Arc::clone(&run_start),
             ),
-            controls: CodexSessionControls::new(
-                Arc::clone(&self.slots),
-                Arc::clone(&run_start),
-                Arc::clone(&dispatch),
-            ),
+            controls: CodexSessionControls::new(Arc::clone(&self.slots)),
             rewind: CodexConversationRewind::new(
                 Arc::clone(&self.slots),
                 Arc::clone(&self.config_forks),

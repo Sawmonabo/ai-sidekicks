@@ -5,9 +5,10 @@ use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::queue::QueueItemId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionReviewTarget};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 
+use crate::driver::codex::app_server_protocol::ReviewTarget;
 use crate::driver::codex::run::routes::CodexRunBinding;
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
@@ -18,7 +19,7 @@ use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, turn_completed, turn_reply, turn_started,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::{DriverError, RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::test_registry::new_run_id;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.
@@ -353,4 +354,73 @@ async fn a_message_past_codexs_input_limit_is_refused_as_too_large(#[case] refus
             "a refusal that is not the input limit stays Codex's: {refused:?}"
         ),
     }
+}
+
+// Kills: a queued review opened with the message path's `turn/start`, one started under a run of
+// the daemon's own instead of the queue's, the review's target dropped, and its start unrecorded.
+#[tokio::test]
+async fn a_queued_review_starts_codexs_review_as_the_queues_run() {
+    let mut session = TestCodexSession::start().await;
+    let binding_id = session.record_binding().await;
+    let session_id = session.task.record.session_id;
+    let run_id = new_run_id();
+    let params = StartRunParams {
+        run_id,
+        opening: RunOpening {
+            session_id,
+            binding_id: binding_id.clone(),
+            agent_id: session.daemon_turn_bindings.agent_id,
+            message_id: QueueItemId::new(&mint_uuid_v7().to_string())
+                .expect("a minted UUID is an item id"),
+            item: RunOpeningItem::Review {
+                target: SessionReviewTarget::WorkingTree,
+            },
+        },
+        conversation_history: None,
+        output_speed: None,
+        options: Vec::new(),
+        output_speed_for_turn: None,
+        execution_posture: None,
+        output_schema: None,
+        step_bound: None,
+    };
+    let run_start = Arc::clone(&session.run_start);
+    let script = &mut session.scripted.script;
+    let service = async {
+        let sent = script.next_sent().await;
+        assert_eq!(sent["method"], "review/start");
+        assert_eq!(sent["params"]["threadId"], TEST_THREAD);
+        assert_eq!(
+            sent["params"]["target"],
+            serde_json::to_value(ReviewTarget::UncommittedChanges).expect("a target serializes")
+        );
+        script.answer(&sent, &turn_reply("turn-review"));
+    };
+
+    let (started, ()) = tokio::time::timeout(
+        DEADLOCK_BOUND,
+        Box::pin(async { tokio::join!(session.task.drive(run_start.start_run(params)), service) }),
+    )
+    .await
+    .expect("the review's start settles");
+
+    started.expect("the review starts");
+    assert_eq!(
+        session
+            .task
+            .run_routes
+            .binding_for(run_id)
+            .map(|binding| binding.binding_id),
+        Some(binding_id)
+    );
+    assert!(session.engine.first_daemon_turn_run().is_none());
+    let review_starts: Vec<Value> = session
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "sessionNotice")
+        .filter_map(|delivery| delivery.payload)
+        .filter(|notice| notice["kind"] == "reviewStarted")
+        .collect();
+    assert_eq!(review_starts.len(), 1);
 }

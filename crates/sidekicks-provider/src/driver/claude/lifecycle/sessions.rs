@@ -21,9 +21,9 @@ use crate::driver::claude::session::naming::{
     name_claude_session, stored_claude_conversation, tell_claude_session_name,
 };
 use crate::driver::claude::session::purge::{ClaudePurgePlace, purge_claude_conversations};
-use crate::driver::claude::session::restart::ClaudeEndedConversation;
+use crate::driver::claude::session::restart::{ClaudeEndedConversation, ClaudeSessionStanding};
 use crate::driver::claude::session::slots::ClaudeCloseStart;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -67,6 +67,22 @@ impl ClaudeDriver {
             parts.restarts.report_restarted(session_id, true).await;
         }
         Ok(answer.result)
+    }
+
+    /// Where the session's process stands: a live process is `Live`; a restart waiting out its
+    /// crash wait, a relaunch or a fork's bring-up is `Restarting`; anything else, a crash loop
+    /// included, is `Down`. A read of the driver's own tables.
+    pub(crate) fn session_process_state(&self, session_id: SessionId) -> SessionProcessState {
+        let Some(parts) = self.composed_parts() else {
+            return SessionProcessState::Down;
+        };
+        match parts.restarts.standing(session_id) {
+            ClaudeSessionStanding::Live(_) => SessionProcessState::Live,
+            ClaudeSessionStanding::Held(_) | ClaudeSessionStanding::Settling(_) => {
+                SessionProcessState::Restarting
+            }
+            ClaudeSessionStanding::Down => SessionProcessState::Down,
+        }
     }
 
     /// Moves the session onto a fork of its conversation; see the establishment's fork.

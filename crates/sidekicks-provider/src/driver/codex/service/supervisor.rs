@@ -473,10 +473,16 @@ impl CodexService {
 
     /// Whether the service is up or on its way back up: starting, reconnecting or restarting.
     pub(crate) fn is_serving(&self) -> bool {
+        let is_up = matches!(*self.availability.borrow(), CodexServiceAvailability::Up);
+        is_up || self.is_coming_back()
+    }
+
+    /// Whether the service is on its way back up: starting, reconnecting or restarting, after which
+    /// its conversations resume at the settings their records hold.
+    pub(crate) fn is_coming_back(&self) -> bool {
         matches!(
             *self.availability.borrow(),
-            CodexServiceAvailability::Up
-                | CodexServiceAvailability::Starting
+            CodexServiceAvailability::Starting
                 | CodexServiceAvailability::Reconnecting
                 | CodexServiceAvailability::Restarting
         )

@@ -222,6 +222,7 @@ impl TestCodexSession {
             daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
                 as Arc<dyn DaemonTurnBindingResolver>,
             attachments: Arc::new(NoAttachments),
+            dispatch: Arc::clone(&engine) as _,
         }));
         let self_started = CodexSelfStartedTurnDependencies {
             engine: Arc::clone(&engine) as _,

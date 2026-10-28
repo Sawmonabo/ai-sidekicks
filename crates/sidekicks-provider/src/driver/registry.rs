@@ -2,8 +2,8 @@
 //! provider id a request or a provider message brings in is checked here: one no driver answers is
 //! refused `provider.notFound`. The gate and the contract version read the capability snapshot the
 //! start or a refresh recorded, never the driver or the database, and the gate fails closed: a flag
-//! is supported only when a recorded snapshot declares it. A steer is not gated here, since it is
-//! how the run queue delivers a held message.
+//! is supported only when a recorded snapshot declares it, and a provider not read yet is
+//! unavailable. A steer is not gated here, since it is how the run queue delivers a held message.
 
 use std::io;
 use std::path::PathBuf;
@@ -154,8 +154,9 @@ impl ProviderRegistry {
     }
 
     /// Passes when `provider`'s recorded snapshot declares `flag`. Refuses with
-    /// `provider_not_found` when no driver answers it, and `provider_capability_unsupported`
-    /// when the flag is off or no snapshot is recorded yet.
+    /// `provider_not_found` when no driver answers it, `provider.unavailable` while no snapshot is
+    /// recorded yet, since the provider has not been read, and `provider_capability_unsupported`
+    /// when the flag is off.
     pub fn check_capability(
         &self,
         provider: &ProviderId,
@@ -167,11 +168,15 @@ impl ProviderRegistry {
             .read()
             .expect("no snapshot writer panics holding the lock")
             .as_ref()
-            .is_some_and(|capabilities| capabilities.flags.is_on(flag));
-        if is_on {
-            Ok(())
-        } else {
-            Err(provider_capability_unsupported(provider, flag))
+            .map(|capabilities| capabilities.flags.is_on(flag));
+        match is_on {
+            Some(true) => Ok(()),
+            Some(false) => Err(provider_capability_unsupported(provider, flag)),
+            None => Err(DomainError::new(
+                "The provider's capabilities have not been read yet",
+                RefusalCode::ProviderUnavailable,
+            )
+            .with_detail(json!({ "providerId": provider.as_str() }))),
         }
     }
 

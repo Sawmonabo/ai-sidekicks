@@ -96,7 +96,12 @@ impl CodexDriver {
 
     /// Starts Codex's own review as the session's own run.
     pub(crate) async fn start_review(&self, params: StartReviewParams) -> Result<(), DriverError> {
-        match self.parts()?.controls.start_review(params).await {
+        let started = self
+            .parts()?
+            .run_start
+            .start_review(params.session_id, params.target)
+            .await;
+        match started {
             Ok(()) => Ok(()),
             Err(CodexDaemonTurnError::Codex(error)) => Err(error.into()),
             Err(CodexDaemonTurnError::Engine(error)) => Err(DriverError::Internal(error)),

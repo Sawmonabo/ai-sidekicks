@@ -10,6 +10,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
@@ -57,8 +58,6 @@ pub(crate) enum ClaudeSessionUnavailableReason {
     ProcessExited,
     /// The session holds no execution posture, so a turn the daemon starts has no level to run at.
     ExecutionPostureAbsent,
-    /// Claude Code cannot run the session at that permission level.
-    PermissionLevelUnavailable,
     /// The installed Claude Code lists no code-review skill for the session.
     ReviewSkillAbsent,
     /// Claude Code's model id names its window, so a session takes no larger-window figure.
@@ -99,9 +98,6 @@ impl ClaudeSessionUnavailableReason {
             Self::ExecutionPostureAbsent => {
                 "The Claude session holds no execution posture, so a turn the daemon starts has \
                  no level to run at."
-            }
-            Self::PermissionLevelUnavailable => {
-                "Claude Code cannot run this session at that permission level."
             }
             Self::ReviewSkillAbsent => {
                 "The installed Claude Code lists no code-review skill for this session."
@@ -211,6 +207,30 @@ fn detail_suffix(detail: Option<&str>) -> String {
 }
 
 impl ClaudeSessionError {
+    /// The refusal `code` that Claude Code's own refusal of a control request answers as, with
+    /// `message` and Claude Code's words as `providerFailureDetail`; any other failure comes back
+    /// as it is.
+    pub(crate) fn into_refusal_as(
+        self,
+        code: RefusalCode,
+        message: &str,
+    ) -> Result<DomainError, Self> {
+        match self {
+            Self::ControlRequestRefused { .. } => Ok(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                message,
+                code,
+                self,
+            )),
+            error @ (Self::Unavailable { .. }
+            | Self::InputUnwritable(_)
+            | Self::AuthenticationRequired { .. }
+            | Self::Unanswered { .. }
+            | Self::ModelNotOffered { .. }
+            | Self::SessionAlreadyLive { .. }) => Err(error),
+        }
+    }
+
     /// The recovery condition the failure leaves the session in: sign in again after a refused
     /// sign-in, recover after anything else.
     pub(crate) fn recovery_condition(&self) -> RecoveryCondition {

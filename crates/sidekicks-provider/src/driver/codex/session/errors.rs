@@ -268,6 +268,25 @@ impl CodexError {
                 if reason == CODEX_DRAINING_REASON
         )
     }
+
+    /// Codex's own refusal of a request, the service neither overloaded nor draining, as the
+    /// refusal `code` in `message` with Codex's words bounded as its failure detail; any other
+    /// error is returned unchanged.
+    pub(crate) fn refused_as(self, code: RefusalCode, message: &str) -> Self {
+        let is_refusal = matches!(
+            &self,
+            Self::ProviderRequest { code: answer_code, .. } if *answer_code != CODEX_OVERLOADED_CODE
+        ) && !self.is_service_draining();
+        if !is_refusal {
+            return self;
+        }
+        Self::Driver(DriverError::Refused(provider_failure_refusal(
+            &DESCRIPTOR.provider_id(),
+            message,
+            code,
+            self,
+        )))
+    }
 }
 
 /// Turns a refused `thread/fork` that names the rewind boundary member into

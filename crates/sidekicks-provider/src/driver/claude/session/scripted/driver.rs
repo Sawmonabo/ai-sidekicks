@@ -16,7 +16,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -401,7 +401,7 @@ pub(crate) fn end_turn_of(
     }
 }
 
-/// A create of `session_id` at Ask on `opus`, with nothing else asked for.
+/// A create of `session_id` at Ask on `opus` in Build, with nothing else asked for.
 pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
     CreateSessionParams {
         session_id,
@@ -414,6 +414,7 @@ pub(crate) fn create_params(session_id: SessionId) -> CreateSessionParams {
             PermissionLevel::Ask,
             FilesystemPath::new("/".to_owned()).expect("the root is a path"),
         )),
+        mode: SessionMode::Build,
         output_speed: None,
         options: Vec::new(),
         row_values: Record::default(),

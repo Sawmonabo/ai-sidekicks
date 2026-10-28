@@ -136,6 +136,20 @@ impl CodexSessionSlots {
         })
     }
 
+    /// The queue of `session_id`'s live record once every establishment in flight on it settled,
+    /// as one that brings its conversation back after its service returned or onto a fork. Fails
+    /// as [`Self::require_live`] does once none is in flight.
+    pub(crate) async fn require_live_settled(
+        &self,
+        session_id: SessionId,
+    ) -> Result<CodexSessionInboundSender, CodexError> {
+        while self.describe_holder(session_id) == Some(CodexSessionSlotState::Establishing) {
+            // Taken once every transition claimed before it ended, and let go at once.
+            drop(self.transitions.acquire(session_id).await);
+        }
+        self.require_live(session_id)
+    }
+
     /// Claims `session_id`'s slot for an establishment, a create, a resume or a fork, once every
     /// transition claimed before it ended. Fails with `CodexError::SessionClosed` when a close of
     /// the session ended while it waited, and once the daemon's stop began.
@@ -189,8 +203,9 @@ impl CodexSessionSlots {
         }
     }
 
-    // The newest claim in flight names the slot's state, else a live record does.
-    fn describe_holder(&self, session_id: SessionId) -> Option<CodexSessionSlotState> {
+    /// The state holding `session_id`'s slot: the newest claim in flight's, else `Live` for a live
+    /// record; `None` for a free slot.
+    pub(crate) fn describe_holder(&self, session_id: SessionId) -> Option<CodexSessionSlotState> {
         let slots = self.lock();
         let slot = slots.get(&session_id)?;
         slot.claims

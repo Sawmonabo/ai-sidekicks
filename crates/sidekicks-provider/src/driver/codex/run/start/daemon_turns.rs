@@ -1,7 +1,8 @@
 //! Turns the daemon starts on a session itself, such as a review: each runs as the session's own
 //! run, opened through the run engine before its request is sent, so every row of the turn has a
 //! run. Refused, before any run exists, while a turn runs, starts or is still ending on the
-//! session, since Codex would fold it into that turn.
+//! session, since Codex would fold it into that turn. A run the queue admitted sends such an
+//! opening the same way, on the binding the daemon opened for it.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -133,17 +134,35 @@ impl CodexRunStart {
                 cause: Box::new(error),
             })?;
         self.dependencies.config_forks.join(session_id).await;
-        self.dependencies.run_routes.bind_run_delivery(
+        self.send_bound_turn(
+            inbound,
             run_id,
             CodexRunBinding {
                 session_id,
-                binding_id: binding.binding_id.clone(),
+                binding_id: binding.binding_id,
                 agent_id: binding.agent_id,
                 step_bound: binding.step_bound,
             },
-        );
+            opening,
+        )
+        .await
+    }
+
+    /// Routes `run_id` to `binding` and sends the turn `opening` makes on it; a failed start
+    /// leaves the run no route.
+    pub(super) async fn send_bound_turn(
+        &self,
+        inbound: &CodexSessionInboundSender,
+        run_id: RunId,
+        binding: CodexRunBinding,
+        opening: CodexDaemonTurnOpening,
+    ) -> Result<(), CodexError> {
+        let binding_id = binding.binding_id.clone();
+        self.dependencies
+            .run_routes
+            .bind_run_delivery(run_id, binding);
         let sent = self
-            .send_daemon_turn(inbound, run_id, binding.binding_id, opening)
+            .send_daemon_turn(inbound, run_id, binding_id, opening)
             .await;
         if sent.is_err() {
             self.dependencies.run_routes.forget_run(run_id);

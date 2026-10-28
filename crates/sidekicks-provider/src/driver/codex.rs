@@ -31,7 +31,7 @@ use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, StartRunParams,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::message_handing::{HandMoment, MessageHanding};
@@ -509,6 +509,10 @@ impl ProviderDriver for CodexDriver {
     // With no option declared, there is none to observe.
     fn observed_options_for(&self, _session_id: &SessionId) -> Option<ObservedProviderOptions> {
         None
+    }
+
+    fn session_process_state(&self, session_id: &SessionId) -> SessionProcessState {
+        self.session_process_state(*session_id)
     }
 
     fn update_session_mode(

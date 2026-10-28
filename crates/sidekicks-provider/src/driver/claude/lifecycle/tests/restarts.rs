@@ -12,6 +12,7 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValueText};
+use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -25,11 +26,13 @@ use crate::driver::claude::session::scripted::channel::{ScriptedChannel, Scripte
 use crate::driver::claude::session::scripted::daemon_services::PortCall;
 use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_params};
 use crate::driver::claude::session::scripted::{binding_id, settle};
+use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::contract::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
-    ResumeSessionParams,
+    ResumeSessionParams, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 
@@ -109,6 +112,44 @@ async fn a_restart_whose_slot_was_taken_during_its_wait_does_nothing() {
         [(reported_session, Some(_))] if *reported_session == session_id
     ));
     assert!(!fixture.driver.starts_process(session_id));
+}
+
+// Killed by refusing a move while the session waits out its crash wait, by a move that reaches
+// only the ended process, and by a relaunch composed from settings the move never wrote.
+#[tokio::test(start_paused = true)]
+async fn a_mode_move_during_the_crash_wait_is_the_relaunched_process_mode() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&first);
+    // The first restart waits nothing; the second waits a second, which the move lands in.
+    let second = fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&second);
+    settle().await;
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Restarting
+    );
+
+    fixture
+        .driver
+        .update_session_mode(UpdateSessionModeParams {
+            session_id,
+            mode: SessionMode::Plan,
+        })
+        .await
+        .expect("the move is taken while the session restarts");
+    tokio::time::sleep(RESTART_WAITS_PASSED).await;
+
+    let relaunch = fixture.next_start().await;
+    assert_eq!(relaunch.permission_mode, Some(ClaudePermissionMode::Plan));
 }
 
 // What a resume arriving during a restart's relaunch asks for, beside the relaunched process.

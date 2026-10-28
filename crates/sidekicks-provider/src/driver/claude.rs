@@ -28,7 +28,7 @@ use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, StartRunParams,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::message_handing::{HandMoment, MessageHanding};
@@ -546,6 +546,10 @@ impl ProviderDriver for ClaudeDriver {
         self.observed_options_for(*session_id)
     }
 
+    fn session_process_state(&self, session_id: &SessionId) -> SessionProcessState {
+        self.session_process_state(*session_id)
+    }
+
     fn update_session_mode(
         &self,
         params: UpdateSessionModeParams,
@@ -564,7 +568,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(self.ask_side_question(params)).boxed()
+        self.ask_side_question(params).boxed()
     }
 
     fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>> {
