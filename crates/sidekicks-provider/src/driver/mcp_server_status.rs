@@ -10,7 +10,12 @@ use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
+use sidekicks_ipc::redaction::scrub_credentials;
 use sidekicks_std::text_cut::cut_to_code_points;
+
+/// The most code points of a provider's error text a reading keeps: room past the error-message
+/// cap, which the daemon's sanitizer applies once paths and queries are gone.
+const FAILURE_TEXT_MAX_CODE_POINTS: usize = 4 * ERROR_MESSAGE_MAX_LEN;
 
 /// What a provider reported about one MCP server for a session: a status it observed, or that it
 /// switched the server off for this conversation or project.
@@ -31,9 +36,26 @@ pub struct McpServerStatusEmission {
     pub(crate) server_name: McpServerName,
     /// What the provider reported.
     pub(crate) reading: McpServerReading,
-    /// The provider's error text for the server, untrusted and cut to the error-message cap; it
-    /// is not sanitized here.
+    /// The provider's error text for the server, untrusted, its credentials scrubbed before it
+    /// was cut to a bound; the rest of the sanitizing happens when it leaves the daemon.
     pub(crate) failure_text: Option<String>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl McpServerStatusEmission {
+    /// An emission as a driver's status reader builds one, for the tests of the crates that
+    /// apply emissions.
+    pub fn new(
+        server_name: McpServerName,
+        reading: McpServerReading,
+        failure_text: Option<String>,
+    ) -> Self {
+        Self {
+            server_name,
+            reading,
+            failure_text,
+        }
+    }
 }
 
 /// One server's reading as the daemon reads it, stamped with the leg the producer was bound to.
@@ -49,8 +71,8 @@ pub struct McpServerStatusUpdate {
     pub server_name: McpServerName,
     /// What the provider reported.
     pub reading: McpServerReading,
-    /// The provider's error text for the server, untrusted and cut to the error-message cap; the
-    /// daemon sanitizes it before it leaves.
+    /// The provider's error text for the server, untrusted, its credentials scrubbed and cut to a
+    /// bound; the daemon sanitizes the rest before it leaves.
     pub failure_text: Option<String>,
 }
 
@@ -96,9 +118,9 @@ pub(crate) struct McpServerStatusIngestResult {
 
 /// Bounds one reported server: its name, its reading and its raw error text. The name is
 /// untrusted provider output: one that is not text, is blank, holds a NUL or passes its length
-/// bound comes back as a rejection instead of reaching the leg's producer. The error text is kept
-/// as sent, cut to the error-message cap in code points; one that is absent, not text or blank
-/// after the cut reads `None`.
+/// bound comes back as a rejection instead of reaching the leg's producer. The error text has its
+/// credentials scrubbed whole, so a cut cannot split one past the scrub's reach, and is then cut
+/// to a bound in code points; one that is absent, not text or blank after the cut reads `None`.
 pub(crate) fn bound_mcp_server_status_emission(
     server_name: &Value,
     reading: McpServerReading,
@@ -113,9 +135,9 @@ pub(crate) fn bound_mcp_server_status_emission(
     };
     let failure_text = raw_failure_text
         .as_str()
-        .map(|text| cut_to_code_points(text, ERROR_MESSAGE_MAX_LEN))
-        .filter(|text| !text.chars().all(is_ecmascript_whitespace))
-        .map(str::to_owned);
+        .map(scrub_credentials)
+        .map(|text| cut_to_code_points(&text, FAILURE_TEXT_MAX_CODE_POINTS).to_owned())
+        .filter(|text| !text.chars().all(is_ecmascript_whitespace));
     FreeFormText::new(server_name.to_owned())
         .map(|server_name| McpServerStatusEmission {
             server_name,
@@ -128,4 +150,37 @@ pub(crate) fn bound_mcp_server_status_emission(
                  {text_failure}"
             ),
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::{Value, json};
+    use sidekicks_contracts::mcp::server::McpServerStatus;
+
+    use super::{FAILURE_TEXT_MAX_CODE_POINTS, McpServerReading, bound_mcp_server_status_emission};
+
+    // A token that straddles the bound is scrubbed whole: cut first, its prefix would fall under
+    // the token pattern's minimum length and reach the daemon as text.
+    #[test]
+    fn a_credential_across_the_bound_is_scrubbed_before_the_cut() {
+        let raw = format!(
+            "{} ghp_abcdefghijklmnop",
+            "x".repeat(FAILURE_TEXT_MAX_CODE_POINTS - 8)
+        );
+
+        let emission = bound_mcp_server_status_emission(
+            &json!("github"),
+            McpServerReading::Observed(McpServerStatus::Failed),
+            &Value::String(raw),
+        )
+        .expect("the row passes the bound");
+
+        let failure_text = emission.failure_text.expect("the error text is kept");
+        assert!(!failure_text.contains("ghp_"), "the token's prefix is kept");
+        assert!(
+            failure_text.ends_with("***"),
+            "{}",
+            &failure_text[failure_text.len() - 16..]
+        );
+    }
 }
