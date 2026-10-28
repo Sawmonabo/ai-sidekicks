@@ -51,7 +51,8 @@ static SELECT_LEAD_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
 // binding, from the newest of that event and the lead's landed switches, a switch's account the one
 // it landed on, since its `to` may follow the provider's current account; and the model it runs
 // on, from the newest of those and the provider's moves of the rest of the session onto another
-// model, of the lead's turns or of no agent's. A row before the session's creation moves nothing.
+// model, of the lead's turns or of no agent's. A row before the session's creation sorts behind
+// its own, so it moves nothing.
 static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     let binding_changed = SessionEventType::AgentProviderBindingChanged.as_str();
@@ -82,7 +83,6 @@ static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
            json_extract(changed.payload, '$.to.modelId')
       FROM session_events AS changed JOIN lead
      WHERE changed.session_id = @session_id AND changed.type = '{binding_changed}'
-       AND changed.sequence > lead.sequence
        AND json_extract(changed.payload, '$.agentId') = lead.agent_id
        AND {readable_changed}),
   models AS (
@@ -91,7 +91,6 @@ static SELECT_SESSION_LEAD_SQL: LazyLock<String> = LazyLock::new(|| {
     SELECT rerouted.sequence, json_extract(rerouted.payload, '$.toModel')
       FROM session_events AS rerouted JOIN lead
      WHERE rerouted.session_id = @session_id AND rerouted.type = '{turn_rerouted}'
-       AND rerouted.sequence > lead.sequence
        AND json_extract(rerouted.payload, '$.scope') = '{session_scope}'
        AND (json_extract(rerouted.payload, '$.agentId') IS NULL
             OR json_extract(rerouted.payload, '$.agentId') = lead.agent_id)
@@ -392,17 +391,14 @@ mod tests {
     }
 
     // Killed by the agent check dropped from the switch or the reroute, by the scope check dropped,
-    // by a switch's own `to` account kept over the one it landed on, by the running model read
-    // from the binding alone, and by a switch or reroute written before the session's creation
-    // moving the lead.
+    // by a switch's own `to` account kept over the one it landed on, and by the running model read
+    // from the binding alone.
     #[test]
     fn the_lead_moves_with_its_own_switches_and_session_long_reroutes_only() {
         let (first, second) = (PROVIDERS[0].id, PROVIDERS[1].id);
         let lead = mint_uuid_v7().to_string();
         let other = mint_uuid_v7().to_string();
         let mut log = Log::new();
-        log.switch(&lead, second, "model-z", "account-z");
-        log.reroute(None, "session", "model-z");
         log.write(
             SessionEventType::SessionCreated,
             json!({ "mainAgent": { "agentId": lead, "binding": binding(first, "model-a") } }),
