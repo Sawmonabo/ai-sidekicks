@@ -1,12 +1,19 @@
 //! A Codex helper stopped alone at its token limit: its own conversation's running turn is
-//! interrupted, so the lead's turn, on its own conversation, goes on.
+//! interrupted, so the lead's turn, on its own conversation, goes on, and each turn it starts after
+//! is interrupted at its start.
+
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::history::read_codex_newest_turn;
+use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::DriverError;
@@ -18,14 +25,78 @@ struct ListedTurnStatus {
     status: Option<String>,
 }
 
+/// The helper conversations of each session stopped at their token limit, whose every later turn
+/// is interrupted at its start.
+#[derive(Default)]
+pub(crate) struct CodexLimitStoppedHelpers {
+    helpers: Mutex<HashMap<SessionId, HashSet<String>>>,
+}
+
+impl CodexLimitStoppedHelpers {
+    /// Marks the helper conversation `helper_thread_id` of `session_id` stopped at its limit.
+    pub(crate) fn stop(&self, session_id: SessionId, helper_thread_id: &str) {
+        lock(&self.helpers)
+            .entry(session_id)
+            .or_default()
+            .insert(helper_thread_id.to_owned());
+    }
+
+    /// Interrupts the turn `turn_id` that the helper conversation `helper_thread_id` of the
+    /// session `record` holds just started, when that helper was stopped at its limit; the
+    /// interrupt runs on its own task, and a failed one is logged.
+    pub(crate) fn interrupt_started_turn(
+        &self,
+        record: &CodexSessionRecord,
+        helper_thread_id: &str,
+        turn_id: &str,
+    ) {
+        let is_stopped = lock(&self.helpers)
+            .get(&record.session_id)
+            .is_some_and(|stopped| stopped.contains(helper_thread_id));
+        if !is_stopped {
+            return;
+        }
+        let service = Arc::clone(&record.service);
+        let session_id = record.session_id;
+        let helper_thread_id = helper_thread_id.to_owned();
+        let turn_id = turn_id.to_owned();
+        tokio::spawn(async move {
+            let interrupted = match service.connection() {
+                Ok(connection) => interrupt_codex_turn(&connection, &helper_thread_id, &turn_id)
+                    .await
+                    .map(drop),
+                Err(error) => Err(error),
+            };
+            if let Err(error) = interrupted {
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    helper_thread_id,
+                    turn_id,
+                    "a codex helper past its token limit could not be interrupted at its turn's \
+                     start"
+                );
+            }
+        });
+    }
+
+    /// Lets go of a closed session's stopped helpers.
+    pub(crate) fn forget_session(&self, session_id: SessionId) {
+        lock(&self.helpers).remove(&session_id);
+    }
+}
+
 impl CodexDriver {
     /// Stops the helper `params.subagent_id` names, whose id is its own conversation's, by
-    /// interrupting that conversation's running turn; a session with no live conversation or a
-    /// helper running no turn is left as it is. Fails as the service's requests do.
+    /// interrupting that conversation's running turn, and marks it so each turn it starts later is
+    /// interrupted at its start; a session with no live conversation or a helper running no turn
+    /// is left as it is. Fails as the service's requests do.
     pub(crate) async fn stop_helper_at_token_limit(
         &self,
         params: HelperTokenLimitParams,
     ) -> Result<(), DriverError> {
+        self.limit_stopped_helpers
+            .stop(params.session_id, params.subagent_id.as_str());
         let Some(conversation) = self.views.conversation(params.session_id) else {
             return Ok(());
         };

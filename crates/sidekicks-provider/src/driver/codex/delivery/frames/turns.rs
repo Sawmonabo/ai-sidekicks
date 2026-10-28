@@ -72,12 +72,19 @@ impl CodexFrameDelivery {
         record: &mut CodexSessionRecord,
         members: &Map<String, Value>,
     ) {
-        if read_non_empty_string(members, "threadId") != Some(record.thread_id.as_str()) {
-            return;
-        }
         let Some(turn_id) = read_completed_turn_id(members) else {
             return;
         };
+        let Some(thread_id) = read_non_empty_string(members, "threadId") else {
+            return;
+        };
+        if thread_id != record.thread_id {
+            // A helper's conversation: one stopped at its limit runs no further turn.
+            self.dependencies
+                .limit_stopped_helpers
+                .interrupt_started_turn(record, thread_id, &turn_id);
+            return;
+        }
         // A new turn ends the hold of the one before it.
         let ended_holds: Vec<String> = record
             .delivery

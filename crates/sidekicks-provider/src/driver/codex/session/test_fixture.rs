@@ -167,6 +167,7 @@ impl TestCodexSession {
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
             command_output: Arc::new(PortRegistration::new("command output")),
             pending_compactions: pending_compactions.clone(),
+            limit_stopped_helpers: Arc::default(),
             effects: Arc::new(NoEffects),
         }));
         let session_id = new_session_id();
