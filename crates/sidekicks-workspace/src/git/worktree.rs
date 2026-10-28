@@ -1,6 +1,7 @@
 //! Worktrees: the checkouts a session works in beside its repository. Here are their tables and
 //! rows, events and refusals; the service that records, retires and sweeps them; the setup
-//! card a new tree runs; the one tree walk that copies setup files and kept trees, with its
+//! card a new tree runs; the copy a retired tree is kept as and the stale records a removal
+//! clears; the one tree walk that copies setup files and kept trees, with its
 //! progress; the uncommitted work carried into a new tree; the claims a kept copy's put-back
 //! checks; the switcher's status read and the ordered branch list; the background fetch that keeps
 //! their figures current; git's reads of trees and branches, and what a removal would lose; the
@@ -18,6 +19,7 @@ pub mod event_emitter;
 pub mod fetch;
 pub(crate) mod flush;
 pub(crate) mod folder_names;
+pub(crate) mod kept_copy;
 pub mod naming;
 pub mod occupancy;
 pub(crate) mod projector;
@@ -29,6 +31,7 @@ pub mod schema;
 pub mod service;
 pub mod setup;
 pub mod staged_changes;
+pub(crate) mod stale_record;
 pub(crate) mod status;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_rows;
