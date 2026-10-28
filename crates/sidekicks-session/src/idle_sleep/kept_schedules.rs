@@ -26,6 +26,9 @@ const FIRE_MARGIN: SignedDuration = SignedDuration::from_mins(2);
 const SELECT_KEPT_SCHEDULES_SQL: &str = "SELECT session_id, fires_at, cron, next_fire_at
   FROM session_kept_schedules ORDER BY session_id, position";
 
+const SELECT_SESSION_KEPT_SCHEDULES_SQL: &str = "SELECT fires_at, cron, next_fire_at
+  FROM session_kept_schedules WHERE session_id = ?1 ORDER BY position";
+
 const DELETE_KEPT_SCHEDULES_SQL: &str =
     "DELETE FROM session_kept_schedules WHERE session_id = @sessionId";
 
@@ -107,19 +110,36 @@ pub fn read_stored_schedules(
         .prepare_cached(SELECT_KEPT_SCHEDULES_SQL)?
         .query_map([], |row| {
             let session_id = text_column(row, 0, |text| SessionId::new(&text))?;
-            let fires_at = optional_text_column(row, 1, stored_instant)?;
-            let cron: Option<String> = row.get(2)?;
-            let next_fire_at = optional_text_column(row, 3, stored_instant)?;
-            let schedule = match (fires_at, cron) {
-                (Some(fires_at), _) => KeptSchedule::Once { fires_at },
-                (None, cron) => KeptSchedule::Recurring {
-                    cron: cron.expect("the table's check holds a cron where no fire is stored"),
-                    next_fire_at,
-                },
-            };
-            Ok((session_id, schedule))
+            Ok((session_id, stored_schedule(row, 1)?))
         })?
         .collect()
+}
+
+/// `session_id`'s stored kept schedules, in its order, read by the table's key. Fails when SQLite
+/// refuses the read or a stored instant does not read.
+pub fn read_session_schedules(
+    reader: &Connection,
+    session_id: SessionId,
+) -> rusqlite::Result<Vec<KeptSchedule>> {
+    reader
+        .prepare_cached(SELECT_SESSION_KEPT_SCHEDULES_SQL)?
+        .query_map([session_id.text().as_str()], |row| stored_schedule(row, 0))?
+        .collect()
+}
+
+// The schedule a row stores in its columns from `first` on: the one-shot fire, the cron and the
+// recurring job's next run.
+fn stored_schedule(row: &rusqlite::Row<'_>, first: usize) -> rusqlite::Result<KeptSchedule> {
+    let fires_at = optional_text_column(row, first, stored_instant)?;
+    let cron: Option<String> = row.get(first + 1)?;
+    let next_fire_at = optional_text_column(row, first + 2, stored_instant)?;
+    Ok(match (fires_at, cron) {
+        (Some(fires_at), _) => KeptSchedule::Once { fires_at },
+        (None, cron) => KeptSchedule::Recurring {
+            cron: cron.expect("the table's check holds a cron where no fire is stored"),
+            next_fire_at,
+        },
+    })
 }
 
 /// The statements that replace `session_id`'s stored schedules with `schedules`, in one write. A

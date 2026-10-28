@@ -1,8 +1,8 @@
 //! The opening tests open a session's provider session with: the table's first provider at a
-//! read-only posture over the root; the queue's own tests also record that provider's contract
-//! version.
+//! read-only posture over the root, and an idle sleep standing in that records each opening;
+//! the queue's own tests also record that provider's contract version.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use serde_json::Map;
@@ -12,6 +12,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 #[cfg(test)]
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -24,6 +25,8 @@ use sidekicks_provider::driver::session_control::CreateSessionParams;
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
+use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
 
@@ -68,6 +71,28 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
         }
         .boxed()
     })
+}
+
+/// An idle sleep standing in for the provider sessions' tests, recording each session it was told
+/// opened; a close it is told of changes nothing the tests read.
+#[derive(Default)]
+pub struct RecordedProcessFollowing {
+    followed: Mutex<Vec<SessionId>>,
+}
+
+impl RecordedProcessFollowing {
+    /// Each session it was told opened, in order.
+    pub fn followed(&self) -> Vec<SessionId> {
+        lock(&self.followed).clone()
+    }
+}
+
+impl SessionProcessFollower for RecordedProcessFollowing {
+    fn follow_awake(&self, session_id: SessionId) {
+        lock(&self.followed).push(session_id);
+    }
+
+    fn forget_closed(&self, _session_id: SessionId) {}
 }
 
 /// Records the first provider's capabilities in `providers`, so its contract version reads.

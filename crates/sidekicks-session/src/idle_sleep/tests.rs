@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::error::Error;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use futures::FutureExt as _;
@@ -16,7 +17,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClockTimer;
 use sidekicks_provider::command::running_set::{CommandEndingAppender, RunningCommandSets};
 use sidekicks_provider::driver::PROVIDERS;
-use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
 use sidekicks_provider::driver::idle_sleep::{IdleSleepHolds, KeptSchedule, SessionSleepState};
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_provider::port::session_wake::SessionWaker as _;
@@ -32,6 +33,7 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::sync::{oneshot, watch};
 
 use super::kept_schedules::next_wake_at;
+use super::openings::{SessionProcessFollower as _, SessionProcessWaker};
 use super::{SessionIdleSleep, SessionIdleSleepDeps};
 use crate::run::engine::test_fixture::insert_running_run;
 
@@ -60,9 +62,25 @@ struct DriverCalls {
     wakes: AtomicUsize,
 }
 
+/// The provider sessions as the idle sleep reaches them, standing in with the driver's own wake of
+/// a session this daemon opened.
+struct DriverWake {
+    driver: Arc<dyn ProviderDriver>,
+}
+
+impl SessionProcessWaker for DriverWake {
+    fn wake_process(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, Box<dyn Error + Send + Sync>>> {
+        async move { Ok(self.driver.wake_session(session_id).await?) }.boxed()
+    }
+}
+
 struct Fixture {
     database: TestDatabase,
     idle_sleep: Arc<SessionIdleSleep>,
+    _process_waker: Arc<DriverWake>,
     running_commands: Arc<RunningCommandSets>,
     transition_lock: Arc<KeyedLock<SessionId>>,
 }
@@ -70,6 +88,7 @@ struct Fixture {
 /// An idle sleep over a test database whose sessions run on the table's first provider, answered
 /// by `driver`.
 async fn fixture(driver: MockProviderDriver) -> Fixture {
+    let driver: Arc<dyn ProviderDriver> = Arc::new(driver);
     let database = TestDatabase::new(crate::run::schema::schema_parts());
     let writer = Arc::new(
         DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -89,7 +108,7 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
             READ_STATEMENT_CAPACITY,
         )),
         writer,
-        providers: Arc::new(registry_of_first_provider(Arc::new(driver))),
+        providers: Arc::new(registry_of_first_provider(Arc::clone(&driver))),
         read_damaged_from_sequence,
         transition_lock: Arc::clone(&transition_lock),
         running_commands: Arc::clone(&running_commands),
@@ -99,9 +118,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
             watch::channel(0).1,
         )),
     });
+    let process_waker = Arc::new(DriverWake { driver });
+    idle_sleep
+        .set_process_waker(Arc::downgrade(&process_waker) as Weak<dyn SessionProcessWaker>)
+        .expect("a new idle sleep holds no process waker");
     Fixture {
         database,
         idle_sleep,
+        _process_waker: process_waker,
         running_commands,
         transition_lock,
     }
@@ -138,13 +162,10 @@ impl Fixture {
             .expect("the test queues a message");
     }
 
-    /// Wakes `session_id` once, so the idle sleep follows it awake, then runs a check that starts
-    /// its idle clock, lets the limit pass and runs the check that stops it, waiting for the stop.
+    /// Follows `session_id` awake as its opening does, then runs a check that starts its idle
+    /// clock, lets the limit pass and runs the check that stops it, waiting for the stop.
     async fn idle_past_the_limit(&self, session_id: SessionId) {
-        self.idle_sleep
-            .wake_for_message(session_id)
-            .await
-            .expect("the session is awake");
+        self.idle_sleep.follow_awake(session_id);
         self.idle_sleep.check().await;
         tokio::time::advance(PAST_IDLE_LIMIT).await;
         self.idle_sleep.check().await;
@@ -214,7 +235,8 @@ impl Hold {
 }
 
 // Each hold, read where its owner keeps it, keeps an idle session awake past the limit, and with
-// none the session sleeps. Killed by dropping any one hold from the read or the registered count.
+// none a session followed from its opening sleeps, no wake having come first. Killed by dropping
+// any one hold from the read or the registered count, and by an opening the check does not walk.
 #[rstest]
 #[case::nothing(Hold::None, 1)]
 #[case::turn(Hold::Turn, 0)]
@@ -364,7 +386,7 @@ async fn a_recurring_job_sleeps_and_wakes_the_session_before_its_run() {
     );
     fixture.idle_sleep.fire_scheduled_wake(session_id);
     fixture.idle_sleep.settle_transitions().await;
-    assert_eq!(calls.wakes.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.wakes.load(Ordering::SeqCst), 1);
 }
 
 // At the daemon's start a session found asleep stays asleep, one whose kept fire already passed

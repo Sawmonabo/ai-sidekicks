@@ -6,6 +6,9 @@
 //! program's scheduler on the wall clock; the kept jobs and wake-ups are stored, so the daemon's
 //! next start wakes each session on its schedule and leaves every other session asleep.
 //!
+//! The run queue's provider sessions, the one place a session's process opens, tell the idle sleep
+//! of each opening and close, and a sleeping session is brought up through them.
+//!
 //! A session's place: awake (its idle clock running once nothing holds it), stopping (under its
 //! transition lock), asleep, or waking (one resume). A wake trigger while stopping is kept and
 //! wakes the session once its process exited; triggers while waking join the one resume and are
@@ -13,6 +16,7 @@
 
 mod holds;
 pub mod kept_schedules;
+pub mod openings;
 #[cfg(test)]
 mod tests;
 
@@ -42,7 +46,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
-use tokio::sync::oneshot;
+use tokio::sync::{SetOnce, SetOnceError, oneshot};
 use tokio::time::Instant;
 use tokio_util::task::TaskTracker;
 
@@ -51,10 +55,12 @@ use crate::idle_sleep::holds::{HoldSources, SessionHolds, read_session_holds};
 use crate::idle_sleep::kept_schedules::{
     delete_schedules_statement, next_wake_at, read_stored_schedules, replace_schedules_statements,
 };
+use crate::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 
 /// The statements the idle sleep prepares on a pooled connection: a session's live runs, its
-/// waiting messages, its state, its lead's binding and the kept schedules.
-pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 5;
+/// waiting messages, its state, its lead's binding, and the kept schedules, every session's and one
+/// session's.
+pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 6;
 
 /// How often the one check looks at every awake session.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);
@@ -87,13 +93,24 @@ pub enum IdleSleepError {
     /// The session's driver failed a read of its holds, its stop or its resume.
     #[error(transparent)]
     Driver(#[from] DriverError),
+    /// The place a session's process opens failed to bring it up: the session closed or is being
+    /// deleted, or its driver's wake or resume failed.
+    #[error("the process of session {session_id} was not brought up")]
+    ProcessNotWoken {
+        /// The session.
+        session_id: SessionId,
+        /// Why.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
     /// The driver answered the session's wake with the session still asleep.
     #[error("the provider left session {session_id} asleep at its wake")]
     NotWoken {
         /// The session.
         session_id: SessionId,
     },
-    /// The daemon stopped before the session's wake ended.
+    /// The daemon stopped, or never handed the idle sleep the place a process opens, before the
+    /// session's wake ended.
     #[error("the daemon stopped before the wake of session {session_id} ended")]
     WakeAbandoned {
         /// The session.
@@ -128,6 +145,9 @@ pub struct SessionIdleSleep {
     // Each session the idle sleep follows: every session woken or held in this daemon's life, and
     // every one with a stored schedule, until it is closed or deleted.
     sessions: Mutex<HashMap<SessionId, SessionSleep>>,
+    // The place a sleeping session's process is brought up, handed once while the daemon wires its
+    // services; it holds the idle sleep, so the idle sleep holds it weakly.
+    process_waker: SetOnce<Weak<dyn SessionProcessWaker>>,
     // Every stop and resume under way, which the daemon's stop waits for.
     transitions: TaskTracker,
     check_job: Mutex<Option<ScheduledJobHandle>>,
@@ -144,8 +164,13 @@ struct SessionSleep {
     registered_holds: usize,
     // The wake armed for the session's next timed fire while it sleeps.
     armed_wake: Option<ScheduledJobHandle>,
-    // The timed fires last stored for the session.
+    // The timed fires last read for the session, which its armed wake follows.
     kept_schedules: Vec<KeptSchedule>,
+    // Whether `kept_schedules` is what is stored; a failed write leaves it for the next check.
+    are_schedules_stored: bool,
+    // Whether a failed store of the session's timed fires was written to the log since the last
+    // store that went through, so a failure repeated at each check is logged once.
+    is_store_failure_logged: bool,
 }
 
 enum SleepPhase {
@@ -180,6 +205,8 @@ impl SessionSleep {
             registered_holds: 0,
             armed_wake: None,
             kept_schedules: Vec::new(),
+            are_schedules_stored: true,
+            is_store_failure_logged: false,
         }
     }
 }
@@ -215,10 +242,21 @@ impl SessionIdleSleep {
         Arc::new_cyclic(|this| Self {
             deps,
             sessions: Mutex::new(HashMap::new()),
+            process_waker: SetOnce::new(),
             transitions: TaskTracker::new(),
             check_job: Mutex::new(None),
             this: this.clone(),
         })
+    }
+
+    /// Hands the idle sleep the place a sleeping session's process is brought up, once, while the
+    /// daemon wires its services and before the idle sleep starts. Fails with the handle when one
+    /// was handed already.
+    pub fn set_process_waker(
+        &self,
+        waker: Weak<dyn SessionProcessWaker>,
+    ) -> Result<(), SetOnceError<Weak<dyn SessionProcessWaker>>> {
+        self.process_waker.set(waker)
     }
 
     /// Arms a wake for each stored schedule, every session it names counted asleep, and schedules
@@ -356,7 +394,7 @@ impl SessionIdleSleep {
     // Resumes `session_id` through its driver and answers each kept trigger in arrival order: up,
     // the session awake, or the failure, the session left asleep with its next wake armed.
     async fn resume(&self, session_id: SessionId) {
-        let outcome = self.wake_through_driver(session_id).await.map_err(Arc::new);
+        let outcome = self.wake_process(session_id).await.map_err(Arc::new);
         let kept = {
             let mut sessions = lock(&self.sessions);
             let Some(entry) = sessions.get_mut(&session_id) else {
@@ -390,9 +428,19 @@ impl SessionIdleSleep {
         answer_triggers(kept, &outcome);
     }
 
-    async fn wake_through_driver(&self, session_id: SessionId) -> Result<(), IdleSleepError> {
-        let driver = self.session_driver(session_id).await?;
-        match driver.wake_session(session_id).await? {
+    // Brings the session's process up through the place a process opens, never straight through
+    // its driver, so a conversation is resumed once.
+    async fn wake_process(&self, session_id: SessionId) -> Result<(), IdleSleepError> {
+        let waker = self
+            .process_waker
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or(IdleSleepError::WakeAbandoned { session_id })?;
+        let state = waker
+            .wake_process(session_id)
+            .await
+            .map_err(|cause| IdleSleepError::ProcessNotWoken { session_id, cause })?;
+        match state {
             SessionSleepState::Awake => Ok(()),
             SessionSleepState::Asleep => Err(IdleSleepError::NotWoken { session_id }),
         }
@@ -431,7 +479,7 @@ impl SessionIdleSleep {
         }
         let driver = self.session_driver(session_id).await?;
         let holds = self.read_holds(driver.as_ref(), session_id).await?;
-        self.keep_schedules(session_id, &holds.schedules).await?;
+        self.keep_schedules(session_id, &holds.schedules).await;
         let is_due = {
             let mut sessions = lock(&self.sessions);
             match sessions.get_mut(&session_id) {
@@ -537,7 +585,7 @@ impl SessionIdleSleep {
         let driver = self.session_driver(session_id).await?;
         let holds = self.read_holds(driver.as_ref(), session_id).await?;
         // Stored before the stop, so the daemon's next start finds what wakes the session.
-        self.keep_schedules(session_id, &holds.schedules).await?;
+        self.keep_schedules(session_id, &holds.schedules).await;
         if holds.is_held || self.is_triggered_while_stopping(session_id) {
             return Ok(StopOutcome::Held);
         }
@@ -573,26 +621,47 @@ impl SessionIdleSleep {
         read_session_holds(&sources, session_id, Timestamp::now(), &TimeZone::system()).await
     }
 
-    // Stores `schedules` as `session_id`'s kept schedules when they differ from those stored.
-    async fn keep_schedules(
-        &self,
-        session_id: SessionId,
-        schedules: &[KeptSchedule],
-    ) -> Result<(), IdleSleepError> {
-        let is_stored = lock(&self.sessions)
-            .get(&session_id)
-            .is_some_and(|entry| entry.kept_schedules == schedules);
-        if is_stored {
-            return Ok(());
-        }
-        self.deps
-            .writer
-            .write(replace_schedules_statements(session_id, schedules))
-            .await?;
-        if let Some(entry) = lock(&self.sessions).get_mut(&session_id) {
+    // Keeps `schedules` as `session_id`'s timed fires, which its armed wake follows, and stores
+    // them when they differ from those stored. A failed store never holds back the session's sleep:
+    // it is logged once and tried again at the next check.
+    async fn keep_schedules(&self, session_id: SessionId, schedules: &[KeptSchedule]) {
+        {
+            let mut sessions = lock(&self.sessions);
+            let Some(entry) = sessions.get_mut(&session_id) else {
+                return;
+            };
+            if entry.are_schedules_stored && entry.kept_schedules == schedules {
+                return;
+            }
             entry.kept_schedules = schedules.to_vec();
         }
-        Ok(())
+        let stored = self
+            .deps
+            .writer
+            .write(replace_schedules_statements(session_id, schedules))
+            .await;
+        let mut sessions = lock(&self.sessions);
+        let Some(entry) = sessions.get_mut(&session_id) else {
+            return;
+        };
+        match stored {
+            // A newer read kept other fires while this one was written; the next check stores them.
+            Ok(_) => {
+                entry.are_schedules_stored = entry.kept_schedules == schedules;
+                entry.is_store_failure_logged = false;
+            }
+            Err(error) => {
+                entry.are_schedules_stored = false;
+                if !entry.is_store_failure_logged {
+                    entry.is_store_failure_logged = true;
+                    tracing::warn!(
+                        session_id = %session_id,
+                        error = &error as &(dyn Error + 'static),
+                        "a session's timed fires were not stored; each check tries again"
+                    );
+                }
+            }
+        }
     }
 
     // Stops following a closed or deleted session: its scheduled wake and stored schedules go. A
@@ -688,6 +757,35 @@ impl SessionIdleSleep {
     #[cfg(test)]
     pub(crate) fn fire_scheduled_wake(&self, session_id: SessionId) {
         self.wake_on_schedule(session_id);
+    }
+}
+
+impl SessionProcessFollower for SessionIdleSleep {
+    fn follow_awake(&self, session_id: SessionId) {
+        let mut sessions = lock(&self.sessions);
+        let entry = sessions
+            .entry(session_id)
+            .or_insert_with(SessionSleep::unknown);
+        // A stop or resume under way settles the session itself.
+        if matches!(entry.phase, SleepPhase::Asleep) {
+            if let Some(armed) = entry.armed_wake.take() {
+                armed.cancel();
+            }
+            entry.phase = SleepPhase::Awake { idle_since: None };
+        }
+    }
+
+    fn forget_closed(&self, session_id: SessionId) {
+        let idle_sleep = self.shared();
+        self.transitions.spawn(async move {
+            if let Err(error) = idle_sleep.forget(session_id).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = &error as &(dyn Error + 'static),
+                    "a closed session's timed fires were not removed; the next check tries again"
+                );
+            }
+        });
     }
 }
 

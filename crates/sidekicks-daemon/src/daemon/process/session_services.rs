@@ -38,6 +38,7 @@ use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 use sidekicks_session::idle_sleep::{IdleSleepError, SessionIdleSleep, SessionIdleSleepDeps};
 use sidekicks_session::interventions::service::{InterventionService, InterventionServiceDeps};
 use sidekicks_session::links::service::SessionLinkService;
@@ -347,49 +348,6 @@ pub(crate) fn build_session_services(
         Arc::clone(&event_log),
         Arc::clone(&providers),
     ));
-    let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
-        pool: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
-        runtime_bindings,
-        binding_cursors: Arc::clone(&binding_cursors),
-        providers: Arc::clone(&providers),
-        compose_opening,
-        transition_lock: Arc::clone(changes.transition_lock()),
-    }));
-    let stored_resumes = Arc::new(StoredSessionResumes::new(
-        Arc::clone(&reads),
-        Arc::clone(&provider_sessions),
-    ));
-    let signals = Arc::new(QueueChangeSignals::new());
-    let queue = RunQueue::new(RunQueueDeps {
-        pool: Arc::clone(&reads),
-        event_log: Arc::clone(&event_log),
-        writer: Arc::clone(&writer),
-        signals: Arc::clone(&signals),
-        engine: Arc::clone(&engine),
-        providers: Arc::clone(&providers),
-        provider_sessions,
-        memory_gate,
-        processes,
-        pauses: Arc::clone(&pauses),
-        followers,
-        read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
-        provider_accounts,
-        token_limits,
-    });
-    engine
-        .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
-        .expect("a new engine holds no run queue yet");
-    let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
-        pool: Arc::clone(&reads),
-        event_log: Arc::clone(&event_log),
-        engine: Arc::clone(&engine),
-        providers: Arc::clone(&providers),
-        queue: Arc::clone(&queue) as Arc<_>,
-    }));
-    engine
-        .set_limit_interrupter(Arc::downgrade(&interventions) as Weak<_>)
-        .expect("a new engine holds no interventions service yet");
     let run_safety_holds = RunSafetyHolds::new();
     let choices = Arc::new(ProviderChoiceResolver::new(
         Arc::clone(&reads),
@@ -425,6 +383,53 @@ pub(crate) fn build_session_services(
         running_commands: Arc::clone(&running_commands),
         scheduler,
     });
+    let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
+        pool: Arc::clone(&reads),
+        writer: Arc::clone(&writer),
+        runtime_bindings,
+        binding_cursors: Arc::clone(&binding_cursors),
+        providers: Arc::clone(&providers),
+        compose_opening,
+        transition_lock: Arc::clone(changes.transition_lock()),
+        process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
+    }));
+    idle_sleep
+        .set_process_waker(Arc::downgrade(&provider_sessions) as Weak<dyn SessionProcessWaker>)
+        .expect("a new idle sleep holds no process waker yet");
+    let stored_resumes = Arc::new(StoredSessionResumes::new(
+        Arc::clone(&reads),
+        Arc::clone(&provider_sessions),
+    ));
+    let signals = Arc::new(QueueChangeSignals::new());
+    let queue = RunQueue::new(RunQueueDeps {
+        pool: Arc::clone(&reads),
+        event_log: Arc::clone(&event_log),
+        writer: Arc::clone(&writer),
+        signals: Arc::clone(&signals),
+        engine: Arc::clone(&engine),
+        providers: Arc::clone(&providers),
+        provider_sessions,
+        memory_gate,
+        processes,
+        pauses: Arc::clone(&pauses),
+        followers,
+        read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
+        provider_accounts,
+        token_limits,
+    });
+    engine
+        .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
+        .expect("a new engine holds no run queue yet");
+    let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
+        pool: Arc::clone(&reads),
+        event_log: Arc::clone(&event_log),
+        engine: Arc::clone(&engine),
+        providers: Arc::clone(&providers),
+        queue: Arc::clone(&queue) as Arc<_>,
+    }));
+    engine
+        .set_limit_interrupter(Arc::downgrade(&interventions) as Weak<_>)
+        .expect("a new engine holds no interventions service yet");
     let related_ranking = Arc::new(SessionRelatedRanking::new(
         Arc::clone(&reads),
         Arc::clone(&writer),

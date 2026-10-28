@@ -11,11 +11,11 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::session_control::ResumeSessionParams;
 use sidekicks_provider::port::session_resume_reader::{SessionResume, SessionResumeReader};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStoreError;
+use sidekicks_queue::provider_session::resume::ComposedResume;
 use sidekicks_queue::provider_session::{ProviderSessionError, ProviderSessions};
-use sidekicks_session::idle_sleep::kept_schedules::read_stored_schedules;
+use sidekicks_session::idle_sleep::kept_schedules::read_session_schedules;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -70,7 +70,23 @@ impl StoredSessionResumes {
                     .compose(session_id)
                     .await
                     .map_err(|error| HandlerError::Internal(Box::new(error)))?;
-                Ok(composed.map(|(provider, params)| SessionRestartTarget { provider, params }))
+                Ok(composed.map(|(provider, composed)| {
+                    let ComposedResume { params, opening } = composed;
+                    let provider_sessions = Arc::clone(&resumes.provider_sessions);
+                    SessionRestartTarget {
+                        provider,
+                        params,
+                        record: Box::new(move |resumed| {
+                            async move {
+                                provider_sessions
+                                    .record_resumed(session_id, opening, resumed)
+                                    .await
+                                    .map_err(|error| HandlerError::Internal(Box::new(error)))
+                            }
+                            .boxed()
+                        }),
+                    }
+                }))
             }
             .boxed()
         })
@@ -81,15 +97,16 @@ impl StoredSessionResumes {
     async fn compose(
         &self,
         session_id: SessionId,
-    ) -> Result<Option<(ProviderId, ResumeSessionParams)>, StoredResumeError> {
+    ) -> Result<Option<(ProviderId, ComposedResume)>, StoredResumeError> {
         let Some(leg) = read_session_leg(&self.pool, session_id).await? else {
             return Ok(None);
         };
+        let provider = leg.provider_name.clone();
         let composed = self
             .provider_sessions
-            .compose_resume(session_id, &leg)
+            .compose_resume(session_id, leg)
             .await?;
-        Ok(Some((leg.provider_name, composed.params)))
+        Ok(Some((provider, composed)))
     }
 }
 
@@ -99,20 +116,15 @@ impl SessionResumeReader for StoredSessionResumes {
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<Option<SessionResume>, Box<dyn Error + Send + Sync>>> {
         async move {
-            let Some((_, params)) = self.compose(session_id).await? else {
+            let Some((_, ComposedResume { params, .. })) = self.compose(session_id).await? else {
                 return Ok(None);
             };
-            // The idle sleep's own read of every stored row, kept to this session's.
             let schedules = self
                 .pool
                 .read(
                     ReadLength::Short,
                     move |reader| -> Result<_, StoredResumeError> {
-                        Ok(read_stored_schedules(reader)?
-                            .into_iter()
-                            .filter(|(stored_session_id, _)| *stored_session_id == session_id)
-                            .map(|(_, schedule)| schedule)
-                            .collect())
+                        Ok(read_session_schedules(reader, session_id)?)
                     },
                 )
                 .await?;
@@ -137,7 +149,9 @@ mod tests {
     use sidekicks_provider::runtime_binding::test_store::{
         binding_input, spawn_config_on, spawned_build, test_provider_account_id,
     };
-    use sidekicks_queue::provider_session::test_opening::test_opening_composer;
+    use sidekicks_queue::provider_session::test_opening::{
+        RecordedProcessFollowing, test_opening_composer,
+    };
     use sidekicks_queue::provider_session::{ProviderSessions, ProviderSessionsDeps};
     use sidekicks_session::run::binding_cursors::RunBindingCursors;
     use sidekicks_session::run::engine::test_fixture::insert_running_run;
@@ -213,6 +227,7 @@ mod tests {
             ))),
             compose_opening: test_opening_composer(),
             transition_lock: Arc::new(KeyedLock::new()),
+            process_follower: Arc::new(RecordedProcessFollowing::default()),
         }));
 
         let resume = StoredSessionResumes::new(pool, provider_sessions)

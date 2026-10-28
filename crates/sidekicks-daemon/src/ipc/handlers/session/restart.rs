@@ -1,7 +1,8 @@
 //! `session.restart`: starts a session's provider process again after it ended and stayed down,
 //! resuming its conversation through the provider's own resume. The driver clears its crash
 //! count, announces the provider is back once it runs, and on a process several sessions share
-//! brings back every session it held.
+//! brings back every session it held. The conversation the restart brought up is recorded as the
+//! session's opening, so its next message resumes nothing again and the idle sleep follows it.
 
 use std::sync::Arc;
 
@@ -23,17 +24,26 @@ use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use sidekicks_queue::error::QueueError;
+use sidekicks_queue::provider_session::resume::ResumedLeg;
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
 
-/// The provider a session ran on, and its last binding rebuilt as the params of a resume.
+/// Records the conversation a restart brought up as the session's opening, under the session's
+/// transition lock; fails as the record fails.
+pub(crate) type RestartRecord =
+    Box<dyn FnOnce(ResumedLeg) -> BoxFuture<'static, Result<(), HandlerError>> + Send>;
+
+/// The provider a session ran on, its last binding rebuilt as the params of a resume, and the
+/// record of what the restart brings up.
 pub(crate) struct SessionRestartTarget {
     /// The provider the session ran on.
     pub(crate) provider: ProviderId,
     /// The resume, rebuilt from the session's stored spawn record.
     pub(crate) params: ResumeSessionParams,
+    /// Records the conversation the restart brought up.
+    pub(crate) record: RestartRecord,
 }
 
 /// Reads a session's restart target: `None` for a session this daemon does not hold, or one with
@@ -97,7 +107,20 @@ async fn restart(
     let driver = providers.lookup(&target.provider)?;
     providers.check_capability(&target.provider, DriverCapabilityFlag::Resume)?;
     match driver.restart_session(target.params).await? {
-        DriverResumeResult::Resumed { .. } => Ok(EmptyPayload {}),
+        DriverResumeResult::Resumed {
+            binding_id,
+            resume_handle,
+            spawned_version,
+            ..
+        } => {
+            (target.record)(ResumedLeg {
+                binding_id,
+                resume_handle,
+                spawned_version,
+            })
+            .await?;
+            Ok(EmptyPayload {})
+        }
         DriverResumeResult::Failed {
             recovery_condition,
             provider_failure_detail,
@@ -259,6 +282,7 @@ mod tests {
                     provider_account_id: test_provider_account_id(),
                     on_mcp_server_status: None,
                 },
+                record: Box::new(|_| async { Ok(()) }.boxed()),
             });
             async move { Ok(target) }.boxed()
         })

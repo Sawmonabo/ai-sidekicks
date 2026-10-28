@@ -16,6 +16,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::idle_sleep::SessionSleepState;
 use sidekicks_provider::driver::session_control::DriverResumeResult;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
@@ -24,6 +25,7 @@ use sidekicks_provider::runtime_binding::test_store::{
 };
 use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
@@ -41,7 +43,9 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use super::test_opening::{record_first_provider_capabilities, test_opening_composer};
+use super::test_opening::{
+    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
+};
 use super::{ProviderSessionError, ProviderSessions, ProviderSessionsDeps};
 
 /// The statements the test's read pool prepares.
@@ -71,6 +75,7 @@ struct Opening {
     relaunched_id: RuntimeBindingId,
     sessions: Arc<ProviderSessions>,
     changes: Arc<SessionChanges>,
+    following: Arc<RecordedProcessFollowing>,
 }
 
 impl Opening {
@@ -167,6 +172,7 @@ impl Opening {
             event_log,
             Arc::clone(&providers),
         ));
+        let following = Arc::new(RecordedProcessFollowing::default());
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             writer,
@@ -175,6 +181,7 @@ impl Opening {
             providers,
             compose_opening: test_opening_composer(),
             transition_lock: Arc::clone(changes.transition_lock()),
+            process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
         }));
         Self {
             database,
@@ -185,6 +192,7 @@ impl Opening {
             relaunched_id,
             sessions,
             changes,
+            following,
         }
     }
 }
@@ -229,15 +237,64 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
                 && bound_run_id == opening.run_id.text().as_str()),
         "the opening run has its own binding: {bindings:?}"
     );
+    assert_eq!(
+        opening.following.followed(),
+        vec![opening.session_id],
+        "the idle sleep follows the opened session awake"
+    );
 }
 
-// A run admitted before a close, whose open waits out the close, is refused once the close's
-// `session.closed` is written, and no process comes up for the closed session. Killed by the open
-// no longer reading the session's state (the conversation resumes after the close), and by the
-// close letting the session's transition lock go before it writes the event, or the opening taking
-// a lock of its own (the resume lands while the event's write is held).
+// The idle sleep's wake of a session no process holds resumes its conversation once and records
+// it as the session's opening, so the next admission binds its run to that process and resumes
+// nothing. Killed by the wake no longer recording the opening (the open resumes a second time),
+// and by an opening not telling the idle sleep (the session is not followed awake).
+#[tokio::test]
+async fn a_wake_resumes_a_sleeping_session_once_and_the_next_open_reuses_it() {
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let opening = Opening::new(
+        Box::new({
+            let resumes = Arc::clone(&resumes);
+            move || {
+                resumes.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+        Box::new(|| {}),
+    )
+    .await;
+
+    let woken = timeout(WAIT, opening.sessions.wake_process(opening.session_id))
+        .await
+        .expect("the wake takes its own lock once")
+        .expect("the conversation resumes");
+    assert_eq!(woken, SessionSleepState::Awake);
+    timeout(
+        WAIT,
+        opening.sessions.open(opening.session_id, opening.run_id),
+    )
+    .await
+    .expect("the open takes its own lock once")
+    .expect("the run binds to the woken process");
+
+    assert_eq!(
+        resumes.load(Ordering::SeqCst),
+        1,
+        "one process comes up for the session"
+    );
+    assert_eq!(
+        opening.following.followed(),
+        vec![opening.session_id],
+        "the idle sleep follows the woken session awake"
+    );
+}
+
+// A run admitted before a close, whose open waits out the close, and an idle sleep's wake that
+// waits it out too, are refused once the close's `session.closed` is written, and no process comes
+// up for the closed session. Killed by the open or the wake no longer reading the session's state
+// (the conversation resumes after the close), and by the close letting the session's transition
+// lock go before it writes the event, or the opening or the wake taking a lock of its own (the
+// resume lands while the event's write is held).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
+async fn an_open_or_a_wake_waiting_out_a_close_is_refused_and_starts_no_process() {
     let resumes = Arc::new(AtomicUsize::new(0));
     let resumed = Arc::new(Notify::new());
     let closing = Arc::new(Notify::new());
@@ -280,6 +337,10 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
         let sessions = Arc::clone(&opening.sessions);
         async move { sessions.open(session_id, run_id).await }
     });
+    let wake = tokio::spawn({
+        let sessions = Arc::clone(&opening.sessions);
+        async move { sessions.wake_process(session_id).await }
+    });
     assert!(
         timeout(CLOSE_HELD, resumed.notified()).await.is_err(),
         "the resume waits while the close's event is held"
@@ -303,6 +364,17 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
             Err(ProviderSessionError::Closed { session_id: refused }) if refused == session_id
         ),
         "the open is refused for the closed session: {opened:?}"
+    );
+    let woken = timeout(WAIT, wake)
+        .await
+        .expect("the wake ends")
+        .expect("the wake's task ends whole");
+    assert!(
+        woken.as_ref().is_err_and(|error| matches!(
+            error.downcast_ref::<ProviderSessionError>(),
+            Some(ProviderSessionError::Closed { session_id: refused }) if *refused == session_id
+        )),
+        "the wake is refused for the closed session: {woken:?}"
     );
     assert_eq!(
         resumes.load(Ordering::SeqCst),
