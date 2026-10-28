@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::daemon::recovery::DaemonRecoveryStatus;
 use crate::free_form_string::FilesystemPath;
@@ -224,7 +225,8 @@ pub struct DaemonStatusReadResponse {
     )]
     #[schemars(with = "DaemonSecretsFile")]
     pub secrets_file: Option<DaemonSecretsFile>,
-    /// Why this computer has no key for other devices: absent while the service holds its keys.
+    /// Where this computer's keys for other devices stand while the service does not hold them:
+    /// `reading` while the start's first read runs, else why none is held; absent while held.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -234,11 +236,13 @@ pub struct DaemonStatusReadResponse {
     pub machine_key: Option<DaemonMachineKey>,
 }
 
-/// Why the service holds no key for other devices, and what reaches one.
+/// Where the service stands with its keys for other devices while it does not hold them, and
+/// what reaches them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonMachineKey {
-    /// Whether no key was made yet, or the one made was lost or changed.
+    /// Whether the keys are still being read, no key was made yet, or the one made was lost or
+    /// changed.
     pub state: DaemonMachineKeyState,
     /// What stopped the service; absent where the state says it all.
     #[serde(
@@ -251,33 +255,38 @@ pub struct DaemonMachineKey {
 }
 
 impl DaemonMachineKey {
-    /// What the person does to give this computer its key again, in the words the status line and
-    /// the service log both print.
-    pub const fn action(self) -> &'static str {
-        const LINK_AGAIN: &str = "If you reinstalled it, remove it on Devices and link it again.";
-        match self.state {
+    /// What the person does to give this computer its keys again, in the words the status line and
+    /// the service log both print; `None` while the keys are still being read.
+    pub const fn action(self) -> Option<&'static str> {
+        const LINK_AGAIN: &str = "Remove this computer on Devices and link it again.";
+        const RESTART: &str = "Restart the background service.";
+        Some(match self.state {
+            DaemonMachineKeyState::Reading => return None,
             DaemonMachineKeyState::Lost | DaemonMachineKeyState::Changed => LINK_AGAIN,
             DaemonMachineKeyState::NotMinted => match self.cause {
-                Some(DaemonMachineKeyCause::Locked) => "Unlock the login keychain.",
+                Some(DaemonMachineKeyCause::Locked) => {
+                    "Unlock this computer's keychain, then try again."
+                }
                 Some(DaemonMachineKeyCause::SecretsFile) => {
-                    "See why the secrets file cannot be opened."
+                    "The secrets file can't be opened. See its cause."
                 }
                 Some(DaemonMachineKeyCause::Unavailable) | None => {
-                    "Make the system's credential store usable."
+                    "The keychain can't be opened. Restart the background service."
                 }
-                Some(DaemonMachineKeyCause::Random | DaemonMachineKeyCause::Database) => {
-                    "Restart the background service."
-                }
+                Some(DaemonMachineKeyCause::Random | DaemonMachineKeyCause::Database) => RESTART,
                 Some(DaemonMachineKeyCause::StoredPin) => LINK_AGAIN,
             },
-        }
+        })
     }
 }
 
-/// Where the service stands with its key for other devices.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// Where the service stands with its keys for other devices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum DaemonMachineKeyState {
+    /// The start's first read of the keys has not ended yet.
+    Reading,
     /// No key was made: the store or the service could not make one yet.
     NotMinted,
     /// The key this computer made is gone from the store.
@@ -286,9 +295,10 @@ pub enum DaemonMachineKeyState {
     Changed,
 }
 
-/// What stopped the service from reading or making its key.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+/// What stopped the service from reading or making its keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum DaemonMachineKeyCause {
     /// The keychain is locked.
     Locked,

@@ -126,7 +126,7 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         relay: None,
         wsl: None,
         secrets_file,
-        machine_key: deps.machine_identity.machine_key().await,
+        machine_key: deps.machine_identity.machine_key(),
     })
 }
 

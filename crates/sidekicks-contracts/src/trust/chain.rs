@@ -5,7 +5,7 @@ use ed25519_dalek::{Signature, SignatureError, VerifyingKey};
 
 /// Why a signature was refused. It names no key and no signature bytes.
 #[derive(Debug, thiserror::Error)]
-pub enum SignatureRefused {
+pub enum SignatureRefusal {
     /// The public key is no point on the curve.
     #[error("the public key is not an Ed25519 key")]
     PublicKey(#[source] SignatureError),
@@ -16,23 +16,23 @@ pub enum SignatureRefused {
 }
 
 /// Checks `signature` over `message` under the Ed25519 `public_key` with the strict check, which
-/// refuses a key or a signature point of small order. Fails with [`SignatureRefused`] when the key
+/// refuses a key or a signature point of small order. Fails with [`SignatureRefusal`] when the key
 /// is no curve point or the signature does not verify.
 pub fn verify_ed25519(
     public_key: &[u8; 32],
     message: &[u8],
     signature: &[u8; 64],
-) -> Result<(), SignatureRefused> {
-    let key = VerifyingKey::from_bytes(public_key).map_err(SignatureRefused::PublicKey)?;
+) -> Result<(), SignatureRefusal> {
+    let key = VerifyingKey::from_bytes(public_key).map_err(SignatureRefusal::PublicKey)?;
     key.verify_strict(message, &Signature::from_bytes(signature))
-        .map_err(SignatureRefused::Signature)
+        .map_err(SignatureRefusal::Signature)
 }
 
 #[cfg(test)]
 mod tests {
     use ed25519_dalek::{Signature, Signer as _, SigningKey, Verifier as _, VerifyingKey};
 
-    use super::{SignatureRefused, verify_ed25519};
+    use super::{SignatureRefusal, verify_ed25519};
 
     /// The small-order forgery: the identity point as the key and as the signature's `R`, with
     /// `S = 0`, so the lax check's `[S]B - [k]A` is the identity, whose encoding is `R`.
@@ -58,7 +58,7 @@ mod tests {
         );
         assert!(matches!(
             verify_ed25519(&public_key, message, &signature),
-            Err(SignatureRefused::Signature(_))
+            Err(SignatureRefusal::Signature(_))
         ));
 
         let signing_key = SigningKey::from_bytes(&[7; 32]);
@@ -67,7 +67,7 @@ mod tests {
         assert!(verify_ed25519(&minted_key, message, &signed).is_ok());
         assert!(matches!(
             verify_ed25519(&minted_key, b"another statement", &signed),
-            Err(SignatureRefused::Signature(_))
+            Err(SignatureRefusal::Signature(_))
         ));
     }
 }

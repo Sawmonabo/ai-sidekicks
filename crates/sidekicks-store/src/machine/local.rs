@@ -10,6 +10,7 @@ use rusqlite::OptionalExtension as _;
 use rusqlite::types::Value;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::UserId;
+use sidekicks_contracts::trust_statement::TrustName;
 use sidekicks_contracts::wire::id::IdError;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -133,13 +134,13 @@ pub async fn read_or_mint_local_machine(
 pub async fn record_local_machine_rename(
     writer: &DatabaseWriter,
     machine_id: &MachineId,
-    name: &str,
+    name: &TrustName,
 ) -> Result<(), WriteError> {
     writer
         .write(vec![WriteStatement {
             sql: Cow::Borrowed(UPDATE_LOCAL_MACHINE_NAME_SQL),
             bindings: StatementBindings::Named(vec![
-                text_binding("@name", name),
+                text_binding("@name", name.as_str()),
                 text_binding("@machineId", machine_id.as_str()),
             ]),
             expected_row_count: None,
@@ -152,6 +153,7 @@ pub async fn record_local_machine_rename(
 mod tests {
     use rusqlite::params;
     use sidekicks_contracts::machine::id::MachineId;
+    use sidekicks_contracts::trust_statement::TrustName;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
 
     use super::{read_local_machine, record_local_machine_rename};
@@ -190,12 +192,13 @@ mod tests {
                 .name
         };
 
-        record_local_machine_rename(&writer, &machine_id(), "laptop")
+        let trust_name = |name: &str| TrustName::new(name.to_owned()).expect("the name is one");
+        record_local_machine_rename(&writer, &machine_id(), &trust_name("laptop"))
             .await
             .expect("another machine's rename commits");
         assert_eq!(name().await, "desk");
 
-        record_local_machine_rename(&writer, &this_machine, "studio")
+        record_local_machine_rename(&writer, &this_machine, &trust_name("studio"))
             .await
             .expect("this machine's rename commits");
         assert_eq!(name().await, "studio");

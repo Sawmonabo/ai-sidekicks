@@ -1,8 +1,9 @@
 //! This machine's two keys for other devices: the Ed25519 identity key that signs the statements
 //! other devices trust it by, and the X25519 key its encrypted channel runs with. Each is an item
 //! in the credential store, minted at the first start once the store takes it and pinned by its
-//! public half in this machine's row. A key gone from the store or not matching its pin is refused,
-//! never minted again; a relink, or a sign-in while no registration pins the keys, mints both anew.
+//! public half in this machine's row. Each key is read, refused and held on its own: a key gone
+//! from the store or not matching its pin is refused, never minted again, and stops only what uses
+//! it; a relink, or a sign-in while no registration pins the keys, mints both anew.
 //!
 //! Only the public halves leave this module: a caller signs and runs a handshake through
 //! [`MachineIdentity`], which hands out no private key, so a relink ends every use of the old one.
@@ -24,13 +25,11 @@ use sidekicks_contracts::trust_statement::{ChannelPublicKey, MachineIdentityKey}
 use sidekicks_contracts::wire::base64::Base64Array;
 use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
-use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
 
 use crate::credential_store::items::SecretItems;
-use crate::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use crate::credential_store::service::KeychainService;
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
@@ -41,12 +40,17 @@ use crate::machine::local::LocalMachine;
 // The bytes of a seed and of a public half.
 const KEY_LENGTH: usize = 32;
 
-const SELECT_PINS_SQL: &str = "SELECT identity_public_key, channel_public_key FROM local_machine
-  WHERE machine_id = @machineId";
+const SELECT_IDENTITY_PIN_SQL: &str =
+    "SELECT identity_public_key FROM local_machine WHERE machine_id = @machineId";
 
-const UPDATE_PINS_SQL: &str = "UPDATE local_machine
-  SET identity_public_key = @identityPublicKey, channel_public_key = @channelPublicKey
-  WHERE machine_id = @machineId";
+const SELECT_CHANNEL_PIN_SQL: &str =
+    "SELECT channel_public_key FROM local_machine WHERE machine_id = @machineId";
+
+const UPDATE_IDENTITY_PIN_SQL: &str =
+    "UPDATE local_machine SET identity_public_key = @publicKey WHERE machine_id = @machineId";
+
+const UPDATE_CHANNEL_PIN_SQL: &str =
+    "UPDATE local_machine SET channel_public_key = @publicKey WHERE machine_id = @machineId";
 
 const SELECT_REGISTRATION_SQL: &str =
     "SELECT 1 FROM machine_trust_state WHERE machine_id = @machineId LIMIT 1";
@@ -95,7 +99,7 @@ pub enum IdentityKeyError {
 
 impl IdentityKeyError {
     // What the status read says for this refusal; `None` for a sign-in refused while registered,
-    // which leaves the keys as they were.
+    // which says nothing about the keys.
     fn machine_key(&self) -> Option<DaemonMachineKey> {
         let (state, cause) = match self {
             Self::Store(refusal) => {
@@ -129,13 +133,13 @@ impl IdentityKeyError {
     }
 }
 
-/// This machine's two keys, read or minted once and held for the run; see the module doc. Every
-/// read, mint and pin change runs under one lock.
+/// This machine's two keys, each read or minted once and held for the run; see the module doc.
+/// Every read, mint and pin change runs under one lock.
 pub struct MachineIdentity {
     /// The keys and what reads and writes them, shared with the first read.
     store: Arc<MachineKeyStore>,
     /// The start's first read, until the stop joins it.
-    first_read: Mutex<Option<AbortOnDropHandle<Result<(), IdentityKeyError>>>>,
+    first_read: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
 impl MachineIdentity {
@@ -171,12 +175,18 @@ impl MachineIdentity {
             keychain,
             reads,
             writer,
-            keys: tokio::sync::Mutex::new(None),
-            outcome: watch::Sender::new(None),
+            keys: tokio::sync::Mutex::new(CachedKeys::default()),
+            outcomes: Mutex::new(KeyOutcomes {
+                identity: KeyOutcome::Reading,
+                channel: KeyOutcome::Reading,
+            }),
         });
         let first_read = AbortOnDropHandle::new(tokio::spawn({
             let store = Arc::clone(&store);
-            async move { store.keys().await.map(|_keys| ()) }
+            async move {
+                // Each key's outcome is recorded, and a refusal logged, where it is made.
+                let _keys = store.both().await;
+            }
         }));
         Arc::new(Self {
             store,
@@ -184,11 +194,12 @@ impl MachineIdentity {
         })
     }
 
-    /// The public halves of the keys, read from the credential store or, before any was made,
-    /// minted. Fails with [`IdentityKeyError`] when the store refuses, a pinned key is gone or
+    /// The public halves of both keys, each read from the credential store or, before any was
+    /// made, minted. Fails with [`IdentityKeyError`] when the store refuses, a pinned key is gone or
     /// changed, the database fails or the system gives no random bytes; nothing is minted then.
     pub async fn key(&self) -> Result<MachinePublicKeys, IdentityKeyError> {
-        Ok(self.store.keys().await?.public_keys.clone())
+        let (identity, channel) = self.store.both().await?;
+        Ok(public_keys(&identity, &channel))
     }
 
     /// Mints both keys anew for a relink, replacing the items and the pins. Fails as
@@ -196,9 +207,7 @@ impl MachineIdentity {
     /// adopts what the store holds.
     pub async fn mint_again(&self) -> Result<MachinePublicKeys, IdentityKeyError> {
         let mut cached = self.store.keys.lock().await;
-        let keys = self.store.mint_again(&mut cached).await;
-        self.store.record(keys.as_ref().map(|_keys| ()));
-        Ok(keys?.public_keys.clone())
+        self.store.mint_again(&mut cached).await
     }
 
     /// Mints both keys anew for a sign-in, only while this machine has no registration, since
@@ -206,58 +215,40 @@ impl MachineIdentity {
     /// one, and otherwise as [`MachineIdentity::mint_again`] does.
     pub async fn mint_again_unregistered(&self) -> Result<MachinePublicKeys, IdentityKeyError> {
         let mut cached = self.store.keys.lock().await;
-        let keys = match self.store.is_registered().await {
-            Ok(true) => Err(IdentityKeyError::Registered),
-            Ok(false) => self.store.mint_again(&mut cached).await,
-            Err(error) => Err(error),
-        };
-        self.store.record(keys.as_ref().map(|_keys| ()));
-        Ok(keys?.public_keys.clone())
+        // A refused registration read leaves the keys as they were, so nothing is recorded.
+        if self.store.is_registered().await? {
+            return Err(IdentityKeyError::Registered);
+        }
+        self.store.mint_again(&mut cached).await
     }
 
     /// Signs `message` with the identity key and answers the signature with the key's public
-    /// half. Fails as [`MachineIdentity::key`] does.
+    /// half. Fails as [`MachineIdentity::key`] does for the identity key alone; the channel key's
+    /// state does not stop it.
     pub async fn sign(
         &self,
         message: &[u8],
     ) -> Result<(Signature, MachineIdentityKey), IdentityKeyError> {
-        let keys = self.store.keys().await?;
-        Ok((
-            keys.identity.sign(message),
-            keys.public_keys.identity_key.clone(),
-        ))
+        let identity = self.store.one::<SigningKey>().await?;
+        Ok((identity.key.sign(message), identity_key(&identity)))
     }
 
     /// Runs `use_secret` on the channel key's private bytes, for one handshake, and answers what
-    /// it returns; the bytes are never handed out to keep. Fails as [`MachineIdentity::key`] does.
+    /// it returns; the bytes are never handed out to keep. Fails as [`MachineIdentity::key`] does
+    /// for the channel key alone.
     pub async fn with_channel_secret<T>(
         &self,
         use_secret: impl FnOnce(&[u8; KEY_LENGTH]) -> T,
     ) -> Result<T, IdentityKeyError> {
-        let keys = self.store.keys().await?;
-        Ok(use_secret(keys.channel.as_bytes()))
+        let channel = self.store.one::<StaticSecret>().await?;
+        Ok(use_secret(channel.key.as_bytes()))
     }
 
-    /// Why the service holds no keys, as the last read, mint or relink found; `None` while they
-    /// are held. Waits for the first read's outcome without reading again, and reads `locked`
-    /// when it gives none within one keychain call's time, as a store call that does not answer
-    /// does.
-    pub async fn machine_key(&self) -> Option<DaemonMachineKey> {
-        let mut outcome = self.store.outcome.subscribe();
-        let recorded = tokio::time::timeout(KEYCHAIN_CALL_TIMEOUT, async {
-            *outcome
-                .wait_for(Option::is_some)
-                .await
-                .expect("the identity holds the outcome's sender")
-        })
-        .await;
-        match recorded {
-            Ok(recorded) => recorded.and_then(KeyOutcome::machine_key),
-            Err(_elapsed) => Some(DaemonMachineKey {
-                state: DaemonMachineKeyState::NotMinted,
-                cause: Some(DaemonMachineKeyCause::Locked),
-            }),
-        }
+    /// Where the keys stand as the last read, mint or relink of each left them, without reading
+    /// again: `reading` while the start's first read runs, the identity key's refusal, else the
+    /// channel key's, and `None` while both are held.
+    pub fn machine_key(&self) -> Option<DaemonMachineKey> {
+        lock(&self.store.outcomes).machine_key()
     }
 
     /// Waits for the start's first read to end; a later call returns at once.
@@ -265,13 +256,9 @@ impl MachineIdentity {
         let Some(first_read) = lock(&self.first_read).take() else {
             return;
         };
-        // The read's own outcome is recorded, and a refusal logged, where it was made.
-        if let Err(error) = first_read.await {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "the first read of the machine's keys did not finish"
-            );
-        }
+        first_read.await.expect(
+            "the first read neither panics, which aborts the service, nor is aborted while awaited",
+        );
     }
 }
 
@@ -289,79 +276,94 @@ struct MachineKeyStore {
     reads: Arc<DatabaseReadPool>,
     /// Where the pins are written.
     writer: Arc<DatabaseWriter>,
-    /// The keys once read or minted; only a success is kept.
-    keys: tokio::sync::Mutex<Option<Arc<MachineKeys>>>,
-    /// The last outcome of a read, mint or relink; `None` until the first.
-    outcome: watch::Sender<Option<KeyOutcome>>,
+    /// Each key once read or minted; only a success is kept.
+    keys: tokio::sync::Mutex<CachedKeys>,
+    /// Each key's last outcome, for the status read.
+    outcomes: Mutex<KeyOutcomes>,
 }
 
 impl MachineKeyStore {
-    // The keys, read or minted under the lock, the outcome recorded.
-    async fn keys(&self) -> Result<Arc<MachineKeys>, IdentityKeyError> {
+    // The one key `Key` is, under the lock.
+    async fn one<Key: PinnedKey>(&self) -> Result<Arc<Resolved<Key>>, IdentityKeyError> {
         let mut cached = self.keys.lock().await;
-        let keys = self.read_or_mint(&mut cached).await;
-        self.record(keys.as_ref().map(|_keys| ()));
-        keys
+        self.resolve::<Key>(&mut cached).await
     }
 
-    // The cached keys, else each key read against its pin or, with no pin and no item, minted;
-    // a key with no pin yet has it set once both are read.
-    async fn read_or_mint(
+    // Both keys under the lock, the channel key resolved even when the identity key is refused.
+    async fn both(
         &self,
-        cached: &mut Option<Arc<MachineKeys>>,
-    ) -> Result<Arc<MachineKeys>, IdentityKeyError> {
-        if let Some(keys) = cached {
-            return Ok(Arc::clone(keys));
-        }
-        let (identity_pin, channel_pin) = self.read_pins().await?;
-        let identity = self
-            .read_or_mint_one::<SigningKey>(&self.identity_account, identity_pin)
-            .await?;
-        let channel = self
-            .read_or_mint_one::<StaticSecret>(&self.channel_account, channel_pin)
-            .await?;
-        if identity_pin.is_none() || channel_pin.is_none() {
-            self.write_pins(Some((&identity.public_half, &channel.public_half)))
-                .await?;
-        }
-        Ok(cache(cached, MachineKeys::new(identity, channel)))
+    ) -> Result<(Arc<Resolved<SigningKey>>, Arc<Resolved<StaticSecret>>), IdentityKeyError> {
+        let mut cached = self.keys.lock().await;
+        let identity = self.resolve::<SigningKey>(&mut cached).await;
+        let channel = self.resolve::<StaticSecret>(&mut cached).await;
+        Ok((identity?, channel?))
     }
 
-    // One key against its `pin`: minted when neither it nor its item exists, adopted when only
-    // the item does, held when the item matches the pin. Fails with `Lost` when a pinned item is
-    // gone and `Changed` when the item is no key or another than the pinned one, writing nothing.
-    async fn read_or_mint_one<Key: PinnedKey>(
+    // The cached key, else the key read or minted, cached and its outcome recorded.
+    async fn resolve<Key: PinnedKey>(
         &self,
-        account: &str,
-        pin: Option<[u8; KEY_LENGTH]>,
-    ) -> Result<Resolved<Key>, IdentityKeyError> {
-        let Some(item) = self.keychain.read(account).await? else {
-            return match pin {
-                None => {
-                    let seed = random_seed()?;
-                    self.write_item(account, &seed).await?;
-                    Ok(Resolved::of_seed(&seed))
+        cached: &mut CachedKeys,
+    ) -> Result<Arc<Resolved<Key>>, IdentityKeyError> {
+        if let Some(key) = Key::cached(cached) {
+            return Ok(Arc::clone(key));
+        }
+        let read = self.read_or_mint::<Key>().await;
+        self.record(&[Key::ROLE], read.as_ref().map(|_key| ()));
+        Ok(Arc::clone(Key::cached(cached).insert(Arc::new(read?))))
+    }
+
+    // One key against its pin: minted when neither it nor its item exists, adopted when only the
+    // item does, held when the item matches the pin; a key with no pin yet has it set. Fails with
+    // `Lost` when a pinned item is gone and `Changed` when the item is no key or another than the
+    // pinned one, writing nothing.
+    async fn read_or_mint<Key: PinnedKey>(&self) -> Result<Resolved<Key>, IdentityKeyError> {
+        let pin = self.read_pin(Key::ROLE).await?;
+        let resolved = match self.keychain.read(self.account(Key::ROLE)).await? {
+            None if pin.is_some() => return Err(IdentityKeyError::Lost),
+            None => {
+                let seed = random_seed()?;
+                self.write_item(self.account(Key::ROLE), &seed).await?;
+                Resolved::of_seed(&seed)
+            }
+            Some(item) => {
+                let seed = item_seed(&item).ok_or(IdentityKeyError::Changed)?;
+                let resolved = Resolved::<Key>::of_seed(&seed);
+                if pin.is_some_and(|pin| pin != resolved.public_half) {
+                    return Err(IdentityKeyError::Changed);
                 }
-                Some(_) => Err(IdentityKeyError::Lost),
-            };
+                resolved
+            }
         };
-        let seed = item_seed(&item).ok_or(IdentityKeyError::Changed)?;
-        let resolved = Resolved::<Key>::of_seed(&seed);
-        if pin.is_some_and(|pin| pin != resolved.public_half) {
-            return Err(IdentityKeyError::Changed);
+        if pin.is_none() {
+            self.write_pins(&[(Key::ROLE, Some(resolved.public_half))])
+                .await?;
         }
         Ok(resolved)
     }
 
-    // The relink: empties the cache, clears both pins, draws both seeds, writes both items
-    // verified, then sets both pins and caches the keys. A stop partway lands on a row the next
-    // read resolves.
+    // The relink under the lock `cached` was taken with, its outcome recorded for both keys.
     async fn mint_again(
         &self,
-        cached: &mut Option<Arc<MachineKeys>>,
-    ) -> Result<Arc<MachineKeys>, IdentityKeyError> {
-        *cached = None;
-        self.write_pins(None).await?;
+        cached: &mut CachedKeys,
+    ) -> Result<MachinePublicKeys, IdentityKeyError> {
+        let minted = self.mint_both(cached).await;
+        self.record(
+            &[KeyRole::Identity, KeyRole::Channel],
+            minted.as_ref().map(|_keys| ()),
+        );
+        minted
+    }
+
+    // Empties the cache, clears both pins, draws both seeds, writes both items verified, then sets
+    // both pins in one write and caches the keys. A stop partway lands on a row the next read
+    // resolves.
+    async fn mint_both(
+        &self,
+        cached: &mut CachedKeys,
+    ) -> Result<MachinePublicKeys, IdentityKeyError> {
+        *cached = CachedKeys::default();
+        self.write_pins(&[(KeyRole::Identity, None), (KeyRole::Channel, None)])
+            .await?;
         let identity_seed = random_seed()?;
         let channel_seed = random_seed()?;
         self.write_item(&self.identity_account, &identity_seed)
@@ -370,9 +372,22 @@ impl MachineKeyStore {
             .await?;
         let identity = Resolved::<SigningKey>::of_seed(&identity_seed);
         let channel = Resolved::<StaticSecret>::of_seed(&channel_seed);
-        self.write_pins(Some((&identity.public_half, &channel.public_half)))
-            .await?;
-        Ok(cache(cached, MachineKeys::new(identity, channel)))
+        self.write_pins(&[
+            (KeyRole::Identity, Some(identity.public_half)),
+            (KeyRole::Channel, Some(channel.public_half)),
+        ])
+        .await?;
+        let identity = cached.identity.insert(Arc::new(identity));
+        let channel = cached.channel.insert(Arc::new(channel));
+        Ok(public_keys(identity, channel))
+    }
+
+    // The credential-store account of the key `role` names.
+    fn account(&self, role: KeyRole) -> &str {
+        match role {
+            KeyRole::Identity => &self.identity_account,
+            KeyRole::Channel => &self.channel_account,
+        }
     }
 
     // Writes `seed` under `account` and reads it back before the key is used.
@@ -386,50 +401,56 @@ impl MachineKeyStore {
         self.keychain.write_verified(account, &item).await
     }
 
-    // The two pins, each `None` until set. Fails with `StoredPin` when one is not 32 bytes.
-    async fn read_pins(
-        &self,
-    ) -> Result<(Option<[u8; KEY_LENGTH]>, Option<[u8; KEY_LENGTH]>), IdentityKeyError> {
+    // The pin of the key `role` names, `None` until set. Fails with `StoredPin` when it is not 32
+    // bytes.
+    async fn read_pin(&self, role: KeyRole) -> Result<Option<[u8; KEY_LENGTH]>, IdentityKeyError> {
         let machine_id = self.machine_id.as_str().to_owned();
-        let (identity, channel) = self
+        let sql = match role {
+            KeyRole::Identity => SELECT_IDENTITY_PIN_SQL,
+            KeyRole::Channel => SELECT_CHANNEL_PIN_SQL,
+        };
+        let stored = self
             .reads
             .read(ReadLength::Short, move |connection| {
-                Ok::<_, IdentityKeyError>(connection.prepare(SELECT_PINS_SQL)?.query_row(
-                    named_params! { "@machineId": machine_id },
-                    |row| {
-                        Ok((
-                            row.get::<_, Option<Vec<u8>>>(0)?,
-                            row.get::<_, Option<Vec<u8>>>(1)?,
-                        ))
-                    },
-                )?)
+                Ok::<_, IdentityKeyError>(
+                    connection
+                        .prepare(sql)?
+                        .query_row(named_params! { "@machineId": machine_id }, |row| {
+                            row.get::<_, Option<Vec<u8>>>(0)
+                        })?,
+                )
             })
             .await?;
-        Ok((stored_pin(identity)?, stored_pin(channel)?))
+        stored
+            .map(|bytes| {
+                <[u8; KEY_LENGTH]>::try_from(bytes).map_err(|_bytes| IdentityKeyError::StoredPin)
+            })
+            .transpose()
     }
 
-    // Sets both pins to `public_halves`, the identity key's first, or clears both on `None`.
+    // Sets each named key's pin to its public half, or clears it on `None`, in one write.
     async fn write_pins(
         &self,
-        public_halves: Option<(&[u8; KEY_LENGTH], &[u8; KEY_LENGTH])>,
+        pins: &[(KeyRole, Option<[u8; KEY_LENGTH]>)],
     ) -> Result<(), WriteError> {
-        let (identity, channel) = public_halves.map_or((Value::Null, Value::Null), |halves| {
-            (
-                Value::Blob(halves.0.to_vec()),
-                Value::Blob(halves.1.to_vec()),
-            )
-        });
-        self.writer
-            .write(vec![WriteStatement {
-                sql: Cow::Borrowed(UPDATE_PINS_SQL),
+        let statements = pins
+            .iter()
+            .map(|(role, public_half)| WriteStatement {
+                sql: Cow::Borrowed(match role {
+                    KeyRole::Identity => UPDATE_IDENTITY_PIN_SQL,
+                    KeyRole::Channel => UPDATE_CHANNEL_PIN_SQL,
+                }),
                 bindings: StatementBindings::Named(vec![
-                    (Cow::Borrowed("@identityPublicKey"), identity),
-                    (Cow::Borrowed("@channelPublicKey"), channel),
+                    (
+                        Cow::Borrowed("@publicKey"),
+                        public_half.map_or(Value::Null, |half| Value::Blob(half.to_vec())),
+                    ),
                     text_binding("@machineId", self.machine_id.as_str()),
                 ]),
                 expected_row_count: Some(1),
-            }])
-            .await?;
+            })
+            .collect();
+        self.writer.write(statements).await?;
         Ok(())
     }
 
@@ -449,85 +470,152 @@ impl MachineKeyStore {
             .await
     }
 
-    // Records `outcome` for the status read and logs a refusal; a sign-in refused while
-    // registered changes nothing and records nothing.
-    fn record(&self, outcome: Result<(), &IdentityKeyError>) {
+    // Records `outcome` for the keys `roles` names and logs a refusal in the status member's words.
+    fn record(&self, roles: &[KeyRole], outcome: Result<(), &IdentityKeyError>) {
         let recorded = match outcome {
             Ok(()) => KeyOutcome::Held,
             Err(error) => {
                 let Some(machine_key) = error.machine_key() else {
                     return;
                 };
-                tracing::warn!(
-                    error = error as &(dyn Error + 'static),
-                    state = ?machine_key.state,
-                    cause = ?machine_key.cause,
-                    action = machine_key.action(),
-                    "the machine's key was not minted"
-                );
+                log_refusal(roles, error, machine_key);
                 KeyOutcome::Refused(machine_key)
             }
         };
-        self.outcome.send_replace(Some(recorded));
+        let mut outcomes = lock(&self.outcomes);
+        for role in roles {
+            *outcomes.of(*role) = recorded;
+        }
     }
 }
 
-/// The last outcome of a read, mint or relink of the keys.
+// One log line for a refusal of the keys `roles` names, with the member's state, cause and action.
+fn log_refusal(roles: &[KeyRole], error: &IdentityKeyError, machine_key: DaemonMachineKey) {
+    let keys = match roles {
+        [KeyRole::Identity] => "identity",
+        [KeyRole::Channel] => "channel",
+        _ => "identity and channel",
+    };
+    let state: &'static str = machine_key.state.into();
+    let cause = machine_key.cause.map(<&'static str>::from);
+    let action = machine_key.action();
+    // The credential store logs its own refusals, so only another failure carries its error here.
+    if let IdentityKeyError::Store(_) = error {
+        tracing::warn!(
+            keys,
+            state,
+            cause,
+            action,
+            "the machine's key cannot be used"
+        );
+    } else {
+        tracing::warn!(
+            error = error as &(dyn Error + 'static),
+            keys,
+            state,
+            cause,
+            action,
+            "the machine's key cannot be used"
+        );
+    }
+}
+
+/// Which of the machine's two keys.
+#[derive(Clone, Copy)]
+enum KeyRole {
+    /// The Ed25519 key that signs.
+    Identity,
+    /// The X25519 key the channel runs with.
+    Channel,
+}
+
+/// The last outcome of a read, mint or relink of one key.
 #[derive(Clone, Copy)]
 enum KeyOutcome {
-    /// The keys are held.
+    /// The start's first read has not reached the key yet.
+    Reading,
+    /// The key is held.
     Held,
-    /// No keys are held, for this reason.
+    /// The key is not held, for this reason.
     Refused(DaemonMachineKey),
 }
 
-impl KeyOutcome {
-    // What the status read says: nothing while the keys are held.
-    fn machine_key(self) -> Option<DaemonMachineKey> {
-        match self {
-            Self::Held => None,
-            Self::Refused(machine_key) => Some(machine_key),
+/// Each key's last outcome.
+struct KeyOutcomes {
+    identity: KeyOutcome,
+    channel: KeyOutcome,
+}
+
+impl KeyOutcomes {
+    // The outcome of the key `role` names.
+    fn of(&mut self, role: KeyRole) -> &mut KeyOutcome {
+        match role {
+            KeyRole::Identity => &mut self.identity,
+            KeyRole::Channel => &mut self.channel,
+        }
+    }
+
+    // What the status read says: the identity key's refusal, else the channel key's, else
+    // `reading` while either is not reached yet; nothing while both are held.
+    fn machine_key(&self) -> Option<DaemonMachineKey> {
+        match (self.identity, self.channel) {
+            (KeyOutcome::Refused(machine_key), _) | (_, KeyOutcome::Refused(machine_key)) => {
+                Some(machine_key)
+            }
+            (KeyOutcome::Reading, _) | (_, KeyOutcome::Reading) => Some(DaemonMachineKey {
+                state: DaemonMachineKeyState::Reading,
+                cause: None,
+            }),
+            (KeyOutcome::Held, KeyOutcome::Held) => None,
         }
     }
 }
 
-/// Both keys, held for the run until a relink.
-struct MachineKeys {
-    /// The identity key.
-    identity: SigningKey,
-    /// The channel key.
-    channel: StaticSecret,
-    /// Both public halves.
-    public_keys: MachinePublicKeys,
+/// Each key once read or minted, held for the run until a relink.
+#[derive(Default)]
+struct CachedKeys {
+    identity: Option<Arc<Resolved<SigningKey>>>,
+    channel: Option<Arc<Resolved<StaticSecret>>>,
 }
 
-impl MachineKeys {
-    fn new(identity: Resolved<SigningKey>, channel: Resolved<StaticSecret>) -> Self {
-        Self {
-            public_keys: MachinePublicKeys {
-                identity_key: MachineIdentityKey::Ed25519 {
-                    public_key: Base64Array::new(identity.public_half),
-                },
-                channel_key: ChannelPublicKey::X25519 {
-                    public_key: Base64Array::new(channel.public_half),
-                },
-            },
-            identity: identity.key,
-            channel: channel.key,
-        }
+// The public halves of both keys.
+fn public_keys(
+    identity: &Resolved<SigningKey>,
+    channel: &Resolved<StaticSecret>,
+) -> MachinePublicKeys {
+    MachinePublicKeys {
+        identity_key: identity_key(identity),
+        channel_key: ChannelPublicKey::X25519 {
+            public_key: Base64Array::new(channel.public_half),
+        },
+    }
+}
+
+// The identity key's public half on the wire.
+fn identity_key(identity: &Resolved<SigningKey>) -> MachineIdentityKey {
+    MachineIdentityKey::Ed25519 {
+        public_key: Base64Array::new(identity.public_half),
     }
 }
 
 /// A key the credential store keeps as its seed and this machine's row pins by its public half.
 trait PinnedKey: Sized {
+    /// Which of the two keys it is.
+    const ROLE: KeyRole;
+
     /// The key `seed` makes.
     fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self;
 
     /// The key's public half, which its pin holds.
     fn public_half(&self) -> [u8; KEY_LENGTH];
+
+    /// Where `cached` holds this key.
+    fn cached(cached: &mut CachedKeys) -> &mut Option<Arc<Resolved<Self>>>;
 }
 
 impl PinnedKey for SigningKey {
+    const ROLE: KeyRole = KeyRole::Identity;
+
     fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self {
         Self::from_bytes(seed)
     }
@@ -535,9 +623,15 @@ impl PinnedKey for SigningKey {
     fn public_half(&self) -> [u8; KEY_LENGTH] {
         self.verifying_key().to_bytes()
     }
+
+    fn cached(cached: &mut CachedKeys) -> &mut Option<Arc<Resolved<Self>>> {
+        &mut cached.identity
+    }
 }
 
 impl PinnedKey for StaticSecret {
+    const ROLE: KeyRole = KeyRole::Channel;
+
     fn from_seed(seed: &[u8; KEY_LENGTH]) -> Self {
         Self::from(*seed)
     }
@@ -545,13 +639,15 @@ impl PinnedKey for StaticSecret {
     fn public_half(&self) -> [u8; KEY_LENGTH] {
         PublicKey::from(self).to_bytes()
     }
+
+    fn cached(cached: &mut CachedKeys) -> &mut Option<Arc<Resolved<Self>>> {
+        &mut cached.channel
+    }
 }
 
 /// A key read or minted, with its public half.
 struct Resolved<Key> {
-    /// The key.
     key: Key,
-    /// Its public half.
     public_half: [u8; KEY_LENGTH],
 }
 
@@ -572,11 +668,6 @@ fn random_seed() -> Result<Zeroizing<[u8; KEY_LENGTH]>, getrandom::Error> {
     Ok(seed)
 }
 
-// Caches `keys` and answers them.
-fn cache(cached: &mut Option<Arc<MachineKeys>>, keys: MachineKeys) -> Arc<MachineKeys> {
-    Arc::clone(cached.insert(Arc::new(keys)))
-}
-
 // The seed `item` holds, or `None` when it is not exactly 64 lowercase hex characters or is all
 // zero, the one seed no mint makes.
 fn item_seed(item: &SecretString) -> Option<Zeroizing<[u8; KEY_LENGTH]>> {
@@ -590,15 +681,6 @@ fn item_seed(item: &SecretString) -> Option<Zeroizing<[u8; KEY_LENGTH]>> {
         return None;
     }
     Some(seed)
-}
-
-// A stored pin, `None` while unset. Fails with `StoredPin` when it is not 32 bytes.
-fn stored_pin(stored: Option<Vec<u8>>) -> Result<Option<[u8; KEY_LENGTH]>, IdentityKeyError> {
-    stored
-        .map(|bytes| {
-            <[u8; KEY_LENGTH]>::try_from(bytes).map_err(|_bytes| IdentityKeyError::StoredPin)
-        })
-        .transpose()
 }
 
 #[cfg(test)]

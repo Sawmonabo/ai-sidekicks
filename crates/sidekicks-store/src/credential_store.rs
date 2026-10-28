@@ -139,7 +139,7 @@ impl KeychainRefusal {
 
     /// Whether the call was refused because the sealed secrets file cannot be opened, whose cause
     /// the secrets file's status names.
-    pub fn is_secrets_file_unopened(&self) -> bool {
+    pub(crate) fn is_secrets_file_unopened(&self) -> bool {
         self.is_secrets_file_unopened
     }
 

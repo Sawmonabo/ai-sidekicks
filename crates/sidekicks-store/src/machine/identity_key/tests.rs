@@ -14,6 +14,7 @@ use sidekicks_contracts::daemon::status::{
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::session::id::UserId;
+use sidekicks_contracts::trust::chain::verify_ed25519;
 use sidekicks_contracts::trust_statement::{ChannelPublicKey, MachineIdentityKey};
 use sidekicks_contracts::wire::base64::Base64Array;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -330,7 +331,7 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
 
     let items_after = fixture.items();
     let pins_after = fixture.pins();
-    let recorded = identity.machine_key().await;
+    let recorded = identity.machine_key();
     match expected {
         Expected::Minted => {
             let keys = read.expect("the keys are minted");
@@ -407,9 +408,10 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
     }
 }
 
-/// A store that refuses the first read as locked: the status member reads the start's refused read
-/// without reading again, and a later read mints the keys. Killed by a cached refusal, and by a
-/// status read that reads the store.
+/// A store that refuses the first read as locked: the status member reads `reading` until the
+/// start's first read ends, then the identity key's refusal while the channel key, read on its own,
+/// is minted; a later read mints the identity key. Killed by a status that waits for the first read
+/// or guesses its outcome, a cached refusal, and a pair resolved as one.
 #[tokio::test]
 async fn a_locked_first_read_is_reported_and_the_next_read_mints() {
     let fixture = Fixture::new((None, None)).await;
@@ -417,21 +419,96 @@ async fn a_locked_first_read_is_reported_and_the_next_read_mints() {
     let identity = fixture.identity();
 
     assert_eq!(
-        identity.machine_key().await,
+        identity.machine_key(),
+        Some(DaemonMachineKey {
+            state: DaemonMachineKeyState::Reading,
+            cause: None,
+        })
+    );
+
+    identity.stop().await;
+    assert_eq!(
+        identity.machine_key(),
         Some(DaemonMachineKey {
             state: DaemonMachineKeyState::NotMinted,
             cause: Some(DaemonMachineKeyCause::Locked),
         })
     );
-    assert_eq!(fixture.keychain.reads(), 1);
+    assert_eq!(fixture.keychain.writes(), 1);
 
-    identity.stop().await;
     identity
         .key()
         .await
-        .expect("the store answers, so the keys are minted");
-    assert_eq!(identity.machine_key().await, None);
+        .expect("the store answers, so the identity key is minted");
+    assert_eq!(identity.machine_key(), None);
     assert_eq!(fixture.keychain.writes(), 2);
+}
+
+/// What the channel item holds while the identity item matches its pin.
+#[derive(Clone, Copy, Debug)]
+enum ChannelItem {
+    Absent,
+    OtherKey,
+}
+
+/// A channel key lost or changed alone refuses the pair, the channel and the status member, while
+/// the identity key still signs, and nothing is written. Killed by the channel key read against no
+/// pin, and by a signature that needs both keys.
+#[rstest]
+#[case::lost(ChannelItem::Absent, DaemonMachineKeyState::Lost)]
+#[case::changed(ChannelItem::OtherKey, DaemonMachineKeyState::Changed)]
+#[tokio::test]
+async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
+    #[case] channel_item: ChannelItem,
+    #[case] state: DaemonMachineKeyState,
+) {
+    let (identity_half, channel_half) = public_halves(&IDENTITY_SEED, &CHANNEL_SEED);
+    let pins_before = (Some(identity_half.to_vec()), Some(channel_half.to_vec()));
+    let fixture = Fixture::new(pins_before.clone()).await;
+    fixture
+        .keychain
+        .file(fixture.identity_account(), hex(&IDENTITY_SEED));
+    if let ChannelItem::OtherKey = channel_item {
+        fixture
+            .keychain
+            .file(fixture.channel_account(), hex(&OTHER_CHANNEL_SEED));
+    }
+    let items_before = fixture.items();
+    let identity = fixture.identity();
+    identity.stop().await;
+    let refused = Some(DaemonMachineKey { state, cause: None });
+
+    let pair = identity.key().await;
+    let channel = identity.with_channel_secret(|_secret| ()).await;
+    let message = b"a statement";
+    let (signature, signer) = identity
+        .sign(message)
+        .await
+        .expect("the identity key still signs");
+
+    assert_eq!(
+        pair.expect_err("the pair is refused").machine_key(),
+        refused
+    );
+    assert_eq!(
+        channel.expect_err("the channel is refused").machine_key(),
+        refused
+    );
+    assert_eq!(
+        signer,
+        MachineIdentityKey::Ed25519 {
+            public_key: Base64Array::new(identity_half),
+        }
+    );
+    verify_ed25519(&identity_half, message, &signature.to_bytes())
+        .expect("the signature verifies under the identity key");
+    assert_eq!(identity.machine_key(), refused);
+    assert!(
+        fixture.items() == items_before,
+        "the items are kept as they were"
+    );
+    assert_eq!(fixture.pins(), pins_before);
+    assert_eq!(fixture.keychain.writes(), 0);
 }
 
 /// A relink whose pin write fails after both items landed: the next read adopts the new keys,
@@ -519,6 +596,6 @@ async fn a_sign_in_mints_again_only_while_unregistered(
     } else {
         assert!(matches!(minted, Err(IdentityKeyError::Registered)));
         assert_eq!(now, first);
-        assert_eq!(identity.machine_key().await, None);
+        assert_eq!(identity.machine_key(), None);
     }
 }

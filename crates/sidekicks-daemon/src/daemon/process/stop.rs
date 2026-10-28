@@ -117,7 +117,7 @@ pub(crate) async fn stop_work(
             failures.push(DaemonStopFailure::MutatingCallsRunning(running));
         }
     }
-    // Let go once joined or past the bound; the last hold's drop aborts a read still under way.
+    // Past the bound, the dropped stop drops the first read's handle, which aborts it.
     if let Some(machine_identity) = process.machine_identity.take()
         && tokio::time::timeout(remaining(), machine_identity.stop())
             .await
