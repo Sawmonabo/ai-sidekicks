@@ -1,5 +1,5 @@
-//! The projects, repository mounts and workspaces tables, which the daemon's schema runs with the
-//! rest. Every closed set a column holds is written from its enum.
+//! The projects, clone start keys, repository mounts and workspaces tables, which the daemon's
+//! schema runs with the rest. Every closed set a column holds is written from its enum.
 
 use std::sync::LazyLock;
 
@@ -39,8 +39,9 @@ pub enum MountOrigin {
     Managed,
 }
 
-/// The workspace part of the daemon's schema: projects, then the repository mounts that name them,
-/// then the workspaces bound to those mounts, in foreign-key order.
+/// The workspace part of the daemon's schema: projects and their clone starts' keys, then the
+/// repository mounts that name them, then the workspaces bound to those mounts, in foreign-key
+/// order.
 pub(crate) static WORKSPACE_SCHEMA_SQL: LazyLock<String> = LazyLock::new(workspace_schema_sql);
 
 /// The store's list and the workspace part.
@@ -105,6 +106,22 @@ CREATE TABLE projects (
   CHECK ((clone_staging_folder IS NULL) = (clone_staging_identity IS NULL)),
   CHECK (state = '{cloning}' OR clone_staging_folder IS NULL),
   CHECK ((clone_outcome IS '{failed}') = (clone_failure IS NOT NULL))
+) STRICT;
+
+-- A clone start's own record, written with the project row the start inserts or retargets: a
+-- resend under the same client_idempotency_key answers project_id when its fields equal these,
+-- and is refused when any differs. clone_url is the address with any user and password taken
+-- out, so no credential is kept, and two starts differing only in their credentials answer the
+-- first project. parent_folder, place and rerun_project_id are the request's parentFolder, place
+-- and projectId as sent, each NULL when it named none; place is stored as projects.place stores
+-- it. Forgetting the project deletes its keys, after which a resend is a new start.
+CREATE TABLE project_clone_requests (
+  client_idempotency_key TEXT PRIMARY KEY,
+  project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  clone_url              TEXT NOT NULL,
+  parent_folder          TEXT,
+  place                  TEXT,
+  rerun_project_id       TEXT
 ) STRICT;
 
 -- A mount belongs to the machine, not to a session. local_path is what the

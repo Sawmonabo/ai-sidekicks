@@ -157,11 +157,28 @@ pub enum RepoRefusal {
         /// The failed start's own text, or empty when the service was never started.
         message: String,
     },
+    /// A clone start under a key on record whose request differs from the one the key first
+    /// answered (`project.clone.idempotencyConflict`); it names the project the key answered.
+    #[error(
+        "clone start refused: its key already started project {project_id} for a different \
+         request"
+    )]
+    CloneIdempotencyConflict {
+        /// The project the key first answered.
+        project_id: ProjectId,
+    },
+    /// A clone's parent folder that names no complete location, refused as the request's own
+    /// params are (`request.paramsInvalid`), its issue at `parentFolder`.
+    #[error("the params break the method's contract")]
+    RelativeCloneFolder,
 }
 
 /// The attach request's member holding the path entered, where a resolved root past the cap is
 /// named.
 const LOCAL_PATH_MEMBER: &str = "localPath";
+
+/// The clone start's member holding the folder the clone goes in.
+const PARENT_FOLDER_MEMBER: &str = "parentFolder";
 
 impl From<RepoRefusal> for DomainError {
     fn from(refusal: RepoRefusal) -> Self {
@@ -253,6 +270,20 @@ impl From<RepoRefusal> for DomainError {
             RepoRefusal::CloneUnavailable { message: _ } => {
                 (RefusalCode::ProjectCloneUnavailable, None)
             }
+            RepoRefusal::CloneIdempotencyConflict { project_id } => (
+                RefusalCode::ProjectCloneIdempotencyConflict,
+                Some(refusal_fields(json!({ "projectId": project_id }))),
+            ),
+            RepoRefusal::RelativeCloneFolder => (
+                RefusalCode::RequestParamsInvalid,
+                Some(refusal_fields(json!({
+                    "issues": [Issue {
+                        path: vec![IssuePathSegment::Member(PARENT_FOLDER_MEMBER.to_owned())],
+                        message: "the folder must name one complete location".to_owned(),
+                        params: None,
+                    }],
+                }))),
+            ),
         };
         DomainError {
             message,
@@ -286,6 +317,9 @@ fn root_resolution_message(reason: RepoMountRootResolutionReason) -> &'static st
         RepoMountRootResolutionReason::RootMismatch => {
             "canonical repository root resolution failed: the path's working tree is not one git \
              names for its repository, or the repository is not the one attached there"
+        }
+        RepoMountRootResolutionReason::NotUnicode => {
+            "canonical repository root resolution failed: the folder's path is not valid Unicode"
         }
     }
 }

@@ -49,7 +49,7 @@ const GIT_FATAL_EXIT_CODE: i32 = 128;
 const NOT_A_REPOSITORY_MARKER: &str = "fatal: not a git repository";
 
 /// The entry git's discovery looks for, a folder or a `gitdir:` file; it is only looked at.
-const GIT_ENTRY_NAME: &str = ".git";
+pub(crate) const GIT_ENTRY_NAME: &str = ".git";
 
 /// What an attach may keep about a path: every member absolute with each link resolved, and both
 /// roots readable when resolved.
@@ -111,8 +111,9 @@ impl RepoRootResolver {
     /// a path naming no complete location, `pathNotFound` or `notReadable` from the path's own
     /// read before git runs, `notReadable` for any file read past the bounded read's ceiling,
     /// `notARepository` on git's verdict alone, `rootMismatch` for a working tree git does not
-    /// name for the repository, `notReadable` when a git call passes its bound, and `vcsError` when
-    /// git cannot answer otherwise.
+    /// name for the repository, `notUnicode` for a resolved path that is not valid Unicode,
+    /// `notReadable` when a git call passes its bound, and `vcsError` when git cannot answer
+    /// otherwise.
     pub(crate) async fn resolve_canonical_root(
         &self,
         local_path: &Path,
@@ -134,6 +135,8 @@ impl RepoRootResolver {
         let input = resolve_real_path(local_path)
             .await
             .map_err(|error| refusal_of_filesystem_failure(&error))?;
+        // A link spelled in valid Unicode can resolve to a name that is not.
+        require_unicode_path(&input)?;
 
         let working_tree_root = match self.query_toplevel(&input).await? {
             ToplevelAnswer::Toplevel(toplevel) => toplevel,
@@ -192,6 +195,9 @@ impl RepoRootResolver {
         if !is_main_checkout {
             require_readable_root(&working_tree_root).await?;
         }
+        // The working tree holds the input, so it is valid Unicode too; these two need not be.
+        require_unicode_path(&canonical_root)?;
+        require_unicode_path(&common_folder)?;
         Ok(RepoRootResolution {
             canonical_root,
             working_tree_root,
@@ -353,6 +359,14 @@ impl RepoRootResolver {
             .await
             .map_err(|error| vcs_refusal(&error))
     }
+}
+
+/// `path` as text, refused `notUnicode` when it is not valid Unicode, since a path is stored,
+/// compared and sent as text; the attach's resolution and the clone start's parent folder both
+/// call it on a resolved path, so nothing is written for such a folder.
+pub(crate) fn require_unicode_path(path: &Path) -> Result<&str, RepoRefusal> {
+    path.to_str()
+        .ok_or_else(|| root_resolution_refusal(RepoMountRootResolutionReason::NotUnicode, None))
 }
 
 /// The refusal a failed read of a picked path gives: `pathNotFound` when the path names nothing,
