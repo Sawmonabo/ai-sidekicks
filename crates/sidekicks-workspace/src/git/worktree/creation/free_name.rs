@@ -28,7 +28,7 @@ use crate::git::worktree::reads::{
     RECORD_LOCK_FILE_NAME, has_branch, read_branch_names, read_linked_tree_record,
 };
 use crate::git::worktree::rows::{AttachedMountRow, LIVE_WORKTREE_STATE_PREDICATE};
-use crate::git::worktree::tree_records::has_record_naming;
+use crate::git::worktree::tree_records::{has_record_naming, hold_records};
 
 // The index's own predicate, read before git runs so a daemon-made live tree on the name is the
 // typed collision rather than git's line.
@@ -87,6 +87,10 @@ impl NameWalk<'_> {
             NameCollision::Suffix => Some(self.read_taken_names().await?),
             NameCollision::Refuse => None,
         };
+        let common_folder = match &taken {
+            Some(taken) => taken.common_folder.clone(),
+            None => self.read_common_folder().await?,
+        };
         // `Refuse` stops at ordinal 1, made or refused; `Suffix` walks until a name is free, which
         // it reaches because only finitely many names are taken.
         let mut ordinal = 1;
@@ -102,7 +106,7 @@ impl NameWalk<'_> {
                 }
                 None => self.refuse_taken_name(&name).await?,
             }
-            match self.add_worktree(name, base_ref).await? {
+            match self.add_worktree(name, base_ref, &common_folder).await? {
                 AddOutcome::Made(tree) => return Ok(tree),
                 AddOutcome::Taken(git_line) => match collision {
                     NameCollision::Refuse => {
@@ -202,16 +206,19 @@ impl NameWalk<'_> {
     // The branches and the git common folder a walk judges names against, read once per walk; a
     // read that does not complete fails the creation.
     async fn read_taken_names(&self) -> Result<TakenNames, WorktreeCreationError> {
-        let branches = self.read_branch_names().await?;
-        let common_folder = read_git_common_folder(self.git, self.place(), self.repository(), None)
+        Ok(TakenNames {
+            branches: self.read_branch_names().await?,
+            common_folder: self.read_common_folder().await?,
+        })
+    }
+
+    // The repository's git common folder; a read that does not complete fails the creation.
+    async fn read_common_folder(&self) -> Result<PathBuf, WorktreeCreationError> {
+        read_git_common_folder(self.git, self.place(), self.repository(), None)
             .await
             .map_err(|failure| {
                 create_failed(WorktreeCreateFailureReason::GitInvocationFailed, failure)
-            })?;
-        Ok(TakenNames {
-            branches,
-            common_folder,
-        })
+            })
     }
 
     async fn has_live_worktree_on(&self, branch_name: &str) -> Result<bool, WorktreeCreationError> {
@@ -227,12 +234,14 @@ impl NameWalk<'_> {
     }
 
     // `git worktree add -b` at the name's folder, with the repository's hooks and file watch, as
-    // the person's own tree gets them. A failure that is neither git's taken line nor a made tree
-    // whose checkout hook failed undoes what git left and fails.
+    // the person's own tree gets them, holding the records of the repository whose git common
+    // folder is `common_folder` while git writes its record. A failure that is neither git's taken
+    // line nor a made tree whose checkout hook failed undoes what git left and fails.
     async fn add_worktree(
         &self,
         name: WorktreeName,
         base_ref: &GitRefName,
+        common_folder: &Path,
     ) -> Result<AddOutcome, WorktreeCreationError> {
         if let Some(parent) = name.folder_path.parent() {
             tokio::fs::create_dir_all(parent).await.map_err(|failure| {
@@ -256,7 +265,15 @@ impl NameWalk<'_> {
         );
         arguments.push(name.folder_path.clone().into_os_string());
         arguments.push(OsString::from(base_ref.as_str()));
-        let failure = match self.git.run(self.place(), GitCall::write(arguments)).await {
+        let records_hold = hold_records(common_folder).await.map_err(|failure| {
+            create_failed(
+                WorktreeCreateFailureReason::ExecutionRootUnavailable,
+                failure,
+            )
+        })?;
+        let added = self.git.run(self.place(), GitCall::write(arguments)).await;
+        drop(records_hold);
+        let failure = match added {
             Ok(_) => {
                 return Ok(AddOutcome::Made(MadeTree {
                     name,

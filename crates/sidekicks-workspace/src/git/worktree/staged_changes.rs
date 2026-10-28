@@ -24,7 +24,9 @@ use crate::git::process::{
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::reads::GIT_FILE_NAME;
 use crate::git::worktree::service::remove_folder as remove_tree_folder;
-use crate::git::worktree::tree_records::{TreeRecordRemovalError, remove_records_naming};
+use crate::git::worktree::tree_records::{
+    TreeRecordRemovalError, hold_records, remove_records_naming,
+};
 
 // A dotted sibling of the project folders, which a slug never names and no sweep reads.
 const STAGED_CHANGES_SEGMENT: &str = ".staged-changes";
@@ -308,7 +310,17 @@ impl StagedChangesWorktree {
         let place = self.place.as_ref();
         let mut add = in_folder(&self.repository_root, &["worktree", "add", "--detach"]);
         add.extend([self.folder.clone().into_os_string(), OsString::from("HEAD")]);
+        let common_git_folder =
+            read_git_common_folder(&self.git, place, &self.repository_root, None).await?;
+        let records_hold =
+            hold_records(&common_git_folder)
+                .await
+                .map_err(|source| TreeRecordRemovalError {
+                    path: common_git_folder.clone(),
+                    source,
+                })?;
         self.git.run(place, GitCall::write(add)).await?;
+        drop(records_hold);
         // `apply` refuses an empty patch, and with nothing staged the checkout is already the set.
         // Whitespace warnings are off: the patch is the index's own change, applied as staged.
         if !staged_patch.is_empty() {

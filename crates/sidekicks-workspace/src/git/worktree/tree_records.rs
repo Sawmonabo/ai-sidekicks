@@ -1,16 +1,33 @@
 //! Git's records of a tree the daemon made, found by the `.git` their `gitdir` names rather than
 //! from inside the tree, so a tree git left without its `.git` file, or one already removed, still
-//! has its records found. A record naming any other tree is never touched.
+//! has its records found. A record naming any other tree is never touched. The daemon's own adds
+//! and its scan for records a crash left take one hold per repository, so the scan never reads an
+//! add's record between git's writes.
 
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use sidekicks_std::file::real_location::resolve_real_location;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 
 use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_record_git_file};
 use crate::git::worktree::service::remove_folder;
 use crate::trust_envelope::is_contained_within;
+
+// Held on a repository's resolved git common folder, however each caller spells it.
+static RECORD_WRITES: LazyLock<KeyedLock<PathBuf>> = LazyLock::new(KeyedLock::new);
+
+/// Holds the records of the repository whose git common folder is `common_git_folder` until the
+/// hold drops, against the daemon's other `worktree add`s and record scans there. Fails when the
+/// folder cannot be resolved.
+pub(crate) async fn hold_records(
+    common_git_folder: &Path,
+) -> io::Result<KeyHold<'static, PathBuf>> {
+    let key = resolve_real_location(common_git_folder).await?;
+    Ok(RECORD_WRITES.acquire(key).await)
+}
 
 /// A record, or the folder holding them, that could not be read or removed.
 #[derive(Debug, thiserror::Error)]
