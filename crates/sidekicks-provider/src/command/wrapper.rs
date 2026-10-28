@@ -37,7 +37,7 @@ use crate::driver::shell_prefix_command_of;
 pub const COMMAND_WRAPPER_PROGRAM_NAME: &str = "sidekicks-command-wrapper";
 
 /// The command wrapper's link beside `daemon_program`, the running daemon's own program.
-pub(crate) fn command_wrapper_program_path(daemon_program: &Path) -> PathBuf {
+pub fn command_wrapper_program_path(daemon_program: &Path) -> PathBuf {
     daemon_program.with_file_name(format!("{COMMAND_WRAPPER_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 

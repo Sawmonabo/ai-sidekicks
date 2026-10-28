@@ -72,4 +72,4 @@ Nobody types these. One program, `sidekicks-daemon`, is signed and shipped; the 
 | `sidekicks-command-askpass` | git and ssh inside an agent's command (`GIT_ASKPASS`, `SSH_ASKPASS`) | A link to `sidekicks-daemon` that brings git's and ssh's password questions to the person. |
 | `sidekicks-git-askpass` | git, during a clone the service runs | A link to `sidekicks-daemon` that brings a clone's questions to the clone card. |
 
-A link's file name picks its mode, so each link runs the same signed program.
+A link's file name picks its mode, so each link runs the same signed program. The service makes each link beside its program at its start, in development and in a release alike, where one is missing or opens another build: a hard link, a symbolic link where the file system refuses a hard link, and on Windows a copy where it refuses a symbolic link too.

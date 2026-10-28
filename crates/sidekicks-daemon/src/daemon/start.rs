@@ -1,9 +1,10 @@
 //! The service's start, on the program's service path: its own responsible process first, before
 //! any thread exists; then the system's library search, the stable working folder, the hold on the
 //! data folder, the service log and the panic hook that ends the service on any panic, the memory
-//! settings, the hold on every process it will start and the runtime with its two workers; then the
-//! daemon starts on it and runs until the first stop asked for, and the runtime ends within what is
-//! left of the stop's drain bound, so the process exits before its caller's signal.
+//! settings, the hold on every process it will start, the runtime with its two workers and the
+//! names beside its program that its modes run by; then the daemon starts on it and runs until the
+//! first stop asked for, and the runtime ends within what is left of the stop's drain bound, so the
+//! process exits before its caller's signal.
 
 use std::error::Error;
 use std::io;
@@ -15,15 +16,18 @@ use std::time::Instant;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CodeSignatureError, StopRequest, contain_daemon_descendants, create_missing_private_folders,
-    daemon_run_folder, install_tree_sitter_allocator, process_identity, restrict_library_search,
-    stable_working_folder, turn_off_transparent_huge_pages,
+    daemon_run_folder, install_tree_sitter_allocator, link_program, process_identity,
+    restrict_library_search, stable_working_folder, turn_off_transparent_huge_pages,
 };
+use sidekicks_provider::command::askpass::command_askpass_program_path;
+use sidekicks_provider::command::wrapper::command_wrapper_program_path;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 use sidekicks_store::events::session::insert::monotonic_ns_now;
+use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::already_running_error::DaemonAlreadyRunningError;
@@ -90,6 +94,15 @@ enum ServiceStartError {
     /// The service's own program could not be found, which its crash monitor runs.
     #[error("the service's own program could not be found")]
     Program(#[source] io::Error),
+    /// A name beside the service's program that one of its modes runs by could not be made.
+    #[error("the program link {} could not be made", link.display())]
+    ProgramLink {
+        /// The link.
+        link: PathBuf,
+        /// The system's refusal.
+        #[source]
+        source: io::Error,
+    },
     /// The desktop client's signature requirement could not be built.
     #[error("the desktop client's signature requirement could not be built")]
     CallerReader(#[source] CodeSignatureError),
@@ -182,6 +195,16 @@ fn run_daemon(
             ))
         })?;
     let daemon_program = std::env::current_exe().map_err(ServiceStartError::Program)?;
+    // The names git, ssh and a provider's shell prefix run reach the program's modes, and are made
+    // here before any driver sets them on a command.
+    for link in [
+        git_askpass_program_path(&daemon_program),
+        command_wrapper_program_path(&daemon_program),
+        command_askpass_program_path(&daemon_program),
+    ] {
+        link_program(&daemon_program, &link)
+            .map_err(|source| ServiceStartError::ProgramLink { link, source })?;
+    }
     let caller_process_reader =
         Arc::new(ProcessTableReader::for_this_program().map_err(ServiceStartError::CallerReader)?);
     let (exit_code, drain_started) = runtime.block_on(async {

@@ -23,7 +23,7 @@ pub const COMMAND_ASKPASS_PROGRAM_NAME: &str = "sidekicks-command-askpass";
 pub(crate) use sidekicks_workspace::git::process::GIT_TERMINAL_PROMPT_OFF;
 
 /// The command askpass's link beside `daemon_program`, the running daemon's own program.
-pub(crate) fn command_askpass_program_path(daemon_program: &Path) -> PathBuf {
+pub fn command_askpass_program_path(daemon_program: &Path) -> PathBuf {
     daemon_program.with_file_name(format!("{COMMAND_ASKPASS_PROGRAM_NAME}{EXE_SUFFIX}"))
 }
 
