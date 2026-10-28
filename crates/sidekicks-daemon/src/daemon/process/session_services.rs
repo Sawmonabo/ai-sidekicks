@@ -11,6 +11,7 @@ use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_artifact::publish::ArtifactPublishService;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_platforms::{Spawner, WallClock};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -386,6 +387,10 @@ pub(crate) fn build_session_services(
         sessions: Arc::new(SessionService::new(
             Arc::clone(&reads),
             read_damaged_from_sequence,
+            Arc::new({
+                let providers = Arc::clone(&providers);
+                move |provider: &ProviderId| providers.lookup(provider).ok()
+            }),
         )),
         list_feed,
         drafts: Arc::new(SessionDraftStore::new(

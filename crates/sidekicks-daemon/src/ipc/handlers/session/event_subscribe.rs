@@ -651,6 +651,7 @@ mod tests {
         let page = read_transcript_window(
             &database.reader(),
             &|_: &SessionId| None,
+            &|_| None,
             &request,
             MARKDOWN_PARSE,
         )

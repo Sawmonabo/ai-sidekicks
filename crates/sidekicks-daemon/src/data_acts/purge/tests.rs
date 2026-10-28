@@ -15,6 +15,7 @@ use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -207,7 +208,11 @@ pub(crate) async fn test_purge(
         ),
         truncation: Arc::clone(&truncation),
         recovery,
-        sessions: Arc::new(SessionService::new(reads, Arc::new(|_: &SessionId| None))),
+        sessions: Arc::new(SessionService::new(
+            reads,
+            Arc::new(|_: &SessionId| None),
+            Arc::new(|_: &ProviderId| None),
+        )),
     });
     TestPurge {
         purge,

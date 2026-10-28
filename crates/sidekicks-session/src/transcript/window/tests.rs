@@ -1,14 +1,19 @@
 use std::fmt::Write as _;
+use std::sync::{Arc, Mutex};
 
 use rstest::rstest;
 use rusqlite::params;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::operations::{TranscriptReadRequest, TranscriptReadResponse};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+use sidekicks_provider::driver::task_list::TaskListChange;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use sidekicks_store::events::test_log::AT;
 
 use super::{TranscriptReadError, read_transcript_window};
@@ -79,6 +84,7 @@ fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
     let TranscriptReadResponse::Continuing(page) = read_transcript_window(
         &reader,
         &no_damage,
+        &|_| None,
         &anchored_read(&session_id, 3),
         MARKDOWN_PARSE,
     )
@@ -101,6 +107,7 @@ fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
         refusal_code(read_transcript_window(
             &reader,
             &no_damage,
+            &|_| None,
             &anchored_read(&session_id, 2),
             MARKDOWN_PARSE,
         )),
@@ -110,6 +117,7 @@ fn an_anchored_read_lands_a_standing_row_and_refuses_one_that_left() {
         refusal_code(read_transcript_window(
             &reader,
             &no_damage,
+            &|_| None,
             &anchored_read(&test_session_id(), 3),
             MARKDOWN_PARSE,
         )),
@@ -137,6 +145,7 @@ fn read_with_attachments(
     let response = read_transcript_window(
         &log.session_log.reader(),
         &|_: &SessionId| None,
+        &|_| None,
         &request,
         parse,
     )
@@ -526,4 +535,113 @@ fn a_body_read_spreads_starts_past_a_page_across_its_parts() {
         .map(|index| u32::try_from(3 * index).expect("an offset fits"))
         .collect();
     assert_eq!(starts, expected);
+}
+
+// Killed by a task-list call kept as a row, by its opening asked with its end's facts or its end
+// with its opening's, by a failed or opened call asked as a success, and by a page that continues
+// holding no row when its whole stretch is task-list calls.
+#[test]
+fn a_task_list_call_adds_no_row_and_a_stretch_of_them_is_passed_over() {
+    let log = TranscriptTestLog::new(schema_parts());
+    let session_log = &log.session_log;
+    insert_lead(
+        &session_log.database,
+        session_log.session_id,
+        "test-provider",
+    );
+    let tool_row = |event_type: &str, tool_name: &str, body: &str| {
+        session_log
+            .write(
+                json!({
+                    "type": event_type,
+                    "payload": {
+                        "sessionId": session_log.session_id,
+                        "runId": session_log.run_id,
+                        "toolName": tool_name,
+                        "toolCallId": format!("{tool_name}-call"),
+                    },
+                }),
+                Some(body),
+            )
+            .0
+    };
+    tool_row("agent.toolCall.invoked", "task-list", r#"{"tasks":[]}"#);
+    tool_row("agent.toolCall.completed", "task-list", "Updated.");
+    let read_opening = tool_row("agent.toolCall.invoked", "read", "{}");
+    let read_end = tool_row("agent.toolCall.failed", "read", "No such file.");
+    let asked = Arc::new(Mutex::new(Vec::new()));
+    let mut driver = MockProviderDriver::new();
+    driver.expect_task_list_change().returning({
+        let asked = Arc::clone(&asked);
+        move |call| {
+            lock(&asked).push((
+                call.tool_name.to_owned(),
+                call.input.cloned(),
+                call.result.cloned(),
+                call.is_success,
+            ));
+            (call.tool_name == "task-list").then_some(TaskListChange::Nothing)
+        }
+    });
+    let driver: Arc<dyn ProviderDriver> = Arc::new(driver);
+    let request = |limit: u64| -> TranscriptReadRequest {
+        serde_json::from_value(json!({
+            "sessionId": session_log.session_id,
+            "afterCursor": cursor(0),
+            "limit": limit,
+        }))
+        .expect("the test's request reads")
+    };
+    let sequences = |driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>| {
+        let response = read_transcript_window(
+            &session_log.reader(),
+            &|_: &SessionId| None,
+            driver_of,
+            &request(2),
+            MARKDOWN_PARSE,
+        )
+        .expect("the window reads");
+        let TranscriptReadResponse::Terminal(page) = response else {
+            panic!("the page reaches the end of the log");
+        };
+        page.entries
+            .as_slice()
+            .iter()
+            .map(|row| i64::from(row.sequence()))
+            .collect::<Vec<i64>>()
+    };
+
+    // The page's first stretch is the task-list call alone, so it reads on to the next.
+    assert_eq!(
+        sequences(&|_| Some(Arc::clone(&driver))),
+        [read_opening, read_end]
+    );
+    assert_eq!(
+        *lock(&asked),
+        [
+            (
+                "task-list".to_owned(),
+                Some(json!({ "tasks": [] })),
+                None,
+                false
+            ),
+            ("task-list".to_owned(), None, Some(json!("Updated.")), true),
+            ("read".to_owned(), Some(json!({})), None, false),
+            ("read".to_owned(), None, Some(json!("No such file.")), false),
+        ]
+    );
+
+    // A session whose provider no driver answers keeps the call's rows.
+    let response = read_transcript_window(
+        &session_log.reader(),
+        &|_: &SessionId| None,
+        &|_| None,
+        &request(4),
+        MARKDOWN_PARSE,
+    )
+    .expect("the window reads");
+    let TranscriptReadResponse::Terminal(page) = response else {
+        panic!("the page reaches the end of the log");
+    };
+    assert_eq!(page.entries.as_slice().len(), 4);
 }

@@ -14,6 +14,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
@@ -39,6 +40,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -264,6 +266,10 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// Answers the driver of a provider, `None` where no driver answers it.
+pub type ProviderDriverLookup =
+    dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>> + Send + Sync;
+
 /// Reads one session through the daemon's read pool: its record and cursors from its row, its
 /// whole log or a page of it, a window of its transcript or one stored row, or its record rebuilt
 /// from that log. Each read runs on the blocking pool on a connection it borrows for the whole
@@ -271,20 +277,23 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 pub struct SessionService {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    driver_of: Arc<ProviderDriverLookup>,
     // The cuts of ended replies its body reads keep, so a later part decodes only its frames.
     block_cuts: Arc<BlockCuts>,
 }
 
 impl SessionService {
     /// The service reading through `pool`; `read_damaged_from_sequence` says where a damaged
-    /// session's reads stop.
+    /// session's reads stop; `driver_of` answers the driver that reads a session's task-list calls.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+        driver_of: Arc<ProviderDriverLookup>,
     ) -> Self {
         Self {
             pool,
             read_damaged_from_sequence,
+            driver_of,
             block_cuts: Arc::default(),
         }
     }
@@ -376,10 +385,17 @@ impl SessionService {
         &self,
         request: TranscriptReadRequest,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
+        let driver_of = Arc::clone(&self.driver_of);
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
-                read_transcript_window(reader, read_damaged_from_sequence, &request, MARKDOWN_PARSE)
+                read_transcript_window(
+                    reader,
+                    read_damaged_from_sequence,
+                    &*driver_of,
+                    &request,
+                    MARKDOWN_PARSE,
+                )
             },
         )
         .await
@@ -456,12 +472,14 @@ impl SessionService {
         request: TranscriptChildRunExpandRequest,
         observed_at: WireInstant,
     ) -> Result<TranscriptChildRunExpandResponse, TranscriptReadError> {
+        let driver_of = Arc::clone(&self.driver_of);
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
                 expand_child_run(
                     reader,
                     read_damaged_from_sequence,
+                    &*driver_of,
                     &request,
                     &observed_at,
                     MARKDOWN_PARSE,

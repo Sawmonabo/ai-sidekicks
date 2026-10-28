@@ -21,6 +21,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::machine::id::MachineId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -286,6 +287,7 @@ impl PassFixture {
             Arc::new(move |session_id: &SessionId| {
                 reads_status.read_damaged_from_sequence(session_id)
             }),
+            Arc::new(|_: &ProviderId| None),
         ));
         let damage = Arc::new(DatabaseDamageWatch::new());
         let projection_rebuild = Arc::new(ProjectionRebuildService::new(

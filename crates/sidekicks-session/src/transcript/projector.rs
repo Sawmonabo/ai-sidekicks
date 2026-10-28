@@ -6,11 +6,16 @@
 //! patched files is one row the same way. Every row carries its body, read for the whole
 //! window in one statement; a large body is read as its size alone, so a page of large outputs
 //! costs no more than their lengths. A reply drawn as markdown carries its block starts, only
-//! those no later text can move while it is still arriving, or why its cut failed.
+//! those no later text can move while it is still arriving, or why its cut failed. A row of a tool
+//! call the session's driver reads as a change to the agent's task list stands as no row.
+
+use std::sync::Arc;
 
 use rusqlite::Connection;
+use serde_json::Value;
 use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::event_cursor::encode_event_cursor;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::content::TranscriptRowContent;
@@ -22,12 +27,15 @@ use sidekicks_contracts::transcript::row::{
 use sidekicks_contracts::wire::instant::{NotAnInstant, WireInstant};
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::list::BoundedVec;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::task_list::ToolCallRecord;
 use sidekicks_store::events::session::read::{
-    MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads,
+    MalformedStoredEventError, MalformedStoredEventFault, SessionEventReads, session_read_bound,
 };
 use sidekicks_store::transcript::rejoin::{RowReads, joined_body_of, joined_row_content_of};
 use sidekicks_store::transcript::whole_patch::OMITTED_PATCHES_PAYLOAD_KEY;
 
+use crate::run::agent::read_lead_binding;
 use crate::transcript::block_cut::{BlockParse, prose_body_of, with_block_starts};
 use crate::transcript::turn_attribution::{
     RunEventAttribution, RunTurnReads, SessionTurnAttribution, TurnAttributionError,
@@ -66,14 +74,17 @@ pub enum TranscriptProjectionError {
 /// One row per event of `rows`, events of `session_id`'s log that each stand as a row, in
 /// ascending order, each stamped and carrying its body joined through `head`, read on `reader`, a
 /// reply's cut into blocks by `parse`; `read_damaged_from_sequence` answers where a damaged
-/// session's reads stop. Fails with
-/// [`TranscriptProjectionError::Attribution`] on an `agent.run.rolledBack` that does not match its
-/// contract or a seed read that fails, with [`TranscriptProjectionError::Database`] when the
-/// bodies' read fails, and with [`TranscriptProjectionError::Malformed`] on a tool completion whose
-/// list of left-out files does not read.
+/// session's reads stop. An event of a tool call the driver `driver_of` answers for the session's
+/// provider reads as a task-list change stands as no row; a session whose provider no driver
+/// answers keeps every row. Fails with [`TranscriptProjectionError::Attribution`] on an
+/// `agent.run.rolledBack` that does not match its contract or a seed read that fails, with
+/// [`TranscriptProjectionError::Database`] when the bodies' or the session's provider's read
+/// fails, and with [`TranscriptProjectionError::Malformed`] on a tool completion whose list of
+/// left-out files does not read.
 pub(crate) fn project_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: DamagedFrom,
+    driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
     session_id: &SessionId,
     rows: &[EventEnvelope],
     head: i64,
@@ -106,10 +117,13 @@ where
         })
         .collect();
     let unended_rows = row_reads.unended_rows(&prose_rows, head)?;
+    let read_bound = session_read_bound(&read_damaged_from_sequence, session_id, None);
+    let task_list_driver = read_lead_binding(reader, session_id, read_bound)?
+        .and_then(|(provider, _)| driver_of(&provider));
     let reads = RunTurnReads::new(reader, &read_damaged_from_sequence);
     let mut attribution = SessionTurnAttribution::new(*session_id);
     rows.iter()
-        .map(|event| {
+        .filter_map(|event| {
             let sequence = i64::from(event.sequence);
             let body = members_by_row.remove(&sequence).and_then(joined_body_of);
             let content = with_block_starts(
@@ -118,10 +132,55 @@ where
                 !unended_rows.contains(&sequence),
                 parse,
             );
-            let attributed = attribution.attribute(&reads, event)?;
-            row_of(event, attributed, content)
+            // Every event is attributed, a dropped one too, so the fold holds what the log holds.
+            let attributed = match attribution.attribute(&reads, event) {
+                Ok(attributed) => attributed,
+                Err(error) => return Some(Err(TranscriptProjectionError::from(error))),
+            };
+            let is_dropped = task_list_driver
+                .as_deref()
+                .is_some_and(|driver| is_task_list_call(driver, event, &content));
+            (!is_dropped).then(|| row_of(event, attributed, content))
         })
         .collect()
+}
+
+// Whether `event` is a row of a tool call `driver` reads as a change to the agent's task list. The
+// row is asked alone, so a call's opening and its end are answered alike wherever a page cuts
+// them: the opening with its input, the end with its result.
+fn is_task_list_call(
+    driver: &dyn ProviderDriver,
+    event: &EventEnvelope,
+    content: &TranscriptRowContent,
+) -> bool {
+    let event_type = event.event_type.as_str();
+    let is_opening = event_type == SessionEventType::AgentToolCallInvoked.as_str();
+    let is_success = event_type == SessionEventType::AgentToolCallCompleted.as_str();
+    if !is_opening && !is_success && event_type != SessionEventType::AgentToolCallFailed.as_str() {
+        return false;
+    }
+    let Some(tool_name) = event.payload.get("toolName").and_then(Value::as_str) else {
+        return false;
+    };
+    // A body too large to travel is not loaded, so the call is asked without it.
+    let body = if let TranscriptRowContent::Available { body, .. } = content {
+        Some(body_value_of(body.as_str()))
+    } else {
+        None
+    };
+    let call = ToolCallRecord {
+        tool_name,
+        input: body.as_ref().filter(|_| is_opening),
+        result: body.as_ref().filter(|_| !is_opening),
+        is_success,
+    };
+    driver.task_list_change(&call).is_some()
+}
+
+// A tool row's body as a value: the JSON it holds, else its text, since a provider may send a
+// result as plain text.
+fn body_value_of(body: &str) -> Value {
+    serde_json::from_str(body).unwrap_or_else(|_| Value::String(body.to_owned()))
 }
 
 fn row_of(

@@ -15,11 +15,14 @@
 //! cuts the anchor, and the page continues toward the start as a `beforeCursor` page does.
 //!
 //! A page stops at the caller's limit or the page byte budget, whichever trips first, and says
-//! whether more remain. One candidate past the limit is read to learn that, never projected. Each
-//! page carries the facts of the runs its rows name, folded from the whole log through the head,
-//! which share the page's budget with its rows.
+//! whether more remain. One candidate past the limit is read to learn that, never projected. An
+//! event that stands as no row, a task-list call, takes a place in the limit; a page that continues
+//! holds at least one row, so a stretch with none is passed over. Each page carries the facts of
+//! the runs its rows name, folded from the whole log through the head, which share the page's
+//! budget with its rows.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use rusqlite::Connection;
 use serde_json::json;
@@ -27,6 +30,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::jsonrpc::byte_length::json_utf8_byte_length;
 use sidekicks_contracts::jsonrpc::page::{PAGE_MAX_BYTES, count_entries_fitting_one_frame};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{
     EventCursor, SessionEventCursorUnresolvable, decode_event_cursor, encode_event_cursor,
@@ -45,6 +49,7 @@ use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::read::{
     SessionEventReads, SessionLogReadError, resolve_event_cursor,
@@ -132,10 +137,12 @@ where
 /// newest event, and with [`TranscriptReadError::Refused`] (`transcript.row.notFound`) for an
 /// `aroundCursor` at which no row stands. A page whose one row alone is over the page budget is
 /// returned as that row, for the reply's check to refuse. A reply's body is cut into blocks by
-/// `parse`.
+/// `parse`, and a task-list call the driver `driver_of` answers for the session's provider reads
+/// as one stands as no row.
 pub fn read_transcript_window<DamagedFrom>(
     reader: &Connection,
     read_damaged_from_sequence: &DamagedFrom,
+    driver_of: &dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
     request: &TranscriptReadRequest,
     parse: BlockParse,
 ) -> Result<TranscriptReadResponse, TranscriptReadError>
@@ -146,6 +153,7 @@ where
     let window = WindowReads {
         reader,
         read_damaged_from_sequence,
+        driver_of,
         session_id: &request.session_id,
         observed_at: WireInstant::now(),
         parse,
@@ -182,6 +190,8 @@ where
 struct WindowReads<'window, DamagedFrom: ?Sized> {
     reader: &'window Connection,
     read_damaged_from_sequence: &'window DamagedFrom,
+    // The driver that answers a provider, which reads the session's task-list calls.
+    driver_of: &'window dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>>,
     session_id: &'window SessionId,
     // When the read began, the time a child row's summary is marked incomplete as of.
     observed_at: WireInstant,
@@ -203,17 +213,28 @@ where
         limit: usize,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
         let rows_of = RowReads::new(reads, self.reader, self.session_id);
-        // The read's bound is strict, so the window keeps the event at `before_position`.
-        let candidates = match before_position {
-            Some(before) if before <= after_position => Vec::new(),
-            before_position => rows_of.rows_after(
-                after_position,
-                before_position.map(|before| before + 1),
-                count_bound(limit + 1),
-            )?,
+        // A stretch whose every event stands as no row is passed over while more follow, so a page
+        // that continues holds a row.
+        let mut stretch_after = after_position;
+        let (stretch, mut rows, has_later) = loop {
+            // The read's bound is strict, so the window keeps the event at `before_position`.
+            let mut stretch = match before_position {
+                Some(before) if before <= stretch_after => Vec::new(),
+                before_position => rows_of.rows_after(
+                    stretch_after,
+                    before_position.map(|before| before + 1),
+                    count_bound(limit + 1),
+                )?,
+            };
+            let has_later = stretch.len() > limit;
+            stretch.truncate(limit);
+            let rows = self.project(&stretch, head)?;
+            let Some(newest) = stretch.last().filter(|_| rows.is_empty() && has_later) else {
+                break (stretch, rows, has_later);
+            };
+            stretch_after = i64::from(newest.sequence);
         };
-        let stretch = &candidates[..limit.min(candidates.len())];
-        let mut rows = self.project(stretch, head)?;
+        let projected_count = rows.len();
         let stretch_runs = self.run_facts_of(head, &rows)?;
         // Counted from the oldest end, so a budget cut keeps the rows nearest `afterCursor`,
         // whether or not `beforeCursor` bounds the window.
@@ -227,15 +248,23 @@ where
         rows.truncate(page_count);
         let runs = runs_named_by(&rows, stretch_runs);
         let joined_through = head.map(cursor_at);
-        if page_count < candidates.len() {
-            let newest_kept = &stretch[page_count - 1];
+        if page_count < projected_count || has_later {
+            // A budget cut continues after the newest row kept, else after the whole stretch.
+            let continues_after = if page_count < projected_count {
+                rows[page_count - 1].sequence()
+            } else {
+                stretch
+                    .last()
+                    .expect("a stretch with more after it is read")
+                    .sequence
+            };
             return Ok(TranscriptReadResponse::Continuing(
                 TranscriptReadContinuing {
                     entries: ReadEntries::new(rows)
                         .expect("a page that leaves more holds 1 to limit rows"),
                     runs,
                     has_more: True::default(),
-                    next_cursor: cursor_at(i64::from(newest_kept.sequence)),
+                    next_cursor: cursor_at(i64::from(continues_after)),
                     joined_through: joined_through
                         .expect("a page that leaves more read a session with a head"),
                 },
@@ -245,7 +274,7 @@ where
         // through, else where it was asked to read after.
         let end = before_position
             .or(head)
-            .map_or(after_position, |end| end.max(after_position));
+            .map_or(stretch_after, |end| end.max(stretch_after));
         Ok(TranscriptReadResponse::Terminal(TranscriptReadTerminal {
             entries: ReadEntries::new(rows).expect("a page holds at most limit rows"),
             runs,
@@ -263,10 +292,21 @@ where
         before_position: i64,
         limit: usize,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
-        let candidates = RowReads::new(reads, self.reader, self.session_id)
-            .rows_at_or_before(before_position, count_bound(limit + 1))?;
-        let stretch = &candidates[candidates.len().saturating_sub(limit)..];
-        let mut rows = self.project(stretch, head)?;
+        let rows_of = RowReads::new(reads, self.reader, self.session_id);
+        // A stretch whose every event stands as no row is passed over while more precede it.
+        let mut stretch_before = before_position;
+        let (stretch, mut rows, has_earlier) = loop {
+            let mut candidates =
+                rows_of.rows_at_or_before(stretch_before, count_bound(limit + 1))?;
+            let has_earlier = candidates.len() > limit;
+            let stretch = candidates.split_off(candidates.len().saturating_sub(limit));
+            let rows = self.project(&stretch, head)?;
+            let Some(oldest) = stretch.first().filter(|_| rows.is_empty() && has_earlier) else {
+                break (stretch, rows, has_earlier);
+            };
+            stretch_before = i64::from(oldest.sequence) - 1;
+        };
+        let projected_count = rows.len();
         let stretch_runs = self.run_facts_of(head, &rows)?;
         // Counted from the newest end, so a budget cut drops the rows farthest from the cursor.
         let newest_first: Vec<&TranscriptReadRow> = rows.iter().rev().collect();
@@ -280,19 +320,25 @@ where
         let entries = rows.split_off(rows.len() - page_count);
         let runs = runs_named_by(&entries, stretch_runs);
         let joined_through = head.map(cursor_at);
-        // Every candidate made the page (an empty one included): the page reached the start of the
-        // log, so no earlier window remains to name.
-        let oldest_kept = stretch.get(stretch.len() - page_count);
-        if let Some(oldest_kept) = oldest_kept
-            && page_count < candidates.len()
-        {
+        // A page continues while a budget cut left rows out or an earlier event remains; else it
+        // reached the start of the log (an empty page included), so no earlier window remains.
+        if page_count < projected_count || has_earlier {
+            // A budget cut continues before the oldest row kept, else before the whole stretch.
+            let continues_before = if page_count < projected_count {
+                entries[0].sequence()
+            } else {
+                stretch
+                    .first()
+                    .expect("a stretch with more before it is read")
+                    .sequence
+            };
             return Ok(TranscriptReadResponse::Continuing(
                 TranscriptReadContinuing {
                     entries: ReadEntries::new(entries)
                         .expect("a page that leaves more holds 1 to limit rows"),
                     runs,
                     has_more: True::default(),
-                    next_cursor: cursor_at(i64::from(oldest_kept.sequence) - 1),
+                    next_cursor: cursor_at(i64::from(continues_before) - 1),
                     joined_through: joined_through
                         .expect("a page that leaves more read a session with a head"),
                 },
@@ -347,10 +393,16 @@ where
             .cloned()
             .collect();
         let rows = self.project(&stretch, head)?;
+        // An anchor that stands as no row, a task-list call, is no row to land on.
+        let Some(anchor_index) = rows
+            .iter()
+            .position(|row| i64::from(row.sequence()) == anchor_position)
+        else {
+            return Err(transcript_row_not_found(around_cursor).into());
+        };
         let stretch_runs = self.run_facts_of(head, &rows)?;
         // Nearest first: the anchor, then one row after and one before in turn, so a budget cut
         // drops the rows farthest from the anchor on each side and never the anchor itself.
-        let anchor_index = earlier.len();
         let nearest_first: Vec<usize> = std::iter::once(anchor_index)
             .chain(
                 (1..rows.len())
@@ -372,6 +424,12 @@ where
         let kept = &nearest_first[..page_count];
         let oldest_kept = *kept.iter().min().expect("a page keeps the anchor");
         let newest_kept = *kept.iter().max().expect("a page keeps the anchor");
+        // A budget cut continues before the oldest row kept, else before the whole stretch.
+        let continues_before = if oldest_kept > 0 {
+            rows[oldest_kept].sequence()
+        } else {
+            stretch[0].sequence
+        };
         let entries: Vec<TranscriptReadRow> = rows
             .into_iter()
             .skip(oldest_kept)
@@ -388,7 +446,7 @@ where
                         .expect("an anchored page holds the anchor and at most limit rows"),
                     runs,
                     has_more: True::default(),
-                    next_cursor: cursor_at(i64::from(stretch[oldest_kept].sequence) - 1),
+                    next_cursor: cursor_at(i64::from(continues_before) - 1),
                     joined_through: joined_through
                         .expect("an anchored page read a session with a head"),
                 },
@@ -415,6 +473,7 @@ where
         let mut rows = project_window(
             self.reader,
             self.read_damaged_from_sequence,
+            self.driver_of,
             self.session_id,
             stretch,
             head,
@@ -425,7 +484,6 @@ where
             self.read_damaged_from_sequence,
             self.session_id,
             &mut rows,
-            stretch,
             head,
             &self.observed_at,
         )?;
