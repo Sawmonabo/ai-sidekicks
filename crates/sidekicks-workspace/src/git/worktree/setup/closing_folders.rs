@@ -47,10 +47,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         };
         let mut in_folder = Vec::new();
         for (tree_path, command) in running {
-            let tree_key = canonical_folder_path(&tree_path)
-                .await
-                .map_err(WorktreeSetupError::Folder)?;
-            if is_contained_within(&tree_key, &folder_key) {
+            if is_contained_within(&tree_key_of(&tree_path).await, &folder_key) {
                 in_folder.push(command);
             }
         }
@@ -72,8 +69,8 @@ impl<W: Watcher + Send + 'static> FolderProcessOwner for WorktreeSetupRunner<W> 
     }
 }
 
-/// The key a tree's folder is compared by: resolved, or as written when it cannot be resolved, as
-/// a tree whose folder is gone cannot.
+/// The key a tree's folder is compared by: resolved, or as written when it cannot be resolved,
+/// behind a refused permission or an unresponsive mount.
 pub(super) async fn tree_key_of(tree_path: &Path) -> PathBuf {
     match canonical_folder_path(tree_path).await {
         Ok(tree_key) => tree_key,
