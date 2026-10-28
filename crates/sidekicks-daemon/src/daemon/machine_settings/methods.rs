@@ -16,9 +16,9 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_workspace::project::refusals::{refuse_branch_pattern, refuse_environment_rows};
 
 use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettingsFileError};
-use crate::daemon::machine_settings::refusals::{refuse_branch_pattern, refuse_environment_rows};
 
 /// Why a `Branch names` pattern cannot be saved, `None` when it can: git's branch-name rule and
 /// a clash in each project that keeps no pattern of its own. Fails when git could not run.

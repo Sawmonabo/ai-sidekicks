@@ -8,8 +8,7 @@ use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
-
-use crate::directory::lookups::session_project_sql;
+use sidekicks_workspace::project::records::session_project_sql;
 
 // The project of the session bound as `@sessionId`.
 static SESSION_PROJECT_SQL: LazyLock<String> = LazyLock::new(|| session_project_sql("@sessionId"));

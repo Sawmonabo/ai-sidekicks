@@ -12,7 +12,7 @@ pub mod folder;
 pub mod git;
 pub(crate) mod last_error;
 pub mod managed;
-pub(crate) mod project;
+pub mod project;
 pub(crate) mod projector;
 pub mod repo;
 pub(crate) mod row_guards;

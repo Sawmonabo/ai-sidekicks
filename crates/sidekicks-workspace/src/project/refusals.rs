@@ -27,7 +27,7 @@ fn environment_name_refusal_words(reason: EnvironmentNameRefusalReason) -> &'sta
 /// refuses, or that names a variable a registered provider's driver sets (`driver_set_names`,
 /// compared without case, as Windows reads names), naming the row in the page's words; called
 /// before anything is written.
-pub(crate) fn refuse_environment_rows(
+pub fn refuse_environment_rows(
     rows: &[EnvironmentRow],
     driver_set_names: &[&str],
 ) -> Result<(), DomainError> {
@@ -57,7 +57,7 @@ pub(crate) fn refuse_environment_rows(
 /// Refuses with `project.branchPattern.refused` a pattern its check found `refused`, in the page's
 /// words, or git's own line for a name that clashes with a branch, the details naming the project
 /// whose repository holds it; `None` passes.
-pub(crate) fn refuse_branch_pattern(
+pub fn refuse_branch_pattern(
     refused: Option<ProjectBranchPatternRefusedDetails>,
 ) -> Result<(), DomainError> {
     let Some(details) = refused else {

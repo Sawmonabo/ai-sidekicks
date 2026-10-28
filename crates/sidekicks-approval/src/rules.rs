@@ -53,7 +53,7 @@ use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::session_control::RevokeRuleParams;
 use sidekicks_provider::port::permission_ask::{ProviderAnswerRule, ProviderAskAction};
-use sidekicks_session::directory::lookups::{session_exists, session_project_sql};
+use sidekicks_session::directory::lookups::session_exists;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_store::database::connection::read_pool::{
@@ -67,6 +67,7 @@ use sidekicks_store::events::session::appender::{
 };
 use sidekicks_store::events::session::pending::PendingSessions;
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
+use sidekicks_workspace::project::records::session_project_sql;
 use sidekicks_workspace::schema::MountOrigin;
 use tokio::task::JoinError;
 
