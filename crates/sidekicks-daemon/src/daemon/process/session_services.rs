@@ -558,9 +558,9 @@ pub(crate) async fn start_session_attachments(
 impl SessionAttachments {
     /// Stops the idle sleep, waiting for each session's stop or wake under way, so it runs before
     /// the scheduler's stop and the drivers' shutdown; then stops every follow and waits for the
-    /// work under way, the file search's listings among it, and ends `workspaces`' watch, then
-    /// waits for every write it already sent to be recorded; answers each task that ended
-    /// abnormally, every one having stopped.
+    /// work under way, the file search's listings and the usage record's token-limit stops among
+    /// it, and ends `workspaces`' watch, then waits for every write it already sent to be
+    /// recorded; answers each task that ended abnormally, every one having stopped.
     #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(
         self,
@@ -584,11 +584,12 @@ impl SessionAttachments {
             };
             (recount, recorded)
         };
-        let (mut failures, rescoring, (), (), (recount, recorded)) = tokio::join!(
+        let (mut failures, rescoring, (), (), (), (recount, recorded)) = tokio::join!(
             approvals.stop(&services.approvals),
             related_rescoring.stop(),
             auto_titling.stop(),
             services.file_search.stop(),
+            services.usage.stop(),
             chat_versions,
         );
         for (task, stopped) in [

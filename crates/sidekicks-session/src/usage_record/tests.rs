@@ -129,9 +129,11 @@ impl Harness {
                     lead_run_id.text().as_str(),
                     test_provider().as_str(),
                     THREAD,
-                    format!(
-                        r#"{{"providerAccountId":"{ACCOUNT}","resolvedExecutablePath":"/opt/provider/bin"}}"#
-                    ),
+                    serde_json::json!({
+                        "providerAccountId": ACCOUNT,
+                        "resolvedExecutablePath": "/opt/provider/bin",
+                    })
+                    .to_string(),
                 ],
             )
             .expect("the test binds the lead run");
@@ -261,8 +263,7 @@ impl Harness {
 
     // Waits for every token-limit stop the record started to answer.
     async fn settle_stops(&self) {
-        self.record.stops.close();
-        self.record.stops.wait().await;
+        self.record.stop().await;
         self.record.stops.reopen();
     }
 

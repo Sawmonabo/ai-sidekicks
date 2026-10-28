@@ -134,6 +134,13 @@ impl UsageRecord {
         }
     }
 
+    /// Waits for every token-limit stop under way, which the daemon's stop does before the drivers
+    /// shut down, so no stop outlives the driver it calls.
+    pub async fn stop(&self) {
+        self.stops.close();
+        self.stops.wait().await;
+    }
+
     // Records one metered reading and holds its run to its token limit.
     async fn record(&self, metered: MeteredUsage) -> Result<(), UsageRecordError> {
         let MeteredUsage {
@@ -308,7 +315,7 @@ impl UsageRecord {
                         "a run past its token limit was not stopped; its next report asks again"
                     );
                 }
-                // A run that ended meanwhile dropped its tally, and no report reads this one.
+                // A run that ended meanwhile keeps this slot nowhere, so no report reads the mark.
                 if let Some(tally) = slot.lock().await.as_mut() {
                     tally.limit_stop = match stopped {
                         Ok(()) => TokenLimitStop::Stopped,
