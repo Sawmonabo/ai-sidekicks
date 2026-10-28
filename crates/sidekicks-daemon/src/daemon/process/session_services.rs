@@ -257,8 +257,8 @@ pub(crate) fn build_session_services(
         Arc::clone(&event_log),
         SESSION_EVENT_VERSION.clone(),
     ));
-    // Taken before the watch moves on, so the file search hears every folder's change.
-    let folder_changes = working_folders.on_folder_change();
+    // Taken before the watch moves on; the file search opens it with how each folder is followed.
+    let folder_changes = working_folders.folder_change_feed();
     let approval_start = ApprovalStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),

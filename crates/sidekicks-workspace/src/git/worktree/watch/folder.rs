@@ -66,7 +66,7 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
     let has_started = outcome.is_ok();
     started.send_replace(Some(outcome.map_err(Arc::new)));
     if has_started {
-        watched.announce_mode(&watched.shared.lock_state());
+        watched.announce_mode(&mut watched.shared.lock_state());
         tokio::select! {
             biased;
             () = close.cancelled() => {}
@@ -500,7 +500,7 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         if self.mode == WorkingTreeChangeMode::Watch {
             self.mode = WorkingTreeChangeMode::SlowTick;
             // A change the slow tick finds reaches its receivers minutes late, so they hear now.
-            self.announce_mode(&self.shared.lock_state());
+            self.announce_mode(&mut self.shared.lock_state());
         }
         if self.tick.is_some() {
             return;
@@ -547,8 +547,8 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
     fn send_change(&mut self) {
         self.is_raise_pending = false;
         let listeners: Vec<_> = {
-            let state = self.shared.lock_state();
-            self.announce_mode(&state);
+            let mut state = self.shared.lock_state();
+            self.announce_mode(&mut state);
             state
                 .subscriptions
                 .values()
@@ -566,19 +566,22 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         }
     }
 
-    // Tells the folder-change receivers that the folder changed, with how its tree is followed;
-    // a folder already released tells nothing, so no change follows its end.
-    fn announce_mode(&self, state: &WatcherState) {
-        let is_open = state
+    // Records how the folder's tree is followed and tells the folder-change receivers that the
+    // folder changed, with that mode; a folder already released tells nothing, so no change
+    // follows its end.
+    fn announce_mode(&self, state: &mut WatcherState) {
+        let Some(entry) = state
             .folders
-            .get(&self.folder.key)
-            .is_some_and(|entry| entry.id == self.folder.id);
-        if is_open {
-            self.shared.send_folder_change(
-                &self.folder.key,
-                FolderWatchChangeKind::Changed { mode: self.mode },
-            );
-        }
+            .get_mut(&self.folder.key)
+            .filter(|entry| entry.id == self.folder.id)
+        else {
+            return;
+        };
+        entry.mode = Some(self.mode);
+        self.shared.send_folder_change(
+            &self.folder.key,
+            FolderWatchChangeKind::Changed { mode: self.mode },
+        );
     }
 
     fn announce_repository_change(&self) {

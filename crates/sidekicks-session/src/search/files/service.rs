@@ -31,15 +31,18 @@ use sidekicks_contracts::session::methods::{
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_platforms::{PathRules, is_link_loop, real_path};
+use sidekicks_platforms::{is_link_loop, real_path};
 use sidekicks_search::ranking::score_subsequence;
 use sidekicks_std::missing_entry::is_gone;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::process::{GitError, GitRunner};
-use sidekicks_workspace::git::worktree::watch::{FolderWatchChange, FolderWatchChangeKind};
+use sidekicks_workspace::git::worktree::watch::{
+    FolderWatchChange, FolderWatchChangeKind, OpenFolderChangeFeed,
+};
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::error::RecvError;
@@ -147,10 +150,25 @@ impl KeptListings {
         self.forget_if_idle(&key);
     }
 
-    // A change was missed, which may be any folder's, so nothing of any folder is trusted.
-    fn forget_every_folder(&mut self) {
-        self.by_folder.clear();
-        self.kept_bytes = 0;
+    // Takes how the watch follows each folder now, `modes`, as the watch answers it at subscribe
+    // and after a lag. A change was missed, which may be any folder's, so no kept listing is
+    // trusted and every walk under way is stale; a folder a file watch follows keeps that, so its
+    // next walk is kept.
+    fn take_modes(&mut self, modes: &HashMap<PathBuf, WorkingTreeChangeMode>) {
+        for (key, mode) in modes {
+            if *mode == WorkingTreeChangeMode::Watch {
+                self.by_folder.entry(key.clone()).or_default();
+            }
+        }
+        let keys: Vec<PathBuf> = self.by_folder.keys().cloned().collect();
+        for key in keys {
+            if let Some(folder) = self.by_folder.get_mut(&key) {
+                folder.change_count += 1;
+                folder.is_watched = modes.get(&key) == Some(&WorkingTreeChangeMode::Watch);
+            }
+            self.drop_kept(&key);
+            self.forget_if_idle(&key);
+        }
     }
 
     // Drops the folder's kept listing, so its next search walks it again.
@@ -331,18 +349,23 @@ pub struct FileSearchService {
 
 impl FileSearchService {
     /// The search reading each session's working folder through `pool` and listing it through
-    /// `git`, keeping a folder's listing by what the working-folder watch tells on
-    /// `folder_changes` until that channel closes.
+    /// `git`, keeping a folder's listing by what the working-folder watch tells on the feed
+    /// `open_folder_changes` opens, from how the watch follows each folder now, until the watch is
+    /// gone.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         git: GitRunner,
-        folder_changes: broadcast::Receiver<FolderWatchChange>,
+        open_folder_changes: OpenFolderChangeFeed,
     ) -> Self {
         let listings = Arc::new(Mutex::new(KeptListings::default()));
-        tokio::spawn(follow_folder_changes(
-            Arc::downgrade(&listings),
-            folder_changes,
-        ));
+        if let Some(feed) = open_folder_changes() {
+            lock_listings(&listings).take_modes(&feed.modes);
+            tokio::spawn(follow_folder_changes(
+                Arc::downgrade(&listings),
+                open_folder_changes,
+                feed.changes,
+            ));
+        }
         Self {
             pool,
             git,
@@ -394,11 +417,9 @@ impl FileSearchService {
             }
             Err(error) => return Err(FileSearchError::Resolve(error)),
         };
-        // The watch's key for the folder: its resolved path in the system's comparable form.
-        let key = PathRules::NATIVE
-            .comparable_components(&root)
-            .into_iter()
-            .collect();
+        let key = canonical_folder_path(&root)
+            .await
+            .map_err(FileSearchError::Resolve)?;
         let candidates = self
             .listing_of(working_folder.place, folder.clone(), key)
             .await
@@ -513,10 +534,12 @@ async fn walk_folder(
     listed
 }
 
-// Applies each change the working-folder watch tells to the kept listings, until the watch or the
-// service is gone.
+// Applies each change the working-folder watch tells to the kept listings, and after a lag opens
+// the feed again and takes how the watch follows each folder now, until the watch or the service
+// is gone.
 async fn follow_folder_changes(
     listings: Weak<Mutex<KeptListings>>,
+    open_folder_changes: OpenFolderChangeFeed,
     mut folder_changes: broadcast::Receiver<FolderWatchChange>,
 ) {
     loop {
@@ -524,10 +547,15 @@ async fn follow_folder_changes(
         let Some(held) = listings.upgrade() else {
             return;
         };
-        let mut folders = lock_listings(&held);
         match received {
-            Ok(change) => folders.take_change(change),
-            Err(RecvError::Lagged(_missed)) => folders.forget_every_folder(),
+            Ok(change) => lock_listings(&held).take_change(change),
+            Err(RecvError::Lagged(_missed)) => {
+                let Some(feed) = open_folder_changes() else {
+                    return;
+                };
+                lock_listings(&held).take_modes(&feed.modes);
+                folder_changes = feed.changes;
+            }
             Err(RecvError::Closed) => return,
         }
     }

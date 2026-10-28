@@ -1,7 +1,8 @@
 //! The `@` search's tests: what a search answers, and how long a folder's listing is kept.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rstest::rstest;
@@ -16,14 +17,15 @@ use sidekicks_contracts::session::methods::{
     SessionFileSearchResponse,
 };
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::{PathRules, real_path};
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
+use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::process::{GitRunner, test_git_runner, write_link};
 use sidekicks_workspace::git::worktree::watch::{
-    FOLDER_CHANGE_CAPACITY, FolderWatchChange, FolderWatchChangeKind,
+    FOLDER_CHANGE_CAPACITY, FolderChangeFeed, FolderWatchChange, FolderWatchChangeKind,
 };
 use sidekicks_workspace::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 use tokio::sync::broadcast;
@@ -39,14 +41,16 @@ const WATCHED: FolderWatchChangeKind = FolderWatchChangeKind::Changed {
     mode: WorkingTreeChangeMode::Watch,
 };
 
-/// A session whose working folder is `folder`, the search over it, and the folder changes it
-/// hears; the writer is kept so the database stays open.
+/// A session whose working folder is `folder`, the search over it, the folder changes it hears and
+/// how the watch follows each folder, which a feed opened after a lag answers; the writer is kept
+/// so the database stays open.
 struct Harness {
     _writer: DatabaseWriter,
     _database: TestDatabase,
     session_id: SessionId,
     service: FileSearchService,
     folder_changes: broadcast::Sender<FolderWatchChange>,
+    modes: Arc<Mutex<HashMap<PathBuf, WorkingTreeChangeMode>>>,
 }
 
 impl Harness {
@@ -60,8 +64,17 @@ impl Harness {
         paths_of(&response).into_iter().map(str::to_owned).collect()
     }
 
-    // Tells the search `kind` of the folder at `key` and waits until it has read it.
+    // Tells the search `kind` of the folder at `key`, as the watch records it, and waits until the
+    // search has read it.
     async fn tell(&self, key: &Path, kind: FolderWatchChangeKind) {
+        match kind {
+            FolderWatchChangeKind::Changed { mode } => {
+                lock(&self.modes).insert(key.to_path_buf(), mode);
+            }
+            FolderWatchChangeKind::Unwatched => {
+                lock(&self.modes).remove(key);
+            }
+        }
         self.folder_changes
             .send(FolderWatchChange {
                 key: key.to_path_buf(),
@@ -115,14 +128,21 @@ async fn harness(git: GitRunner, folder: &Path) -> Harness {
             ],
         )
         .expect("the workspace is stored");
-    let (folder_changes, heard) = broadcast::channel(FOLDER_CHANGE_CAPACITY);
+    let (folder_changes, _unheard) = broadcast::channel(FOLDER_CHANGE_CAPACITY);
+    let modes = Arc::new(Mutex::new(HashMap::new()));
+    let (feed_changes, feed_modes) = (folder_changes.clone(), Arc::clone(&modes));
     let service = FileSearchService::new(
         Arc::new(DatabaseReadPool::new(
             database.path(),
             FILE_SEARCH_STATEMENT_CAPACITY,
         )),
         git,
-        heard,
+        Arc::new(move || {
+            Some(FolderChangeFeed {
+                modes: lock(&feed_modes).clone(),
+                changes: feed_changes.subscribe(),
+            })
+        }),
     );
     Harness {
         _writer: writer,
@@ -130,6 +150,7 @@ async fn harness(git: GitRunner, folder: &Path) -> Harness {
         session_id,
         service,
         folder_changes,
+        modes,
     }
 }
 
@@ -146,13 +167,11 @@ fn folder_with_a_file(root: &Path) -> PathBuf {
     folder
 }
 
-// The key the watch gives `folder`: its resolved path in the system's comparable form.
-fn watch_key(folder: &Path) -> PathBuf {
-    let resolved = real_path(folder).expect("the folder resolves");
-    PathRules::NATIVE
-        .comparable_components(&resolved)
-        .into_iter()
-        .collect()
+// The key the watch gives `folder`.
+async fn watch_key(folder: &Path) -> PathBuf {
+    canonical_folder_path(folder)
+        .await
+        .expect("the folder resolves")
 }
 
 // Killed by keeping a row whose real location leaves the folder (`starts_with` dropped) or
@@ -231,7 +250,7 @@ async fn file_search_keeps_a_walk_no_search_waits_on_until_the_folder_changes() 
     .await;
     let linked = root.path().join("linked");
     let harness = harness(git, &linked).await;
-    let key = watch_key(&folder);
+    let key = watch_key(&folder).await;
     harness.tell(&key, WATCHED).await;
 
     // A search dropped once its walk began.
@@ -248,14 +267,16 @@ async fn file_search_keeps_a_walk_no_search_waits_on_until_the_folder_changes() 
     assert_eq!(fresh, ["a.txt", "b.txt"]);
 }
 
-// Killed by a lag the follower ignores, and by one that drops only the folder the changes
-// it read named.
+// A lag drops every kept listing, and the walk after it is kept again for a folder the watch still
+// follows by a file watch. Killed by a lag the follower ignores, by one that drops only the folder
+// the changes it read named, and by one that forgets the folders' modes, which leaves every later
+// search walking.
 #[tokio::test]
 async fn file_search_walks_again_once_the_folder_changes_outran_it() {
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let folder = folder_with_a_file(root.path());
     let harness = harness(test_git_runner(), &folder).await;
-    let key = watch_key(&folder);
+    let key = watch_key(&folder).await;
     harness.tell(&key, WATCHED).await;
     harness.search_paths().await;
     std::fs::write(folder.join("b.txt"), "b\n").expect("a file is written");
@@ -273,9 +294,12 @@ async fn file_search_walks_again_once_the_folder_changes_outran_it() {
     }
     harness.until_heard().await;
     let fresh = harness.search_paths().await;
+    std::fs::write(folder.join("c.txt"), "c\n").expect("a file is written");
+    let kept_after_lag = harness.search_paths().await;
 
     assert_eq!(kept, ["a.txt"]);
     assert_eq!(fresh, ["a.txt", "b.txt"]);
+    assert_eq!(kept_after_lag, ["a.txt", "b.txt"]);
 }
 
 // Killed by a watch's end that leaves the folder's entry, so the map never shrinks.
@@ -284,7 +308,7 @@ async fn file_search_forgets_a_folder_once_its_watch_ends() {
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let folder = folder_with_a_file(root.path());
     let harness = harness(test_git_runner(), &folder).await;
-    let key = watch_key(&folder);
+    let key = watch_key(&folder).await;
     harness.tell(&key, WATCHED).await;
     harness.search_paths().await;
     let was_kept = lock_listings(&harness.service.listings)
@@ -310,7 +334,7 @@ async fn file_search_keeps_nothing_of_a_folder_on_the_slow_tick() {
     let root = tempfile::tempdir().expect("the temporary folder is made");
     let folder = folder_with_a_file(root.path());
     let harness = harness(test_git_runner(), &folder).await;
-    let key = watch_key(&folder);
+    let key = watch_key(&folder).await;
     let slow_tick = FolderWatchChangeKind::Changed {
         mode: WorkingTreeChangeMode::SlowTick,
     };
