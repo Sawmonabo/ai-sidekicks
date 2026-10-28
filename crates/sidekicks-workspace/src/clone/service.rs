@@ -169,6 +169,8 @@ pub struct CloneService {
     git: GitRunner,
     cards: Arc<CloneCards>,
     runs: Arc<CloneRuns>,
+    // Each project whose folder a stop left is held until that folder is removed.
+    removals: Arc<KeyedLock<ProjectId>>,
     starts: Arc<KeyedLock<()>>,
 }
 
@@ -176,9 +178,10 @@ impl CloneService {
     /// Starts the service: each clone recorded running was cut short by the last stop, so all of
     /// them are recorded interrupted in one write, and the folders the daemon named for their git
     /// are removed on a task of the service's own, while their paths still hold what it made, each
-    /// under the start lock; a folder that cannot be removed records its clone failed with the
-    /// reason. Fails when the cut-short clones cannot be read or their ends cannot
-    /// be recorded; the broker is then dropped, which stops it.
+    /// under the start lock and its project held until its folder is gone, so a rerun waits for
+    /// it; a folder that cannot be removed records its clone failed with the reason. Fails when
+    /// the cut-short clones cannot be read or their ends cannot be recorded; the broker is then
+    /// dropped, which stops it.
     pub async fn start(deps: CloneServiceDeps) -> Result<Arc<Self>, CloneServiceError> {
         let cards = Arc::new(CloneCards::default());
         let runs = Arc::new(CloneRuns::new(CloneRunsDeps {
@@ -211,9 +214,10 @@ impl CloneService {
                 })
             })
             .collect();
+        let removals = Arc::new(KeyedLock::new());
         let starts = Arc::new(KeyedLock::new());
         if !folders.is_empty() {
-            runs.remove_cut_short_folders(folders, Arc::clone(&starts))
+            runs.remove_cut_short_folders(folders, Arc::clone(&removals), Arc::clone(&starts))
                 .await;
         }
         Ok(Arc::new(Self {
@@ -226,6 +230,7 @@ impl CloneService {
             git: deps.git,
             cards,
             runs,
+            removals,
             starts,
         }))
     }
@@ -259,6 +264,12 @@ impl CloneService {
         &self,
         request: ProjectCloneStartRequest,
     ) -> Result<ProjectCloneStartResponse, CloneServiceError> {
+        // A rerun waits for the removal of the folder a stop left it, before the start lock, which
+        // that removal takes too.
+        let _removed = match request.project_id {
+            Some(project_id) => Some(self.removals.acquire(project_id).await),
+            None => None,
+        };
         let _starting = self.starts.acquire(()).await;
         let fields = CloneRequestFields::of(&request);
         let key = &request.client_idempotency_key;

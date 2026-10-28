@@ -1,8 +1,8 @@
 //! The clone service's tests, against a real git on temporary folders with the test's own git
 //! config: a clone with a submodule attaches and its key answers a resend and refuses another
 //! request, as does the key of a start answered by the attached project, a failed clone keeps no
-//! credential, and the start's recovery removes only the folders the daemon made, wherever the
-//! clone stood.
+//! credential, the start's recovery removes only the folders the daemon made, wherever the clone
+//! stood, and a rerun waits for the removal of its own project's folder.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -537,4 +537,89 @@ async fn the_start_records_running_clones_interrupted_and_removes_only_the_folde
             "the record lets the folder go"
         );
     }
+}
+
+// Killed by a rerun retargeted before the removal of its own project's folder: listed after
+// another project's, it would take the start lock between the two removals and find its
+// destination still holding the clone the stop left, refused `destinationNotEmpty`.
+#[tokio::test]
+async fn a_rerun_waits_for_the_removal_of_its_own_folder_and_clones_into_the_emptied_destination() {
+    let harness = Harness::new().await;
+    let folder = harness.folder.clone();
+    harness.git_in(&folder, &["init", "app"]).await;
+    harness
+        .git_in(
+            &folder.join("app"),
+            &["commit", "--allow-empty", "-m", "app"],
+        )
+        .await;
+    harness
+        .git_in(&folder, &["clone", "--bare", "app", "app.git"])
+        .await;
+    let projects = folder.join("projects");
+    let named = |destination: &Path| name_staged_clone(destination).expect("the folder is named");
+    let first = make_staged_clone(&named(&projects.join("first")))
+        .await
+        .expect("the folder is made");
+    let placed_destination = projects.join("app");
+    let placed = make_staged_clone(&named(&placed_destination))
+        .await
+        .expect("the folder is made");
+    std::fs::rename(&placed.path, &placed_destination).expect("the clone moves into place");
+    std::fs::write(placed_destination.join("note"), "left").expect("the clone holds a file");
+    let mut cut_short = Vec::new();
+    // Listed in this order, the rerun's project second.
+    for (destination, staged) in [
+        (projects.join("first"), &first),
+        (placed_destination, &placed),
+    ] {
+        let project_id =
+            ProjectId::try_from(mint_uuid_v7()).expect("a minted UUID is a project id");
+        let slug: OsString = staged.path.file_name().expect("a folder name").to_owned();
+        harness
+            .database
+            .reader()
+            .execute(
+                "INSERT INTO projects (id, name, slug, folder_path, state, clone_url, \
+                 clone_outcome, clone_staging_folder, clone_staging_identity, setup, created_at, \
+                 updated_at) VALUES (?1, ?2, ?2, ?3, 'cloning', \
+                 'https://example.invalid/app.git', 'interrupted', ?4, ?5, \
+                 '{\"filesToCopy\":[],\"commands\":[]}', ?6, ?6)",
+                rusqlite::params![
+                    project_id.text().as_str(),
+                    slug.to_string_lossy(),
+                    destination.to_string_lossy(),
+                    staged.path.to_string_lossy(),
+                    staged.identity.to_string(),
+                    PARENT_ROWS_AT,
+                ],
+            )
+            .expect("the cut-short clone is stored");
+        cut_short.push(project_id);
+    }
+    let rerun_id = cut_short[1];
+
+    let service = harness.start().await;
+    let source = folder.join("app.git");
+    let source = source.to_str().expect("a scratch path is text");
+    let started = service
+        .start_clone(ProjectCloneStartRequest {
+            project_id: Some(rerun_id),
+            ..start_request(source, &projects, &new_key())
+        })
+        .await
+        .expect("the rerun starts once its folder is removed");
+
+    assert_eq!(started.project_id, rerun_id);
+    assert_eq!(
+        follow_to_end(&service, rerun_id).await,
+        ProjectCloneStatus::Done {
+            project_id: rerun_id
+        }
+    );
+    assert!(
+        !projects.join("app").join("note").exists(),
+        "the clone the stop left is gone"
+    );
+    service.close(WAIT).await.expect("the service closes");
 }

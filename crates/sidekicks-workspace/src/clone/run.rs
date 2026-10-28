@@ -251,21 +251,30 @@ impl CloneRuns {
 
     /// Removes the staged folders of the clones the last stop cut short, recorded interrupted
     /// already, on a task of its own the close waits on, so the daemon's start waits for none of
-    /// them. The task holds `starts`, the start lock, through each folder's removal and lets it go
-    /// between folders, so a start waits out the removal under way but never the whole pass;
-    /// answers once it holds it for the first. Each folder goes while its path still holds what
-    /// the daemon made, a made one at the destination too once renamed there; its record lets it
-    /// go, or records the clone failed with why it could not.
+    /// them. The task takes each listed project's hold in `removals` before it answers and lets
+    /// each go once that project's folder is done, so a rerun of a project waits out its own
+    /// removal; it holds `starts`, the start lock, through each folder's removal and lets it go
+    /// between folders, so another start waits out the removal under way but never the whole
+    /// pass. Answers once the task holds every project's hold and the start lock for the first
+    /// folder. Each folder goes while its path still holds what the daemon made, a made one at the
+    /// destination too once renamed there; its record lets it go, or records the clone failed with
+    /// why it could not.
     pub(crate) async fn remove_cut_short_folders(
         self: &Arc<Self>,
         clones: Vec<CutShortFolder>,
+        removals: Arc<KeyedLock<ProjectId>>,
         starts: Arc<KeyedLock<()>>,
     ) {
         let (held, holding) = oneshot::channel();
         let runs = Arc::clone(self);
         self.tasks.spawn(async move {
-            let mut held = Some(held);
+            let mut removing = Vec::with_capacity(clones.len());
             for clone in clones {
+                let hold = removals.acquire(clone.project_id).await;
+                removing.push((clone, hold));
+            }
+            let mut held = Some(held);
+            for (clone, _removing) in removing {
                 let _starting = starts.acquire(()).await;
                 if let Some(held) = held.take()
                     && held.send(()).is_err()
