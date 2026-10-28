@@ -102,9 +102,6 @@ impl StagedChangesWorktrees {
         // Handed back to git, so every byte of a name that is not UTF-8 is kept.
         let repository_root = path_from_program_output(strip_line_end(toplevel.stdout))
             .map_err(|failure| without_cleanup(GitError::PathText(failure).into()))?;
-        let common_git_folder = read_git_common_folder(&self.git, place, &repository_root, None)
-            .await
-            .map_err(|failure| without_cleanup(failure.into()))?;
         // The person's diff settings never shape it: fixed prefixes, no external or
         // text-converting driver, no color, so `apply` reads exactly the index's change.
         let staged_patch = self
@@ -141,7 +138,6 @@ impl StagedChangesWorktrees {
         let worktree = StagedChangesWorktree {
             folder: self.folder.join(name),
             repository_root,
-            common_git_folder,
             place: place.cloned(),
             git: self.git.clone(),
         };
@@ -198,7 +194,6 @@ impl StagedChangesWorktrees {
 pub struct StagedChangesWorktree {
     folder: PathBuf,
     repository_root: PathBuf,
-    common_git_folder: PathBuf,
     place: Option<Place>,
     git: GitRunner,
 }
@@ -265,7 +260,13 @@ impl StagedChangesWorktree {
         if let Err(failure) = remove_folder(self.folder.clone()).await {
             failures.push(failure);
         }
-        failures.extend(remove_records_of(&self.common_git_folder, &self.folder).await);
+        // Read from the repository's own checkout, which stands whether or not the tree was made.
+        match read_git_common_folder(&self.git, place, &self.repository_root, None).await {
+            Ok(common_git_folder) => {
+                failures.extend(remove_records_of(&common_git_folder, &self.folder).await);
+            }
+            Err(failure) => failures.push(failure.into()),
+        }
         failures
     }
 }
@@ -279,8 +280,8 @@ async fn remove_records_of(
     tree_folder: &Path,
 ) -> Vec<StagedChangesError> {
     let records_folder = common_git_folder.join(LINKED_RECORDS_FOLDER_NAME);
-    let real_tree_folder = match real_tree_folder(tree_folder).await {
-        Ok(real_tree_folder) => real_tree_folder,
+    let real_folder = match real_tree_folder(tree_folder).await {
+        Ok(real_folder) => real_folder,
         Err(source) => {
             return vec![StagedChangesError::Remove {
                 path: tree_folder.to_path_buf(),
@@ -301,7 +302,7 @@ async fn remove_records_of(
     for name in names {
         let record_folder = records_folder.join(name);
         let is_tree_record = match read_record_tree_git_file(&record_folder).await {
-            Ok(Some(git_file)) => is_contained_within(&git_file, &real_tree_folder),
+            Ok(Some(git_file)) => is_contained_within(&git_file, &real_folder),
             Ok(None) => false,
             Err(source) => {
                 failures.push(StagedChangesError::Remove {
