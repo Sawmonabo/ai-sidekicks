@@ -91,14 +91,6 @@ fn advisor_statement(
     clippy::option_option,
     reason = "a session with no advisor of its own differs from one whose advisor is off"
 )]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the session spawn-context resolver, which fills the spawn context's advisor and \
-                  step bound"
-    )
-)]
 pub(crate) fn read_session_advisor_model(
     reader: &Connection,
     session_id: &SessionId,

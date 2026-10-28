@@ -35,7 +35,7 @@ use sidekicks_provider::driver::contract::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_session::directory::lookups::session_exists;
-use sidekicks_session::run::agent::read_lead_binding;
+use sidekicks_session::run::agent::read_session_lead;
 use sidekicks_session::run::live_bindings::{
     AgentBindingResolution, RunBindingResolution, resolve_agent_bindings, resolve_run_binding,
 };
@@ -128,15 +128,18 @@ async fn list_models(
                 if !session_exists(reader, &session_id)? {
                     return Ok(None);
                 }
-                Ok(Some(read_lead_binding(reader, &session_id, read_bound)?))
+                Ok(Some(read_session_lead(reader, &session_id, read_bound)?))
             },
         )
         .await?;
     let Some(lead) = lead else {
         return Err(session_not_found(&session_id).into());
     };
-    let (own_provider, own_account) = lead.map_or((None, None), |(provider, account)| {
-        (Some(provider), account)
+    let (own_provider, own_account) = lead.map_or((None, None), |lead| {
+        (
+            Some(lead.binding.provider_name),
+            lead.binding.provider_account_id,
+        )
     });
     let mut drivers: Vec<_> = sources.providers.drivers().collect();
     // Stable, so the rest keep the table's order.

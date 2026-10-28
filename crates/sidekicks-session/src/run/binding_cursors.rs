@@ -1,24 +1,27 @@
-//! The epoch cursor of each run's runtime binding. It opens as the binding is recorded, at the
-//! start every run opens at, and drops once its run has ended and the session has recorded a newer
-//! binding, or the session closed, so the provider's last deliveries on an ended run still find it
-//! and are absorbed as late, and a session holds the cursors of its newest bindings alone. A
-//! binding a driver mints when it resumes a session in a new process carries its predecessor's
-//! cursor on, opened before its row is written, since the resumed provider delivers under it at
-//! once.
+//! The epoch cursor of each run's runtime binding. It opens at the start every run opens at, as
+//! the binding is recorded or, for a binding its caller minted, before its row is written, and
+//! drops once its run has ended and the session has opened a newer binding, or the session closed,
+//! so the provider's last deliveries on an ended run still find it and are absorbed as late, and a
+//! session holds the cursors of its newest bindings alone. A binding a driver mints when it resumes
+//! a session in a new process carries the cursor of the session's leg on, opened before its row is
+//! written, since the resumed provider delivers under it at once. A cursor whose row is not written
+//! is forgotten.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEventReadError;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore,
-    RuntimeBindingStoreError, read_binding,
+    RuntimeBindingStoreError,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
@@ -28,13 +31,15 @@ use sidekicks_store::events::session::followers::CommittedEvent;
 
 use crate::run::epochs::{EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::read::{RunRead, RunStateReader};
+use crate::run::stored_leg::read_session_leg;
 use crate::run::stored_state_change::read_stored_run_state_change;
 
-/// The statements the cursors prepare on a pooled connection: a run's row and a binding's row.
-pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 2;
+/// The statements the cursors prepare on a pooled connection: a run's row, and a session's run ids
+/// and their bindings for its leg.
+pub const RUN_BINDING_CURSORS_STATEMENT_CAPACITY: usize = 3;
 
 /// Why a binding was not recorded or its cursor not opened; a binding whose cursor did not open
-/// is not recorded.
+/// is not recorded, and one whose row was not written keeps no cursor.
 #[derive(Debug, thiserror::Error)]
 pub enum RunBindingCursorError {
     /// No session holds the run, so no binding is recorded for it.
@@ -42,12 +47,6 @@ pub enum RunBindingCursorError {
     RunNotHeld {
         /// The run.
         run_id: RunId,
-    },
-    /// The binding a relaunch resumes from has no row.
-    #[error("runtime binding {} has no row to resume from", .binding_id.as_str())]
-    PredecessorMissing {
-        /// The predecessor.
-        binding_id: RuntimeBindingId,
     },
     /// The binding's cursor is already open.
     #[error(transparent)]
@@ -105,17 +104,71 @@ impl RunBindingCursors {
     ) -> Result<RuntimeBinding, RunBindingCursorError> {
         let run = self.read_held_run(input.run_id).await?;
         let binding = self.store.create(input).await?;
-        let mut sessions = self.lock_sessions();
-        let session = sessions.entry(run.session_id).or_default();
-        let mut epochs = lock(&self.epochs);
-        for ended_run_id in std::mem::take(&mut session.ended_run_ids) {
-            drop_run(session, &mut epochs, &ended_run_id);
-        }
-        epochs
-            .open_binding(epoch_binding_of(&binding), RUN_START_POSITION)
-            .expect("the store minted the binding's id, so no cursor holds it");
-        hold(session, binding.run_id, binding.id.clone());
+        self.open_held(run.session_id, epoch_binding_of(&binding))
+            .expect(
+                "the caller minted the binding's id for this create alone and the store wrote it \
+                 as a new row, so no cursor holds it",
+            );
         Ok(binding)
+    }
+
+    /// Opens the cursor of the binding `binding_id` the caller minted for `run_id`, at the run's
+    /// start, before its row is written, so the provider can deliver under it at once, dropping
+    /// the cursors of the session's runs that have ended. Fails with
+    /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds and
+    /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
+    pub async fn open_binding(
+        &self,
+        binding_id: RuntimeBindingId,
+        run_id: RunId,
+        provider_name: ProviderId,
+        provider_account_id: Option<ProviderAccountId>,
+    ) -> Result<(), RunBindingCursorError> {
+        let run = self.read_held_run(run_id).await?;
+        self.open_held(
+            run.session_id,
+            EpochBinding {
+                id: binding_id,
+                run_id,
+                provider_name,
+                provider_account_id,
+            },
+        )?;
+        Ok(())
+    }
+
+    /// Records the row of a binding `open_binding` opened; when the write fails, forgets its
+    /// cursor and fails with the store's error.
+    pub async fn record_opened_binding(
+        &self,
+        input: CreateRuntimeBindingInput,
+    ) -> Result<RuntimeBinding, RunBindingCursorError> {
+        let binding_id = input.id.clone();
+        match self.store.create(input).await {
+            Ok(binding) => Ok(binding),
+            Err(error) => {
+                self.forget_binding(&binding_id);
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Opens the cursor of `binding_id`, which a driver minted for its resume of `session_id`'s
+    /// conversation in a new process, where the cursor of the session's leg, its newest binding
+    /// with a conversation, stands, as `RunBindingCursors::continue_binding` opens it; a session
+    /// with no leg has no cursor to carry on, and nothing opens. Fails with
+    /// [`RunBindingCursorError::RunNotHeld`] for a leg whose run no session holds,
+    /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
+    pub async fn open_relaunch(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> Result<(), RunBindingCursorError> {
+        let Some(leg) = read_session_leg(&self.pool, session_id).await? else {
+            return Ok(());
+        };
+        self.continue_binding(&epoch_binding_of(&leg), binding_id)
+            .await
     }
 
     /// Opens the cursor of `binding_id`, which a driver minted when it resumed `predecessor`'s
@@ -144,32 +197,31 @@ impl RunBindingCursors {
         Ok(())
     }
 
-    /// Records the binding a resume minted, with its cursor opened first as
-    /// `RunBindingCursors::continue_binding` opens it. Fails with
-    /// [`RunBindingCursorError::PredecessorMissing`] for a predecessor the store does not hold,
-    /// and as the cursor's open or the store fails, recording nothing and leaving no cursor open.
+    /// Records the binding a resume minted, whose cursor `open_relaunch` opened, without opening
+    /// it again. Fails as the store fails, its predecessor missing among the refused writes, and
+    /// then forgets the binding's cursor, recording nothing.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,
     ) -> Result<(), RunBindingCursorError> {
-        let predecessor_id = relaunch.predecessor_id.clone();
-        let predecessor = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, RunBindingCursorError>(read_binding(reader, &predecessor_id)?)
-            })
-            .await?
-            .ok_or_else(|| RunBindingCursorError::PredecessorMissing {
-                binding_id: relaunch.predecessor_id.clone(),
-            })?;
         let binding_id = relaunch.binding_id.clone();
-        self.continue_binding(&epoch_binding_of(&predecessor), binding_id.clone())
-            .await?;
         if let Err(error) = self.store.record_relaunch(relaunch).await {
             self.forget_binding(&binding_id);
             return Err(error.into());
         }
         Ok(())
+    }
+
+    /// Forgets the cursor of a binding whose provider session never opened, or whose row was not
+    /// written, wherever its run holds it; one with no cursor is already forgotten.
+    pub fn forget_binding(&self, binding_id: &RuntimeBindingId) {
+        let mut sessions = self.lock_sessions();
+        lock(&self.epochs).close_binding(binding_id);
+        for session in sessions.values_mut() {
+            for binding_ids in session.binding_ids_by_run.values_mut() {
+                binding_ids.retain(|held| held != binding_id);
+            }
+        }
     }
 
     /// Takes a committed session event, on the writer's pump: a run's end marks its cursors to
@@ -222,15 +274,23 @@ impl RunBindingCursors {
             .ok_or(RunBindingCursorError::RunNotHeld { run_id })
     }
 
-    // Closes one binding's cursor, which no row records, wherever its run holds it.
-    fn forget_binding(&self, binding_id: &RuntimeBindingId) {
+    // Opens `binding`'s cursor at the run's start in `session_id`'s cursors, first dropping the
+    // cursors of the session's runs that have ended.
+    fn open_held(
+        &self,
+        session_id: SessionId,
+        binding: EpochBinding,
+    ) -> Result<(), EpochCursorError> {
         let mut sessions = self.lock_sessions();
-        lock(&self.epochs).close_binding(binding_id);
-        for session in sessions.values_mut() {
-            for binding_ids in session.binding_ids_by_run.values_mut() {
-                binding_ids.retain(|held| held != binding_id);
-            }
+        let session = sessions.entry(session_id).or_default();
+        let mut epochs = lock(&self.epochs);
+        for ended_run_id in std::mem::take(&mut session.ended_run_ids) {
+            drop_run(session, &mut epochs, &ended_run_id);
         }
+        let (run_id, binding_id) = (binding.run_id, binding.id.clone());
+        epochs.open_binding(binding, RUN_START_POSITION)?;
+        hold(session, run_id, binding_id);
+        Ok(())
     }
 
     fn lock_sessions(&self) -> MutexGuard<'_, HashMap<SessionId, SessionCursors>> {
@@ -338,13 +398,21 @@ mod tests {
         // Records a binding of `run_id` through the cursors.
         async fn bind(&self, run_id: RunId) -> RuntimeBindingId {
             self.cursors
-                .create(CreateRuntimeBindingInput {
-                    run_id,
-                    ..binding_input(
-                        RuntimeBindingSpawnConfig::default(),
-                        spawned_build("2.0.0", "/opt/provider/bin"),
-                    )
-                })
+                .create(binding_of(run_id))
+                .await
+                .expect("the binding is recorded")
+                .id
+        }
+
+        // Opens a binding of `run_id` through the cursors before its row, then records the row.
+        async fn bind_opened(&self, run_id: RunId) -> RuntimeBindingId {
+            let input = binding_of(run_id);
+            self.cursors
+                .open_binding(input.id.clone(), run_id, input.provider_name.clone(), None)
+                .await
+                .expect("the cursor opens");
+            self.cursors
+                .record_opened_binding(input)
                 .await
                 .expect("the binding is recorded")
                 .id
@@ -386,9 +454,19 @@ mod tests {
         }
     }
 
+    fn binding_of(run_id: RunId) -> CreateRuntimeBindingInput {
+        CreateRuntimeBindingInput {
+            run_id,
+            ..binding_input(
+                RuntimeBindingSpawnConfig::default(),
+                spawned_build("2.0.0", "/opt/provider/bin"),
+            )
+        }
+    }
+
     // Killed by a run's end dropping its cursor at once, so a late delivery finds none; by a
     // continue leaving the run marked, so the next binding drops a live run's cursor; and by the
-    // next binding leaving an ended run's cursor open.
+    // next binding, opened before its row, leaving an ended run's cursor open.
     #[tokio::test]
     async fn binding_cursors_drop_an_ended_run_only_at_the_sessions_next_binding() {
         let harness = Harness::new().await;
@@ -411,7 +489,7 @@ mod tests {
         );
 
         harness.hear_run_move(first_run, completed, RunState::Running, RunState::Completed);
-        let last_binding = harness.bind(harness.run()).await;
+        let last_binding = harness.bind_opened(harness.run()).await;
         assert!(
             !harness.is_open(&first_binding),
             "the next binding drops the ended run's"
