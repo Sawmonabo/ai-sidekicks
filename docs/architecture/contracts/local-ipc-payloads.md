@@ -180,6 +180,14 @@ interface DaemonStatusReadResponse {
         // on a Mac.
         reason?: "noSealService" | "sealFailed" | "bootBound";
       };
+  // This computer's identity and channel keys, present while the service does not hold both:
+  // `reading` while a read of them runs, the start's or one this read started because the store
+  // refused, else why a key is not held. The action line the status prints comes from the
+  // contracts' type, one per state and cause.
+  machineKey?: {
+    state: "reading" | "notMinted" | "lost" | "changed";
+    cause?: "locked" | "unavailable" | "secretsFile" | "random" | "database" | "storedPin";
+  };
   // healthy, rebuilding, degraded or blocked, per session (persistence-payloads.md §Plan-012,
   // T12.4)
   recovery: DaemonRecoveryStatus;

@@ -61,7 +61,7 @@ Reachability is read from the machine's relay connection and from nothing else, 
 
 - A session stays valid while its machine is not reachable; the user's devices show the machine as `Not reachable · last seen <when>`, and nothing queues on their behalf.
 - A machine can be reachable even when it is currently hosting no agents.
-- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only as a new computer joins, at its sign-in with one of the account's passkeys or by linking. Linked again, it first mints a new identity key under its same machine id, and its new `machine.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
+- Removing a machine on the Devices page stops the user's devices reaching it; its sessions stay on it, and it comes back only as a new computer joins, at its sign-in with one of the account's passkeys or by linking. Linked again, it first mints a new identity key and a new channel key under its same machine id, and its new `machine.added` moves every device's pin for that id; its store, sessions and id stay. Removing a machine does not touch the account.
 
 ## Related Domain Docs
 

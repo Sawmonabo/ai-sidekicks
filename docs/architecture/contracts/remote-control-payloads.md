@@ -46,7 +46,7 @@ interface MachineRenameRequest {
 
 // A removal, as the `machine.removed` statement a trusted key signed:
 // {kind: "machine.removed", previousHash, issuedAt, signatures, machineId}. The machine comes back
-// only by being linked again, under a new identity key and its same id.
+// only by being linked again, under new identity and channel keys and its same id.
 interface MachineRemoveRequest {
   statement: MachineRemovedStatement;
 }
