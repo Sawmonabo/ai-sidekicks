@@ -231,7 +231,7 @@ impl ClaudeDriver {
                     move_live(Arc::clone(&live)).await?;
                     moved = Some(live);
                 }
-                ClaudeSessionStanding::Held(ended) => {
+                ClaudeSessionStanding::Held { ended, .. } => {
                     if write_held(ended).await? {
                         return Ok(());
                     }

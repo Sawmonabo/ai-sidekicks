@@ -3,6 +3,7 @@
 //! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
 mod caller_check;
+mod controls;
 mod intake;
 mod sessions;
 mod terminal_reach;

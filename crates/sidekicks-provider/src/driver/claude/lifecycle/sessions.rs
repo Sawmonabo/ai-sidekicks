@@ -78,7 +78,7 @@ impl ClaudeDriver {
         };
         match parts.restarts.standing(session_id) {
             ClaudeSessionStanding::Live(_) => SessionProcessState::Live,
-            ClaudeSessionStanding::Held(_) | ClaudeSessionStanding::Settling(_) => {
+            ClaudeSessionStanding::Held { .. } | ClaudeSessionStanding::Settling(_) => {
                 SessionProcessState::Restarting
             }
             ClaudeSessionStanding::Down => SessionProcessState::Down,

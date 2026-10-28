@@ -65,10 +65,12 @@ struct ClaudeRestartTable {
 // Where a session the driver brings back itself stands.
 enum ClaudeRestartStage {
     // Its process ended and no relaunch has composed its start: the ended process's settings,
-    // which the relaunch composes from, and the crash window's wait once one is set.
+    // which the relaunch composes from, the crash window's wait once one is set, and the cell set
+    // once the stage goes.
     Held {
         ended: Arc<LiveClaudeSession>,
         wait: Option<AbortOnDropHandle<()>>,
+        left: ClaudeHeldStageLeft,
     },
     // A relaunch composed its start and brings the process up; set once it is done.
     Relaunching {
@@ -80,12 +82,28 @@ enum ClaudeRestartStage {
 pub(crate) enum ClaudeSessionStanding {
     /// A process serves the session.
     Live(Arc<LiveClaudeSession>),
-    /// The process ended and the driver brings it back from these settings, which a move writes.
-    Held(Arc<LiveClaudeSession>),
+    /// The process ended and the driver brings it back from `ended`'s settings, which a move
+    /// writes; `left` is set once the restart composed its start or was dropped.
+    Held {
+        /// The ended process, whose settings the relaunch composes from.
+        ended: Arc<LiveClaudeSession>,
+        /// Set once the session is no longer held.
+        left: ClaudeSlotSettled,
+    },
     /// A process comes up without the daemon's open; the move waits for this, then looks again.
     Settling(ClaudeSlotSettled),
     /// No process serves the session and none comes back until the daemon opens it.
     Down,
+}
+
+// The cell of a held restart, set when the stage goes: replaced by its relaunch, or dropped by the
+// person's restart, a close or the daemon's stop.
+struct ClaudeHeldStageLeft(ClaudeSlotSettled);
+
+impl Drop for ClaudeHeldStageLeft {
+    fn drop(&mut self) {
+        drop(self.0.set(()));
+    }
 }
 
 /// The conversation an ended process wrote, where its file is found again.
@@ -183,6 +201,7 @@ impl ClaudeSessionRestarts {
                         ClaudeRestartStage::Held {
                             ended: Arc::clone(&live),
                             wait: None,
+                            left: ClaudeHeldStageLeft(Arc::new(SetOnce::new())),
                         },
                     );
                 }
@@ -219,6 +238,7 @@ impl ClaudeSessionRestarts {
                 let Some(ClaudeRestartStage::Held {
                     ended,
                     wait: kept_wait,
+                    ..
                 }) = table.restarting.get_mut(&session_id)
                 else {
                     // The person's restart, a close or the daemon's stop took the session.
@@ -314,13 +334,33 @@ impl ClaudeSessionRestarts {
         table.pending_build_moves.clear();
     }
 
+    /// Waits until the session's process no longer comes back on its own: a restart held for its
+    /// crash window's wait, a relaunch or a bring-up in flight each waited out; answers at once
+    /// for a live process or none.
+    pub(crate) async fn settle(&self, session_id: SessionId) {
+        loop {
+            match self.standing(session_id) {
+                ClaudeSessionStanding::Live(_) | ClaudeSessionStanding::Down => return,
+                ClaudeSessionStanding::Held { left, .. } => {
+                    left.wait().await;
+                }
+                ClaudeSessionStanding::Settling(settled) => {
+                    settled.wait().await;
+                }
+            }
+        }
+    }
+
     /// Where the session's process stands: live, held by a restart that has not composed its
     /// start, coming up without the daemon's open (a relaunch, or a fork that replaces it), or
     /// down. A read of what the driver holds.
     pub(crate) fn standing(&self, session_id: SessionId) -> ClaudeSessionStanding {
         match lock(&self.table).restarting.get(&session_id) {
-            Some(ClaudeRestartStage::Held { ended, .. }) => {
-                return ClaudeSessionStanding::Held(Arc::clone(ended));
+            Some(ClaudeRestartStage::Held { ended, left, .. }) => {
+                return ClaudeSessionStanding::Held {
+                    ended: Arc::clone(ended),
+                    left: Arc::clone(&left.0),
+                };
             }
             Some(ClaudeRestartStage::Relaunching { settled }) => {
                 return ClaudeSessionStanding::Settling(Arc::clone(settled));
@@ -497,10 +537,10 @@ impl ClaudeSessionRestarts {
         // nothing of this restart.
         let (_own_wait, relaunching) = {
             let mut table = lock(&self.table);
-            let wait = match table.restarting.remove(&session_id) {
-                Some(ClaudeRestartStage::Held { ended, wait }) if Arc::ptr_eq(&ended, &live) => {
-                    wait
-                }
+            let (wait, left) = match table.restarting.remove(&session_id) {
+                Some(ClaudeRestartStage::Held {
+                    ended, wait, left, ..
+                }) if Arc::ptr_eq(&ended, &live) => (wait, left),
                 Some(stage) => {
                     table.restarting.insert(session_id, stage);
                     return;
@@ -510,7 +550,10 @@ impl ClaudeSessionRestarts {
             if table.is_stopped || self.slots.holds_slot(session_id) {
                 return;
             }
-            (wait, self.mark_relaunching_in(&mut table, session_id))
+            let relaunching = self.mark_relaunching_in(&mut table, session_id);
+            // Whoever waited on the held stage now waits on the relaunch.
+            drop(left);
+            (wait, relaunching)
         };
         let result = self.resume(compose_claude_relaunch(&live)).await;
         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });

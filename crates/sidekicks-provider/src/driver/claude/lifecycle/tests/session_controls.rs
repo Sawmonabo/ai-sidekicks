@@ -7,6 +7,7 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
@@ -15,6 +16,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{resume_params, start_params};
@@ -294,6 +296,42 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         })
         .collect();
     assert_eq!(metered, [(resting_session, Some(50), Some(20))]);
+}
+
+// Killed by answering a side question the model refused as an internal failure.
+#[tokio::test(start_paused = true)]
+async fn a_side_question_the_model_refuses_is_refused_as_such() {
+    let fixture = ScriptedDriver::new();
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
+    ]}));
+    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+        refusal: Some(RunFailureCause::Refused {
+            origin: RunRefusedOrigin::Provider,
+            model: FreeFormText::new(FULL_MODEL_ID.to_owned()).expect("a model id is text"),
+            sentence: None,
+            explanation: None,
+            safety_category: None,
+        }),
+        ..one_turn_reply("", None)
+    });
+    let session_id = new_session_id();
+
+    let asked = fixture
+        .driver
+        .ask_side_question(AskSideQuestionParams {
+            session_id,
+            side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+            question: "Why?".to_owned(),
+            resume: Some(resume_params(session_id)),
+        })
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = asked else {
+        panic!("a refused side question is refused, not {asked:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::SessionSideQuestionRefused);
+    assert_eq!(answered(&fixture), 0);
 }
 
 // The side questions answered so far.

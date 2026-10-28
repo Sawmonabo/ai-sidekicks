@@ -27,13 +27,15 @@ use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 impl ClaudeDriver {
     /// Starts one run's turn on the session's live process: a message's words as typed with its
-    /// files, or Claude Code's own review of the changes the item names. A process started with
-    /// another step bound than the session's is relaunched on its conversation first, and an
-    /// Ultracode value the process does not hold is applied, both before the turn starts. Fails as
-    /// the relaunch or the apply fails, and as the turn's or the review's start fails.
+    /// files, or Claude Code's own review of the changes the item names. A process the driver is
+    /// bringing back is waited for first; one started with another step bound than the session's
+    /// is relaunched on its conversation, and an Ultracode value the process does not hold is
+    /// applied, both before the turn starts. Fails as the relaunch or the apply fails, and as the
+    /// turn's or the review's start fails.
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let session_id = params.opening.session_id;
+        parts.restarts.settle(session_id).await;
         if let Some(live) = parts.slots().live_session(session_id) {
             let started_bound = parts
                 .establishment

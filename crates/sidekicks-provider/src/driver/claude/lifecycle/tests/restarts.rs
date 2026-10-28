@@ -152,6 +152,47 @@ async fn a_mode_move_during_the_crash_wait_is_the_relaunched_process_mode() {
     assert_eq!(relaunch.permission_mode, Some(ClaudePermissionMode::Plan));
 }
 
+// Killed by a run start that does not wait for the process a crash wait brings back: it finds no
+// live process and fails at once instead of starting on the relaunched one.
+#[tokio::test(start_paused = true)]
+async fn a_run_started_during_the_crash_wait_starts_once_the_restart_settled() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    ScriptedDriver::exit(&first);
+    // The first restart waits nothing; the second waits a second, which the run starts in.
+    let second = fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    let relaunched = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&relaunched));
+    ScriptedDriver::exit(&second);
+    settle().await;
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Restarting
+    );
+
+    let mut starting = pin!(
+        fixture
+            .driver
+            .start_run(start_params(session_id, new_run_id()))
+    );
+    let early = tokio::time::timeout(Duration::from_millis(100), &mut starting).await;
+    assert!(
+        early.is_err(),
+        "the run waits out the crash wait: {early:?}"
+    );
+    tokio::time::sleep(RESTART_WAITS_PASSED).await;
+
+    starting
+        .await
+        .expect("the run starts on the relaunched process");
+    assert_eq!(relaunched.user_frames().len(), 1);
+}
+
 // What a resume arriving during a restart's relaunch asks for, beside the relaunched process.
 #[derive(Clone, Copy)]
 enum RelaunchResume {

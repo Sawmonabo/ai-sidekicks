@@ -488,6 +488,19 @@ impl CodexService {
         )
     }
 
+    /// Answers once the service is no longer on its way back up: up, or ended, stopped or down.
+    pub(crate) async fn when_back(&self) {
+        self.wait_for(|availability| {
+            !matches!(
+                availability,
+                CodexServiceAvailability::Starting
+                    | CodexServiceAvailability::Reconnecting
+                    | CodexServiceAvailability::Restarting
+            )
+        })
+        .await;
+    }
+
     /// Answers once the service is shut down for good with the daemon.
     pub(crate) async fn when_shut_down(&self) {
         self.wait_for(|availability| matches!(availability, CodexServiceAvailability::ShutDown))
