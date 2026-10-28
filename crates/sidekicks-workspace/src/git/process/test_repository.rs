@@ -7,13 +7,13 @@ use super::{GitCall, GitRunner, in_folder};
 
 /// Runs git with `arguments` in `folder` and answers what it printed, trimmed. Panics when git
 /// fails.
-pub(crate) async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) -> String {
+pub async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) -> String {
     run_trimmed(git, GitCall::read(in_folder(folder, arguments))).await
 }
 
 /// Runs git with `arguments` in `folder`, writing `input` to it, and answers what it printed,
 /// trimmed. Panics when git fails.
-pub(crate) async fn git_in_with_input(
+pub async fn git_in_with_input(
     git: &GitRunner,
     folder: &Path,
     arguments: &[&str],

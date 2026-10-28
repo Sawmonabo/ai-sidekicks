@@ -466,18 +466,10 @@ mod tests {
     };
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_contracts::wire::text::NonEmptyText;
-    use sidekicks_workspace::git::process::{
-        GitCall, GitError, GitRunner, in_folder, test_git_runner,
-    };
+    use sidekicks_workspace::git::process::test_repository::git_in;
+    use sidekicks_workspace::git::process::{GitError, test_git_runner};
 
     use super::{NoteLocation, NotedLineError, NotedLineReader, lines_of_refused_diff};
-
-    // Runs `arguments` in `repository`; a read, so no hook of the person's runs in the test.
-    async fn git_in(git: &GitRunner, repository: &Path, arguments: &[&str]) {
-        git.run(None, GitCall::read(in_folder(repository, arguments)))
-            .await
-            .expect("the git call succeeds");
-    }
 
     fn file_path(path: &str) -> FilesystemPath {
         FilesystemPath::new(path.to_owned()).expect("the path is a filesystem path")

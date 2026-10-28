@@ -863,7 +863,7 @@ impl Drop for StartedFileWatch {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod test_repository;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_repository;
 #[cfg(test)]
 mod tests;
