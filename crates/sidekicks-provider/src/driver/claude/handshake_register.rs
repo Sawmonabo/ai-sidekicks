@@ -324,6 +324,7 @@ fn compose_provider_command_entries(
                     enabled: None,
                     binding,
                     server: None,
+                    title: None,
                 },
                 ClaudeCommandKind::Skill => ProviderCommandEntry::Skill {
                     name: checked_name,
@@ -333,6 +334,7 @@ fn compose_provider_command_entries(
                     enabled: None,
                     binding,
                     server: None,
+                    title: None,
                 },
             })
         })

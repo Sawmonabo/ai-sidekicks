@@ -518,6 +518,7 @@ fn read_skill_entry(
         enabled: skill.get("enabled").and_then(Value::as_bool),
         binding: binding.clone(),
         server: None,
+        title: None,
     })
 }
 

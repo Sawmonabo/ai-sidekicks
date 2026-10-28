@@ -79,7 +79,8 @@ pub(crate) struct QueueRunLifecycleDeps {
     pub(crate) admission: Arc<QueueAdmission>,
     /// Hands live runs their messages and settles an ended run's hands.
     pub(crate) delivery: QueueDelivery,
-    /// Forgets a closed session's provider session.
+    /// Forgets the provider session of a session closed, or whose process is gone with no restart
+    /// pending.
     pub(crate) provider_sessions: Arc<ProviderSessions>,
     /// Weighed again at each run state change.
     pub(crate) memory_gate: Arc<MemoryGate>,
@@ -200,9 +201,10 @@ impl QueueRunLifecycle {
         Ok(())
     }
 
-    /// Moves on what waits for runs of the session that ended while its provider process kept a
-    /// message for them, once that process is gone, as at their end, and settles the messages
-    /// their resumes kept from the provider's record.
+    /// Forgets the session's provider session once its process is gone with no restart pending,
+    /// then moves on what waits for runs of the session that ended while that process kept a
+    /// message for them, as at their end, and settles the messages their resumes kept from the
+    /// provider's record.
     pub(crate) fn on_process_gone(self: &Arc<Self>, session_id: SessionId) {
         self.schedule(session_id, |work| work.is_process_gone = true);
     }
@@ -404,10 +406,20 @@ impl QueueRunLifecycle {
             self.settle_kept_messages(session_id, &work.kept_settles)
                 .await;
         }
-        if work.is_process_gone
-            && let Err(error) = self.end_runs_of_gone_process(session_id).await
-        {
-            log_failure(session_id, &error, "settling a gone process's runs failed");
+        if work.is_process_gone {
+            // Forgotten first, so a next run the settle starts opens the session again rather than
+            // landing on the gone process's leg.
+            if let Err(error) = self
+                .deps
+                .provider_sessions
+                .forget_gone_process(session_id)
+                .await
+            {
+                log_failure(session_id, &error, "forgetting a gone process failed");
+            }
+            if let Err(error) = self.end_runs_of_gone_process(session_id).await {
+                log_failure(session_id, &error, "settling a gone process's runs failed");
+            }
         }
         for reconciled in work.reconciles {
             // A caller that stopped waiting has nothing to hear.

@@ -14,7 +14,7 @@ use crate::run::id::RunId;
 use crate::typescript::{Definition, TypeScriptModule};
 use crate::wire::Never;
 use crate::wire::list::BoundedVec;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{ComposedText, FreeFormText};
 
 /// The binding a command list was read under: the routing pair a group and each of its entries
 /// carry. `providerAccountId` is `null` when the session bound no account, and `null` matches
@@ -31,12 +31,12 @@ pub struct ProviderCommandBinding {
 }
 
 /// Declares [`ProviderCommandEntry`]: per kind, the members every entry carries, then the kind's
-/// own server member.
+/// own server and title members.
 macro_rules! provider_command_entry {
     ($( $(#[doc = $doc:literal])+ $kind:ident { $($own:tt)* } )+) => {
         /// One command, skill or tool server prompt as the provider listed it, told apart by
         /// `kind`: a disabled entry is returned, not dropped, and `binding` is its routing key.
-        /// `server` is present exactly on a prompt.
+        /// `server` is present exactly on a prompt, and `title` only there.
         #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
         #[serde(
             tag = "kind",
@@ -100,6 +100,14 @@ provider_command_entry! {
         )]
         #[schemars(with = "Never")]
         server: Option<Never>,
+        /// Only a prompt carries a title.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        title: Option<Never>,
     }
     /// A skill.
     Skill {
@@ -111,11 +119,27 @@ provider_command_entry! {
         )]
         #[schemars(with = "Never")]
         server: Option<Never>,
+        /// Only a prompt carries a title.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "Never")]
+        title: Option<Never>,
     }
     /// A working tool server's prompt, grouped under the server that publishes it.
     Prompt {
         /// The tool server that publishes the prompt.
         server: FreeFormText<PROVIDER_MCP_SERVER_NAME_MAX_LEN>,
+        /// The prompt's title for people, where the server gives one.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "crate::wire::present"
+        )]
+        #[schemars(with = "ComposedText")]
+        title: Option<ComposedText>,
     }
 }
 

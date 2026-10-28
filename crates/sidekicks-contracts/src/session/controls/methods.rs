@@ -390,7 +390,9 @@ pub enum SessionReviewTarget {
     Branch,
 }
 
-/// Starts the provider's own review; its report lands as the agent's reply.
+/// Starts the provider's own review: at once while the session's process runs, else as the
+/// session's next queued item, which wakes it as a message does. Its report lands as the agent's
+/// reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -505,14 +507,30 @@ methods! {
             mutating: true,
             params: SessionPermissionLevelUpdateRequest,
             result: SessionPermissionLevelUpdateResponse,
-            refusals: [SessionNotFound, ProviderUnavailable, SessionPermissionLevelNotOffered],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SessionPermissionLevelNotOffered,
+            ],
         },
         /// Sets the session's mode.
         SessionModeUpdate = mutation "session.mode.update" {
             mutating: true,
             params: SessionModeUpdateRequest,
             result: SessionModeUpdateResponse,
-            refusals: [SessionNotFound, ProviderUnavailable],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SessionModeNotOffered,
+            ],
         },
         /// Sets or clears the session's auto-compact bound.
         SessionAutoCompactUpdate = mutation "session.autoCompact.update" {
@@ -549,21 +567,34 @@ methods! {
             params: SessionAddressedRequest,
             result: SubscribeAcknowledgmentResponse,
             emission: SessionProviderCommandList,
-            refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
+            refusals: [
+                SessionNotFound,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderCapabilityUnsupported,
+            ],
         },
         /// Asks a side question.
         SessionSideQuestionAsk = mutation "session.sideQuestion.ask" {
             mutating: true,
             params: SessionSideQuestionAskRequest,
             result: SessionSideQuestionAskResponse,
-            refusals: [SessionNotFound, ProviderUnavailable],
+            refusals: [SessionNotFound, ProviderNotFound, ProviderUnavailable, ProviderTimeout],
         },
         /// Starts the provider's own review.
         SessionCodeReviewStart = mutation "session.codeReview.start" {
             mutating: true,
             params: SessionCodeReviewStartRequest,
             result: SessionAcknowledgment,
-            refusals: [SessionNotFound, ProviderUnavailable],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderNotFound,
+                ProviderUnavailable,
+                AgentQueueItemPersistenceUnavailable,
+                AgentQueueItemRunChanged,
+            ],
         },
         /// Reopens the conversation to take new definitions.
         SessionDefinitionReload = mutation "session.definition.reload" {

@@ -13,7 +13,8 @@ use sidekicks_contracts::session::id::SessionId;
 /// session, registered through a `PortRegistration`. Until it is registered, the list holds no
 /// tool-server prompt.
 pub trait ServerPromptPort: Send + Sync {
-    /// Each working tool server's prompts for the session, as prompt entries naming a server.
+    /// Each working tool server's prompts for the session, as prompt entries naming a server and
+    /// carrying the title it gives a prompt.
     fn read_prompts(
         &self,
         session_id: SessionId,

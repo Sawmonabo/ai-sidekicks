@@ -11,7 +11,7 @@ use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 #[cfg(test)]
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -51,6 +51,7 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                         PermissionLevel::Readonly,
                         root,
                     )),
+                    mode: SessionMode::Build,
                     output_speed: None,
                     options: Vec::new(),
                     row_values: ProviderRowValues::default(),

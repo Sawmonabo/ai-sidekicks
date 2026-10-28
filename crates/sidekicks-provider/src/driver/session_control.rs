@@ -324,9 +324,9 @@ pub struct PurgeSessionParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateSessionModeParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The mode it moves to.
-    pub(crate) mode: SessionMode,
+    pub mode: SessionMode,
 }
 
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
@@ -335,14 +335,14 @@ pub struct UpdateSessionModeParams {
 #[derive(Clone)]
 pub struct AskSideQuestionParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The id the answer carries.
-    pub(crate) side_question_id: SideQuestionId,
+    pub side_question_id: SideQuestionId,
     /// The question.
-    pub(crate) question: String,
-    /// The session's resume material when it has no live process, composed as a resume's is, which
-    /// the copy is forked from; `None` while a process runs it.
-    pub(crate) resume: Option<ResumeSessionParams>,
+    pub question: String,
+    /// The session's newest resume material, composed as a resume's is, which the copy is forked
+    /// from when no live process runs the session; `None` for a session with no conversation yet.
+    pub resume: Option<ResumeSessionParams>,
 }
 
 /// Params of `start_review`: the provider's own review of `target`, bracketed by the
@@ -350,9 +350,9 @@ pub struct AskSideQuestionParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartReviewParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// What the review covers.
-    pub(crate) target: SessionReviewTarget,
+    pub target: SessionReviewTarget,
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.
@@ -382,7 +382,7 @@ pub enum SessionCommandAnswer {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubscribeProviderCommandsParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
 }
 
 /// Receives each new command list a session's provider and its tool servers offer.
