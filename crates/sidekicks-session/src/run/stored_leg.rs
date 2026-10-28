@@ -1,10 +1,11 @@
-//! A session's stored leg: every binding of its runs, read by session id with no live record, and
-//! the newest of them with a conversation to resume.
+//! A session's stored leg, the newest binding of its runs with a conversation to resume, and every
+//! binding of its runs, read by session id with no live record.
 
 use rusqlite::Connection;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingStoreError, read_bindings_of_runs,
+    read_newest_resumable_binding_of_runs,
 };
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 
@@ -19,12 +20,10 @@ pub async fn read_session_leg(
     session_id: SessionId,
 ) -> Result<Option<RuntimeBinding>, RuntimeBindingStoreError> {
     pool.read(ReadLength::Short, move |reader| {
-        Ok(read_session_bindings(reader, session_id)?
-            .into_iter()
-            .filter(|binding| binding.resume_handle.is_some())
-            .max_by(|left, right| {
-                (&left.created_at, &left.id).cmp(&(&right.created_at, &right.id))
-            }))
+        Ok(read_newest_resumable_binding_of_runs(
+            reader,
+            &read_session_run_ids(reader, &session_id)?,
+        )?)
     })
     .await
 }

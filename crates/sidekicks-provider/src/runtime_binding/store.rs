@@ -54,8 +54,8 @@ pub fn mint_runtime_binding_id() -> RuntimeBindingId {
 }
 
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
-/// runs', and every resumable one.
-pub const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
+/// runs', the newest resumable one of many runs, and every resumable one.
+pub const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 5;
 
 // The stored spawn record's member naming the build that ran: written from the spawned build's
 // reading, kept apart from the legs a resume reads.
@@ -85,6 +85,13 @@ const SELECT_RUN_BINDINGS_SQL: &str = select_bindings!("WHERE run_id = ? ORDER B
 // placeholders is built per count or reaches SQLite's bound on them.
 const SELECT_BINDINGS_OF_RUNS_SQL: &str = select_bindings!(
     "WHERE run_id IN (SELECT value FROM json_each(?)) ORDER BY run_id, created_at, id"
+);
+
+// The run index serves each run; only the newest row is read.
+const SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL: &str = select_bindings!(
+    "WHERE run_id IN (SELECT value FROM json_each(?)) AND resume_handle IS NOT NULL
+     ORDER BY created_at DESC, id DESC
+     LIMIT 1"
 );
 
 const SELECT_RESUMABLE_BINDINGS_SQL: &str =
@@ -373,16 +380,36 @@ pub fn read_bindings_of_runs(
     if run_ids.is_empty() {
         return Ok(Vec::new());
     }
-    let run_ids_json = Value::Array(
+    let mut statement = reader.prepare_cached(SELECT_BINDINGS_OF_RUNS_SQL)?;
+    let rows = statement.query_map([run_ids_json(run_ids)], binding_from_row)?;
+    rows.collect()
+}
+
+// The run ids as the one JSON array `json_each` reads.
+fn run_ids_json(run_ids: &[RunId]) -> String {
+    Value::Array(
         run_ids
             .iter()
             .map(|run_id| Value::String(run_id.text().as_str().to_owned()))
             .collect(),
     )
-    .to_string();
-    let mut statement = reader.prepare_cached(SELECT_BINDINGS_OF_RUNS_SQL)?;
-    let rows = statement.query_map([run_ids_json], binding_from_row)?;
-    rows.collect()
+    .to_string()
+}
+
+/// The newest binding of `run_ids` with a resume handle, by when each was recorded and then by id,
+/// in a one-row read; `None` when none has one. Fails on a database error or a stored row that
+/// does not read.
+pub fn read_newest_resumable_binding_of_runs(
+    reader: &Connection,
+    run_ids: &[RunId],
+) -> rusqlite::Result<Option<RuntimeBinding>> {
+    if run_ids.is_empty() {
+        return Ok(None);
+    }
+    reader
+        .prepare_cached(SELECT_NEWEST_RESUMABLE_BINDING_OF_RUNS_SQL)?
+        .query_row([run_ids_json(run_ids)], binding_from_row)
+        .optional()
 }
 
 /// Every binding with a resume handle, oldest first, for recovery. Fails as a whole on a row that
