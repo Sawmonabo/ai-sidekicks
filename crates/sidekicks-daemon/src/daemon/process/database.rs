@@ -27,6 +27,7 @@ use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
@@ -142,6 +143,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + DAMAGED_HISTORY_STATEMENT_CAPACITY
     + DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY
     + DRIVER_METHODS_STATEMENT_CAPACITY
+    + DRIVERS_STATEMENT_CAPACITY
     + EVENT_LOG_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
     + IDLE_SLEEP_STATEMENT_CAPACITY
