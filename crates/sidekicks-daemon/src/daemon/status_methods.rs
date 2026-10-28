@@ -24,6 +24,7 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_store::credential_store::items::SecretItems;
+use sidekicks_store::machine::identity_key::MachineIdentity;
 
 use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
 
@@ -47,6 +48,8 @@ pub(crate) struct StatusMethodsDeps {
     pub(crate) usage_reader: Arc<ProcessTreeUsageReader>,
     /// The daemon's secrets, read for the items file while it holds them.
     pub(crate) secret_items: Arc<SecretItems>,
+    /// This machine's two keys, whose last read the status reports while they are not held.
+    pub(crate) machine_identity: Arc<MachineIdentity>,
 }
 
 /// Registers `daemon.status.read`, a read-only query. Fails the start when the method is already
@@ -123,6 +126,7 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         relay: None,
         wsl: None,
         secrets_file,
+        machine_key: deps.machine_identity.machine_key().await,
     })
 }
 
@@ -139,7 +143,10 @@ mod tests {
     use jiff::Timestamp;
     use serde_json::{Value, json};
     use sidekicks_contracts::daemon::status::{DaemonProcessState, DaemonStatusRead};
+    use sidekicks_contracts::machine::id::MachineId;
     use sidekicks_contracts::method::Method as _;
+    use sidekicks_contracts::session::id::UserId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{Dispatch as _, MethodRegistryBuilder, Reply};
     use sidekicks_platforms::CredentialStore;
@@ -147,9 +154,15 @@ mod tests {
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
     use sidekicks_store::credential_store::os::TestStoreAccess;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
+    use sidekicks_store::machine::identity_key::MachineIdentity;
+    use sidekicks_store::machine::local::LocalMachine;
 
     use super::{StatusMethodsDeps, register_status_methods};
     use crate::daemon::process_tree_usage::ProcessTreeUsageReader;
+    use crate::daemon::schema::schema_parts;
 
     // Every process state the daemon is in at the call is the one the read reports, read at each
     // call on one registry. Killed by the state read once when the method is registered, and by
@@ -159,6 +172,28 @@ mod tests {
         let data_folder = tempfile::tempdir().expect("the data folder is made");
         let state = Arc::new(Mutex::new(DaemonProcessState::Starting));
         let read_state = Arc::clone(&state);
+        let database = TestDatabase::new(schema_parts());
+        let log = open_log(&database, None).await;
+        let machine = LocalMachine {
+            machine_id: MachineId::new(mint_uuid_v7().to_string())
+                .expect("a minted UUID is a machine id"),
+            owner_user_id: UserId::new(&mint_uuid_v7().to_string())
+                .expect("a minted UUID is a user id"),
+            name: "Studio".to_owned(),
+        };
+        let secret_items = SecretItems::new(SecretItemsStart {
+            data_folder: data_folder.path().to_path_buf(),
+            runs_while_logged_out: false,
+            access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
+            call_timeout: Duration::from_secs(5),
+        })
+        .expect("the system gives random bytes");
+        let machine_identity = MachineIdentity::new(
+            &machine,
+            &secret_items,
+            Arc::new(DatabaseReadPool::new(database.path(), 1)),
+            Arc::clone(&log.writer),
+        );
         let mut builder = MethodRegistryBuilder::new();
         register_status_methods(
             &mut builder,
@@ -178,13 +213,8 @@ mod tests {
                     .expect("a folder reads"),
                 started_at: Timestamp::now(),
                 usage_reader: Arc::new(ProcessTreeUsageReader::new()),
-                secret_items: SecretItems::new(SecretItemsStart {
-                    data_folder: data_folder.path().to_path_buf(),
-                    runs_while_logged_out: false,
-                    access: TestStoreAccess::new(CredentialStore::in_memory()) as _,
-                    call_timeout: Duration::from_secs(5),
-                })
-                .expect("the system gives random bytes"),
+                secret_items,
+                machine_identity,
             },
         )
         .expect("the status read registers");
