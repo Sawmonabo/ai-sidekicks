@@ -71,7 +71,8 @@ pub(crate) enum StaleRecordError {
     TakeName(#[from] CleanupFailures<io::Error>),
 }
 
-fn at(path: &Path) -> impl FnOnce(io::Error) -> StaleRecordError {
+/// Turns a file operation's failure at `path` into the error that names the path.
+pub(crate) fn at(path: &Path) -> impl FnOnce(io::Error) -> StaleRecordError {
     let path = path.to_path_buf();
     move |source| StaleRecordError::File { path, source }
 }

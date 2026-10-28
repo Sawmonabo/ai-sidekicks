@@ -8,12 +8,7 @@ use std::path::Path;
 
 use super::INITIALIZING_LOCK;
 use crate::git::worktree::reads::RECORD_LOCK_FILE_NAME;
-use crate::git::worktree::stale_record::{StaleRecordError, StaleRecordTools};
-
-fn at(path: &Path) -> impl FnOnce(io::Error) -> StaleRecordError {
-    let path = path.to_path_buf();
-    move |source| StaleRecordError::File { path, source }
-}
+use crate::git::worktree::stale_record::{StaleRecordError, StaleRecordTools, at};
 
 /// Removes the folder at `original_path` while it is empty, and every record in `records_folder`
 /// whose one entry is git's `initializing` lock, skipping each name a put-back under way holds or
