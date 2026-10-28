@@ -175,10 +175,12 @@ methods! {
             result: ProjectCloneStartResponse,
             refusals: [
                 ProjectNotFound,
+                ProjectCloneIdempotencyConflict,
                 ProjectCloneRefused,
                 ProjectCloneUnavailable,
                 RepoMountDistributionNeedsWsl2,
                 RepoMountDistributionNotFound,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// Follows a clone's card.

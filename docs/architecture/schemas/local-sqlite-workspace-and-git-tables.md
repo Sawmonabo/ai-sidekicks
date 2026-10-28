@@ -32,6 +32,18 @@ CREATE TABLE projects (
 ) STRICT;
 
 -- Owner: Plan-006
+-- A clone start's own record (**Clone start key** below): a resend under the same key answers the project the key first answered.
+CREATE TABLE project_clone_requests (
+  client_idempotency_key TEXT PRIMARY KEY,      -- the start's clientIdempotencyKey
+  project_id             TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                                                -- the project the key first answered; a forgotten project takes its key with it
+  clone_url              TEXT NOT NULL,         -- the address as typed, any user and password taken out
+  parent_folder          TEXT,                  -- the request's parentFolder as sent; NULL when it named none
+  place                  TEXT,                  -- the request's place as sent, stored as projects.place stores it
+  rerun_project_id       TEXT                   -- the request's projectId as sent; NULL on a first clone
+) STRICT;
+
+-- Owner: Plan-006
 CREATE TABLE repo_mounts (
   id                  TEXT PRIMARY KEY,
   machine_id          TEXT NOT NULL,          -- this machine's own id, stamped by the daemon and never taken from the caller; a mount belongs to the machine, not to a session
@@ -219,3 +231,5 @@ CREATE INDEX idx_run_execution_contexts_workspace ON run_execution_contexts(work
 ```
 
 **Project record.** An attached repository is a project, and each project keeps a durable record beside its mount, the `projects` row: its display name, the folder slug fixed at attach, the setup steps its worktrees run after preparation, its own environment rows, its own branch-name pattern when one is set, its place on a Windows computer (Windows or a WSL 2 distribution, fixed at attach, with the folder's path in that place's form), whether it is archived, and a cloning mark (`state = 'cloning'`, with the address and the failure line) while `project.clone.start` fetches it. The repository's identity is its mount's anchor, `repo_mounts.metadata.commonDir`, and attach keeps one project record per repository, so attaching a folder that is already a project finds that project. A project's attached mount names it in `repo_mounts.project_id`, and a re-attach writes its new mount row under the same record. Renaming a project edits the display name alone. Deleting a project forgets the record and detaches its mount; its sessions and the folder on disk stay ([Spec-007 §Required Behavior](../../specs/007-repo-attachment-and-workspace-binding.md#required-behavior)). The removed-worktree records, the agent definitions and the workflow secrets key a project by this record's id.
+
+**Clone start key.** `project.clone.start` carries a `clientIdempotencyKey`, and its record is a `project_clone_requests` row, written in the same write as the project row the start inserts or retargets. Under the start's lock the key is looked up first: a key on record answers its `project_id` when the request's own fields (the address with its credentials taken out, `parentFolder`, `place` and `projectId`, as sent) equal the row's, and is refused `project.clone.idempotencyConflict` when any differs; a request refused before anything is written records nothing, so its resend is checked again. No credential is stored, so two requests that differ only in their credentials answer the first project, which clones the same repository. Forgetting the project deletes its key rows, after which a resend is a new start.
