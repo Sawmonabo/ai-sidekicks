@@ -210,7 +210,8 @@ impl McpBindingStore {
 /// Opens the drain that records each binding the status tracker hands it: answers the outlet the
 /// tracker is built with and the drain's run, which writes each binding's row through `store` once
 /// in this process and ends once the tracker, holding the outlet, is dropped. A binding whose
-/// write fails is logged and not marked recorded, so its next observation tries again.
+/// write fails is logged and not marked recorded, so its next reading, a leg's or the probe's,
+/// tries again.
 #[cfg_attr(
     not(test),
     expect(
@@ -257,8 +258,8 @@ pub(crate) async fn open_first_observation_drain(
                 }
                 Err(error) => tracing::error!(
                     error = &error as &(dyn std::error::Error + 'static),
-                    "an MCP binding's first observation was not recorded; its next observation \
-                     tries again"
+                    "an MCP binding's first observation was not recorded; its next reading tries \
+                     again"
                 ),
             }
         }
@@ -273,7 +274,13 @@ mod tests {
 
     use sidekicks_contracts::mcp::server::McpServerStatus::Connected;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+    use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
     use sidekicks_contracts::provider::id::ProviderId;
+    use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_provider::driver::mcp_server_status::{
+        McpServerReading, McpServerStatusEmission,
+    };
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use tokio::task::JoinHandle;
@@ -340,39 +347,66 @@ mod tests {
         assert_eq!(recorded_server_names(&database), vec!["docs"]);
     }
 
-    /// A first observation whose write fails is written at the binding's next observation. Killed
-    /// by the drain marking the binding recorded before its write.
+    /// A first observation whose write fails is written at the binding's next reading: the
+    /// probe's, or a leg's repeat of the status it already reported. Killed by the drain marking
+    /// the binding recorded before its write, and by a leg handing the binding over only on its
+    /// first report of it.
     #[tokio::test]
     async fn a_failed_first_observation_is_recorded_at_the_next_observation() {
         let (database, writer, tracker, run) = tracker_over_a_drain().await;
+        let tracker = Arc::new(tracker);
         database
             .reader()
             .execute_batch(
-                "CREATE TRIGGER fail_docs BEFORE INSERT ON mcp_server_bindings
-                   WHEN NEW.server_name = 'docs'
+                "CREATE TRIGGER fail_writes BEFORE INSERT ON mcp_server_bindings
+                   WHEN NEW.server_name IN ('docs', 'mail')
                    BEGIN SELECT RAISE(ABORT, 'the test fails this write'); END",
             )
-            .expect("the test fails the binding's writes");
+            .expect("the test fails the bindings' writes");
+        let session_id =
+            SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
+        let sink = tracker.open_leg(
+            session_id,
+            RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id"),
+        );
+        let leg_reports_docs = || {
+            sink.observe(
+                &user_binding("docs"),
+                McpServerStatusEmission::new(
+                    McpServerName::new("docs".to_owned()).expect("a server name"),
+                    McpServerReading::Observed(Connected),
+                    None,
+                ),
+            );
+        };
         let mut commits = writer.follow_commits();
 
-        tracker.record_probe(&user_binding("docs"), Connected, None);
+        leg_reports_docs();
+        tracker.record_probe(&user_binding("mail"), Connected, None);
         // The drain writes one binding at a time in order, and a failed write commits nothing, so
-        // the next commit is this binding's, after the failed one.
+        // the next commit is this binding's, after the failed ones.
         tracker.record_probe(&user_binding("github"), Connected, None);
         tokio::time::timeout(COMMIT_BOUND, commits.changed())
             .await
-            .expect("the drain writes the second binding in time")
+            .expect("the drain writes the third binding in time")
             .expect("the writer is open");
         assert_eq!(recorded_server_names(&database), vec!["github"]);
         database
             .reader()
-            .execute_batch("DROP TRIGGER fail_docs")
-            .expect("the test lets the binding's writes through");
-        tracker.record_probe(&user_binding("docs"), Connected, None);
+            .execute_batch("DROP TRIGGER fail_writes")
+            .expect("the test lets the bindings' writes through");
+        // The leg's same status again: no longer its first report of the binding.
+        leg_reports_docs();
+        tracker.record_probe(&user_binding("mail"), Connected, None);
+        // The sink holds the tracker, which holds the drain's outlet.
+        drop(sink);
         drop(tracker);
         run.await.expect("the drain's run ends");
 
-        assert_eq!(recorded_server_names(&database), vec!["docs", "github"]);
+        assert_eq!(
+            recorded_server_names(&database),
+            vec!["docs", "github", "mail"]
+        );
     }
 
     // A second observation of a recorded binding adds no row and keeps the switch set on it.

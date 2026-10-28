@@ -123,8 +123,8 @@ pub(super) struct StatusChange {
     pub(super) failure_text: Option<String>,
 }
 
-/// What a reading changed: the status changes to send, and the binding when the reading is the
-/// leg's first report of it, or a probe's, for the drain to record.
+/// What a reading changed: the status changes to send, and the binding for the drain to record
+/// when the reading observed a status, is the leg's first report of it, or is a probe's.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the status tracker applies each reading")
@@ -132,7 +132,7 @@ pub(super) struct StatusChange {
 pub(super) struct ObservationOutcome {
     /// The status changes to send, in order.
     pub(super) changes: Vec<StatusChange>,
-    /// The binding to record, when this reading may be its first in this process.
+    /// The binding to record, which the drain skips once it is recorded in this process.
     pub(super) observed_binding: Option<McpServerBindingRef>,
 }
 
@@ -267,6 +267,10 @@ impl McpLegs {
                 .or_insert_with(BindingStatus::new)
                 .legs
                 .insert(leg_id.clone());
+        }
+        // Every observed status hands the binding over, so a binding whose write failed is tried
+        // again at its next reading.
+        if is_new_on_binding || matches!(update.reading, McpServerReading::Observed(_)) {
             outcome.observed_binding = Some(binding.clone());
         }
         let aggregate = self.refold(&key);
