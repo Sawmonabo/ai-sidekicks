@@ -53,11 +53,11 @@ Per [ADR-018: Windows V1 Tier and the PTY in the Daemon](../decisions/018-window
 
 | Platform | V1 Tier | PTY Backend |
 | --- | --- | --- |
-| macOS (arm64, x64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty) |
-| Linux (x64, arm64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty) |
+| macOS (arm64, x64) | GA | `sidekicks-terminal` in the daemon (started through `sidekicks_platforms::start_terminal`) |
+| Linux (x64, arm64) | GA | `sidekicks-terminal` in the daemon (started through `sidekicks_platforms::start_terminal`) |
 | Windows 10/11 (x64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty, ConPTY) |
 
-The terminal is `sidekicks-terminal` in the daemon on every system (`alacritty_terminal`'s tty, ConPTY on Windows), per ADR-018; the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647) is the reason `node-pty` is not used. Implementation detail lives in Plan-021 — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
+The terminal is `sidekicks-terminal` in the daemon on every system (on macOS and Linux started through `sidekicks_platforms::start_terminal`, on Windows through `alacritty_terminal`'s ConPTY), per ADR-018; the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647) is the reason `node-pty` is not used. Implementation detail lives in Plan-021 — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
 
 On every platform a chat session's managed workspace, the git folder the daemon owns for it, lives at `<home>/.ai-sidekicks/workspaces/<session-id>`.
 

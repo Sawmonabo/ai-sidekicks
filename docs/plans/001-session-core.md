@@ -47,7 +47,7 @@ The columns and tables listed in §Cross-Plan Schema Ownership (Plan-001 creates
 
 ## Cross-Plan Obligations
 
-Plan-001 owns the daemon-side session lifecycle and the shell spawn's entry-point wrapper. Two daemon-layer obligations (CP-001-1, CP-001-2) are declared by Plan-021 (Terminal) and surface here for bidirectional citation locality, so a Plan-001 reviewer sees the obligations without first reading Plan-021. Each entry states the obligation, the source citation, and the resolution.
+Plan-001 owns the daemon-side session lifecycle and the shell spawn's entry-point wrapper. Two daemon obligations (CP-001-1, CP-001-2) are declared by Plan-021 (Terminal) and surface here for bidirectional citation locality, so a Plan-001 reviewer sees the obligations without first reading Plan-021. Each entry states the obligation, the source citation, and the resolution.
 
 ### CP-001-1 — The terminal drains when the service stops
 
@@ -57,7 +57,7 @@ Plan-001 owns the daemon-side session lifecycle and the shell spawn's entry-poin
 
 **Why surfaced in Plan-001.** This obligation lives at the daemon's session-lifecycle layer (Plan-001 owns the session-lifecycle daemon code), not in `sidekicks-terminal` (Plan-021 supplies only each shell's close and stop). Without the bidirectional citation, a Plan-001 reviewer would have no signal that the drain at the service's stop is a Plan-001 obligation.
 
-### CP-001-2 — A shell's spawn performs daemon-layer cwd-translation for worktree paths
+### CP-001-2 — A shell's spawn translates worktree paths through the shell crate's cwd translator
 
 [Plan-021 §Invariants I-021-5](./021-terminal.md#i-021-5--a-shell-starts-so-its-worktree-stays-removable-the-daemon-performs-the-translation) declares that a shell's start MUST leave its worktree removable. Windows keeps a handle on every process's current folder: the ConPTY host starts in the daemon's own folder and keeps it, and a process keeps the folder it starts in until it moves its own. The daemon's `shell` mode, which the PTY spawns and which waits for the shell's life, never moves its folder, and neither does a shell that ignores its own `cd` for its process folder; spawned in the worktree, either would lock it for the shell's life (`ERROR_SHARING_VIOLATION`), and `git worktree remove` would fail until the shell exited (the `microsoft/node-pty#647` class — primary source cited at [Plan-021 §Windows Implementation Gotchas Gotcha 5](./021-terminal.md#5-spawn-locks-cwd-on-windows)).
 
@@ -317,7 +317,7 @@ Phase 1–Phase 4 may proceed independently; the per-lane substrate dependencies
 
 **Files:** `crates/sidekicks-daemon/src/daemon/process.rs` (the daemon's stop sequence, which calls the terminal drain before the daemon exits), `crates/sidekicks-daemon/tests/it/terminal_drain.rs` (verifies I4 — CP-001-1 + Plan-021 I-021-4) **Acceptance:** when the service stops — Runtime `Stop` or `Restart`, or the operating system's service manager — the daemon's stop sequence calls `sidekicks-terminal`'s drain before the daemon exits, which gives every live shell the hard stop (`SIGTERM`, or the `console` mode's `CTRL_BREAK_EVENT` on Windows) and escalates to a kill (`SIGKILL`, or `taskkill /T /F /PID` on Windows) at `DAEMON_STOP_TERMINAL_DRAIN_MS` (2 s), inside the whole drain's own bound `DAEMON_STOP_DRAIN_BOUND_MS` (4 s). The app's quit registers no drain and leaves every shell running. The drain is terminal — the terminal refuses new spawns once it has begun. The stop sequence is the same on every operating system. **Spec coverage:** none (verifies obligation CP-001-1 + inherited Plan-021 I-021-4) **Verifies invariant:** I-021-4 (inherited from Plan-021 together with obligation CP-001-1; exercised end-to-end by test I4)
 
-##### T5.3 — `spawn_cwd_translator.rs` daemon-layer cwd-translator
+##### T5.3 — `spawn_cwd_translator.rs`, the shell crate's cwd translator
 
 **Files:** `crates/sidekicks-shell/src/spawn_cwd_translator.rs` with its `#[cfg(test)] mod tests` (unit tests) + `crates/sidekicks-daemon/tests/it/spawn_cwd_translator.rs` (integration on every host — verifies I5 / CP-001-2) **Spec coverage:** none (daemon-internal wrapper) **Verifies invariant:** none (verifies obligation CP-001-2; verifies inherited Plan-021 I-021-5)
 
