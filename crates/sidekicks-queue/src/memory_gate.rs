@@ -378,6 +378,10 @@ impl MemoryAdmission {
 
     /// Keeps a quick step's interpreter peak, in bytes, for the release to learn. Refused unless
     /// admitted or parked.
+    #[expect(
+        dead_code,
+        reason = "the workflow step runner reports a quick Code step's interpreter peak here"
+    )]
     pub(crate) fn observe_interpreter_peak(
         &self,
         peak_bytes: u64,
