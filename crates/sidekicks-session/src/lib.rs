@@ -23,6 +23,7 @@ pub mod plan_holds;
 pub(crate) mod projector;
 pub mod questions;
 pub mod queue_store;
+pub mod readings;
 pub(crate) mod records;
 pub mod related;
 pub mod review_note;
