@@ -264,9 +264,9 @@ struct ProcessTree {
 
 // Ends, under each of the shells `roots` and each process outside their trees that carries one of
 // `nonces`, every process working in the folder whose key is `folder_key` or inside it, with every
-// process under it, and answers the shells that work inside themselves, which are left running
-// with their trees for the caller to close, and the nonces a process carried. A shell given with the folder it was told to start in
-// is judged by that folder rather than its process's own.
+// process under it, and answers the shells that work inside themselves, which are left running with
+// their trees for the caller to close, and the nonces a process carried. A shell given with the
+// folder it was told to start in is judged by that folder rather than its process's own.
 async fn end_processes_inside(
     roots: Vec<(u32, Option<PathBuf>)>,
     nonces: HashSet<String>,
