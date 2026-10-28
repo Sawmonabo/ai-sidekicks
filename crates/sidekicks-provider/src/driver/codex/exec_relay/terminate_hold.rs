@@ -78,7 +78,7 @@ impl CodexExecRelay {
         {
             tracing::warn!(
                 party,
-                %error,
+                error = &error as &(dyn std::error::Error + 'static),
                 "a relayed command's wrapper could not be asked to stop it"
             );
             return WrapperStop::NoWrapper;

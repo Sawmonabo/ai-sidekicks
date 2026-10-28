@@ -545,7 +545,7 @@ impl CodexExecRelay {
             if let Err(error) = followed.await {
                 tracing::error!(
                     %session_id,
-                    %error,
+                    error = &error as &(dyn std::error::Error + 'static),
                     "a Codex session's relayed command channel stopped being followed"
                 );
             }

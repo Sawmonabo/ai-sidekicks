@@ -382,7 +382,10 @@ async fn write_lines(
     let mut writer = FramedWrite::new(input, LinesCodec::new());
     while let Some(line) = queued.recv().await {
         if let Err(error) = writer.send(line).await {
-            tracing::warn!(%error, "the Codex executor's input closed");
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the Codex executor's input closed"
+            );
             break;
         }
     }
@@ -404,7 +407,10 @@ async fn read_lines(output: impl AsyncRead + Send + Unpin, executor: Weak<CodexE
         match read {
             Ok(line) => executor.take_line(line).await,
             Err(error) => {
-                tracing::warn!(%error, "the Codex executor's output could not be read");
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the Codex executor's output could not be read"
+                );
                 break;
             }
         }
@@ -424,7 +430,10 @@ async fn log_error_lines(errors: impl AsyncRead + Send + Unpin) {
         match read {
             Ok(line) => tracing::debug!(line, "the Codex executor logged"),
             Err(error) => {
-                tracing::debug!(%error, "the Codex executor's log could not be read");
+                tracing::debug!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the Codex executor's log could not be read"
+                );
                 return;
             }
         }
@@ -436,7 +445,7 @@ async fn own_executor_child(mut child: Box<dyn ChildWrapper>, mut ended: watch::
     tokio::select! {
         status = child.wait() => match status {
             Ok(status) => tracing::warn!(%status, "the Codex executor exited"),
-            Err(error) => tracing::warn!(%error, "the Codex executor's end could not be read"),
+            Err(error) => tracing::warn!(error = &error as &(dyn std::error::Error + 'static), "the Codex executor's end could not be read"),
         },
         // The connection ended or every handle on it dropped; the child's drop kills it.
         _ended = ended.wait_for(|is_ended| *is_ended) => {}

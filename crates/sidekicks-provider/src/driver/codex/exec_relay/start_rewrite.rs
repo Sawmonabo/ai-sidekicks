@@ -248,7 +248,7 @@ impl CodexExecRelay {
             Err(error) => {
                 tracing::warn!(
                     %session_id,
-                    %error,
+                    error = &error as &(dyn std::error::Error + 'static),
                     "a Codex session's command channel could not be opened; its command runs \
                      unwrapped"
                 );

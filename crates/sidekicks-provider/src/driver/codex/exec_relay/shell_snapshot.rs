@@ -161,7 +161,10 @@ impl ShellSnapshots {
             if let Err(error) = tokio::fs::remove_file(&path).await
                 && error.kind() != ErrorKind::NotFound
             {
-                tracing::warn!(%error, "a closed session's shell snapshot could not be removed");
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "a closed session's shell snapshot could not be removed"
+                );
             }
         }
     }
@@ -281,7 +284,10 @@ impl Drop for ShellSnapshots {
         if let Err(error) = std::fs::remove_dir_all(&self.folder)
             && error.kind() != ErrorKind::NotFound
         {
-            tracing::warn!(%error, "a Codex relay's shell snapshots could not be removed");
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a Codex relay's shell snapshots could not be removed"
+            );
         }
     }
 }
@@ -293,7 +299,10 @@ async fn remove_left_snapshot_folders(root: &Path) {
         Ok(entries) => entries,
         Err(error) if error.kind() == ErrorKind::NotFound => return,
         Err(error) => {
-            tracing::warn!(%error, "the left Codex shell snapshots could not be listed");
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the left Codex shell snapshots could not be listed"
+            );
             return;
         }
     };
@@ -302,14 +311,20 @@ async fn remove_left_snapshot_folders(root: &Path) {
             Ok(Some(entry)) => entry,
             Ok(None) => return,
             Err(error) => {
-                tracing::warn!(%error, "the left Codex shell snapshots could not be listed");
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the left Codex shell snapshots could not be listed"
+                );
                 return;
             }
         };
         if let Err(error) = tokio::fs::remove_dir_all(entry.path()).await
             && error.kind() != ErrorKind::NotFound
         {
-            tracing::warn!(%error, "a left Codex shell snapshot folder could not be removed");
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a left Codex shell snapshot folder could not be removed"
+            );
         }
     }
 }

@@ -91,7 +91,10 @@ async fn accept_connections(
                 stream
             }
             Err(error) => {
-                tracing::warn!(%error, "the Codex relay could not accept a connection");
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the Codex relay could not accept a connection"
+                );
                 tokio::time::sleep(retry_wait).await;
                 retry_wait = (retry_wait * 2).min(ACCEPT_RETRY_LONGEST);
                 continue;
@@ -127,7 +130,10 @@ async fn serve_connection(
     let socket = match accept_hdr_async(stream, admit).await {
         Ok(socket) => socket,
         Err(error) => {
-            tracing::warn!(%error, "the Codex relay refused a connection");
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the Codex relay refused a connection"
+            );
             return;
         }
     };
@@ -143,7 +149,10 @@ async fn serve_connection(
     let mut writing = tokio::spawn(async move {
         while let Some(outgoing) = for_client.recv().await {
             if let Err(error) = sink.send(Message::text(outgoing)).await {
-                tracing::warn!(%error, "the Codex relay's client could not be written");
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the Codex relay's client could not be written"
+                );
                 return;
             }
         }
@@ -159,14 +168,20 @@ async fn serve_connection(
             Some(Ok(Message::Binary(bytes))) => match String::from_utf8(bytes.to_vec()) {
                 Ok(text) => text,
                 Err(error) => {
-                    tracing::warn!(%error, "the Codex relay's client sent no text");
+                    tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "the Codex relay's client sent no text"
+                    );
                     continue;
                 }
             },
             Some(Ok(Message::Close(_))) | None => break,
             Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
             Some(Err(error)) => {
-                tracing::warn!(%error, "the Codex relay's client could not be read");
+                tracing::warn!(
+                    error = &error as &(dyn std::error::Error + 'static),
+                    "the Codex relay's client could not be read"
+                );
                 break;
             }
         };
