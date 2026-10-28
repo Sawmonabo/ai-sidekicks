@@ -362,14 +362,6 @@ static SELECT_ENDED_RUNS_WITH_PENDING_SQL: LazyLock<SessionScopedSql> = LazyLock
     })
 });
 
-static SELECT_SESSION_ENDED_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT 1 FROM sessions
-  WHERE id = ? AND state IN ({})",
-        *ENDED_SESSION_STATES_SQL
-    )
-});
-
 /// A guard that refuses its write once the session is closed or being deleted.
 pub(crate) fn session_open_statement(session_id: &SessionId) -> WriteStatement {
     WriteStatement {
@@ -645,13 +637,6 @@ impl<'connection> ApprovalRequestReader<'connection> {
         session_id: Option<&SessionId>,
     ) -> rusqlite::Result<Vec<SessionRun>> {
         SELECT_ENDED_RUNS_WITH_PENDING_SQL.query(self.reader, session_id, session_run_of_row)
-    }
-
-    /// Whether the session is closed or being deleted.
-    pub(crate) fn is_session_ended(&self, session_id: &SessionId) -> rusqlite::Result<bool> {
-        self.reader
-            .prepare_cached(&SELECT_SESSION_ENDED_SQL)?
-            .exists([session_id.text().as_str()])
     }
 }
 
