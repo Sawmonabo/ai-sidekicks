@@ -47,9 +47,10 @@ impl Fixture {
 }
 
 // A process that never settles fails the start once the delivery timeout passed: the driver is
-// never handed the run, the run fails `provider.unavailable`, its message reads not delivered and
-// its place at the gate is given back. Killed by a settle waited on with no bound. The clock is
-// paused only to step past the bound, as the store's writes run on threads of their own.
+// never handed the run, the run fails `provider.unavailable` in the daemon's own words, its message
+// reads not delivered and its place at the gate is given back. Killed by a settle waited on with
+// no bound, and by the timer's own text in the run's end. The clock is paused only to step past
+// the bound, as the store's writes run on threads of their own.
 #[tokio::test]
 async fn a_process_that_never_settles_fails_the_start_after_the_delivery_timeout() {
     let calls = Arc::new(DriverCalls::default());
@@ -80,17 +81,24 @@ async fn a_process_that_never_settles_fails_the_start_after_the_delivery_timeout
     let run_id = item.target_run_id.expect("the message names its run");
     assert_eq!(fixture.run_state(run_id), "failed");
     assert!(!fixture.queue.admission.is_admitting(run_id));
-    let unavailable_ends: i64 = fixture
+    let ends: Vec<String> = fixture
         .database
         .reader()
-        .query_row(
-            "SELECT COUNT(*) FROM session_events
-             WHERE type = 'agent.run.failed' AND instr(payload, ?1) > 0",
-            ["provider process is not running"],
-            |row| row.get(0),
-        )
+        .prepare("SELECT payload FROM session_events WHERE type = 'agent.run.failed'")
+        .and_then(|mut statement| {
+            statement
+                .query_map([], |row| row.get(0))?
+                .collect::<Result<_, _>>()
+        })
         .expect("the test reads the run's end");
-    assert_eq!(unavailable_ends, 1);
+    let [end] = ends.as_slice() else {
+        panic!("the run ends failed once: {ends:?}");
+    };
+    assert!(end.contains("provider process is not running"), "{end}");
+    assert!(
+        !end.contains("elapsed"),
+        "the timer's words reach no one: {end}"
+    );
 }
 
 // A run admitted while its session's process is coming back is bound on the leg the process came

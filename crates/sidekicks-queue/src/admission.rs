@@ -551,7 +551,8 @@ impl QueueAdmission {
     }
 
     // Waits until the session's process no longer comes back on its own, within the delivery
-    // timeout; past it the start fails `provider.unavailable`, as it does for a process down.
+    // timeout; past it the start fails `provider.unavailable`, as it does for a process down, in
+    // the daemon's own words alone.
     async fn settle_session(
         &self,
         session_id: SessionId,
@@ -562,9 +563,7 @@ impl QueueAdmission {
             driver.settle_session(session_id),
         )
         .await
-        .map_err(|elapsed| {
-            DriverError::Refused(session_process_unavailable(session_id).with_source(elapsed))
-        })??;
+        .map_err(|_elapsed| DriverError::Refused(session_process_unavailable(session_id)))??;
         Ok(())
     }
 
