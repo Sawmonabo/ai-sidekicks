@@ -37,7 +37,9 @@ use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::git::worktree::naming::is_named_worktree_folder;
 use crate::git::worktree::occupancy::OccupancyReadError;
 use crate::git::worktree::reads::{LinkedTreeRecordError, read_linked_tree_record};
-use crate::git::worktree::removal::FolderProcessOwner;
+use crate::git::worktree::removal::{
+    FolderProcessOwner, FolderProcessesEndError, end_processes_in_folder,
+};
 use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
 };
@@ -154,8 +156,8 @@ pub(crate) enum WorktreeCleanupError {
     #[error(transparent)]
     RiskRead(#[from] RemovalRiskReadError),
     /// A process the daemon started in the tree could not be ended.
-    #[error("a process started in the tree could not be ended")]
-    EndProcesses(#[source] Box<dyn Error + Send + Sync>),
+    #[error(transparent)]
+    EndProcesses(#[from] FolderProcessesEndError),
     /// The tree's git file-watch daemon could not be stopped.
     #[error("the tree's git file-watch daemon could not be stopped")]
     FileWatchStop(#[source] GitError),
@@ -206,8 +208,9 @@ impl WorktreeService {
     /// folders stay on disk, then empties each retired folder with no `cleaned_at` while no agent
     /// runs in it and no session stands in it. A folder whose risk read shows nothing to lose, or
     /// the same as its retirement recorded, is deleted: the processes `owners` started in it ended,
-    /// then git's record, then the folder, then the stamp. One holding anything more goes to `keeper`, or on a mount no longer attached is
-    /// left where it is, since a detach touches nothing on disk. A row that fails does not stop
+    /// then git's record, then the folder, then the stamp. One holding anything more has those
+    /// processes ended and goes to `keeper`, or on a mount no longer attached is left where it is,
+    /// since a detach touches nothing on disk. A row that fails does not stop
     /// the others; once every row has been tried, every failure is returned together. The pass is
     /// idempotent and re-entrant, and once `cancel` is canceled it stops between rows, leaving the
     /// rest to the next pass.
@@ -313,6 +316,7 @@ impl WorktreeService {
         if !retired.is_cleanup_started || record_folder.is_some() {
             if is_folder_present && self.holds_something_new(retired).await? {
                 if retired.is_mount_attached {
+                    end_processes_in_folder(owners, folder).await?;
                     keeper
                         .keep_retired_aside(row)
                         .await
@@ -327,12 +331,7 @@ impl WorktreeService {
             }
         }
         if is_folder_present {
-            for owner in owners {
-                owner
-                    .end_processes_in_folder(folder)
-                    .await
-                    .map_err(WorktreeCleanupError::EndProcesses)?;
-            }
+            end_processes_in_folder(owners, folder).await?;
         }
         if record_folder.is_some() {
             stop_file_watch(&self.deps.git, place, folder)
