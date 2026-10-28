@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::daemon::data::DAEMON_DATA_FOLDER_NAME;
+use sidekicks_contracts::provider::id::ProviderId;
 
 pub mod lock;
 
@@ -12,6 +13,9 @@ const AGENT_MEMORY_FOLDER_NAME: &str = "agent-memory";
 
 // The folder in the data folder that holds the service log files.
 const SERVICE_LOG_FOLDER_NAME: &str = "logs";
+
+// The folder in the data folder that holds each provider's plugin home.
+const PLUGINS_FOLDER_NAME: &str = "plugins";
 
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub fn data_folder(home: &Path) -> PathBuf {
@@ -27,4 +31,12 @@ pub fn agent_memory_folder(data_folder: &Path) -> PathBuf {
 /// The folder in `data_folder` that holds the service log files.
 pub fn service_log_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(SERVICE_LOG_FOLDER_NAME)
+}
+
+/// The daemon's plugin home for `provider_id` under `home`: the one folder per provider where the
+/// daemon keeps that provider's tool servers, plugins and skills.
+pub fn plugin_home(home: &Path, provider_id: &ProviderId) -> PathBuf {
+    data_folder(home)
+        .join(PLUGINS_FOLDER_NAME)
+        .join(provider_id.as_str())
 }
