@@ -84,15 +84,14 @@ pub(crate) struct RepoServiceStart {
 /// The repository services, each built once for the daemon's life.
 pub(crate) struct RepoServices {
     /// The repository mounts of this machine.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) mounts: Arc<RepoMountService>,
     /// The chats' managed workspaces and the watch of their writes; the stop ends both through
     /// [`ManagedWorkspaceService::stop`].
     pub(crate) workspaces: Arc<ManagedWorkspaceService>,
     /// The broker git's questions go through, or the text every clone verb answers
     /// `project.clone.unavailable` with, empty where the system has no private askpass socket; the
-    /// stop closes the broker.
-    pub(crate) askpass: Result<AskpassBroker, String>,
+    /// start takes it for the clone service, which owns the broker from then on.
+    pub(crate) askpass: Option<Result<AskpassBroker, String>>,
     /// The watch over each working folder; the stop stops it.
     pub(crate) folder_watch: Arc<WorkingFolderWatcher>,
     /// Each live project's repository fetched in the background; the stop stops it.
@@ -100,16 +99,13 @@ pub(crate) struct RepoServices {
     /// Each live session's working folder held watched and its repository fetched.
     pub(crate) live_folders: Arc<LiveSessionFolders>,
     /// A repository's branches, for the new-worktree form.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) branches: Arc<BranchListReader>,
     /// Each session's review notes, read against its live working folder.
-    #[expect(dead_code, reason = "the daemon's method tables")]
     pub(crate) review_notes: Arc<SessionReviewNoteStore>,
     /// Every worktree transition and worktree-scoped git call.
     #[expect(dead_code, reason = "the worktree methods")]
     pub(crate) worktrees: Arc<WorktreeService>,
     /// Each turn's checkout snapshot and the prune of a run's snapshot refs.
-    #[expect(dead_code, reason = "the session purge and the checkpoints")]
     pub(crate) snapshots: Arc<TurnSnapshotService>,
     /// The mounts' health, re-probed on the slow tick, a wake and a repository's change.
     pub(crate) mount_health: Arc<RepoMountHealthReprobe>,
@@ -119,7 +115,6 @@ pub(crate) struct RepoServices {
     pub(crate) stop: CancellationToken,
     /// The chats' writes the managed workspaces' watch reports, for a chat's file versions; the
     /// start takes it for the session services before the repository attachments start.
-    #[expect(dead_code, reason = "the session services' build")]
     pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceWrite>>,
 }
 
@@ -219,7 +214,7 @@ pub(crate) fn build_repo_services(
         branches: Arc::new(BranchListReader::new(git, reads)),
         mounts,
         workspaces,
-        askpass,
+        askpass: Some(askpass),
         folder_watch,
         fetch,
         live_folders,

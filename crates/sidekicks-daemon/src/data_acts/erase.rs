@@ -61,13 +61,6 @@ pub(crate) struct DataErase {
 
 impl DataErase {
     /// The erase, acting through `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes the erase once the store is open"
-        )
-    )]
     pub(crate) fn new(deps: DataEraseDeps) -> Self {
         Self {
             deps,

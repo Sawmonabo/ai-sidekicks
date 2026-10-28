@@ -181,13 +181,6 @@ pub(crate) struct DataExports {
 
 impl DataExports {
     /// The exports, reading through `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start makes the exports once the store is open"
-        )
-    )]
     pub(crate) fn new(deps: DataExportDeps) -> Self {
         Self {
             deps: Arc::new(deps),

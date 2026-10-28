@@ -28,13 +28,6 @@ pub(crate) type FlushWrites = Arc<
 /// The serving socket's flush: waits for every mutating call `in_flight` recorded before the
 /// flush's own, then for every write those calls sent `writer` to commit. `in_flight` is set once
 /// the socket's gate chain is built over the frozen registry, before the socket takes a call.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the lifecycle methods with it"
-    )
-)]
 pub(crate) fn flush_writes(
     in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
     writer: Arc<DatabaseWriter>,

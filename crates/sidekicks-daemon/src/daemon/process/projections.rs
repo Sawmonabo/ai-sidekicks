@@ -11,10 +11,6 @@ use sidekicks_store::events::projection::SessionProjection;
 /// Every session projection the daemon keeps, as the projection rebuild takes them: the session's
 /// directory row first, which the others' rows refer to, then its runs, approvals, questions and
 /// plans.
-#[expect(
-    dead_code,
-    reason = "the daemon's start, which hands them to the projection rebuild"
-)]
 pub(crate) fn rebuild_projections() -> Vec<Box<dyn SessionProjection>> {
     vec![
         Box::new(SessionDirectoryProjection),

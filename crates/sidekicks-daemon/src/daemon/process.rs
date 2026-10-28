@@ -7,12 +7,15 @@ mod crash_monitor;
 pub(crate) mod damage_gate;
 pub(crate) mod database;
 pub(crate) mod jobs;
+mod method_inputs;
 pub(crate) mod method_tables;
 mod projections;
+mod provider_port;
 pub(crate) mod providers;
 mod repo_services;
 mod session_services;
 mod shell_table;
+pub(crate) mod start_error;
 pub(crate) mod start_options;
 pub(crate) mod stop;
 mod stored_data;
@@ -21,8 +24,7 @@ pub(crate) mod supervision;
 mod tests;
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use futures::FutureExt as _;
@@ -30,18 +32,16 @@ use jiff::Timestamp;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
-use sidekicks_contracts::wire::text::TextError;
-use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
-use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_platforms::{
-    DaemonRunFolder, SocketPathRefused, Spawner, WakeWatch, WallClock, WallClockTimer,
-    askpass_socket_path, check_socket_path, read_command_argument_limit, secret_store_offer,
+    Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
+    read_command_argument_limit, secret_store_offer,
 };
-use sidekicks_policy::authorizer::{Authorizer, RulesLoadError};
+use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
@@ -49,9 +49,9 @@ use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
-use sidekicks_shell::orphan::guard::{OrphanGuard, OrphanGuardError, open_orphan_guard};
+use sidekicks_shell::orphan::guard::{OrphanGuard, open_orphan_guard};
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::scheduler::{ScheduleError, Scheduler};
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
@@ -60,48 +60,44 @@ use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
-use sidekicks_store::machine::local::{LocalMachineError, read_or_mint_local_machine};
+use sidekicks_store::machine::local::read_or_mint_local_machine;
+use sidekicks_workspace::clone::service::CloneService;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::task::JoinError;
 use tokio_util::sync::CancellationToken;
 
-use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig, SecureDefaultsError};
-use crate::daemon::artifact_methods::{
-    ArtifactMethodsDeps, ArtifactMethodsError, register_artifact_methods,
-};
+use crate::bootstrap::{SecureDefaults, SecureDefaultsConfig};
+use crate::daemon::artifact_methods::{ArtifactMethodsDeps, register_artifact_methods};
 use crate::daemon::backup::roots::mirror_roots_reader;
 use crate::daemon::backup::run::{
     BackupDeps, Backups, backup_folder, backup_manifest_facts, default_backup_folder,
 };
-use crate::daemon::configuration::{ConfigurationError, ConfigurationStore};
-use crate::daemon::crash::monitor::{
-    CrashMonitorError, crash_monitor_socket_path, remove_dead_monitor_sockets,
-};
+use crate::daemon::configuration::ConfigurationStore;
+use crate::daemon::crash::monitor::{crash_monitor_socket_path, remove_dead_monitor_sockets};
 use crate::daemon::login_shell_environment::capture_provider_base_environment;
 use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
 use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
-use crate::daemon::process::database::{
-    DatabaseFile, DatabaseFileOpenError, DatabaseFileStart, open_database_file,
-};
-use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, JobScheduleError, schedule_jobs};
+use crate::daemon::process::database::{DatabaseFile, DatabaseFileStart, open_database_file};
+use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, schedule_jobs};
+use crate::daemon::process::method_inputs::{MethodInputsStart, register_method_inputs};
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
     register_providers, sweep_left_staged_worktrees,
 };
 use crate::daemon::process::repo_services::{
-    RepoAttachmentStartError, RepoAttachments, RepoServiceStart, RepoServiceStartError,
-    RepoServices, build_repo_services, start_repo_attachments,
+    RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, start_repo_attachments,
 };
+use crate::daemon::process::session_services::{
+    SessionAttachments, SessionServices, start_session_attachments,
+};
+use crate::daemon::process::start_error::{DaemonStartError, DaemonStartFailure};
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::process::stop::{DaemonStopFailure, close_data_folder, stop_work};
 use crate::daemon::process::supervision::{ProcessStateTracker, ServingSocketHooks};
-use crate::daemon::run_folder::{
-    RunFolderError, bind_socket, mint_session_token, prepare_run_folder,
-};
-use crate::daemon::service_log::ServiceLogFiles;
+use crate::daemon::run_folder::{bind_socket, mint_session_token, prepare_run_folder};
 use crate::daemon::service_status::remove_service_status;
 use crate::daemon::start_stopped_error::DaemonStartStoppedError;
 use crate::data_acts::erase::EraseStep;
@@ -114,133 +110,6 @@ use crate::observability::diagnostic_buckets::expiry::{
 pub(crate) const DAEMON_STOP_DRAIN_BOUND: Duration =
     Duration::from_millis(DAEMON_STOP_DRAIN_BOUND_MS);
 
-/// Why the daemon could not start, naming the step that failed.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum DaemonStartError {
-    /// A socket's path in the run folder is no socket address, past the system's bound among the
-    /// reasons; nothing was made or started.
-    #[error("the socket path {} cannot be bound", path.display())]
-    SocketPathRefused {
-        /// The socket's path.
-        path: PathBuf,
-        /// Why, with the system's bound when the path is past it.
-        #[source]
-        source: SocketPathRefused,
-    },
-    /// The thread every child starts on could not start.
-    #[error("the start's spawner could not start")]
-    Spawner(#[source] std::io::Error),
-    /// The run folder could not be prepared or the socket bound, another daemon running there
-    /// among the reasons.
-    #[error(transparent)]
-    RunFolder(#[from] RunFolderError),
-    /// The session token could not be minted.
-    #[error("the session token could not be minted")]
-    SessionToken(#[source] getrandom::Error),
-    /// The crash monitor could not start.
-    #[error("the crash monitor could not start")]
-    CrashMonitorStart(#[source] std::io::Error),
-    /// The crash monitor could not be reached.
-    #[error(transparent)]
-    CrashMonitorConnect(#[from] CrashMonitorError),
-    /// The connect to the crash monitor ended before it finished.
-    #[error("the connect to the crash monitor ended before it finished")]
-    CrashMonitorConnectEnded(#[source] tokio::task::JoinError),
-    /// The system refused the crash handler.
-    #[error("the crash handler could not be attached")]
-    CrashHandler(#[source] crash_handler::Error),
-    /// The system's bound on a program's arguments could not be read.
-    #[error("the system's bound on a program's arguments could not be read")]
-    CommandArgumentLimit(#[source] std::io::Error),
-    /// The account could not be read for the providers' base environment.
-    #[error("the account could not be read for the providers' base environment")]
-    BaseEnvironment(#[source] std::io::Error),
-    /// The orphan guard could not be opened.
-    #[error("the terminals' orphan guard could not be opened")]
-    OrphanGuard(#[source] OrphanGuardError),
-    /// The approval rules do not parse or check.
-    #[error(transparent)]
-    Rules(#[from] RulesLoadError),
-    /// The secret items could not be built.
-    #[error("the secret items could not be built")]
-    SecretItems(#[source] getrandom::Error),
-    /// A method was registered twice.
-    #[error(transparent)]
-    Registration(#[from] RegistrationError),
-    /// The socket's path cannot name a local socket.
-    #[error(transparent)]
-    SocketPath(#[from] SecureDefaultsError),
-    /// An earlier start's status file stayed, so a client would still read that start's failure.
-    #[error("the service status file of an earlier start could not be removed")]
-    ServiceStatus(#[source] std::io::Error),
-    /// A stop came before the daemon was ready.
-    #[error(transparent)]
-    Stopped(#[from] DaemonStartStoppedError),
-    /// The database file could not be opened, damaged past repair or from another build among
-    /// the reasons.
-    #[error(transparent)]
-    DatabaseFile(#[from] DatabaseFileOpenError),
-    /// This machine's row could not be read or minted.
-    #[error(transparent)]
-    LocalMachine(#[from] LocalMachineError),
-    /// The machine's name cannot label a backup.
-    #[error("the computer's name cannot label a backup")]
-    BackupManifestFacts(#[source] TextError),
-    /// The wall clock the scheduler's timed jobs run on could not be armed.
-    #[error("the scheduler's wall clock could not be armed")]
-    WallClock(#[source] std::io::Error),
-    /// The daemon's configuration could not be read.
-    #[error(transparent)]
-    Configuration(#[from] ConfigurationError),
-    /// The artifact store could not be built.
-    #[error(transparent)]
-    ArtifactMethods(#[from] ArtifactMethodsError),
-    /// A background job could not be scheduled.
-    #[error(transparent)]
-    Jobs(#[from] JobScheduleError),
-    /// The artifact store's reaper could not be scheduled.
-    #[error("the artifact store's reaper could not be scheduled")]
-    ArtifactReaper(#[source] ScheduleError),
-    /// The providers' registration ended abnormally.
-    #[error("the providers' registration ended abnormally")]
-    ProvidersRegistration(#[source] JoinError),
-    /// The repository services could not be built: another daemon binds the askpass socket.
-    #[error(transparent)]
-    RepoServices(#[from] RepoServiceStartError),
-    /// The repository services' background work could not begin.
-    #[error(transparent)]
-    RepoAttachments(#[from] RepoAttachmentStartError),
-}
-
-/// A start that failed: its error beside every failure of its release, and when the release
-/// began, from which what is left of the drain bound is counted.
-#[derive(Debug)]
-pub(crate) struct DaemonStartFailure {
-    /// The step's error and the release's failures.
-    pub(crate) failures: CleanupFailures<DaemonStartError, DaemonStopFailure>,
-    /// When the release began.
-    pub(crate) release_started: Instant,
-}
-
-/// What the start read and loaded before it builds the services, each handed to the services that
-/// take it.
-#[expect(
-    dead_code,
-    reason = "the session services' build and the method tables take them"
-)]
-struct ServiceInputs {
-    /// The providers' base environment.
-    base_environment: Arc<[(String, String)]>,
-    /// The one bound on shell-line reads, for the providers and the permission check.
-    shell_lines: Arc<ShellLineReadingBound>,
-    /// The daemon's git: the one along the person's search path, when it is there.
-    git: GitRunner,
-    /// The approval rules, parsed and checked.
-    authorizer: Arc<Authorizer>,
-    /// The daemon's secrets, for the status read, the erase and each keychain.
-    secret_items: Arc<SecretItems>,
-}
-
 /// A step of the erase the process runs on the task that owns it, answering once the step ran.
 enum DaemonCommand {
     /// Ends the daemon's work as the stop does.
@@ -252,8 +121,7 @@ enum DaemonCommand {
 /// The running daemon: every service it started, held in the order its stop ends them, each part
 /// a step closes taken as it closes, so a later stop skips it.
 pub(crate) struct DaemonProcess {
-    /// When the start began.
-    #[expect(dead_code, reason = "the status read reports it")]
+    /// When the start began, which the status read reports.
     pub(crate) started_at: Timestamp,
     /// The system's stop request.
     system_stop: CancellationToken,
@@ -271,12 +139,12 @@ pub(crate) struct DaemonProcess {
     /// The thread every child starts on, kept for the daemon's life: on Linux a child armed to end
     /// with the daemon ends once the thread that started it has.
     spawner: Spawner,
-    /// What the services the start builds take.
-    service_inputs: Option<ServiceInputs>,
+    /// The daemon's git, whose failed calls' trees the stop waits for.
+    pub(crate) git: Option<GitRunner>,
     /// The serving socket, while it serves.
     pub(crate) gateway: Option<LocalGateway>,
     /// The record of every terminal child, closed once the terminals have drained.
-    pub(crate) orphan_guard: Option<OrphanGuard>,
+    pub(crate) orphan_guard: Option<Arc<OrphanGuard>>,
     /// The crash monitor, ended before the data folder's lock goes.
     pub(crate) crash_monitor: Option<CrashMonitor>,
     /// The hold on the data folder, let go last.
@@ -303,6 +171,15 @@ pub(crate) struct DaemonProcess {
     pub(crate) repo: Option<RepoServices>,
     /// The repository services' background work, ended by the stop before the scheduler.
     pub(crate) repo_attachments: Option<RepoAttachments>,
+    /// The session services: the stop ends the queue, the renames' name pushes, the highlighter
+    /// and the terminals, and lets the rest go before the database file closes.
+    pub(crate) session: Option<SessionServices>,
+    /// The session services' follows of the log, ended by the stop with the chats' write watch.
+    pub(crate) session_attachments: Option<SessionAttachments>,
+    /// The clone service, which owns the askpass broker; the stop closes it.
+    pub(crate) clones: Option<Arc<CloneService>>,
+    /// The live projects list, closed by the stop.
+    pub(crate) project_list_feed: Option<Arc<ProjectListFeed>>,
 }
 
 // What a failed start's release is called in its error.
@@ -315,18 +192,6 @@ impl DaemonProcess {
     /// [`DaemonStartError::Stopped`].
     pub(crate) async fn start(options: DaemonStartOptions) -> Result<Self, DaemonStartFailure> {
         let started_at = Timestamp::now();
-        let DaemonStartOptions {
-            home_folder,
-            data_folder_lock,
-            run_folder,
-            daemon_program,
-            process_identity: _,
-            version: _,
-            caller_process_reader,
-            stop,
-            base_environment,
-            service_log_files,
-        } = options;
         let spawner = match Spawner::new(tokio::runtime::Handle::current()) {
             Ok(spawner) => spawner,
             Err(error) => {
@@ -343,18 +208,18 @@ impl DaemonProcess {
         let (command_sender, commands) = mpsc::channel(1);
         let mut process = Self {
             started_at,
-            work_stop: stop.child_token(),
-            system_stop: stop,
+            work_stop: options.stop.child_token(),
+            system_stop: options.stop.clone(),
             stop_asked: watch::Sender::new(None),
             commands,
             command_sender,
             process_state: ProcessStateTracker::new(),
             spawner,
-            service_inputs: None,
+            git: None,
             gateway: None,
             orphan_guard: None,
             crash_monitor: None,
-            data_folder_lock: Some(data_folder_lock),
+            data_folder_lock: None,
             database: None,
             stop_started: None,
             has_stop_failed: false,
@@ -366,17 +231,12 @@ impl DaemonProcess {
             providers_registration: None,
             repo: None,
             repo_attachments: None,
+            session: None,
+            session_attachments: None,
+            clones: None,
+            project_list_feed: None,
         };
-        let started = process
-            .run_start(
-                &home_folder,
-                &run_folder,
-                &daemon_program,
-                caller_process_reader,
-                base_environment,
-                service_log_files,
-            )
-            .await;
+        let started = process.run_start(options).await;
         match started {
             Ok(()) => Ok(process),
             Err(error) => Err(process.release(error).await),
@@ -384,15 +244,22 @@ impl DaemonProcess {
     }
 
     // The start's steps, each part kept in the process as it is taken, so a failure releases it.
-    async fn run_start(
-        &mut self,
-        home_folder: &Path,
-        run_folder: &DaemonRunFolder,
-        daemon_program: &Path,
-        caller_process_reader: Arc<dyn CallerProcessReader>,
-        base_environment: ProviderBaseEnvironment,
-        service_log_files: ServiceLogFiles,
-    ) -> Result<(), DaemonStartError> {
+    async fn run_start(&mut self, options: DaemonStartOptions) -> Result<(), DaemonStartError> {
+        let DaemonStartOptions {
+            home_folder,
+            data_folder_lock,
+            run_folder,
+            daemon_program,
+            process_identity,
+            version,
+            caller_process_reader,
+            stop: _,
+            base_environment,
+            service_log_files,
+        } = options;
+        self.data_folder_lock = Some(data_folder_lock);
+        let (home_folder, run_folder, daemon_program) =
+            (home_folder.as_path(), &run_folder, daemon_program.as_path());
         let monitor_socket_path =
             crash_monitor_socket_path(&run_folder.folder_path, std::process::id());
         let askpass_socket_path = askpass_socket_path(&run_folder.folder_path);
@@ -429,7 +296,8 @@ impl DaemonProcess {
         };
         let (base_environment, orphan_guard) =
             tokio::join!(capture, open_orphan_guard(&data_folder));
-        self.orphan_guard = Some(orphan_guard.map_err(DaemonStartError::OrphanGuard)?);
+        let orphan_guard = Arc::new(orphan_guard.map_err(DaemonStartError::OrphanGuard)?);
+        self.orphan_guard = Some(Arc::clone(&orphan_guard));
         let base_environment = base_environment.map_err(DaemonStartError::BaseEnvironment)?;
         let settings = Arc::new(MachineSettingsFile::new(machine_settings_file_path(
             home_folder,
@@ -448,11 +316,18 @@ impl DaemonProcess {
             }
         };
         let shell = SqliteShell::new(daemon_program.to_path_buf(), self.spawner.clone());
-        let copier = DatabaseFileCopier::new(daemon_program.to_path_buf(), self.spawner.clone());
+        let copier = Arc::new(DatabaseFileCopier::new(
+            daemon_program.to_path_buf(),
+            self.spawner.clone(),
+        ));
         let secure_defaults = SecureDefaults::load(SecureDefaultsConfig {
             local_ipc_path: run_folder.socket_path.clone(),
         })?;
         let index_folder = data_folder.join(SEARCH_INDEX_FOLDER_NAME);
+        // Taken before the database's hold on the process, which lasts to the method tables.
+        let accept_stop = self.accept_stop();
+        let stop_work_step = self.stop_work_step();
+        let close_data_folder_step = self.close_data_folder_step();
         let database = self.database.insert(
             open_database_file(DatabaseFileStart {
                 database_path: data_folder.join(DAEMON_DATABASE_FILE_NAME),
@@ -523,6 +398,7 @@ impl DaemonProcess {
             Arc::clone(&base_environment),
             GitLimits::DAEMON,
         );
+        self.git = Some(git.clone());
         let list_feed = Arc::new(SessionListFeed::new(
             Arc::clone(&reads),
             &followers,
@@ -539,7 +415,7 @@ impl DaemonProcess {
             event_log: Arc::clone(&event_log),
             machine_id: machine.machine_id.clone(),
             scheduler: Arc::clone(&scheduler),
-            list_feed,
+            list_feed: Arc::clone(&list_feed),
             stop: self.work_stop.clone(),
         })?);
         let authorizer = Arc::new(Authorizer::load_built_in()?);
@@ -561,7 +437,7 @@ impl DaemonProcess {
                 event_log: Arc::clone(&event_log),
                 reads: Arc::clone(&reads),
                 data_folder: data_folder.clone(),
-                clock: wall_clock,
+                clock: Arc::clone(&wall_clock),
             },
         )?;
         let providers = build_providers(
@@ -596,13 +472,57 @@ impl DaemonProcess {
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
         let drivers = Arc::clone(&providers.registry);
-        self.service_inputs = Some(ServiceInputs {
-            base_environment,
-            shell_lines,
-            git,
-            authorizer,
-            secret_items,
-        });
+        let in_flight: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
+        let inputs = register_method_inputs(
+            &mut builder,
+            MethodInputsStart {
+                database: self
+                    .database
+                    .as_ref()
+                    .expect("the database file opens before the method tables"),
+                repo: self
+                    .repo
+                    .as_mut()
+                    .expect("the repository services are built before the method tables"),
+                providers: &providers,
+                artifacts: &artifacts,
+                machine,
+                scheduler: Arc::clone(&scheduler),
+                search_index: Arc::clone(&search_index),
+                clock: wall_clock,
+                spawner: self.spawner.clone(),
+                git,
+                base_environment,
+                shell_lines,
+                authorizer,
+                secret_items,
+                settings: Arc::clone(&settings),
+                configuration: Arc::clone(&configuration),
+                backups: Arc::clone(&backups),
+                list_feed,
+                plan_holds: Arc::new(StoredPlanHolds),
+                orphan_guard,
+                copier,
+                home_folder,
+                data_folder: &data_folder,
+                run_folder,
+                daemon_program,
+                process_identity,
+                version,
+                started_at: self.started_at,
+                process_state: Arc::clone(&self.process_state),
+                in_flight: Arc::clone(&in_flight),
+                accept_stop,
+                stop_work: stop_work_step,
+                close_data_folder: close_data_folder_step,
+            },
+        )
+        .await?;
+        let recovery = inputs.recovery;
+        self.project_list_feed = Some(inputs.project_list_feed);
+        self.clones = inputs.clones;
+        let session = self.session.insert(inputs.session);
+        let queue = Arc::clone(&session.queue);
         let caller_check = CallerCheck::new(
             Arc::clone(&caller_process_reader),
             Arc::new(Default::default),
@@ -615,6 +535,10 @@ impl DaemonProcess {
         subscriptions.register_cancel(&mut builder)?;
         let registry = Arc::new(builder.freeze());
         let gates = gate_chain(&negotiator, &registry, status, damage, &idle_memory);
+        assert!(
+            in_flight.set(Arc::clone(&gates.in_flight)).is_ok(),
+            "the gate chain is built once"
+        );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
             device_id: None,
@@ -656,6 +580,13 @@ impl DaemonProcess {
             Arc::clone(&settings),
         ));
         self.providers = Some(providers);
+        // Settles what the last stop left before any follow of the log or any folder watch starts.
+        recovery.run(&self.work_stop).await;
+        let session = self
+            .session
+            .as_ref()
+            .expect("the session services are built before their follows begin");
+        self.session_attachments = Some(start_session_attachments(session, &followers));
         let repo = self
             .repo
             .as_ref()
@@ -689,6 +620,18 @@ impl DaemonProcess {
             () = self.work_stop.cancelled() => {}
         }
         self.check_stop("waiting for the providers' first reads")?;
+        // Once the drivers are read, the runs a stop left waiting are delivered again.
+        for (session_id, error) in queue
+            .recover()
+            .await
+            .map_err(DaemonStartError::QueueRecovery)?
+        {
+            tracing::warn!(
+                %session_id,
+                error = &error as &(dyn Error + 'static),
+                "a session's waiting runs could not be recovered, so they wait for its next send"
+            );
+        }
         self.process_state.mark_ready();
         tracing::info!(
             process_id = std::process::id(),
@@ -721,13 +664,6 @@ impl DaemonProcess {
     /// The stop asked for over the socket: the lifecycle methods' stop asks with
     /// [`DaemonStopIntent::Stop`], their restart with [`DaemonStopIntent::Restart`], and the
     /// erase's end with [`DaemonStopIntent::Stop`]; the first ask wins.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the lifecycle methods' stop and restart and the erase's end call it"
-        )
-    )]
     pub(crate) fn accept_stop(&self) -> Arc<dyn Fn(DaemonStopIntent) + Send + Sync> {
         let stop_asked = self.stop_asked.clone();
         Arc::new(move |intent| {
@@ -742,13 +678,11 @@ impl DaemonProcess {
     }
 
     /// The erase's step that ends the daemon's work as the stop does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the erase takes it"))]
     pub(crate) fn stop_work_step(&self) -> EraseStep {
         self.command_step(DaemonCommand::StopWork)
     }
 
     /// The erase's step that closes everything that holds a file in the data folder.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the erase takes it"))]
     pub(crate) fn close_data_folder_step(&self) -> EraseStep {
         self.command_step(DaemonCommand::CloseDataFolder)
     }

@@ -33,6 +33,7 @@ use sidekicks_queue::memory_gate::{MemoryGate, MemoryGateFigures};
 use sidekicks_queue::provider_session::test_opening::test_opening_composer;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_std::scheduler::Scheduler;
@@ -170,7 +171,11 @@ async fn fixture() -> Fixture {
             home.path(),
             home.path().join("session-token"),
         )),
-        runtime_bindings: Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),
+        binding_cursors: Arc::new(RunBindingCursors::new(
+            Arc::clone(&reads),
+            Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),
+            Arc::clone(&epochs),
+        )),
         epochs: Arc::clone(&epochs),
         compose_opening: test_opening_composer(),
         processes: Arc::new(NoProcess),

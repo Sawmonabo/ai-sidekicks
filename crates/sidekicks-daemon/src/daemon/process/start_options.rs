@@ -24,10 +24,8 @@ pub(crate) struct DaemonStartOptions {
     /// The daemon's own program, which the crash monitor runs in its mode.
     pub(crate) daemon_program: PathBuf,
     /// The daemon's own process as the system knows it.
-    #[expect(dead_code, reason = "the status read reports it")]
     pub(crate) process_identity: ProcessIdentity,
     /// The service's own release version.
-    #[expect(dead_code, reason = "the status read reports it")]
     pub(crate) version: ReleaseVersion,
     /// Reads a connecting process's parents, responsible process and signature.
     pub(crate) caller_process_reader: Arc<dyn CallerProcessReader>,

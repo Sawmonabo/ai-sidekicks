@@ -24,7 +24,7 @@ use rusqlite::types::Value;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::{
-    BranchNamePattern, BranchNamePatternChange, EnvironmentRow,
+    BranchNamePattern, BranchNamePatternChange, EnvironmentRow, ProjectBranchPatternRefusedDetails,
 };
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::{
@@ -49,7 +49,9 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::git::branch_name_pattern::{BranchPatternProject, find_project_branch_pattern_refusal};
+use crate::git::branch_name_pattern::{
+    BranchPatternProject, find_machine_branch_pattern_refusal, find_project_branch_pattern_refusal,
+};
 use crate::git::process::{GitError, GitRunner};
 use crate::machine_settings::MachineSettingsReader;
 use crate::project::list_feed::ProjectListFeed;
@@ -403,6 +405,17 @@ impl ProjectService {
         });
         self.edit_column(project_id, UPDATE_BRANCH_PATTERN_SQL, value)
             .await
+    }
+
+    /// Why the machine's `pattern` cannot be saved, or `None` when it can: git's branch-name rule
+    /// over it, then a clash in the repository of each project that keeps no pattern of its own.
+    /// Fails when the projects cannot be read or git could not run.
+    pub async fn find_machine_branch_pattern_refusal(
+        &self,
+        pattern: &BranchNamePattern,
+    ) -> Result<Option<ProjectBranchPatternRefusedDetails>, ProjectServiceError> {
+        let projects = self.records.read_pattern_projects().await?;
+        Ok(find_machine_branch_pattern_refusal(&self.git, pattern, &projects).await?)
     }
 
     /// The project's `Delete`: detaches its mount and forgets its record in one write, then

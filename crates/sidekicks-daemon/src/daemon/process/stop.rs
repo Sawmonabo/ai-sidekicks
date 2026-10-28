@@ -16,6 +16,7 @@ use tokio::task::JoinError;
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
+use crate::daemon::stop_drain::describe_drain;
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]
@@ -47,7 +48,7 @@ pub(crate) enum DaemonStopFailure {
     /// A service's background task ended abnormally.
     #[error(transparent)]
     Task(#[from] TaskStopFailure),
-    /// The askpass broker's listening task ended abnormally at its close.
+    /// The clone service's askpass broker ended abnormally at its close.
     #[error(transparent)]
     Askpass(#[from] AskpassBrokerError),
 }
@@ -85,10 +86,11 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the capability
-/// refresh, the providers' registration, the repository services' background work, the chats'
-/// write watch and file recount, the scheduler, the working-folder watch, the askpass broker, the
-/// search index, the drivers and the git trees a failed call left. Answers each step's failure,
-/// every step having run.
+/// refresh, the providers' registration, the run queue, the repository services' background work,
+/// the session services' follows with the chats' write watch and file recount, the renames' name
+/// pushes, the highlighter, the terminals, the scheduler, the working-folder watch, the clone
+/// service with its askpass broker, the projects list, the search index, the drivers and the git
+/// trees a failed call left. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -127,22 +129,48 @@ pub(crate) async fn stop_work(
     {
         failures.push(failure.into());
     }
+    // Before the attachments and the drivers, so no run is admitted or delivered past here.
+    if let Some(session) = &process.session {
+        session.queue.stop().await;
+    }
     // Before the scheduler, whose tick wakes the health re-probe.
     if let (Some(repo_attachments), Some(repo)) = (process.repo_attachments.take(), &process.repo)
         && let Some(failure) = repo_attachments.stop(repo).await
     {
         failures.push(failure.into());
     }
-    if let Some(repo) = &process.repo
-        && let Err(error) = repo.workspaces.stop().await
-    {
-        failures.push(
-            TaskStopFailure {
-                task: "chats' file recount",
-                error,
+    // The session services' follows end with the chats' write watch, which they wait out.
+    match (
+        process.session_attachments.take(),
+        &mut process.session,
+        &process.repo,
+    ) {
+        (Some(attachments), Some(session), Some(repo)) => failures.extend(
+            attachments
+                .stop(session, &repo.workspaces)
+                .await
+                .into_iter()
+                .map(DaemonStopFailure::from),
+        ),
+        (_, _, Some(repo)) => {
+            if let Err(error) = repo.workspaces.stop().await {
+                failures.push(
+                    TaskStopFailure {
+                        task: "chats' file recount",
+                        error,
+                    }
+                    .into(),
+                );
             }
-            .into(),
-        );
+        }
+        (_, _, None) => {}
+    }
+    if let Some(session) = &process.session {
+        session.changes.stop().await;
+        session.highlighter.stop();
+        // Before the orphan guard goes, so every child the drain ended is still retired.
+        let drain = session.terminals.drain(remaining()).await;
+        tracing::info!("{}", describe_drain(drain));
     }
     // Before the drivers, since a job it runs may still call into them.
     if let Some(scheduler) = process.scheduler.take()
@@ -150,14 +178,17 @@ pub(crate) async fn stop_work(
     {
         failures.push(DaemonStopFailure::Scheduler(failure));
     }
-    if let Some(repo) = &mut process.repo {
+    if let Some(repo) = &process.repo {
         repo.folder_watch.stop().await;
-        // Taken, so a stop run again finds no broker to close.
-        if let Ok(broker) = std::mem::replace(&mut repo.askpass, Err(String::new()))
-            && let Err(failure) = broker.close().await
-        {
-            failures.push(failure.into());
-        }
+    }
+    // Taken, so a stop run again finds no broker to close.
+    if let Some(clones) = process.clones.take()
+        && let Err(failure) = clones.close().await
+    {
+        failures.push(failure.into());
+    }
+    if let Some(project_list_feed) = process.project_list_feed.take() {
+        project_list_feed.close();
     }
     if let Some(search_index) = process.search_index.take()
         && let Err(failure) = search_index.close().await
@@ -172,8 +203,8 @@ pub(crate) async fn stop_work(
                 .map(DaemonStopFailure::Driver),
         );
     }
-    if let Some(service_inputs) = &process.service_inputs {
-        service_inputs.git.wait_for_tree_ends().await;
+    if let Some(git) = &process.git {
+        git.wait_for_tree_ends().await;
     }
     // After the drain, so every child it ended is still retired.
     drop(process.orphan_guard.take());
@@ -181,13 +212,14 @@ pub(crate) async fn stop_work(
     failures
 }
 
-/// Closes everything that holds a file in the data folder: lets the repository services go, then
-/// closes the database file within what is left of the drain bound, ends the crash monitor,
-/// waiting for its exit, and removes its socket from the run folder, then lets the data folder's
-/// lock go last. Answers each step's failure, every step having run.
+/// Closes everything that holds a file in the data folder: lets the session and repository
+/// services go, then closes the database file within what is left of the drain bound, ends the
+/// crash monitor, waiting for its exit, and removes its socket from the run folder, then lets the
+/// data folder's lock go last. Answers each step's failure, every step having run.
 pub(crate) async fn close_data_folder(process: &mut DaemonProcess) -> Vec<DaemonStopFailure> {
     let mut failures = Vec::new();
     // Their pools and writer handles go before the file closes.
+    drop(process.session.take());
     drop(process.repo.take());
     if let Some(database) = process.database.take() {
         let remaining = DAEMON_STOP_DRAIN_BOUND.saturating_sub(

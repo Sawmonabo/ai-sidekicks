@@ -13,7 +13,6 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
-use sidekicks_session::addresses::SessionInboxAddresses;
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
@@ -23,7 +22,6 @@ use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
-use sidekicks_session::staged_attachments::StagedAttachments;
 use sidekicks_session::tags::SessionTagService;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
@@ -70,7 +68,6 @@ use crate::ipc::handlers::session::event_subscribe::register_session_event_subsc
 use crate::ipc::handlers::session::group::register_session_groups;
 use crate::ipc::handlers::session::links::register_session_links;
 use crate::ipc::handlers::session::list::register_session_list;
-use crate::ipc::handlers::session::read::register_session_read;
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::{RestartTargetReader, register_session_restart};
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
@@ -117,14 +114,10 @@ pub(crate) struct MethodTableServices {
     pub(crate) event_log: Arc<EventLogService>,
     /// Each session's live safety holds.
     pub(crate) run_safety_holds: Arc<RunSafetyHolds>,
-    /// The sessions, read by `session.read` and the transcript reads.
+    /// The sessions, which the transcript reads go through.
     pub(crate) sessions: Arc<SessionService>,
     /// Each session's draft.
     pub(crate) drafts: Arc<SessionDraftStore>,
-    /// The files staged for each session.
-    pub(crate) staged_attachments: Arc<dyn StagedAttachments>,
-    /// Each session's inbox addresses.
-    pub(crate) inbox_addresses: Arc<SessionInboxAddresses>,
     /// Each session's tags.
     pub(crate) tags: Arc<SessionTagService>,
     /// The project sessions' named groups.
@@ -171,10 +164,6 @@ pub(crate) struct MethodTableServices {
 /// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects and
 /// the machine's folders. The handshake, the subscriptions' cancel and the artifact store's table
 /// are registered by the start beside them. Fails when a method is registered twice.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the tables through it"
-)]
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -196,13 +185,6 @@ pub(crate) fn register_method_tables(
         builder,
         Arc::clone(&services.event_log),
         services.run_safety_holds,
-    )?;
-    register_session_read(
-        builder,
-        Arc::clone(&services.sessions),
-        Arc::clone(&services.drafts),
-        services.staged_attachments,
-        services.inbox_addresses,
     )?;
     register_transcript_reads(
         builder,

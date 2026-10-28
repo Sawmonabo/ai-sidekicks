@@ -35,10 +35,6 @@ use crate::data_acts::purge::{SessionPurge, SessionPurgeDeps};
 
 /// What the stored data's methods are built from: the services the start has built, and the two
 /// recovery services the start's recovery pass shares with damaged history.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the method tables from it"
-)]
 pub(crate) struct StoredDataMethodsStart<'start> {
     /// The open database file.
     pub(crate) database: &'start DatabaseFile,
@@ -73,10 +69,6 @@ pub(crate) struct StoredDataMethodsStart<'start> {
 }
 
 /// The inputs of the retention, lifecycle and damaged-history methods.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the method tables from it"
-)]
 pub(crate) struct StoredDataMethods {
     /// The retention methods' inputs.
     pub(crate) retention: RetentionMethodsDeps,
@@ -88,10 +80,6 @@ pub(crate) struct StoredDataMethods {
 
 /// Builds the one session purge over `start`'s services, then the retention methods' and damaged
 /// history's inputs over it and the lifecycle verbs' flush over the database's writer.
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the method tables from it"
-)]
 pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> StoredDataMethods {
     let StoredDataMethodsStart {
         database,

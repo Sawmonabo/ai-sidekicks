@@ -36,12 +36,13 @@ use sidekicks_store::database::stored_column::{
 };
 use strum::VariantArray;
 
+use crate::git::branch_name_pattern::BranchPatternProject;
 use crate::git::worktree::naming::WorktreeProjectNaming;
 use crate::schema::{CloneOutcome, MountOrigin};
 
 /// The distinct statements the records keep prepared on each read connection; the session
 /// activity port counts its own.
-pub const PROJECT_RECORDS_STATEMENT_CAPACITY: usize = 12;
+pub const PROJECT_RECORDS_STATEMENT_CAPACITY: usize = 13;
 
 /// The subquery answering the project id of the session whose id `session_id_sql` reads (a bound
 /// parameter such as `@sessionId`, or a column such as `s.id`), or NULL for a chat, a session whose
@@ -242,6 +243,12 @@ static PROJECT_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// Every project as a check of the machine's branch pattern reads it, oldest first.
+const PATTERN_PROJECTS_SQL: &str =
+    "SELECT id, folder_path, place, state, branch_pattern IS NOT NULL
+  FROM projects
+ ORDER BY created_at ASC, id ASC";
+
 const NAMING_OF_MOUNT_SQL: &str = "SELECT project.slug, project.branch_pattern
   FROM repo_mounts AS mount JOIN projects AS project ON project.id = mount.project_id
  WHERE mount.id = @repo_mount_id";
@@ -407,6 +414,29 @@ impl ProjectRecords {
                         project_row,
                     )
                     .optional()?)
+            })
+            .await
+    }
+
+    /// Every project as a check of the machine's branch pattern reads it, oldest first. Fails as
+    /// the read fails.
+    pub(crate) async fn read_pattern_projects(
+        &self,
+    ) -> Result<Vec<BranchPatternProject>, ProjectReadError> {
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(PATTERN_PROJECTS_SQL)?
+                    .query_map([], |row| {
+                        Ok(BranchPatternProject {
+                            id: text_column(row, 0, |text| ProjectId::new(&text))?,
+                            folder: PathBuf::from(row.get::<_, String>(1)?),
+                            place: optional_text_column(row, 2, stored_json)?,
+                            state: text_column(row, 3, closed_word)?,
+                            has_own_pattern: row.get(4)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?)
             })
             .await
     }

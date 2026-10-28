@@ -144,13 +144,6 @@ pub(crate) enum SessionPurgeError {
 
 /// What the purge did to one session.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the retention handler and `session.recovery.delete` read what the purge did"
-    )
-)]
 pub(crate) enum SessionPurgeOutcome {
     /// Every row naming the session is gone; `hand_out_failure` is why the project's other sessions
     /// were not handed their rules again, when they were not.
@@ -169,7 +162,7 @@ pub(crate) enum SessionPurgeOutcome {
     not(test),
     expect(
         dead_code,
-        reason = "the retention handler and `session.recovery.delete` read what the purge did"
+        reason = "the retention handler reads whether the truncation still runs"
     )
 )]
 pub(crate) struct SessionPurgeReport {
@@ -231,10 +224,6 @@ pub(crate) struct SessionPurge {
 
 impl SessionPurge {
     /// The purge over `deps`.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the purge")
-    )]
     pub(crate) fn new(deps: SessionPurgeDeps) -> Self {
         Self {
             deps,

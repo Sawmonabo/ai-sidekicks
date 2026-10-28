@@ -228,11 +228,7 @@ impl RunQueue {
 
     /// The queue's delivery, which the drivers' ports tell of each message a provider took,
     /// refused or gave back, and which holds the messages waiting for paused runs.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start registers the drivers' ports with it"
-    )]
-    pub(crate) fn delivery(&self) -> QueueDelivery {
+    pub fn delivery(&self) -> QueueDelivery {
         self.delivery.clone()
     }
 
@@ -524,14 +520,7 @@ impl RunQueue {
     /// restart is ended as at its end, and a queued run is started. Answers each session whose
     /// settle or read failed, with why, every session tried; fails as the read of the sessions
     /// fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, once its recovery settled the live runs"
-        )
-    )]
-    pub(crate) async fn recover(&self) -> Result<Vec<(SessionId, QueueError)>, QueueError> {
+    pub async fn recover(&self) -> Result<Vec<(SessionId, QueueError)>, QueueError> {
         let (unreleased, waiting) = self
             .pool
             .read(ReadLength::Short, move |reader| {
@@ -566,8 +555,7 @@ impl RunQueue {
     /// finishes or fails before it answers. Work keeps being taken meanwhile: each kind of work is
     /// waited for in turn, again until all four are idle at once, since a drain may start a run, a
     /// run's end a release and either a hand.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.lifecycle.close();
         self.admission.close();
         self.releases.close();

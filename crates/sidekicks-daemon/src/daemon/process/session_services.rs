@@ -18,7 +18,6 @@ use sidekicks_provider::background_work::BackgroundWorkForms;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::posture::ExecutionPostureService;
-use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
 use sidekicks_queue::provider_session::{
@@ -84,9 +83,10 @@ pub(crate) struct SessionServiceStart {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Each live run's posture, the engine's first setup gate.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
-    /// The runtime binding rows, which an opening completes or removes.
-    pub(crate) runtime_bindings: Arc<RuntimeBindingStore>,
-    /// The one set of epoch cursors, shared with the inbound dispatch.
+    /// Each run's binding cursors over the runtime binding rows, which an opening opens and
+    /// records and the session directory's relaunches open too.
+    pub(crate) binding_cursors: Arc<RunBindingCursors>,
+    /// The one set of epoch cursors, shared with the binding cursors and the inbound dispatch.
     pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
@@ -133,7 +133,8 @@ pub(crate) struct SessionServiceStart {
 /// The session services, each built once for the daemon's life.
 #[expect(
     dead_code,
-    reason = "the daemon's driver ports, method tables and stop"
+    reason = "the daemon's driver ports read the inbound dispatch, and a chat's version reads the \
+              chat versions"
 )]
 pub(crate) struct SessionServices {
     /// The terminals; the stop drains them.
@@ -212,7 +213,6 @@ pub(crate) enum SessionServiceStartError {
 /// approval side's run holds reach it, then the services that close its cycles before any run can
 /// end. Fails when the console helper cannot be named or the highlighter cannot start. Runs inside
 /// the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_session_services(
     start: SessionServiceStart,
 ) -> Result<SessionServices, SessionServiceStartError> {
@@ -224,7 +224,7 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence,
         providers,
         execution_postures,
-        runtime_bindings,
+        binding_cursors,
         epochs,
         compose_opening,
         processes,
@@ -298,11 +298,6 @@ pub(crate) fn build_session_services(
         Arc::clone(&engine),
         Arc::clone(&providers),
     ));
-    let binding_cursors = Arc::new(RunBindingCursors::new(
-        Arc::clone(&reads),
-        Arc::clone(&runtime_bindings),
-        Arc::clone(&epochs),
-    ));
     let changes = Arc::new(SessionChanges::new(
         Arc::clone(&reads),
         Arc::clone(&event_log),
@@ -311,7 +306,6 @@ pub(crate) fn build_session_services(
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
         writer: Arc::clone(&writer),
-        runtime_bindings,
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
@@ -457,7 +451,6 @@ pub(crate) struct SessionAttachments {
 /// Starts the session services' follows of `followers`: the binding cursors', the approval side's,
 /// the related sessions' rescoring and the self-naming. Called once the start's recovery pass has
 /// settled the runs, inside the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn start_session_attachments(
     services: &SessionServices,
     followers: &Arc<SessionEventFollowers>,
@@ -477,7 +470,6 @@ impl SessionAttachments {
     /// Stops every follow and waits for the work under way, the file search's listings among it,
     /// and ends `workspaces`' watch, then waits for every write it already sent to be recorded;
     /// answers each task that ended abnormally, every one having stopped.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(
         self,
         services: &mut SessionServices,

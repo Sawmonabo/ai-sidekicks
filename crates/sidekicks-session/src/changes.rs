@@ -171,14 +171,7 @@ impl SessionChanges {
 
     /// Settles once every push of a new name to the providers under way has ended; a rename after
     /// it pushes nothing the stop waits for.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's stop waits for the session name pushes"
-        )
-    )]
-    pub(crate) async fn stop(&self) {
+    pub async fn stop(&self) {
         self.name_pushes.close();
         self.name_pushes.wait().await;
     }

@@ -67,7 +67,10 @@ pub(crate) struct ApprovalStart {
 }
 
 /// The approval side, each part built once and shared by `Arc`.
-#[expect(dead_code, reason = "the daemon's driver ports and method tables")]
+#[expect(
+    dead_code,
+    reason = "the callback tools and a workflow start check their actions through it"
+)]
 pub(crate) struct Approvals {
     /// Raises, answers and cancels approval cards.
     pub(crate) service: Arc<ApprovalService>,
@@ -89,7 +92,6 @@ pub(crate) struct Approvals {
 
 /// Builds the approval side over `deps`, its run holds reaching `engine`, which the run engine's
 /// own build hands it before the engine exists.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn build_approvals(engine: Weak<RunEngine>, deps: &ApprovalStart) -> Approvals {
     let run_holds = Arc::new(ApprovalRunHolds::new(engine, Arc::clone(&deps.reads)));
     let service = Arc::new(ApprovalService::new(
@@ -209,7 +211,6 @@ pub(crate) struct ApprovalAttachments {
 /// Starts the approval side's follows of `followers`: the closed sessions' sweep and rule ends,
 /// the holds of each run that runs again with an ask open, and the reviewer's blocks' wakes. Called
 /// once the start's recovery pass has settled the runs, inside the daemon's runtime.
-#[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
 pub(crate) fn start_approval_attachments(
     approvals: &Approvals,
     followers: &Arc<SessionEventFollowers>,
@@ -225,7 +226,6 @@ pub(crate) fn start_approval_attachments(
 impl ApprovalAttachments {
     /// Stops every follow, the reviewer's blocks' first, and waits for the work under way; answers
     /// each follower whose task ended abnormally, every one having stopped.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's stop"))]
     pub(crate) async fn stop(self, approvals: &Approvals) -> Vec<TaskStopFailure> {
         let Self {
             denials,
