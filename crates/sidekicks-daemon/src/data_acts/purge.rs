@@ -155,21 +155,11 @@ pub(crate) enum SessionPurgeOutcome {
     Refused(SessionPurgeError),
 }
 
-/// What one purge did: each session's outcome, in the order asked, and whether the write-ahead
-/// log's truncation still runs.
+/// What one purge did: each session's outcome, in the order asked.
 #[derive(Debug)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the retention handler reads whether the truncation still runs"
-    )
-)]
 pub(crate) struct SessionPurgeReport {
     /// Each session asked for, with its outcome.
     pub(crate) outcomes: Vec<(SessionId, SessionPurgeOutcome)>,
-    /// Whether the truncation runs; false only once the daemon's stop ended it.
-    pub(crate) is_truncation_running: bool,
 }
 
 /// What the purge deletes through.
@@ -269,10 +259,8 @@ impl SessionPurge {
             }
         }
         self.deps.ranking.rescore_around(formerly_linked);
-        SessionPurgeReport {
-            outcomes,
-            is_truncation_running: self.deps.truncation.request(),
-        }
+        self.deps.truncation.request();
+        SessionPurgeReport { outcomes }
     }
 
     async fn purge_session(

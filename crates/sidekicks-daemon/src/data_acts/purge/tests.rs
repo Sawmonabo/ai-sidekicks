@@ -485,7 +485,6 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         )
         .await;
 
-    assert!(report.is_truncation_running);
     let outcome = only_outcome(report);
     assert!(
         matches!(

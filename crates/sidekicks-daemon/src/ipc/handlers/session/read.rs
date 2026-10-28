@@ -18,6 +18,13 @@ use sidekicks_session::service::{SessionLogRead, SessionReadRecord, SessionServi
 use sidekicks_session::staged_attachments::StagedAttachments;
 
 // What `session.read` composes its answer from.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the staged attachments store registers the session read"
+    )
+)]
 struct SessionReadSources {
     sessions: Arc<SessionService>,
     drafts: Arc<SessionDraftStore>,
@@ -27,6 +34,13 @@ struct SessionReadSources {
 
 /// Registers `session.read`, refusing a session the daemon does not hold `session.notFound`.
 /// Fails the start when the method is already registered.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the staged attachments store registers the session read"
+    )
+)]
 pub(crate) fn register_session_read(
     registry: &mut MethodRegistryBuilder,
     sessions: Arc<SessionService>,
@@ -48,6 +62,13 @@ pub(crate) fn register_session_read(
     )
 }
 
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the staged attachments store registers the session read"
+    )
+)]
 async fn read_session(
     sources: &SessionReadSources,
     request: SessionReadRequest,
