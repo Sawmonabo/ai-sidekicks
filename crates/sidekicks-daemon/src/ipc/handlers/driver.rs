@@ -798,7 +798,7 @@ mod tests {
                     format!("binding-{index}"),
                     run_id.text().as_str(),
                     PROVIDERS[index].id,
-                    json!({ "resolvedExecutablePath": "/bin/provider" }).to_string(),
+                    json!({ "providerAccountId": "account-1", "resolvedExecutablePath": "/bin/provider" }).to_string(),
                 ],
             )
             .expect("the test binds the run");

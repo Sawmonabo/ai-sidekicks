@@ -2,7 +2,7 @@
 //! turn has received and the agent's task list, a new turn's reading replacing the last turn's. A
 //! subscriber reads the held reading at once and then only the newest after each change, so a slow
 //! one never reads a queue of stale readings. A run's readings go once the run ends, and any left
-//! with its session once the session closes.
+//! with its session once the session closes; one published after that is dropped.
 
 use std::sync::Arc;
 
@@ -21,7 +21,7 @@ use sidekicks_workspace::run_setup_gates::{
 };
 
 use super::latest::LatestReadings;
-use super::{ReadingFollowError, follow_closed_sessions, refuse_unknown_session};
+use super::{ClosedSessions, ReadingFollowError, follow_closed_sessions, refuse_unknown_session};
 use crate::run::read::RunStateReader;
 use crate::run::refusals::RunRefusal;
 
@@ -35,6 +35,7 @@ pub struct TurnReadings {
     pool: Arc<DatabaseReadPool>,
     usage: Arc<LatestReadings<RunKey, TurnUsageUpdate>>,
     tasks: Arc<LatestReadings<RunKey, TurnTasksUpdate>>,
+    closed: Arc<ClosedSessions>,
     // Lets a closed session's readings go, a reading published after its run ended among them;
     // dropped with the readings.
     _session_closes: FollowerAttachment,
@@ -48,7 +49,8 @@ impl TurnReadings {
         let tasks = Arc::new(LatestReadings::default());
         let released_usage = Arc::clone(&usage);
         let released_tasks = Arc::clone(&tasks);
-        let session_closes = follow_closed_sessions(followers, move |session_id| {
+        let closed = Arc::new(ClosedSessions::default());
+        let session_closes = follow_closed_sessions(followers, &closed, move |session_id| {
             let is_session_run = |(run_session_id, _): &RunKey| *run_session_id == session_id;
             released_usage.release_where(is_session_run);
             released_tasks.release_where(is_session_run);
@@ -57,8 +59,14 @@ impl TurnReadings {
             pool,
             usage,
             tasks,
+            closed,
             _session_closes: session_closes,
         }
+    }
+
+    /// Forgets `session_id`, which was purged, as closed.
+    pub fn forget_purged_session(&self, session_id: SessionId) {
+        self.closed.forget_purged(session_id);
     }
 
     /// Sends the tokens `run_id`'s current turn has received through `outlet` at once, if read,
@@ -110,11 +118,15 @@ impl TurnReadings {
 
 impl TurnReadingPublisher for TurnReadings {
     fn publish_turn_usage(&self, session_id: SessionId, update: TurnUsageUpdate) {
-        self.usage.publish((session_id, update.run_id), update);
+        self.closed.publish_unless_closed(session_id, || {
+            self.usage.publish((session_id, update.run_id), update);
+        });
     }
 
     fn publish_turn_tasks(&self, session_id: SessionId, update: TurnTasksUpdate) {
-        self.tasks.publish((session_id, update.run_id), update);
+        self.closed.publish_unless_closed(session_id, || {
+            self.tasks.publish((session_id, update.run_id), update);
+        });
     }
 }
 

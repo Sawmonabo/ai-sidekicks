@@ -58,6 +58,7 @@ use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CA
 use sidekicks_session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::questions::projection::question_projection_statements;
 use sidekicks_session::questions::service::QUESTION_STATEMENT_CAPACITY;
+use sidekicks_session::readings::READINGS_STATEMENT_CAPACITY;
 use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
@@ -154,6 +155,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + PROVIDER_CHOICE_STATEMENT_CAPACITY
     + PROVIDER_SESSIONS_STATEMENT_CAPACITY
     + QUESTION_STATEMENT_CAPACITY
+    + READINGS_STATEMENT_CAPACITY
     + RELATED_RANKING_STATEMENT_CAPACITY
     + REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY
     + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY

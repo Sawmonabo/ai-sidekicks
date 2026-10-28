@@ -31,6 +31,8 @@ use sidekicks_session::conversation_purge::{
     CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError,
 };
 use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::live_count::test_log::counted_log;
@@ -209,10 +211,12 @@ pub(crate) async fn test_purge(
         truncation: Arc::clone(&truncation),
         recovery,
         sessions: Arc::new(SessionService::new(
-            reads,
+            Arc::clone(&reads),
             Arc::new(|_: &SessionId| None),
             Arc::new(|_: &ProviderId| None),
         )),
+        context_readings: Arc::new(ContextReadings::new(Arc::clone(&reads), &log.followers)),
+        turn_readings: Arc::new(TurnReadings::new(reads, &log.followers)),
     });
     TestPurge {
         purge,
@@ -580,7 +584,8 @@ async fn a_failed_file_step_keeps_every_row_and_purging_again_finishes() {
                (id, run_id, provider_name, contract_version, cli_version_raw, resume_handle,
                 spawn_config, created_at, updated_at)
              VALUES (?1, ?2, ?3, '1.0.0', '2.1.0', 'conversation',
-                     '{\"resolvedExecutablePath\":\"/bin/provider\"}',
+                     '{\"providerAccountId\":\"account-1\",
+                       \"resolvedExecutablePath\":\"/bin/provider\"}',
                      '2026-10-19T09:00:00.000Z', '2026-10-19T09:00:00.000Z')",
             params![mint_uuid_v7().to_string(), run_id, test_provider().as_str()],
         )
