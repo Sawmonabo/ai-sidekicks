@@ -1,7 +1,8 @@
 //! The close of what the shells run in a folder about to be moved or deleted. Each process a shell
 //! started is judged by its own working folder: a shell working inside is ended with its tree, and
 //! under a shell outside each process working inside is ended with every process under it, while
-//! the shell lives. A process that left its shell's tree, as a daemonized server does, is found by
+//! the shell lives. A shell whose program the `shell` mode starts as its child, keeping its own
+//! folder, is judged by the folder it was told to start in. A process that left its shell's tree, as a daemonized server does, is found by
 //! the shell's nonce in its environment and judged the same way.
 
 use std::collections::{HashMap, HashSet};
@@ -12,7 +13,9 @@ use std::sync::Arc;
 
 use futures::future::{BoxFuture, join_all};
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_platforms::{end_processes, process_table, tree_under};
+use sidekicks_platforms::{
+    DOES_SHELL_MODE_KEEP_ITS_FOLDER, end_processes, process_table, tree_under,
+};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
 use sidekicks_workspace::git::worktree::removal::FolderProcessOwner;
@@ -71,7 +74,14 @@ impl ShellTable {
         if shells.is_empty() {
             return Ok(());
         }
-        let roots = shells.iter().map(|(_, process_id)| *process_id).collect();
+        let roots = shells
+            .iter()
+            .map(|(shell, process_id)| {
+                let told_folder =
+                    DOES_SHELL_MODE_KEEP_ITS_FOLDER.then(|| shell.start_folder.clone());
+                (*process_id, told_folder)
+            })
+            .collect();
         let nonces = shells
             .iter()
             .filter_map(|(shell, _)| shell.spawn_nonce())
@@ -123,15 +133,23 @@ struct ProcessTree {
 // Ends, under each of the shells `roots` and each process outside their trees that carries one of
 // `nonces`, every process working in the folder whose key is `folder_key` or inside it, with every
 // process under it, and answers the shells that work inside themselves, which are left running
-// with their trees for the caller to close.
+// with their trees for the caller to close. A shell given with the folder it was told to start in
+// is judged by that folder rather than its process's own.
 async fn end_processes_inside(
-    roots: Vec<u32>,
+    roots: Vec<(u32, Option<PathBuf>)>,
     nonces: HashSet<String>,
     folder_key: &Path,
 ) -> Result<HashSet<u32>, FolderShellsCloseError> {
-    let trees = tokio::task::spawn_blocking(move || read_trees(&roots, &nonces))
+    let (root_ids, told_folders): (Vec<u32>, Vec<Option<PathBuf>>) = roots.into_iter().unzip();
+    let mut trees = tokio::task::spawn_blocking(move || read_trees(&root_ids, &nonces))
         .await
         .map_err(FolderShellsCloseError::Interrupted)?;
+    // The shells' trees come first, in the roots' order, each root first.
+    for (tree, told_folder) in trees.iter_mut().zip(told_folders) {
+        if let (Some(root), Some(told_folder)) = (tree.processes.first_mut(), told_folder) {
+            root.working_folder = Some(told_folder);
+        }
+    }
     let mut folders_inside: HashMap<PathBuf, bool> = HashMap::new();
     let mut roots_inside = HashSet::new();
     let mut ending_ids = Vec::new();
@@ -428,9 +446,10 @@ mod tests {
         }
     }
 
-    // Kills judging a process by its tree rather than by its own folder, and dropping the end of
-    // the processes inside: a shell working inside is answered, one outside is kept, and under one
-    // outside the child working inside is ended while the shell lives.
+    // Kills judging a process by its tree rather than by its own folder, dropping the end of the
+    // processes inside, and judging a shell given its told folder by its own: a shell working
+    // inside is answered, one outside is kept, under one outside the child working inside is ended
+    // while the shell lives, and one outside told to start inside is answered.
     #[tokio::test]
     async fn each_process_is_judged_by_its_own_folder_and_ended_inside_with_its_tree() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -442,15 +461,17 @@ mod tests {
         let inside_shell = StandIn::start(&tree, None);
         let outside_shell = StandIn::start(&outside, None);
         let mut parent_shell = StandIn::start(&outside, Some(&tree));
+        let told_shell = StandIn::start(&outside, None);
         let tree_key = canonical_folder_path(&tree)
             .await
             .expect("the tree's folder resolves");
 
         let roots_inside = end_processes_inside(
             vec![
-                inside_shell.process_id(),
-                outside_shell.process_id(),
-                parent_shell.process_id(),
+                (inside_shell.process_id(), None),
+                (outside_shell.process_id(), None),
+                (parent_shell.process_id(), None),
+                (told_shell.process_id(), Some(tree.clone())),
             ],
             HashSet::new(),
             &tree_key,
@@ -459,8 +480,8 @@ mod tests {
         .expect("the processes inside are ended");
 
         assert_eq!(
-            roots_inside.into_iter().collect::<Vec<_>>(),
-            vec![inside_shell.process_id()]
+            roots_inside,
+            HashSet::from([inside_shell.process_id(), told_shell.process_id()])
         );
         assert!(
             parent_shell.prints_line(CHILD_ENDED_LINE),
@@ -487,7 +508,7 @@ mod tests {
             .expect("the tree's folder resolves");
 
         let roots_inside = end_processes_inside(
-            vec![shell.process_id()],
+            vec![(shell.process_id(), None)],
             HashSet::from([nonce.to_owned()]),
             &tree_key,
         )

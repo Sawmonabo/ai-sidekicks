@@ -144,6 +144,7 @@ impl TableShared {
                 terminal_id.clone(),
                 request.client_idempotency_key.clone(),
                 start.program_name,
+                folder,
                 Arc::clone(&self.record_deps),
                 list,
             )
