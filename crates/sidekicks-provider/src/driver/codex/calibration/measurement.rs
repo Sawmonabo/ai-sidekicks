@@ -452,8 +452,8 @@ mod tests {
     use std::sync::Arc;
 
     use super::{
-        CodexCalibrationError, CodexCalibrationRequest, measure_codex_compaction_limit,
-        read_codex_calibration_catalog, run_in_scratch_folder,
+        CodexCalibrationError, CodexCalibrationRequest, compose_codex_calibration_catalog,
+        measure_codex_compaction_limit, read_codex_service_catalog, run_in_scratch_folder,
     };
     use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
     use crate::driver::codex::service::supervisor::test_service::{
@@ -518,8 +518,10 @@ mod tests {
             model_id,
             requested_window: None,
         };
-        let catalog = read_codex_calibration_catalog(&service, &request)
+        let catalog = read_codex_service_catalog(&service)
             .await
+            .expect("the catalog is read");
+        let catalog = compose_codex_calibration_catalog(&catalog, &request)
             .expect("the catalog lists the model's window");
         let limit = measure_codex_compaction_limit(&service, &catalog, &request.model_id)
             .await
