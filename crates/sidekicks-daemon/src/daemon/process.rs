@@ -30,7 +30,6 @@ use jiff::Timestamp;
 use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_contracts::daemon::lifecycle::{DAEMON_READY_LINE, DAEMON_STOP_DRAIN_BOUND_MS};
 use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
-use sidekicks_contracts::wire::text::TextError;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
@@ -60,6 +59,7 @@ use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
+use sidekicks_store::machine::identity_key::MachineIdentity;
 use sidekicks_store::machine::local::{LocalMachineError, read_or_mint_local_machine};
 use sidekicks_workspace::git::process::{GitLimits, GitRunner, find_git_executable};
 use tokio::sync::{mpsc, oneshot, watch};
@@ -183,9 +183,6 @@ pub(crate) enum DaemonStartError {
     /// This machine's row could not be read or minted.
     #[error(transparent)]
     LocalMachine(#[from] LocalMachineError),
-    /// The machine's name cannot label a backup.
-    #[error("the computer's name cannot label a backup")]
-    BackupManifestFacts(#[source] TextError),
     /// The wall clock the scheduler's timed jobs run on could not be armed.
     #[error("the scheduler's wall clock could not be armed")]
     WallClock(#[source] std::io::Error),
@@ -284,6 +281,8 @@ pub(crate) struct DaemonProcess {
     pub(crate) data_folder_lock: Option<DataFolderLock>,
     /// The database file, closed first as the data folder closes.
     pub(crate) database: Option<DatabaseFile>,
+    /// This machine's two keys, whose background read the stop joins within the drain bound.
+    pub(crate) machine_identity: Option<Arc<MachineIdentity>>,
     /// When the stop began, from which what is left of the drain bound is counted.
     pub(crate) stop_started: Option<Instant>,
     /// Whether a step of the stop failed, so no clean stop is recorded.
@@ -357,6 +356,7 @@ impl DaemonProcess {
             crash_monitor: None,
             data_folder_lock: Some(data_folder_lock),
             database: None,
+            machine_identity: None,
             stop_started: None,
             has_stop_failed: false,
             idle_memory: None,
@@ -485,8 +485,6 @@ impl DaemonProcess {
             self.work_stop.clone(),
         ))));
         let machine = read_or_mint_local_machine(&reads, &writer, &self.spawner).await?;
-        let manifest_facts =
-            backup_manifest_facts(&machine).map_err(DaemonStartError::BackupManifestFacts)?;
         let wall_clock: Arc<dyn WallClock> =
             Arc::new(WallClockTimer::new().map_err(DaemonStartError::WallClock)?);
         // With no wake heard, a wall-clock job still runs at its instant, only not at once after
@@ -554,6 +552,13 @@ impl DaemonProcess {
             call_timeout: KEYCHAIN_CALL_TIMEOUT,
         })
         .map_err(DaemonStartError::SecretItems)?;
+        // Its first read runs on its own task, so the start never waits on the keychain.
+        self.machine_identity = Some(MachineIdentity::new(
+            &machine,
+            &secret_items,
+            Arc::clone(&reads),
+            Arc::clone(&writer),
+        ));
         let configuration = Arc::new(ConfigurationStore::open(Arc::clone(&writer), &reads).await?);
         let mut builder = MethodRegistryBuilder::new();
         let artifacts = register_artifact_methods(
@@ -592,7 +597,7 @@ impl DaemonProcess {
                 Arc::clone(&reads),
                 Arc::clone(&providers.registry),
             ),
-            manifest_facts,
+            manifest_facts: backup_manifest_facts(),
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;

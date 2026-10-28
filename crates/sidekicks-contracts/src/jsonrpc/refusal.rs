@@ -401,6 +401,10 @@ refusal_codes! {
     /// `machine.folder.list` asked for the top level (`{top: true}`) on macOS or Linux, which has
     /// none: only a Windows computer lists drives and distributions above its folders.
     MachineFolderTopLevelNotOffered = "machine.folder.topLevel.notOffered" (InvalidArgument, 422);
+    /// `machine.register` named a machine id this account holds under another identity key: the
+    /// machine's database was restored from before its registration, and only linking it again
+    /// gives it a key the account trusts.
+    MachineKeyChanged = "machine.keyChanged" (AlreadyExists, 409);
     /// Caller is not authorized for the machine the request names: the caller's verified principal
     /// does not own the machine the request's `machineId` names, by the account the machine is
     /// registered to.

@@ -8,8 +8,9 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::daemon::backup::BackupLastRun;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{WallClockTimer, check_private_run_folder};
+use sidekicks_recovery::database_file::newest_backup::read_backup_manifest;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
@@ -31,13 +32,21 @@ use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_setting
 use crate::daemon::schema::schema_parts;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
-/// `home_folder`, the mirror keeping what `read_mirror_roots` lists.
+/// `home_folder`, the mirror keeping what `read_mirror_roots` lists, on a computer named `Studio`.
 pub(crate) fn test_backups(
     database: &TestDatabase,
     log: &TestLog,
     home_folder: PathBuf,
     read_mirror_roots: MirrorRootsReader,
 ) -> Arc<Backups> {
+    database
+        .reader()
+        .execute(
+            "INSERT INTO local_machine (singleton, machine_id, owner_user_id, name, minted_at)
+             VALUES (1, ?1, ?2, 'Studio', '2026-01-01T00:00:00.000Z')",
+            [mint_uuid_v7().to_string(), mint_uuid_v7().to_string()],
+        )
+        .expect("the test writes this machine's row");
     Backups::new(BackupDeps {
         writer: Arc::clone(&log.writer),
         event_log: Arc::clone(&log.service),
@@ -54,7 +63,6 @@ pub(crate) fn test_backups(
         manifest_facts: BackupManifestFacts {
             app_version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
             service_version: serde_json::from_value(json!("0.1.0")).expect("a version reads"),
-            computer_name: FreeFormText::new("Studio".to_owned()).expect("a name"),
         },
     })
 }
@@ -94,9 +102,10 @@ fn backup_folders(folder: &Path) -> Vec<PathBuf> {
 // mirrors a place found under the home folder, prunes what no day or week keeps and a folder a
 // cut-short run left, never a folder of the person's own, and records its completion as the last
 // run; the backup's folder and the mirror's are owner-only, though the backups folder was made
-// with the default mode. Killed by pruning before the run succeeds, by a failed run's folder left
-// behind, by a manifest-less folder kept, by a folder pruned whatever its name, and by the
-// backup's folder or the mirror's made with the default mode.
+// with the default mode. Its manifest names the computer as this machine's row names it at the run,
+// renamed since the first. Killed by pruning before the run succeeds, by a failed run's folder
+// left behind, by a manifest-less folder kept, by a folder pruned whatever its name, by the
+// backup's folder or the mirror's made with the default mode, and by the name read once at start.
 #[tokio::test]
 async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds() {
     let database = TestDatabase::new(schema_parts());
@@ -152,6 +161,10 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
     ));
 
     is_mirror_readable.store(true, Ordering::SeqCst);
+    database
+        .reader()
+        .execute("UPDATE local_machine SET name = 'Studio Mac'", [])
+        .expect("the test renames this machine");
     backups
         .run(BackupTrigger::Now, &stop, &meter)
         .await
@@ -186,6 +199,10 @@ async fn a_failed_run_prunes_nothing_and_the_next_one_prunes_after_it_succeeds()
         fs::read(backups_folder.join("mirror/agent-memory")).expect("the kept file is mirrored"),
         b"learned"
     );
+    let manifest = read_backup_manifest(&written)
+        .expect("the manifest reads")
+        .expect("the backup has a manifest");
+    assert_eq!(manifest.computer_name.as_str(), "Studio Mac");
     check_private_run_folder(&written).expect("the backup's folder is owner-only");
     check_private_run_folder(&backups_folder.join("mirror")).expect("the mirror is owner-only");
     assert!(matches!(

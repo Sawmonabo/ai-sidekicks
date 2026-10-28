@@ -11,7 +11,7 @@ publish.workspace = true
 ignored = [
   # The linking digits of a device link.
   "hkdf",
-  # The machine's identity key and the statements it signs.
+  # The statements the machine's identity key signs.
   "ed25519-dalek",
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
   # the server.

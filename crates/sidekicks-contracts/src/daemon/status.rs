@@ -5,6 +5,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use strum::IntoStaticStr;
 
 use crate::daemon::recovery::DaemonRecoveryStatus;
 use crate::free_form_string::FilesystemPath;
@@ -224,6 +225,95 @@ pub struct DaemonStatusReadResponse {
     )]
     #[schemars(with = "DaemonSecretsFile")]
     pub secrets_file: Option<DaemonSecretsFile>,
+    /// Where this computer's keys for other devices stand while the service does not hold them:
+    /// `reading` while the start's read of them still runs once this read waited its bound for it,
+    /// else why a key is not held; absent while both are held.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DaemonMachineKey")]
+    pub machine_key: Option<DaemonMachineKey>,
+}
+
+/// Where the service stands with its keys for other devices while it does not hold them, and
+/// what reaches them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DaemonMachineKey {
+    /// Whether the keys are still being read, no key could be read or made, or the one made was
+    /// lost or changed.
+    pub state: DaemonMachineKeyState,
+    /// What stopped the service; absent where the state says it all.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "DaemonMachineKeyCause")]
+    pub cause: Option<DaemonMachineKeyCause>,
+}
+
+impl DaemonMachineKey {
+    /// What the person does to give this computer its keys again, in the words the status line and
+    /// the service log both print; `None` while the keys are still being read.
+    pub const fn action(self) -> Option<&'static str> {
+        const LINK_AGAIN: &str = "Remove this computer on Devices and link it again.";
+        const RESTART: &str = "Restart the background service.";
+        Some(match self.state {
+            DaemonMachineKeyState::Reading => return None,
+            DaemonMachineKeyState::Lost | DaemonMachineKeyState::Changed => LINK_AGAIN,
+            DaemonMachineKeyState::NotMinted => match self.cause {
+                Some(DaemonMachineKeyCause::Locked) => {
+                    "Unlock this computer's keychain, then try again."
+                }
+                Some(DaemonMachineKeyCause::SecretsFile) => {
+                    "The secrets file can't be opened. See its cause."
+                }
+                Some(DaemonMachineKeyCause::Unavailable) | None => {
+                    "The keychain can't be opened. Restart the background service."
+                }
+                Some(DaemonMachineKeyCause::Random | DaemonMachineKeyCause::Database) => RESTART,
+                Some(DaemonMachineKeyCause::StoredPin) => LINK_AGAIN,
+            },
+        })
+    }
+}
+
+/// Where the service stands with its keys for other devices.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum DaemonMachineKeyState {
+    /// The start's read of the keys still runs once the status read waited its bound for it; a
+    /// later read answers the outcome recorded before it.
+    Reading,
+    /// No key could be read or made: the store or the service refused.
+    NotMinted,
+    /// The key this computer made is gone from the store.
+    Lost,
+    /// The store holds another key than the one this computer made.
+    Changed,
+}
+
+/// What stopped the service from reading or making its keys.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, IntoStaticStr)]
+#[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
+pub enum DaemonMachineKeyCause {
+    /// The keychain is locked.
+    Locked,
+    /// The system's credential store cannot be used now.
+    Unavailable,
+    /// The secrets file cannot be opened; `secretsFile` says why.
+    SecretsFile,
+    /// The system gave no random bytes to make the key from.
+    Random,
+    /// The service's database could not be read or written.
+    Database,
+    /// The service's record of its key is not a key.
+    StoredPin,
 }
 
 /// Declares the secrets file: each protection's arm repeats the file's path, then adds its own
@@ -427,6 +517,9 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<DaemonSecretsPlainReason>(),
         Definition::read::<DaemonSecretsFileUnopened>(),
         Definition::read::<DaemonSecretsFile>(),
+        Definition::read::<DaemonMachineKeyState>(),
+        Definition::read::<DaemonMachineKeyCause>(),
+        Definition::read::<DaemonMachineKey>(),
         Definition::read::<DaemonStatusReadResponse>().checked(),
         Definition::read::<CrashModuleFileName>(),
         Definition::read::<CrashStackFrame>(),
