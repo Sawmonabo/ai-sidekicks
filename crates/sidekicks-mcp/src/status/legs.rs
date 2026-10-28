@@ -128,8 +128,8 @@ pub(super) struct StatusChange {
     pub(super) failure_text: Option<String>,
 }
 
-/// What a reading changed: the status changes to send, and the binding for the drain to record
-/// when the reading observed a status, is the leg's first report of it, or is a probe's.
+/// What a reading changed: the status changes to send, and the binding for the drain to record,
+/// which every reading of a live leg or of the probe hands over.
 #[cfg_attr(
     not(test),
     expect(dead_code, reason = "the status tracker applies each reading")
@@ -278,11 +278,9 @@ impl McpLegs {
                 .legs
                 .insert(leg_id.clone());
         }
-        // Every observed status hands the binding over, so a binding whose write failed is tried
-        // again at its next reading.
-        if is_new_on_binding || matches!(update.reading, McpServerReading::Observed(_)) {
-            outcome.observed_binding = Some(binding.clone());
-        }
+        // Every reading, observed or switched off, hands the binding over, so a binding whose write
+        // failed is tried again at its next reading.
+        outcome.observed_binding = Some(binding.clone());
         let aggregate = self.refold(&key);
         if has_left_aggregate {
             outcome.changes.extend(

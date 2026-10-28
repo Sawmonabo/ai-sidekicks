@@ -368,9 +368,10 @@ mod tests {
     }
 
     /// A first observation whose write fails is written at the binding's next reading: the
-    /// probe's, or a leg's repeat of the status it already reported. Killed by the drain marking
-    /// the binding recorded before its write, and by a leg handing the binding over only on its
-    /// first report of it.
+    /// probe's, a leg's repeat of the status it already reported, or a leg's repeated switch-off.
+    /// Killed by the drain marking the binding recorded before its write, by a leg handing the
+    /// binding over only on its first report of it, and by a leg handing it over only on an
+    /// observed status.
     #[tokio::test]
     async fn a_failed_first_observation_is_recorded_at_the_next_observation() {
         let (database, writer, tracker, run) = tracker_over_a_drain().await;
@@ -379,7 +380,7 @@ mod tests {
             .reader()
             .execute_batch(
                 "CREATE TRIGGER fail_writes BEFORE INSERT ON mcp_server_bindings
-                   WHEN NEW.server_name IN ('docs', 'mail')
+                   WHEN NEW.server_name IN ('docs', 'mail', 'news')
                    BEGIN SELECT RAISE(ABORT, 'the test fails this write'); END",
             )
             .expect("the test fails the bindings' writes");
@@ -399,9 +400,21 @@ mod tests {
                 ),
             );
         };
+        // The leg's first report of `news` is a switch-off.
+        let leg_switches_off_news = || {
+            sink.observe(
+                &user_binding("news"),
+                McpServerStatusEmission::new(
+                    McpServerName::new("news".to_owned()).expect("a server name"),
+                    McpServerReading::SwitchedOff,
+                    None,
+                ),
+            );
+        };
         let mut commits = writer.follow_commits();
 
         leg_reports_docs();
+        leg_switches_off_news();
         tracker.record_probe(&user_binding("mail"), Connected, None);
         // The drain writes one binding at a time in order, and a failed write commits nothing, so
         // the next commit is this binding's, after the failed ones.
@@ -417,6 +430,8 @@ mod tests {
             .expect("the test lets the bindings' writes through");
         // The leg's same status again: no longer its first report of the binding.
         leg_reports_docs();
+        // The leg's switch-off again: no longer its first report of the binding.
+        leg_switches_off_news();
         tracker.record_probe(&user_binding("mail"), Connected, None);
         // The sink holds the tracker, which holds the drain's outlet.
         drop(sink);
@@ -425,7 +440,7 @@ mod tests {
 
         assert_eq!(
             recorded_server_names(&database),
-            vec!["docs", "github", "mail"]
+            vec!["docs", "github", "mail", "news"]
         );
     }
 

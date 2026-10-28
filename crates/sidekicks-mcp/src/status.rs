@@ -60,9 +60,9 @@ pub(crate) struct McpBindingStatusReading {
 pub(crate) struct McpServerStatusTracker {
     legs: Mutex<McpLegs>,
     board: Arc<McpNoticeBoard>,
-    /// Each binding a leg first reports or reports a status of, or the probe reads, for the drain
-    /// to record; the drain keeps which bindings it has recorded, so one whose write failed is
-    /// tried again at its next reading.
+    /// Each binding a leg reports or the probe reads, for the drain to record; the drain keeps
+    /// which bindings it has recorded, so one whose write failed is tried again at its next
+    /// reading.
     first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
 }
 
@@ -76,8 +76,7 @@ pub(crate) struct McpServerStatusTracker {
 )]
 impl McpServerStatusTracker {
     /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
-    /// leg first reports or reports a status of, or the probe reads, through `first_observations`,
-    /// whose drain records it.
+    /// leg reports or the probe reads through `first_observations`, whose drain records it.
     pub(crate) fn new(
         board: Arc<McpNoticeBoard>,
         first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
@@ -117,8 +116,8 @@ impl McpServerStatusTracker {
     }
 
     /// Retires the leg `binding_id` of `session_id`, at its session's close or its driver's exit:
-    /// its servers leave the aggregate, each touched binding sends `sessionEnded`, and what the leg
-    /// reports later is ignored.
+    /// its servers leave the aggregate, each binding whose aggregate it was in sends `sessionEnded`,
+    /// and what the leg reports later is ignored.
     pub(crate) fn retire_leg(&self, session_id: SessionId, binding_id: RuntimeBindingId) {
         let leg = LegId {
             session_id,
@@ -609,10 +608,11 @@ mod tests {
     )]
     // A leg that now serves the name from another binding leaves the old one: without the
     // `sessionEnded`, a page would keep the leg's line on the old binding, here where the old
-    // aggregate stays `failed`.
+    // aggregate stays `failed`. A leg switched off before it moves already left, so its move
+    // sending a second `sessionEnded` fails the case.
     #[case::a_leg_moved_to_another_binding_ends_on_the_old_one(
         vec![Step::Open("leg-a"), Step::Open("leg-b"), observe("leg-a", Connected),
-             observe("leg-b", Failed),
+             observe("leg-b", Failed), switch_off("leg-a"),
              Step::Observe("leg-a", Managed, McpServerReading::Observed(Connected), None)],
         vec![feed("leg-a", Unknown, Connected), feed("leg-b", Unknown, Failed),
              ended("leg-a", Failed, Failed),
