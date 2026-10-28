@@ -394,7 +394,8 @@ pub enum SessionReviewTarget {
 
 /// Starts the provider's own review as the session's next queued item: admitted at once on an
 /// idle session, behind a running turn otherwise, and waking a session with no process as a
-/// message does. Its report lands as the agent's reply.
+/// message does. Answers the queued item as a send answers it; its report lands as the agent's
+/// reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
@@ -591,7 +592,7 @@ methods! {
                 SessionSideQuestionRefused,
             ],
         },
-        /// Queues the provider's own review.
+        /// Queues the provider's own review and answers the queued item.
         SessionCodeReviewStart = mutation "session.codeReview.start" {
             mutating: true,
             params: SessionCodeReviewStartRequest,
