@@ -16,9 +16,9 @@
 //!
 //! A page stops at the caller's limit or the page byte budget, whichever trips first, and says
 //! whether more remain. One candidate past the limit is read to learn that, never projected. An
-//! event that stands as no row, a task-list call, takes a place in the limit; a stretch with none is
-//! passed over, so a page that continues holds a row, up to [`PASSED_OVER_STRETCHES_MAX`] stretches
-//! a request, past which the page continues empty after the last. Each page carries the facts of
+//! event that stands as no row, a task-list call, takes a place in the limit; a stretch with none
+//! is passed over, so a page that continues holds a row, up to [`PASSED_OVER_STRETCHES_MAX`]
+//! stretches a request, past which the page continues empty after the last. Each page carries the facts of
 //! the runs its rows name, folded from the whole log through the head, which share the page's
 //! budget with its rows.
 

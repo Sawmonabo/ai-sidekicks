@@ -408,9 +408,10 @@ impl SessionNotice {
                 if named.iter().filter(|is_named| **is_named).count() == 1 {
                     Ok(())
                 } else {
-                    Err(garde::Error::new(
-                        "a crash loop names exactly one of exitCode, signal, silentSeconds and startFailure",
-                    ))
+                    Err(garde::Error::new(concat!(
+                        "a crash loop names exactly one of exitCode, signal, silentSeconds and ",
+                        "startFailure"
+                    )))
                 }
             }
             Self::ConversationReloaded { .. }
