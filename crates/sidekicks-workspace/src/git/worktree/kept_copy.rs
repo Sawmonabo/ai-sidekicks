@@ -47,7 +47,7 @@ use crate::git::worktree::kept_copy::pins::{delete_pins, write_pins};
 use crate::git::worktree::kept_copy::saved_state::{
     RepositoryStoreSettings, SavedStateError, keep_lfs_objects, keep_ref_store,
     list_index_objects_missing_from_head, pack_objects, read_head_refs, read_kept_branch,
-    read_state_pins,
+    read_kept_head_commit, read_state_pins,
 };
 use crate::git::worktree::reads::{
     LinkedTreeRecordError, RECORD_COMMONDIR_FILE_NAME, RECORD_GITDIR_FILE_NAME,
@@ -545,9 +545,12 @@ async fn keep_saved_state(
         }
     };
 
-    // The state files are read from the copy, so the pins match what is kept.
+    // HEAD and the state files are read from the copy, so the pins and the row match what is kept.
+    let head_commit = read_kept_head_commit(git, place, tree_folder, &kept_record)
+        .await
+        .map_err(|failure| failures_of([Some(KeepStepError::State(failure))]))?;
     let pins_written = async {
-        let pins = read_state_pins(&kept_record, &head)
+        let pins = read_state_pins(&kept_record, head_commit.clone(), head.orig_head.clone())
             .await
             .map_err(KeepStepError::State)?;
         write_pins(git, place, &common_folder, removed_worktree_id, &pins)
@@ -565,7 +568,7 @@ async fn keep_saved_state(
     };
     Ok(KeptSavedState {
         state: KeptWorktreeState {
-            head_commit: head.commit,
+            head_commit,
             branch,
             record_folder,
         },

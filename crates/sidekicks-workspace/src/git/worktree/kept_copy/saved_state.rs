@@ -50,6 +50,9 @@ const REF_STORAGE_PAYLOAD_SEPARATOR: &str = "://";
 // reads as a git folder: a HEAD naming no branch, and `refs/heads` saying where the refs are.
 const REF_STORE_HEAD_STUB: &[u8] = b"ref: refs/heads/.invalid\n";
 
+// A record's file naming HEAD: a commit's id while detached, else the ref it is on.
+const HEAD_FILE_NAME: &str = "HEAD";
+
 // The record's rebase folders, the merge backend's first.
 const REBASE_FOLDER_NAMES: [&str; 2] = ["rebase-merge", "rebase-apply"];
 
@@ -574,15 +577,47 @@ pub(crate) fn lfs_object_path(lfs_store: &Path, lfs_object_id: &str) -> PathBuf 
         .join(lfs_object_id)
 }
 
-/// The commits the saved state in the kept record `record_folder` names: `head`'s two, a merge's
-/// first `MERGE_HEAD`, and a rebase's `onto` and `orig-head`. Fails with a file's read.
+/// HEAD's commit as the kept record `kept_record` names it, read once the record is copied, so the
+/// pins and the row hold what is kept: the id a detached HEAD's file holds, else the commit HEAD
+/// names in `tree_folder`, whose refs the record shares, a ref store keeping HEAD out of the file
+/// included. Fails with the file's read or git's failure, or `Unexpected` when git names no commit.
+pub(crate) async fn read_kept_head_commit(
+    git: &GitRunner,
+    place: Option<&Place>,
+    tree_folder: &Path,
+    kept_record: &Path,
+) -> Result<GitObjectId, SavedStateError> {
+    if let Some(commit) = read_first_object_id(&kept_record.join(HEAD_FILE_NAME)).await? {
+        return Ok(commit);
+    }
+    let output = git
+        .run(
+            place,
+            GitCall::read(background_read(
+                tree_folder,
+                &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"],
+            )),
+        )
+        .await?;
+    String::from_utf8(output.stdout)
+        .ok()
+        .and_then(|commit| GitObjectId::new(commit.trim().to_owned()))
+        .ok_or(SavedStateError::Unexpected(
+            "git names no commit for the tree's HEAD",
+        ))
+}
+
+/// The commits the saved state in the kept record `record_folder` names: HEAD's `head_commit`,
+/// `ORIG_HEAD`'s `orig_head`, a merge's first `MERGE_HEAD`, and a rebase's `onto` and `orig-head`.
+/// Fails with a file's read.
 pub(crate) async fn read_state_pins(
     record_folder: &Path,
-    head: &HeadRefs,
+    head_commit: GitObjectId,
+    orig_head: Option<GitObjectId>,
 ) -> Result<KeptWorktreePins, SavedStateError> {
     let mut pins = KeptWorktreePins::default();
-    pins.set(KeptPin::Head, Some(head.commit.clone()));
-    pins.set(KeptPin::OrigHead, head.orig_head.clone());
+    pins.set(KeptPin::Head, Some(head_commit));
+    pins.set(KeptPin::OrigHead, orig_head);
     pins.set(
         KeptPin::MergeHead,
         read_first_object_id(&record_folder.join("MERGE_HEAD")).await?,
@@ -669,8 +704,51 @@ async fn on_blocking_thread<Answer: Send + 'static>(
 mod tests {
     use std::fs;
 
-    use super::{RefStorePayload, keep_ref_store, write_back_ref_store};
+    use sidekicks_platforms::real_path;
+
+    use super::{RefStorePayload, keep_ref_store, read_kept_head_commit, write_back_ref_store};
+    use crate::git::process::test_git_runner;
+    use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
     use crate::git::worktree::kept_copy::KEPT_REF_STORE_ENTRY;
+
+    // A commit lands in the detached tree once its record is copied. Kills HEAD's commit read from
+    // the live tree instead of the kept record, which would pin a commit the copy does not hold.
+    #[tokio::test]
+    async fn the_kept_head_is_the_copied_record_s_after_the_live_tree_moves() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let scratch_path = real_path(scratch.path()).expect("the scratch folder resolves");
+        let git = test_git_runner();
+        let repository = make_test_repository(&git, &scratch_path, "app").await;
+        let tree = scratch_path.join("tree");
+        git_in(
+            &git,
+            &repository,
+            &[
+                "worktree",
+                "add",
+                "--quiet",
+                "--detach",
+                &tree.to_string_lossy(),
+            ],
+        )
+        .await;
+        let kept_head = git_in(&git, &tree, &["rev-parse", "HEAD"]).await;
+        let record = git_in(&git, &tree, &["rev-parse", "--absolute-git-dir"]).await;
+        let kept_record = scratch_path.join("kept-record");
+        fs::create_dir(&kept_record).expect("the kept record is made");
+        fs::copy(
+            std::path::Path::new(&record).join("HEAD"),
+            kept_record.join("HEAD"),
+        )
+        .expect("the record's HEAD is copied");
+        commit_empty(&git, &tree, "after the copy").await;
+
+        let head = read_kept_head_commit(&git, None, &tree, &kept_record)
+            .await
+            .expect("the kept HEAD is read");
+
+        assert_eq!(head.as_str(), kept_head);
+    }
 
     // Kills a discard that keeps no payload refs, a write-back to the old record's name, and stubs
     // that name the resolved folder or miss git's newline.
