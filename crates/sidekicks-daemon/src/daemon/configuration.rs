@@ -14,7 +14,9 @@ use sidekicks_contracts::daemon::config::{
 };
 use sidekicks_contracts::daemon::retention::{DaemonRetentionBounds, DaemonRetentionUpdateRequest};
 use sidekicks_contracts::session::cost::{TokensPerRun, UsdMicros};
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::{Port, SafeInt};
+use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -139,6 +141,13 @@ impl ConfigurationStore {
         self.current
             .send_modify(|configuration| apply_change(configuration, change));
         Ok(self.current())
+    }
+}
+
+impl RunTokenLimitReader for ConfigurationStore {
+    /// `Tokens per run` as the configuration stands; every session's lead run takes the daemon's.
+    fn tokens_per_run(&self, _session_id: SessionId) -> Option<TokensPerRun> {
+        self.current.borrow().tokens_per_run
     }
 }
 

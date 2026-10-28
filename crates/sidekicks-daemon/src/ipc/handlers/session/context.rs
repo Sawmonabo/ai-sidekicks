@@ -16,10 +16,6 @@ use sidekicks_session::readings::context::ContextReadings;
 /// Registers `session.context.subscribe` over `readings`; a session this daemon holds no row for
 /// is refused `session.notFound`, leaving nothing open. Fails the start when the method is already
 /// registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's method table registers the context subscription over its readings"
-)]
 pub(crate) fn register_context_subscribe(
     registry: &mut MethodRegistryBuilder,
     readings: Arc<ContextReadings>,

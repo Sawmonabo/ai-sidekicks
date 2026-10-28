@@ -18,6 +18,8 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::search::index::live::LiveIndex;
 use sidekicks_session::service::SessionService;
@@ -44,6 +46,8 @@ use crate::daemon::process::jobs::IdleMemoryCollect;
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::highlight::colorer::CodeHighlighter;
+use crate::ipc::handlers::agent::command::{CommandMethodSources, register_command_methods};
+use crate::ipc::handlers::agent::turn::register_turn_methods;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
@@ -54,6 +58,7 @@ use crate::ipc::handlers::run::control::{RunControlServices, register_run_contro
 use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::ipc::handlers::run::state::register_run_state_subscribe;
+use crate::ipc::handlers::session::context::register_context_subscribe;
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
 use crate::ipc::handlers::session::links::register_session_links;
@@ -91,6 +96,12 @@ pub(crate) struct MethodTableServices {
     pub(crate) run_control: RunControlServices,
     /// The run queue methods' inputs.
     pub(crate) run_queue: RunQueueMethods,
+    /// The command methods' sources.
+    pub(crate) command_methods: Arc<CommandMethodSources>,
+    /// Each run's latest turn readings, which the turn subscriptions follow.
+    pub(crate) turn_readings: Arc<TurnReadings>,
+    /// Each session's latest context reading, which the context subscription follows.
+    pub(crate) context_readings: Arc<ContextReadings>,
     /// Every driver, which a session's restart goes through.
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Reads where a session's restart lands.
@@ -136,7 +147,8 @@ pub(crate) struct MethodTableServices {
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs, the sessions, the repositories. The handshake, the
+/// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
+/// the repositories. The handshake, the
 /// subscriptions' cancel and the artifact store's table are registered by the start beside them.
 /// Fails when a method is registered twice.
 #[expect(
@@ -160,6 +172,8 @@ pub(crate) fn register_method_tables(
     register_approval_methods(builder, &services.approval_methods)?;
     register_run_control(builder, &services.run_control)?;
     register_run_queue(builder, &services.run_queue)?;
+    register_command_methods(builder, &services.command_methods)?;
+    register_turn_methods(builder, &services.turn_readings)?;
     register_run_state_subscribe(
         builder,
         Arc::clone(&services.event_log),
@@ -178,6 +192,7 @@ pub(crate) fn register_method_tables(
     register_session_draft_update(builder, services.drafts)?;
     register_session_tags(builder, services.tags)?;
     register_session_links(builder, services.links, services.related_ranking)?;
+    register_context_subscribe(builder, services.context_readings)?;
     register_session_restart(
         builder,
         services.providers,

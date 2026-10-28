@@ -152,6 +152,7 @@ mod tests {
     use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
     use sidekicks_provider::driver::test_registry::test_driver_services;
     use sidekicks_provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
     use sidekicks_std::keyed_lock::KeyedLock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::schema_parts;
@@ -255,7 +256,7 @@ mod tests {
                     subagent_policy: None,
                     tool_servers: None,
                     output_schema: None,
-                    provider_account_id: None,
+                    provider_account_id: test_provider_account_id(),
                     on_mcp_server_status: None,
                 },
             });

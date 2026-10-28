@@ -100,7 +100,7 @@ fn next_match(cron: &str, now: Timestamp, zone: &TimeZone) -> Option<Timestamp> 
 
 /// Every stored kept schedule, by session, in each session's order. Fails when SQLite refuses the
 /// read or a stored id or instant does not read.
-pub(super) fn read_stored_schedules(
+pub fn read_stored_schedules(
     reader: &Connection,
 ) -> rusqlite::Result<Vec<(SessionId, KeptSchedule)>> {
     reader

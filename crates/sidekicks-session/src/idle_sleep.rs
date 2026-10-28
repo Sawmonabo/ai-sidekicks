@@ -12,7 +12,7 @@
 //! answered in arrival order, each failed when the resume fails, which leaves the session asleep.
 
 mod holds;
-mod kept_schedules;
+pub mod kept_schedules;
 #[cfg(test)]
 mod tests;
 
@@ -51,6 +51,10 @@ use crate::idle_sleep::holds::{HoldSources, SessionHolds, read_session_holds};
 use crate::idle_sleep::kept_schedules::{
     delete_schedules_statement, next_wake_at, read_stored_schedules, replace_schedules_statements,
 };
+
+/// The statements the idle sleep prepares on a pooled connection: a session's live runs, its
+/// waiting messages, its state, its lead's binding and the kept schedules.
+pub const IDLE_SLEEP_STATEMENT_CAPACITY: usize = 5;
 
 /// How often the one check looks at every awake session.
 const CHECK_INTERVAL: Duration = Duration::from_secs(5 * 60);

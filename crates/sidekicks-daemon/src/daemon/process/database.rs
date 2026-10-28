@@ -53,6 +53,7 @@ use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY
 use sidekicks_session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::idle_sleep::IDLE_SLEEP_STATEMENT_CAPACITY;
 use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::questions::projection::question_projection_statements;
@@ -69,6 +70,7 @@ use sidekicks_session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
 use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::usage_record::USAGE_RECORD_STATEMENT_CAPACITY;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
@@ -141,6 +143,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + DRIVER_METHODS_STATEMENT_CAPACITY
     + EVENT_LOG_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
+    + IDLE_SLEEP_STATEMENT_CAPACITY
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY
     + LIVE_RUN_BINDINGS_STATEMENT_CAPACITY
     + MACHINE_REGISTRY_STATEMENT_CAPACITY
@@ -174,6 +177,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + STARTUP_RECOVERY_STATEMENT_CAPACITY
     + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
     + UNFINISHED_DISCARD_STATEMENT_CAPACITY
+    + USAGE_RECORD_STATEMENT_CAPACITY
     + WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY
     + WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY
     + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY

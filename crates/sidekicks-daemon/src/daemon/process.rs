@@ -41,6 +41,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::authorizer::{Authorizer, RulesLoadError};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::command::channel::remove_channel_folders;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -576,6 +577,8 @@ impl DaemonProcess {
                 git: git.clone(),
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
+                daemon_program: daemon_program.to_path_buf(),
+                caller_processes: Arc::clone(&caller_process_reader),
             },
         );
         let backups = Backups::new(BackupDeps {
@@ -594,6 +597,14 @@ impl DaemonProcess {
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
+        // A channel a previous run left served processes that ended with it; a new one takes new
+        // keys, so a folder left behind is only logged.
+        if let Err(error) = remove_channel_folders(&data_folder).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a command channel folder a previous run left was not removed"
+            );
+        }
         let drivers = Arc::clone(&providers.registry);
         self.service_inputs = Some(ServiceInputs {
             base_environment,

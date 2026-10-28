@@ -19,10 +19,6 @@ use sidekicks_session::readings::turn::TurnReadings;
 /// session this daemon holds no row for is refused `session.notFound` and a run it holds none for
 /// in that session `agent.run.notFound`, each leaving nothing open. Fails the start when one is
 /// already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's method table registers the turn subscriptions over the turn readings"
-)]
 pub(crate) fn register_turn_methods(
     registry: &mut MethodRegistryBuilder,
     readings: &Arc<TurnReadings>,
