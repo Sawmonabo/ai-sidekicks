@@ -45,9 +45,9 @@ use crate::git::worktree::risks::{
 };
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
 
-/// The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
-/// daemon holds its caller no longer than that.
-pub(crate) const FILE_WATCH_STOP_TIMEOUT: Duration = Duration::from_secs(35);
+// The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
+// daemon holds its caller no longer than that.
+const FILE_WATCH_STOP_TIMEOUT: Duration = Duration::from_secs(35);
 // git's exit when its stop finds no file-watch daemon to stop.
 const FILE_WATCH_STOP_NOTHING_EXIT_CODE: i32 = 128;
 // git's line when no file-watch daemon runs for the tree.
@@ -396,7 +396,7 @@ impl WorktreeService {
 /// one, whatever the repository sets today, since a daemon started under an earlier setting or by
 /// another tool outlives its folder; git answering that none runs is nothing to stop. A remote
 /// volume is let through, so a daemon git started there is reached. Fails with git's failure,
-/// a stop past [`FILE_WATCH_STOP_TIMEOUT`] among them.
+/// a stop past its own time bound among them.
 pub(crate) async fn stop_file_watch(
     git: &GitRunner,
     place: Option<&Place>,

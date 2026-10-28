@@ -322,8 +322,9 @@ mod tests {
     const READ_STATEMENT_CAPACITY: usize = 4;
 
     // Kills comparing the record's `gitdir` with the original path as written, which keeps a stale
-    // record whose path git wrote through another spelling; and dropping the live-tree judgment,
-    // which removes the record of a tree a live row stands at.
+    // record whose path git wrote through another spelling; and dropping either live-tree
+    // judgment: the records folder is read-only while a live row stands, so a record renamed aside
+    // fails the removal where the system refuses that rename, even when it would go back.
     #[rstest]
     #[case::stale_record_named_through_another_spelling(false)]
     #[case::record_held_by_a_live_row_s_tree(true)]
@@ -380,14 +381,24 @@ mod tests {
             leftover_names: &leftover_names,
         };
 
-        let is_removed = remove_stale_tree_record(tools, &record_folder, &original_path)
-            .await
-            .expect("the record is judged");
+        let records_folder = record_folder.parent().expect("a record sits in a folder");
+        let permissions = fs::metadata(records_folder)
+            .expect("the records folder's permissions read")
+            .permissions();
+        if is_live_row {
+            let mut read_only = permissions.clone();
+            read_only.set_readonly(true);
+            fs::set_permissions(records_folder, read_only)
+                .expect("the records folder is read-only");
+        }
 
+        let removal = remove_stale_tree_record(tools, &record_folder, &original_path).await;
+
+        fs::set_permissions(records_folder, permissions).expect("the permissions are put back");
+        let is_removed = removal.expect("the record is judged with nothing renamed");
         let is_record_kept = is_live_row;
         assert_eq!(is_removed, !is_record_kept);
         assert_eq!(record_folder.exists(), is_record_kept);
-        let records_folder = record_folder.parent().expect("a record sits in a folder");
         let names: Vec<_> = fs::read_dir(records_folder)
             .expect("the records folder reads")
             .map(|entry| entry.expect("an entry reads").file_name())

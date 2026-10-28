@@ -318,12 +318,21 @@ BEGIN
   SELECT RAISE(ABORT, 'refused');
 END;";
 
+// A unique constraint refuses the write's event row, after the record's insert landed.
+const EVENT_UNIQUE_TRIGGER: &str = "CREATE TABLE clash (id TEXT UNIQUE);
+INSERT INTO clash VALUES ('taken');
+CREATE TRIGGER clash_event BEFORE INSERT ON session_events
+BEGIN
+  INSERT INTO clash VALUES ('taken');
+END;";
+
 // Kills a primary-code check that reads another constraint's refusal as a collision, the collision
-// read from anything but the insert's own failure, and an undo that leaves the folder or the branch
-// the creation made.
+// read from a unique refusal anywhere in the write rather than at the record's insert, and an undo
+// that leaves the folder or the branch the creation made.
 #[rstest]
 #[case::active_branch_index(ACTIVE_BRANCH_TRIGGER, true)]
 #[case::other_constraint(OTHER_CONSTRAINT_TRIGGER, false)]
+#[case::event_row_unique(EVENT_UNIQUE_TRIGGER, false)]
 #[tokio::test]
 async fn a_record_the_active_branch_index_refuses_is_a_collision_and_its_tree_is_undone(
     #[case] trigger: &str,
