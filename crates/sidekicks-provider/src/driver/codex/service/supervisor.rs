@@ -299,6 +299,7 @@ impl CodexService {
     }
 
     /// The process the daemon started or re-pinned, while it runs.
+    #[cfg(test)]
     pub(crate) fn process_id(&self) -> Option<u32> {
         self.process_identity().map(|identity| identity.process_id)
     }
