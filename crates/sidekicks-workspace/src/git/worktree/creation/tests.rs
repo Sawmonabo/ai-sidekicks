@@ -39,7 +39,7 @@ use crate::git::worktree::naming::{
 };
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::reads::has_branch;
-use crate::git::worktree::rows::AttachedMountRow;
+use crate::git::worktree::rows::{AttachedMountRow, LIVE_WORKTREE_STATE_PREDICATE};
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use crate::git::worktree::setup::test_runner::test_setup_runner;
@@ -513,4 +513,69 @@ async fn a_failing_checkout_hook_keeps_a_ready_tree_with_the_hook_s_line_on_its_
         .map(FreeFormText::as_str)
         .unwrap_or_default();
     assert!(output.contains("hook refused the checkout"), "{output:?}");
+}
+
+// A stop between the row and `ready` leaves a `creating` row holding its branch. Kills the
+// `creating` rows skipped, a tree on disk retired instead of undone (its folder and branch left),
+// and a tree gone left `creating`.
+#[rstest]
+#[case::tree_on_disk(true, "failed")]
+#[case::tree_gone(false, "retired")]
+#[tokio::test]
+async fn a_creation_a_stop_cut_off_is_settled_at_start_and_frees_its_branch(
+    #[case] is_tree_on_disk: bool,
+    #[case] settled_state: &str,
+) {
+    let fixture = CreationFixture::new().await;
+    let created = fixture
+        .creator
+        .create(fixture.input("fix", NameCollision::Refuse))
+        .await
+        .expect("the tree is made");
+    fixture
+        .database
+        .reader()
+        .execute(
+            "UPDATE worktrees SET state = 'creating' WHERE id = ?1",
+            [created.worktree_id.to_string()],
+        )
+        .expect("the row is put back to creating");
+    if !is_tree_on_disk {
+        tokio::fs::remove_dir_all(&created.fs_root)
+            .await
+            .expect("the tree's folder is removed");
+    }
+
+    let repair = fixture.creator.finish_interrupted_creations().await;
+
+    assert!(repair.failures.is_empty(), "{:?}", repair.failures);
+    assert_eq!(repair.settled_worktree_ids, vec![created.worktree_id]);
+    assert_eq!(fixture.worktree_states(), vec![settled_state.to_owned()]);
+    let live_on_branch: i64 = fixture
+        .database
+        .reader()
+        .query_row(
+            &format!(
+                "SELECT COUNT(*) FROM worktrees WHERE branch_name = 'fix' AND {}",
+                LIVE_WORKTREE_STATE_PREDICATE.as_str()
+            ),
+            [],
+            |row| row.get(0),
+        )
+        .expect("the live trees are counted");
+    assert_eq!(live_on_branch, 0, "a live row still holds the branch");
+    if is_tree_on_disk {
+        assert!(!created.fs_root.exists(), "the tree's folder is left");
+        assert!(
+            !has_branch(&fixture.git, None, &fixture.repository, "fix")
+                .await
+                .expect("the branches are read"),
+            "the creation's branch is left"
+        );
+        fixture
+            .creator
+            .create(fixture.input("fix", NameCollision::Refuse))
+            .await
+            .expect("the freed name makes a tree again");
+    }
 }

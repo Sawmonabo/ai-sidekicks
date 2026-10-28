@@ -1,6 +1,7 @@
 //! Making a worktree: the base its branch is cut from, its branch and folder through the name
 //! plan, git's judgment of the name, the tree itself, the uncommitted work it carries, its row and
-//! events, and its setup card, opened before git runs and finished once the tree is ready.
+//! events, and its setup card, opened before git runs and finished once the tree is ready; and, at
+//! the daemon's start, the settling of the trees a stop cut off before they were ready.
 //!
 //! - Git decides a name: its branch-name rule, then `worktree add -b` against the branches that
 //!   exist. A refusal of the name carries the line refusing it and writes nothing.
@@ -12,6 +13,7 @@
 //!   recovers it.
 
 mod free_name;
+pub mod interrupted;
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -591,17 +593,25 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
             return Ok(());
         };
         let original = explain_ready_failure(failure, worktree_id);
-        let undo_failures = self.record_create_failure(mount, tree, &worktree_id).await;
+        let undo_failures = self
+            .record_create_failure(
+                mount,
+                &tree.name.folder_path,
+                &tree.name.branch_name,
+                &worktree_id,
+            )
+            .await;
         Err(with_undo_failures(original, undo_failures))
     }
 
     // Marks the `creating` row `failed`, removes the tree's folder and its own record, then the
-    // branch this call made, answering each step's failure for the caller to carry. No row count is
-    // required of the mark: the creation's failure is the one to report.
+    // branch its creation made, answering each step's failure for the caller to carry. No row count
+    // is required of the mark: the creation's failure is the one to report.
     async fn record_create_failure(
         &self,
         mount: &AttachedMountRow,
-        tree: &MadeTree,
+        folder: &Path,
+        branch_name: &str,
         worktree_id: &WorktreeId,
     ) -> Vec<Box<dyn Error + Send + Sync>> {
         let mut failures: Vec<Box<dyn Error + Send + Sync>> = Vec::new();
@@ -615,7 +625,6 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
         if let Err(mark_failure) = self.deps.writer.write(vec![mark]).await {
             failures.push(mark_failure.into());
         }
-        let folder = &tree.name.folder_path;
         // Read while the folder exists: git names the record only from inside the tree.
         match read_linked_tree_record(&self.deps.git, place, folder).await {
             Ok(record_folder) => match remove_folder(folder).await {
@@ -636,10 +645,7 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
             Err(record_failure) => failures.push(record_failure.into()),
         }
         let repository = Path::new(mount.canonical_root.as_str());
-        let delete_branch = GitCall::write(in_folder(
-            repository,
-            &["branch", "-D", &tree.name.branch_name],
-        ));
+        let delete_branch = GitCall::write(in_folder(repository, &["branch", "-D", branch_name]));
         if let Err(branch_failure) = self.deps.git.run(place, delete_branch).await {
             failures.push(branch_failure.into());
         }
