@@ -94,7 +94,7 @@ use crate::driver::session_control::{
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::InboundDelivery;
 use crate::run::posture::{CredentialPolicyResolveError, ExecutionPostureService};
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use crate::thread_frame_router::ThreadFrameRouter;
 use crate::usage_delta_accountant::UsageDeltaAccountant;
@@ -194,7 +194,7 @@ pub(crate) struct ClaudeSpawnSources {
     /// The one thread every child is spawned from, which also checks the command sandbox.
     pub(crate) spawner: Spawner,
     /// Points the session's binding at the conversation it moved onto.
-    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     /// The read pool, for the session's stored settings.
     pub(crate) pool: Arc<DatabaseReadPool>,
     /// Each posture's credential list.

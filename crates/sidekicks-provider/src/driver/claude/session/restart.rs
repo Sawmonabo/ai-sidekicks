@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::SystemTime;
 
 use futures::future::join_all;
-use serde_json::json;
+use serde_json::{Map, json};
 use sidekicks_contracts::command::ExitCode;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::run::control::{ProcessExit, ProcessExitWithCode};
@@ -585,6 +585,7 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
         model: FreeFormText::new(settings.running_model).ok()?,
         // Claude Code's model id names its window, so the driver keeps no figure of its own.
         larger_window: None,
+        runtime_metadata: Map::new(),
         mode: settings.session_mode,
         execution_posture: settings.execution_posture,
         output_speed: settings

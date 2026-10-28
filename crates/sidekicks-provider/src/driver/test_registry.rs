@@ -15,6 +15,7 @@ use std::sync::Mutex;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
+use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -58,8 +59,8 @@ use crate::driver::{
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 
 /// The statements a test's read pool caches.
@@ -68,19 +69,27 @@ const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
 /// The most line bytes the test bound lets the shell-line reader parse at once.
 const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 
-/// What a test that resolves no attachment, or rebinds no binding, answers: the daemon's part that
+/// What a test that resolves no attachment, or writes no binding, answers: the daemon's part that
 /// serves it is not built in that test.
 #[derive(Debug, thiserror::Error)]
 #[error("the test serves no {0}")]
 struct NotServedInTest(&'static str);
 
-/// An attachment resolver and binding rebinder that serve nothing.
+/// An attachment resolver and binding writer that serve nothing.
 pub struct NothingServed;
 
-impl RuntimeBindingRebinder for NothingServed {
+impl RuntimeBindingWriter for NothingServed {
     fn rebind(
         &self,
         _rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
+
+    fn keep_recovery_data(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _runtime_metadata: Map<String, Value>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }

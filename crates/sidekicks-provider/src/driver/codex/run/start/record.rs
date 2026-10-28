@@ -37,7 +37,7 @@ use crate::driver::codex::thread::settings::{
 };
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::{CodexTeardownStep, CodexTransportDiagnostic};
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// One run's turn to start: the person's messages with their skills and files, in send order, and
 /// what the turn carries.
@@ -227,7 +227,7 @@ pub(crate) struct CodexRunCallDependencies {
     /// The sessions' binding adoptions.
     pub(crate) adoptions: Arc<CodexBindingAdoptions>,
     /// The runtime bindings, where a session's first run records the conversations it left.
-    pub(crate) bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
     /// Lets a session whose start had an unknown outcome go.
     pub(crate) disposal: Arc<dyn CodexSessionDisposal>,
 }

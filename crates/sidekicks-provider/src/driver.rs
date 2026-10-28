@@ -37,7 +37,7 @@ use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 
 pub mod attachments;
@@ -468,7 +468,7 @@ pub struct DriverServices {
     /// driver's dial holds and the daemon's caller check reads.
     pub provider_services: Arc<ProviderServiceProcesses>,
     /// Points a session's binding at the conversation a driver moved it onto.
-    pub runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
     pub shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no agent's shell line may start.

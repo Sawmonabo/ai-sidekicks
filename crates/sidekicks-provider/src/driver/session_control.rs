@@ -113,6 +113,8 @@ pub struct ResumeSessionParams {
     pub model: ProviderToken,
     /// The recorded larger window, sent as recorded whatever the catalog offers now.
     pub larger_window: Option<SafeInt<1>>,
+    /// The provider's own recovery data its binding kept, handed back as stored.
+    pub runtime_metadata: Map<String, Value>,
     /// Build or Plan, which the resumed provider runs in from its first turn.
     pub mode: SessionMode,
     /// How the session may touch the machine; left out, the leg would relaunch unsandboxed.

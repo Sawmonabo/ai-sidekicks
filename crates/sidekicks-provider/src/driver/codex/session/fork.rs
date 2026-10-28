@@ -43,8 +43,8 @@ use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkR
 use crate::left_conversations::LeftConversation;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -65,7 +65,7 @@ pub(crate) struct CodexForkDependencies {
     /// Where each conversation the session leaves is held until no command of it runs.
     pub(crate) release: Arc<CodexConversationRelease>,
     /// The runtime bindings, each pointed at the conversation its session moved onto.
-    pub(crate) bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
     /// The reviewer's denials, whose held presses on a binding the fork retires are released.
@@ -242,7 +242,7 @@ pub(crate) async fn move_codex_session_to_fork(
 /// write does, those conversations still owed to the next write.
 pub(crate) async fn bind_codex_first_run(
     record: &mut CodexSessionRecord,
-    bindings: &dyn RuntimeBindingRebinder,
+    bindings: &dyn RuntimeBindingWriter,
     binding_id: &RuntimeBindingId,
 ) -> Result<(), CodexError> {
     if record.left_thread_ids_awaiting_binding.is_empty() {
@@ -440,7 +440,7 @@ async fn record_fork_in_binding(
 }
 
 async fn rebind(
-    bindings: &dyn RuntimeBindingRebinder,
+    bindings: &dyn RuntimeBindingWriter,
     rebind: RuntimeBindingRebind,
 ) -> Result<(), CodexError> {
     bindings

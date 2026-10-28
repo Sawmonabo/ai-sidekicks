@@ -91,11 +91,11 @@ use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingStore;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
 };
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -206,7 +206,7 @@ impl TestCodexSession {
             forks: CodexForkDependencies {
                 delivery,
                 release: Arc::clone(&scripted.dependencies.release),
-                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
+                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
                 reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
@@ -215,7 +215,7 @@ impl TestCodexSession {
                 run_routes: Arc::clone(&run_routes),
                 config_forks: Arc::clone(&config_forks),
                 adoptions: Arc::new(CodexBindingAdoptions::default()),
-                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
+                bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingWriter>,
                 disposal: Arc::new(NoDisposal),
             },
         };

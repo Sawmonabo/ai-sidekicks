@@ -115,11 +115,13 @@ pub(crate) struct CodexSessionIntake {
 }
 
 impl CodexSessionIntake {
-    /// The task of `record`'s session, routing through `routing`.
+    /// The task of `record`'s session, routing through `routing`, its conversation's fixed start
+    /// `kept_fixed_start_tokens` where its binding kept one.
     pub(crate) fn new(
         record: CodexSessionRecord,
         routing: CodexSessionRouting,
         parts: Arc<CodexDriverParts>,
+        kept_fixed_start_tokens: Option<u64>,
     ) -> Self {
         let session_id = record.session_id;
         Self {
@@ -128,7 +130,7 @@ impl CodexSessionIntake {
             routing,
             waiters: CodexTurnEndWaiters::default(),
             parts,
-            context_readings: CodexSessionContextReadings::new(session_id),
+            context_readings: CodexSessionContextReadings::new(session_id, kept_fixed_start_tokens),
             usage_recorder: None,
         }
     }

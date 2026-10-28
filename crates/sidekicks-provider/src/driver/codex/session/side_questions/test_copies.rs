@@ -48,6 +48,7 @@ pub(crate) fn resting_session(session_id: SessionId, folder: &Path) -> ResumeSes
         resume_handle: STORED_THREAD.to_owned(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
         larger_window: None,
+        runtime_metadata: Map::new(),
         mode: SessionMode::Build,
         execution_posture: Some(compose_execution_posture(
             PermissionLevel::Ask,

@@ -68,7 +68,8 @@ pub(super) struct LiveCodexSession {
     pub(super) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     /// The run engine and its dispatch, which record each call the driver makes.
     pub(super) engine: Arc<RecordingRunEngine>,
-    _database: TestDatabase,
+    /// The database the binding store writes.
+    pub(super) database: TestDatabase,
 }
 
 impl LiveCodexSession {
@@ -208,7 +209,7 @@ impl LiveCodexSession {
                     .await,
             );
         }
-        let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts));
+        let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts), None);
         driver.tasks.spawn(intake.run(receiver, routed));
         Self {
             driver,
@@ -219,7 +220,7 @@ impl LiveCodexSession {
             queue,
             questions,
             engine,
-            _database: database,
+            database,
         }
     }
 }

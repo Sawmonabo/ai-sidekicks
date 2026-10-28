@@ -82,7 +82,7 @@ use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::run_host::RunHost;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -100,7 +100,7 @@ pub(crate) struct CodexDriver {
     provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     execution_postures: Arc<ExecutionPostureService>,
     attachments: Arc<dyn AttachmentResolver>,
-    runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
+    runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
     pending_compactions: PendingCompactionRegistry,
@@ -169,6 +169,8 @@ pub(crate) struct CodexDriverParts {
     pub(crate) compaction_limits: Arc<CodexCompactionLimits>,
     /// Each home's model windows as its catalog last gave them.
     pub(crate) model_windows: Arc<CodexModelWindowCache>,
+    /// The binding store, which keeps each binding's recovery data.
+    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
 }
 
 impl CodexDriver {
@@ -385,6 +387,7 @@ impl CodexDriver {
         Ok(CodexDriverParts {
             compaction_limits: Arc::clone(&self.compaction_limits),
             model_windows: Arc::clone(&self.model_windows),
+            runtime_bindings: Arc::clone(&self.runtime_bindings),
             ask_intake: CodexAskIntake {
                 hand_off: Arc::clone(&hand_off),
                 run_routes: Arc::clone(&self.run_routes),
@@ -459,9 +462,11 @@ impl CodexDriver {
             receiver,
             routing,
             routed,
+            kept_fixed_start_tokens,
         } = opened;
         let service = Arc::clone(&record.service);
-        let intake = CodexSessionIntake::new(record, routing, Arc::clone(parts));
+        let intake =
+            CodexSessionIntake::new(record, routing, Arc::clone(parts), kept_fixed_start_tokens);
         self.tasks.spawn(intake.run(receiver, routed));
         self.read_rate_limits_once(parts, service);
     }

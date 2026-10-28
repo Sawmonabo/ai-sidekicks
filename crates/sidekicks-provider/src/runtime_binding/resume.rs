@@ -38,10 +38,10 @@ pub struct RuntimeBindingNotResumable {
     pub(crate) run_id: RunId,
 }
 
-/// Rebuilds a resumed leg's params from its stored binding and the session's lead, model, recorded
-/// larger window, mode, permission level's posture, option values, row values and kept schedules,
-/// as they stand now. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume
-/// handle.
+/// Rebuilds a resumed leg's params from its stored binding, with the provider's recovery data on
+/// it, and the session's lead, model, recorded larger window, mode, permission level's posture,
+/// option values, row values and kept schedules, as they stand now. Fails with
+/// [`RuntimeBindingNotResumable`] when the binding has no resume handle.
 #[expect(
     clippy::too_many_arguments,
     reason = "each argument is one part of the resume the caller holds apart"
@@ -72,6 +72,7 @@ pub fn compose_resume_session_params(
         resume_handle,
         model,
         larger_window,
+        runtime_metadata: binding.runtime_metadata.clone(),
         mode,
         // The level the session was last moved to, which may differ from the one it launched at.
         execution_posture: Some(execution_posture),

@@ -143,7 +143,7 @@ fn only_the_conversations_first_request_sets_the_fixed_start() {
         },
         is_conversation_start,
     };
-    let mut readings = CodexSessionContextReadings::new(session_id());
+    let mut readings = CodexSessionContextReadings::new(session_id(), None);
     readings.note_fixed_start(&report(false, 180_000));
     assert_eq!(readings.fixed_start_tokens, None);
     readings.note_fixed_start(&report(true, 12_000));

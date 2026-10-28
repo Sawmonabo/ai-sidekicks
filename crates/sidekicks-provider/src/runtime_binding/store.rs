@@ -316,12 +316,9 @@ pub enum RuntimeBindingStoreError {
     /// The write was not kept; a relaunch whose predecessor has no row is refused here.
     #[error("writing the runtime binding failed")]
     Write(#[from] WriteError),
-    /// The binding to point elsewhere has no row, so nothing was recorded.
-    #[error(
-        "runtime binding {} has no row to point at another conversation",
-        .binding_id.as_str()
-    )]
-    NoRowToRebind {
+    /// The binding a driver writes has no row, so nothing was recorded.
+    #[error("runtime binding {} has no row to write", .binding_id.as_str())]
+    NoRowToWrite {
         /// The binding.
         binding_id: RuntimeBindingId,
     },

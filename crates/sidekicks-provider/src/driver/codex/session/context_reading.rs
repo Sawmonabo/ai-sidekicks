@@ -4,10 +4,12 @@
 //! the reading carries no usage and its window comes from Codex's catalog. The top stop is where
 //! Codex compacts, the limit the calibration measured, else Codex's own default point; the bottom
 //! stop is the session's fixed start, its conversation's first request's input, plus a tenth of
-//! the window, unknown on a conversation whose start this daemon run did not see.
+//! the window. The fixed start is kept on the session's binding, so a resume reads it back.
 
 use std::sync::{Arc, Mutex};
 
+use serde_json::{Map, Value};
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::{
     SessionCompactionBound, SessionContextBreakdown, SessionContextReading, SessionContextUsage,
@@ -52,11 +54,24 @@ impl CodexReadingSettings {
     }
 }
 
+/// The key of a binding's recovery data that keeps its conversation's fixed start, in tokens.
+const FIXED_START_TOKENS_KEY: &str = "contextFixedStartTokens";
+
+/// The fixed start, in tokens, a binding's recovery data `runtime_metadata` kept; `None` where it
+/// kept none.
+pub(crate) fn read_codex_kept_fixed_start(runtime_metadata: &Map<String, Value>) -> Option<u64> {
+    runtime_metadata
+        .get(FIXED_START_TOKENS_KEY)
+        .and_then(Value::as_u64)
+}
+
 /// One session's context readings, published on its task: from each usage report, and with no
 /// usage at its start and on each change of its model or window.
 pub(crate) struct CodexSessionContextReadings {
     session_id: SessionId,
     fixed_start_tokens: Option<u64>,
+    // The binding the fixed start was last kept on, so each binding is written once.
+    fixed_start_kept_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     // The model and window the last reading was composed for.
     published_for: Option<CodexReadingSettings>,
     // What was published, so a reading composed off the session's task is dropped once another
@@ -82,11 +97,13 @@ struct LateReading {
 }
 
 impl CodexSessionContextReadings {
-    /// No reading published yet for `session_id`.
-    pub(crate) fn new(session_id: SessionId) -> Self {
+    /// No reading published yet for `session_id`, whose conversation's fixed start is
+    /// `kept_fixed_start_tokens` where its binding kept one.
+    pub(crate) fn new(session_id: SessionId, kept_fixed_start_tokens: Option<u64>) -> Self {
         Self {
             session_id,
-            fixed_start_tokens: None,
+            fixed_start_tokens: kept_fixed_start_tokens,
+            fixed_start_kept_on: Arc::default(),
             published_for: None,
             published: Arc::default(),
         }
@@ -101,6 +118,7 @@ impl CodexSessionContextReadings {
         reading: &CodexContextWindowReading,
     ) {
         self.note_fixed_start(reading);
+        self.keep_fixed_start(parts, record);
         let settings = CodexReadingSettings::of(record);
         // Before the reading's owner registers there is no one to tell.
         let Some(publisher) = parts.ports.context_readings.port().map(Arc::clone) else {
@@ -128,6 +146,36 @@ impl CodexSessionContextReadings {
         if reading.is_conversation_start {
             self.fixed_start_tokens = self.fixed_start_tokens.or(reading.breakdown.input);
         }
+    }
+
+    // Keeps the known fixed start on the session's binding once per binding, off the session's
+    // task; a failed write is logged and tried again at the next report.
+    fn keep_fixed_start(&self, parts: &CodexDriverParts, record: &CodexSessionRecord) {
+        let (Some(tokens), Some(binding_id)) = (self.fixed_start_tokens, &record.binding_id) else {
+            return;
+        };
+        if lock(&self.fixed_start_kept_on).as_ref() == Some(binding_id) {
+            return;
+        }
+        let kept_on = Arc::clone(&self.fixed_start_kept_on);
+        let runtime_bindings = Arc::clone(&parts.runtime_bindings);
+        let binding_id = binding_id.clone();
+        let session_id = self.session_id;
+        parts.tasks.spawn(async move {
+            let runtime_metadata =
+                Map::from_iter([(FIXED_START_TOKENS_KEY.to_owned(), Value::from(tokens))]);
+            match runtime_bindings
+                .keep_recovery_data(binding_id.clone(), runtime_metadata)
+                .await
+            {
+                Ok(()) => *lock(&kept_on) = Some(binding_id),
+                Err(error) => tracing::warn!(
+                    error = &*error as &(dyn std::error::Error + 'static),
+                    %session_id,
+                    "a codex session's fixed start could not be kept on its binding"
+                ),
+            }
+        });
     }
 
     /// Publishes a reading with no usage when the session's model or window is not the one its
