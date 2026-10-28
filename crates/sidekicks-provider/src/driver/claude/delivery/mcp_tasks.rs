@@ -164,11 +164,11 @@ mod tests {
         ClaudeTaskFrame::read(&value.to_string()).expect("a task frame")
     }
 
-    // Fails when a tool server's background call closes on its stand-in result rather than on its
-    // task's notification, or the notification's files are dropped or kept past the cap. Mutations:
-    // `observe_start` holding nothing; `release` leaving the links out; the cap's `take` removed.
+    // Fails when a tool server's finished task closes its held call without the notification's
+    // files, or with more than the cap; whether the stand-in result leaves the call open is the
+    // stream's test. Mutations: `release` leaving the links out; the cap's `take` removed.
     #[test]
-    fn a_tool_server_task_holds_its_call_open_until_its_notification() {
+    fn a_tool_server_tasks_end_lists_its_files_up_to_the_cap() {
         let mut tasks = ClaudeToolServerTasks::default();
         let run = ClaudeHeldCallRun {
             run_id: RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id"),
@@ -182,7 +182,6 @@ mod tests {
             })),
             Some(run.clone()),
         );
-        assert!(tasks.held_call_ids().contains("call-1"));
 
         let links: Vec<_> = (0..60)
             .map(|index| json!({"uri": format!("file:///out/{index}.txt"), "name": "out"}))
@@ -203,6 +202,5 @@ mod tests {
         assert_eq!(lines.first(), Some(&"Exported"));
         assert_eq!(lines.get(1), Some(&"- out: file:///out/0.txt"));
         assert_eq!(lines.len(), 51);
-        assert!(tasks.held_call_ids().is_empty());
     }
 }

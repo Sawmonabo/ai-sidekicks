@@ -439,6 +439,7 @@ impl ClaudeDriver {
                 pauses: Arc::clone(&pauses),
                 helper_steers: Arc::clone(&helper_steers),
                 interventions: Arc::clone(&interventions),
+                command_channels: Arc::clone(&self.sources.command_channels),
             };
             let task_services = Arc::new(ClaudeSessionTaskServices {
                 delivery,

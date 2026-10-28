@@ -12,6 +12,7 @@ use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
 
+use crate::driver::claude::delivery::commands::ClaudeHeldCommand;
 use crate::driver::claude::delivery::run_readings::ClaudeStreamSession;
 use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -88,9 +89,9 @@ impl ClaudeSessionStream {
         &self.provider_account_id
     }
 
-    /// The tool call that started the running command `task_id`, where Claude Code named it.
-    pub(crate) fn command_tool_use_id(&self, task_id: &str) -> Option<String> {
-        self.lock().command_tasks.tool_use_id_of(task_id)
+    /// The running command `task_id` of the session's own process, where its tasks hold it.
+    pub(crate) fn held_command(&self, task_id: &str) -> Option<ClaudeHeldCommand> {
+        self.lock().command_tasks.held_command(task_id)
     }
 
     /// Whether the lead `result` in `text` ends the session's turn, read on the process's reader.
@@ -123,6 +124,15 @@ impl ClaudeSessionStream {
         }
         self.lock().reader_carried_run = carried.map(|lead| lead.run_id);
         true
+    }
+
+    /// How many of the session's tasks other than its commands run in the background: the tool
+    /// servers' calls it holds open and the other tasks its latest background set listed, which a
+    /// stop of the process would kill.
+    pub(crate) fn background_work(&self) -> usize {
+        let readings = self.lock();
+        readings.tool_server_tasks.held_call_ids().len()
+            + readings.command_tasks.listed_other_tasks()
     }
 
     /// The session's turn now, which the reader stamps on each frame as it reads it.

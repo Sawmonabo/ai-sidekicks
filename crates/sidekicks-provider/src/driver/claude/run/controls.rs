@@ -16,6 +16,7 @@ use crate::command::running_set::takes_no_input;
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::ClaudeDriver;
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
+use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeHeldCommand};
 use crate::driver::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProviderDialogs};
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::reviewer::compose_claude_override_sentence;
@@ -26,18 +27,23 @@ use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::intervention::{
     ClaudeInterventions, background_claude_task, interrupt_claude_turn,
+    request_claude_background_task,
 };
 use crate::driver::claude::run::routes::ClaudeRunRoute;
 use crate::driver::claude::run::start::{
     ClaudeDaemonTurnOpening, ClaudeRunStart, claude_attachment_failure, claude_session_unavailable,
 };
-use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::driver::claude::session::errors::{
+    ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
+};
 use crate::driver::claude::session::state::LiveClaudeSession;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
 use crate::driver::contract::{DriverError, RespondToRequestParams};
+use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, HelperTokenLimitParams,
     OverrideDenialParams, PauseRunParams, ResumeRunParams, WithdrawQueuedMessageParams,
@@ -112,6 +118,9 @@ pub(crate) struct ClaudeRunControls {
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     /// The interventions, which hold the steers a `Send now` keeps back.
     pub(crate) interventions: Arc<ClaudeInterventions>,
+    /// Every session's command channels, which find a command run by a process apart from the
+    /// session's own.
+    pub(crate) command_channels: Arc<ClaudeCommandChannels>,
 }
 
 impl ClaudeRunControls {
@@ -337,11 +346,137 @@ impl ClaudeRunControls {
             text: sentence,
             origin: OutboundTextOrigin::HumanText,
         };
+        self.write_to_lead(params.session_id, text).await
+    }
+
+    /// Stops a running command with Claude Code's `stop_task` to the process that runs it, the
+    /// session's own or one apart from it such as a staged review's, answering once Claude Code
+    /// acknowledged it; the command's row ends on the task's own notification, and the run that
+    /// started it is then told the person stopped it. Fails `NoLiveSession` and as Claude Code
+    /// refuses or the request fails.
+    pub(crate) async fn stop_command(
+        &self,
+        params: &RunningCommandParams,
+    ) -> Result<(), DriverError> {
+        let task_id = params.command_id.as_str();
+        let stop = || ClaudeControlRequest::StopTask {
+            task_id: task_id.to_owned(),
+        };
+        if let Some(apart) = self
+            .command_channels
+            .apart_command(params.session_id, task_id)
+        {
+            apart.process.send_control_request(stop()).await?;
+            self.tell_command_stopped(params.session_id, &apart.command, Some(&*apart.process))
+                .await;
+            return Ok(());
+        }
+        let live = self.start.live_session(params.session_id)?;
+        // Read before the stop, whose notification lets the command go.
+        let held = self
+            .start
+            .streams
+            .get(params.session_id)
+            .and_then(|stream| stream.held_command(task_id));
+        live.channel.send_control_request(stop()).await?;
+        if let Some(held) = held {
+            self.tell_command_stopped(params.session_id, &held, None)
+                .await;
+        }
+        Ok(())
+    }
+
+    /// Moves a running command to the background through the tool call that started it, on the
+    /// process that runs it, and answers whether it moved: `false` for a command whose call
+    /// Claude Code never named. Fails as `background_task` fails.
+    pub(crate) async fn move_command_to_background(
+        &self,
+        params: &RunningCommandParams,
+    ) -> Result<bool, DriverError> {
+        let task_id = params.command_id.as_str();
+        if let Some(apart) = self
+            .command_channels
+            .apart_command(params.session_id, task_id)
+        {
+            let Some(tool_use_id) = apart.command.tool_use_id else {
+                return Ok(false);
+            };
+            return Ok(request_claude_background_task(&*apart.process, &tool_use_id).await?);
+        }
+        let tool_use_id = self
+            .start
+            .streams
+            .get(params.session_id)
+            .and_then(|stream| stream.held_command(task_id))
+            .and_then(|held| held.tool_use_id);
+        let Some(tool_use_id) = tool_use_id else {
+            return Ok(false);
+        };
+        Ok(self
+            .background_task(params.session_id, &tool_use_id)
+            .await?)
+    }
+
+    // Tells the run that started the stopped `command` that the person stopped it, in the daemon's
+    // own words: a helper at its next tool call, a process apart from the session's own (`apart`)
+    // in its running turn, and the lead in its running turn or as its own run while no run holds
+    // its turn. The stop stands whether or not the words reach it, so a failed write is recorded.
+    async fn tell_command_stopped(
+        &self,
+        session_id: SessionId,
+        command: &ClaudeHeldCommand,
+        apart: Option<&dyn ClaudeProcessChannel>,
+    ) {
+        let named = command
+            .start
+            .line
+            .clone()
+            .unwrap_or_else(|| command.start.name.as_str().to_owned());
+        let sentence = format!("The user stopped `{named}`.");
+        if let Some(ClaudeRunRoute::Child(route)) = self.start.routes.route_of(command.start.run_id)
+        {
+            lock(&self.helper_steers).push(route.session_id, &route.agent_id, sentence);
+            return;
+        }
+        let text = OutboundText {
+            text: sentence,
+            origin: OutboundTextOrigin::SystemNarration,
+        };
+        let told = match apart {
+            Some(process) => {
+                let frame =
+                    compose_claude_user_frame(&text, mint_uuid_v7().to_string(), Vec::new());
+                match process.write_user_frame(frame).await {
+                    ClaudeWriteAttempt::Written => Ok(()),
+                    ClaudeWriteAttempt::Failed { cause, .. } => {
+                        Err(ClaudeSessionError::InputUnwritable(cause).into())
+                    }
+                }
+            }
+            None => self.write_to_lead(session_id, text).await,
+        };
+        if let Err(error) = told {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::ProcessReportFailed,
+                session_id,
+                "the stopped command's message",
+                &error,
+            );
+        }
+    }
+
+    // Writes `text` into the lead's running turn, or starts the session's own run with it while
+    // no run holds its turn. Fails `NoLiveSession` and as the write or the run's start fails.
+    async fn write_to_lead(
+        &self,
+        session_id: SessionId,
+        text: OutboundText,
+    ) -> Result<(), DriverError> {
         let message_uuid = mint_uuid_v7().to_string();
-        let Some(lead) = self.start.routes.lead_run_on(params.session_id) else {
+        let Some(lead) = self.start.routes.lead_run_on(session_id) else {
             self.start
                 .start_daemon_turn(
-                    params.session_id,
+                    session_id,
                     ClaudeDaemonTurnOpening::Text {
                         text,
                         message_id: message_uuid,
@@ -351,45 +486,9 @@ impl ClaudeRunControls {
                 .await?;
             return Ok(());
         };
-        let live = self.start.live_session(params.session_id)?;
+        let live = self.start.live_session(session_id)?;
         self.write_message(&live, lead.run_id, &text, message_uuid, Vec::new())
             .await
-    }
-
-    /// Stops a running command with Claude Code's `stop_task`, answering once Claude Code
-    /// acknowledged it; the command's row ends on the task's own notification. Fails
-    /// `NoLiveSession` and as Claude Code refuses or the request fails.
-    pub(crate) async fn stop_command(
-        &self,
-        params: &RunningCommandParams,
-    ) -> Result<(), DriverError> {
-        let live = self.start.live_session(params.session_id)?;
-        live.channel
-            .send_control_request(ClaudeControlRequest::StopTask {
-                task_id: params.command_id.as_str().to_owned(),
-            })
-            .await?;
-        Ok(())
-    }
-
-    /// Moves a running command to the background through the tool call that started it, and
-    /// answers whether it moved: `false` for a command whose call Claude Code never named. Fails
-    /// as `background_task` fails.
-    pub(crate) async fn move_command_to_background(
-        &self,
-        params: &RunningCommandParams,
-    ) -> Result<bool, DriverError> {
-        let tool_use_id = self
-            .start
-            .streams
-            .get(params.session_id)
-            .and_then(|stream| stream.command_tool_use_id(params.command_id.as_str()));
-        let Some(tool_use_id) = tool_use_id else {
-            return Ok(false);
-        };
-        Ok(self
-            .background_task(params.session_id, &tool_use_id)
-            .await?)
     }
 
     /// Stops a helper at its token limit: its next tool use, and each after, is denied with the
@@ -538,10 +637,33 @@ mod tests {
     }
 
     // Killed by a stop that answers before Claude Code acknowledged it, so a refused stop reads
-    // done, and by a stop naming anything but the command's task.
+    // done, by a stop naming anything but the command's task, and by an acknowledged stop the
+    // lead's turn is not told of in the daemon's words, or a refused one it is.
     #[tokio::test(start_paused = true)]
     async fn a_stop_answers_only_once_claude_code_acknowledged_it() {
         let session = ScriptedSession::new().await;
+        session.hold_lead_turn("lead");
+        session.frame(&json!({
+            "type": "assistant",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "message": {
+                "id": "message-1",
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "call-1", "name": "Bash",
+                     "input": {"command": "sleep 100"}},
+                ],
+            },
+        }));
+        session.frame(&json!({
+            "type": "system",
+            "subtype": "task_started",
+            "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+            "task_id": "task-1",
+            "task_type": "local_bash",
+            "tool_use_id": "call-1",
+        }));
+        settle().await;
         let controls = &session.parts.run_controls;
         session.channel.answer("stop_task", ScriptedAnswer::Refused);
 
@@ -561,6 +683,14 @@ mod tests {
                 .iter()
                 .all(|request| request["subtype"] == "stop_task" && request["task_id"] == "task-1")
         );
+        let told = session.channel.user_frames();
+        assert_eq!(told.len(), 1);
+        assert!(
+            told[0]
+                .to_string()
+                .contains("The user stopped `sleep 100`.")
+        );
+        assert_eq!(told[0]["client_composed"], json!(true));
     }
 
     // Killed by moving a command to the background by its task id instead of the tool call that

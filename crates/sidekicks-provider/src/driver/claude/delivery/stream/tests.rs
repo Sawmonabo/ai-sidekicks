@@ -12,7 +12,7 @@ use crate::driver::claude::session::scripted::{
 };
 use crate::driver::diagnostics::RecordedEvents;
 use crate::port::run_host::test_host::EngineCall;
-use crate::port::usage_sink::ProviderQuotaWindow;
+use crate::port::usage_sink::{MeteredUsageOwner, ProviderQuotaWindow};
 use crate::run::delivery::LateAppendableRow;
 use crate::run::state_entry::RunStateEntry;
 use crate::run::turn_end::TurnOutcome;
@@ -582,9 +582,10 @@ async fn a_helpers_usage_records_on_the_helper_and_the_lead_result_confirms_the_
         .into_iter()
         .map(|metered| {
             (
-                metered
-                    .subagent_id
-                    .map(|subagent_id| subagent_id.as_str().to_owned()),
+                match metered.owner {
+                    MeteredUsageOwner::Helper(subagent_id) => Some(subagent_id.as_str().to_owned()),
+                    MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+                },
                 metered.binding_id,
                 metered.delta.axis_deltas.input.unwrap_or(0),
                 metered.delta.axis_deltas.output.unwrap_or(0),
@@ -636,8 +637,10 @@ async fn a_turn_too_long_for_the_window_files_an_exceeded_row_with_no_counts() {
 }
 
 // Fails when a tool server's background call closes on the stand-in result Claude Code sends at
-// once rather than on its task's notification. Mutations: `user` passing no held calls;
-// `take_task_frame` not releasing the held call.
+// once rather than on its task's notification, or when the call, or another task running no
+// command that the background set lists, does not hold the session awake while it runs.
+// Mutations: `user` passing no held calls; `take_task_frame` not releasing the held call;
+// `background_work` leaving out the held calls or the listed tasks.
 #[tokio::test(start_paused = true)]
 async fn a_tool_servers_background_call_closes_on_its_task_notification() {
     let session = ScriptedSession::new().await;
@@ -682,8 +685,18 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
             ],
         },
     }));
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "background_tasks_changed",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "tasks": [
+            {"task_id": "task-1", "task_type": "mcp_task"},
+            {"task_id": "workflow-1", "task_type": "local_workflow"},
+        ],
+    }));
     settle().await;
     assert_eq!(closed_calls(&session), 0);
+    assert_eq!(session.stream.background_work(), 3);
 
     session.frame(&json!({
         "type": "system",
@@ -694,6 +707,13 @@ async fn a_tool_servers_background_call_closes_on_its_task_notification() {
         "status": "completed",
         "summary": "Exported",
     }));
+    session.frame(&json!({
+        "type": "system",
+        "subtype": "background_tasks_changed",
+        "session_id": SCRIPTED_PROVIDER_SESSION_ID,
+        "tasks": [],
+    }));
     settle().await;
     assert_eq!(closed_calls(&session), 1);
+    assert_eq!(session.stream.background_work(), 0);
 }

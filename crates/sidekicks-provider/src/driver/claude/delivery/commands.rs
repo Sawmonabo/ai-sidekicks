@@ -12,7 +12,7 @@ use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -28,6 +28,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use tokio::task::JoinHandle;
 
+pub(crate) use self::apart_run::ClaudeApartCommand;
 use self::apart_run::ClaudeApartRunCommands;
 use crate::command::askpass::command_prompt_environment;
 use crate::command::channel::records::follow_channel_records;
@@ -204,18 +205,30 @@ impl ClaudeCommandFact {
     }
 }
 
+/// A running command a process's tasks hold: its row's start, and the tool call that started it
+/// where Claude Code named it.
+#[derive(Clone)]
+pub(crate) struct ClaudeHeldCommand {
+    /// The tool call that started it.
+    pub(crate) tool_use_id: Option<String>,
+    /// Its row's start.
+    pub(crate) start: CommandStart,
+}
+
 // A command task the session's running commands hold, with the call that started it.
 struct ClaudeCommandTask {
     tool_use_id: Option<String>,
     start: CommandStart,
 }
 
-/// One session's command tasks: the lines of the Bash and Monitor calls its agents started, and
-/// each command task by its id while it runs.
+/// One session's command tasks: the lines of the Bash and Monitor calls its agents started, each
+/// command task by its id while it runs, and how many tasks running no command the latest
+/// background set listed.
 #[derive(Default)]
 pub(crate) struct ClaudeCommandTasks {
     calls: VecDeque<(String, String)>,
     tasks: HashMap<String, ClaudeCommandTask>,
+    listed_other_tasks: usize,
 }
 
 impl ClaudeCommandTasks {
@@ -244,15 +257,20 @@ impl ClaudeCommandTasks {
         }
     }
 
-    /// The tool call that started the running command `task_id`, where Claude Code named it.
-    pub(crate) fn tool_use_id_of(&self, task_id: &str) -> Option<String> {
-        self.tasks.get(task_id)?.tool_use_id.clone()
+    /// The running command `task_id`: its row's start, and the tool call that started it where
+    /// Claude Code named it.
+    pub(crate) fn held_command(&self, task_id: &str) -> Option<ClaudeHeldCommand> {
+        let task = self.tasks.get(task_id)?;
+        Some(ClaudeHeldCommand {
+            tool_use_id: task.tool_use_id.clone(),
+            start: task.start.clone(),
+        })
     }
 
     /// What `frame`, of `kind`, changes in `session_id`'s running commands; `run_id` is the run a
     /// task it starts belongs to. A task of a helper, a workflow or a tool server, or one of no
-    /// kind, is no command; a later start of a task the background set already listed changes
-    /// nothing.
+    /// kind, is no command; a later start of a task the background set already listed gives that
+    /// task the line of the call that started it, and its start again.
     pub(crate) fn read_frame(
         &mut self,
         kind: &ClaudeWireFrameKind,
@@ -300,10 +318,17 @@ impl ClaudeCommandTasks {
         }
     }
 
+    /// How many tasks running no command, a helper's, a workflow's or a tool server's, the latest
+    /// background set listed.
+    pub(crate) fn listed_other_tasks(&self) -> usize {
+        self.listed_other_tasks
+    }
+
     /// Forgets every command task: the session's process is gone, and its commands with it.
     pub(crate) fn forget(&mut self) {
         self.calls.clear();
         self.tasks.clear();
+        self.listed_other_tasks = 0;
     }
 
     fn start(
@@ -313,13 +338,22 @@ impl ClaudeCommandTasks {
         run_id: Option<RunId>,
     ) -> Option<CommandStart> {
         let task_id = frame.task_id()?;
-        if !is_command_task(frame.task_type()) || self.tasks.contains_key(task_id) {
+        if !is_command_task(frame.task_type()) {
             return None;
         }
         let command = frame.tool_use_id().and_then(|tool_use_id| {
             let index = self.calls.iter().position(|(id, _)| id == tool_use_id)?;
             self.calls.remove(index).map(|(_, command)| command)
         });
+        // A task the background set listed first learns its call here.
+        if let Some(task) = self.tasks.get_mut(task_id) {
+            if task.tool_use_id.is_some() {
+                return None;
+            }
+            task.tool_use_id = Some(frame.tool_use_id()?.to_owned());
+            task.start.line = command.as_deref().map(bash_line_text);
+            return Some(task.start.clone());
+        }
         let is_backgrounded = frame.is_backgrounded == Some(true);
         let start = CommandStart {
             session_id,
@@ -353,6 +387,11 @@ impl ClaudeCommandTasks {
         run_id: Option<RunId>,
     ) -> Vec<CommandStart> {
         let entries = frame.tasks.as_ref().map_or(&[][..], |tasks| &tasks.0);
+        self.listed_other_tasks = entries
+            .iter()
+            .filter(|entry| non_empty(entry.task_id.as_deref()).is_some())
+            .filter(|entry| !is_command_task(non_empty(entry.task_type.as_deref())))
+            .count();
         let listed_ids: Vec<&str> = entries
             .iter()
             .filter(|entry| is_command_task(non_empty(entry.task_type.as_deref())))
@@ -423,6 +462,8 @@ pub(crate) struct ClaudeCommandChannels {
     input_waits: Arc<dyn InputWaitReader>,
     command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
     sessions: Mutex<HashMap<SessionId, Arc<ClaudeCommandChannel>>>,
+    // Each session's channels apart from its own, while their callers hold them.
+    apart: Mutex<HashMap<SessionId, Vec<Weak<ClaudeCommandChannel>>>>,
 }
 
 /// A session's command channel as a spawn takes it: the one the session already holds, which a
@@ -460,6 +501,7 @@ impl ClaudeCommandChannels {
             input_waits,
             command_output,
             sessions: Mutex::default(),
+            apart: Mutex::default(),
         }
     }
 
@@ -491,7 +533,32 @@ impl ClaudeCommandChannels {
         session_id: SessionId,
         run_id: RunId,
     ) -> io::Result<Option<Arc<ClaudeCommandChannel>>> {
-        self.open_channel(session_id, Some(run_id)).await
+        let opened = self.open_channel(session_id, Some(run_id)).await?;
+        if let Some(opened) = &opened {
+            let mut apart = lock(&self.apart);
+            let channels = apart.entry(session_id).or_default();
+            channels.retain(|channel| channel.strong_count() > 0);
+            channels.push(Arc::downgrade(opened));
+        }
+        Ok(opened)
+    }
+
+    /// The running command `task_id` of a process of `session_id` apart from its own, with the
+    /// process it runs in; `None` where no such process runs it.
+    pub(crate) fn apart_command(
+        &self,
+        session_id: SessionId,
+        task_id: &str,
+    ) -> Option<ClaudeApartCommand> {
+        let channels: Vec<_> = lock(&self.apart)
+            .get(&session_id)?
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect();
+        channels
+            .iter()
+            .filter_map(|channel| channel.apart_run.as_ref())
+            .find_map(|apart_run| apart_run.held_command(task_id))
     }
 
     // A channel for a process of `session_id`, reading its task frames onto `apart_run` where it
@@ -518,6 +585,33 @@ impl ClaudeCommandChannels {
                 .await
                 .map_err(io::Error::other)??,
         );
+        match self
+            .follow_ready(session_id, apart_run, &channel, sets)
+            .await
+        {
+            Ok(opened) => Ok(Some(opened)),
+            // A channel that cannot be followed takes its folder with it.
+            Err(error) => {
+                if let Err(close_error) = channel.close().await {
+                    tracing::warn!(
+                        %session_id,
+                        error = &close_error as &(dyn std::error::Error + 'static),
+                        "a command channel that could not be readied left its folder behind"
+                    );
+                }
+                Err(error)
+            }
+        }
+    }
+
+    // The opened `channel` readied for its process: its environment and its watch.
+    async fn follow_ready(
+        &self,
+        session_id: SessionId,
+        apart_run: Option<RunId>,
+        channel: &Arc<CommandChannel>,
+        sets: Arc<RunningCommandSets>,
+    ) -> io::Result<Arc<ClaudeCommandChannel>> {
         let mut environment = channel
             .environment()
             .into_iter()
@@ -539,9 +633,9 @@ impl ClaudeCommandChannels {
                 .map(|(name, value)| (name.to_owned(), value)),
         );
         let watch = channel.watch().await?;
-        Ok(Some(Arc::new(ClaudeCommandChannel {
+        Ok(Arc::new(ClaudeCommandChannel {
             session_id,
-            channel,
+            channel: Arc::clone(channel),
             environment,
             apart_run: apart_run
                 .map(|run_id| ClaudeApartRunCommands::new(session_id, run_id, Arc::clone(&sets))),
@@ -549,13 +643,14 @@ impl ClaudeCommandChannels {
             input_waits: Arc::clone(&self.input_waits),
             watch: Mutex::new(Some(watch)),
             follower: Mutex::new(None),
-        })))
+        }))
     }
 
     /// Closes the session `session_id`'s channel, once the session ended or its first spawn
     /// failed; nothing for a session that holds none. Fails with the system's error when the
     /// channel's folder cannot be removed.
     pub(crate) async fn close(&self, session_id: SessionId) -> io::Result<()> {
+        lock(&self.apart).remove(&session_id);
         let channel = lock(&self.sessions).remove(&session_id);
         match channel {
             Some(channel) => channel.close().await,

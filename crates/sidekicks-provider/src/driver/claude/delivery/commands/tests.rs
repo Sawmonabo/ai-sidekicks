@@ -16,12 +16,6 @@ use super::{ClaudeCommandFact, ClaudeCommandTasks, ClaudeTaskFrame};
 use crate::command::running_set::{CommandEndingAppender, RunningCommandSets};
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
-use crate::driver::claude::session::answered_commands::{
-    ClaudeOutputStyleDescriptions, read_claude_command_choices,
-};
-use crate::driver::claude::session::transport::readings::{
-    ClaudeCreationFiguresReading, ClaudeLocalCommandReply, ClaudeReplyReserveReads,
-};
 use crate::port::running_command_publisher::{ReseedScope, RunningCommandPublisher as _};
 
 fn session_id() -> SessionId {
@@ -60,7 +54,6 @@ fn started(task_id: &str, task_type: &str, tool_use_id: &str) -> Value {
 // summary kept for every status; `line` set to the raw command.
 #[rstest]
 #[case::time_limit("stopped", None, true)]
-#[case::agents_task_stop("stopped", None, true)]
 #[case::worker_restart("stopped", Some("worker_restart"), true)]
 #[case::completed("completed", None, false)]
 fn a_stopped_command_task_ends_stopped_by_the_provider_with_its_summary(
@@ -85,7 +78,13 @@ fn a_stopped_command_task_ends_stopped_by_the_provider_with_its_summary(
         panic!("a shell task starts a row");
     };
     assert_eq!(start.line.as_deref(), Some("npm test > /dev/null"));
-    assert_eq!(tasks.tool_use_id_of("task-1").as_deref(), Some("call-1"));
+    assert_eq!(
+        tasks
+            .held_command("task-1")
+            .and_then(|held| held.tool_use_id)
+            .as_deref(),
+        Some("call-1")
+    );
 
     let mut notification = json!({
         "type": "system",
@@ -207,57 +206,53 @@ async fn a_staged_reviews_commands_are_rows_under_its_run_ending_with_its_proces
     assert!(!sets.has_running_commands(session_id()));
 }
 
-fn figures(output_style: ClaudeLocalCommandReply) -> ClaudeCreationFiguresReading {
-    ClaudeCreationFiguresReading {
-        output_style_names: vec!["Explanatory".to_owned(), "Learning: Deep".to_owned()],
-        output_style,
-        advisor: ClaudeLocalCommandReply {
-            is_listed: false,
-            text: None,
-            outcome: None,
-        },
-        reply_reserve_reads: ClaudeReplyReserveReads::Refused {
-            detail: "not read".to_owned(),
-        },
-        context_reads: Vec::new(),
-    }
-}
-
-// Fails when a colon inside a style's name or description moves the split between them, or when a
-// build that no longer lists `/output-style` reads as printing no descriptions rather than as the
-// version fault it is. Mutations: in `read_output_style_descriptions`, split each row at its first
-// `": "`; in `read_claude_command_choices`, the unlisted arm read as `Listed` of nothing.
+// Fails when a task the background set listed before its start keeps no line once its start
+// names the call, so no wrapper pairs with its row, or when a second start of a task already
+// paired starts it again. Mutations: in `ClaudeCommandTasks::start`, return `None` for a task
+// already held; fill nothing in; drop the check for a held task's call.
 #[test]
-fn style_descriptions_keep_their_colons_and_an_unlisted_command_is_a_version_fault() {
-    let listed = read_claude_command_choices(&figures(ClaudeLocalCommandReply {
-        is_listed: true,
-        text: Some(
-            "- Explanatory (current): Explains choices: why, then how\n- Learning: Deep: Asks you"
-                .to_owned(),
-        ),
-        outcome: None,
-    }));
-    let unlisted = read_claude_command_choices(&figures(ClaudeLocalCommandReply {
-        is_listed: false,
-        text: None,
-        outcome: None,
-    }));
+fn a_task_listed_before_its_start_takes_its_calls_line_from_the_start() {
+    let mut tasks = ClaudeCommandTasks::default();
+    let call = json!({"message": {"content": [{
+        "type": "tool_use",
+        "id": "call-1",
+        "name": "Bash",
+        "input": {"command": "npm test > nul"},
+    }]}});
+    tasks.observe_calls(&serde_json::from_value::<ClaudeMessageFrame>(call).expect("a frame"));
+    let listed = json!({"type": "system", "subtype": "background_tasks_changed", "tasks": [
+        {"task_id": "task-1", "task_type": "local_bash", "description": "Run the tests"},
+    ]});
 
-    let ClaudeOutputStyleDescriptions::Listed(descriptions) = listed.output_styles else {
-        panic!("the descriptions are listed");
+    let Some(ClaudeCommandFact::Listed { listed, .. }) = read(
+        &mut tasks,
+        &ClaudeWireFrameKind::SystemBackgroundTasksChanged,
+        &listed,
+    ) else {
+        panic!("the background set lists the task");
     };
+    assert_eq!(listed.first().map(|start| start.line.clone()), Some(None));
+    let Some(ClaudeCommandFact::Started(start)) = read(
+        &mut tasks,
+        &ClaudeWireFrameKind::SystemTaskStarted,
+        &started("task-1", "local_bash", "call-1"),
+    ) else {
+        panic!("the later start gives the listed task its line");
+    };
+    assert_eq!(start.line.as_deref(), Some("npm test > /dev/null"));
     assert_eq!(
-        descriptions.get("Explanatory").map(String::as_str),
-        Some("Explains choices: why, then how")
+        tasks
+            .held_command("task-1")
+            .and_then(|held| held.tool_use_id)
+            .as_deref(),
+        Some("call-1")
     );
-    assert_eq!(
-        descriptions.get("Learning: Deep").map(String::as_str),
-        Some("Asks you")
-    );
-    assert_eq!(
-        unlisted.output_styles,
-        ClaudeOutputStyleDescriptions::Unlisted {
-            line: "This Claude Code build does not list style descriptions.".to_owned(),
-        }
+    assert!(
+        read(
+            &mut tasks,
+            &ClaudeWireFrameKind::SystemTaskStarted,
+            &started("task-1", "local_bash", "call-1"),
+        )
+        .is_none()
     );
 }

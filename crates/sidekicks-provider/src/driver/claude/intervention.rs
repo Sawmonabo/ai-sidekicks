@@ -37,6 +37,7 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
 use crate::driver::claude::session::state::LiveClaudeSession;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeBackgroundTasksReply, ClaudeControlRequest, ClaudeInterruptReceipt,
 };
@@ -364,19 +365,24 @@ pub(crate) async fn background_claude_task(
     live: &LiveClaudeSession,
     tool_use_id: &str,
 ) -> Result<bool, ClaudeSessionError> {
-    let answer = match live
-        .channel
+    let moved = request_claude_background_task(&*live.channel, tool_use_id).await;
+    if let Err(error) = &moved {
+        stop_on_cut_write(live, error).await;
+    }
+    moved
+}
+
+/// Asks the process on `channel` to move the foreground work the tool call `tool_use_id` started
+/// to the background, and answers whether any moved. Fails as the request fails.
+pub(crate) async fn request_claude_background_task(
+    channel: &dyn ClaudeProcessChannel,
+    tool_use_id: &str,
+) -> Result<bool, ClaudeSessionError> {
+    let answer = channel
         .send_control_request(ClaudeControlRequest::BackgroundTasks {
             tool_use_id: Some(tool_use_id.to_owned()),
         })
-        .await
-    {
-        Ok(answer) => answer,
-        Err(error) => {
-            stop_on_cut_write(live, &error).await;
-            return Err(error);
-        }
-    };
+        .await?;
     let reply: ClaudeBackgroundTasksReply = answer
         .response
         .and_then(|response| serde_json::from_str(response.get()).ok())

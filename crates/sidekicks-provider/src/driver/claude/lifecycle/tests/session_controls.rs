@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use serde_json::json;
+use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
@@ -26,6 +27,7 @@ use crate::driver::claude::session::scripted::starts::ScriptedOneTurnRecord;
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, binding_id, hand_scripted_frame, settle,
 };
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeCumulativeUsageObservation, ClaudeHandshakeDeclaration, ClaudeInitializeDeclaration,
@@ -40,6 +42,7 @@ use crate::driver::session_control::{
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
+use crate::port::running_command_publisher::RunningCommandParams;
 use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::RunStateEntry;
@@ -176,10 +179,93 @@ async fn the_staged_reviews_process_starts_on_a_channel_of_its_own() {
         .expect("the review's channel is removed");
 }
 
+// Killed by a stop or a move of a staged review's command sent to the session's own process,
+// which holds no such task, and by a stop that leaves the review's turn untold.
+#[tokio::test]
+async fn a_staged_reviews_command_is_stopped_and_moved_on_the_reviews_own_process() {
+    if !RUNS_COMMAND_WRAPPER {
+        return;
+    }
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_process = Arc::new(ScriptedChannel::default());
+    let session_id = fixture.create(&session_process).await;
+    let parts = fixture.driver.composed_parts().expect("composed");
+    let live = parts
+        .slots()
+        .live_session(session_id)
+        .expect("the session is live");
+    let (_legs, review_channel) = parts
+        .session_controls
+        .compose_review_legs(&live, new_run_id(), fixture.work.clone())
+        .await
+        .expect("the review's legs compose");
+    let review_channel = review_channel.expect("the review has a channel of its own");
+    let review = review_channel.apart_run().expect("the review's commands");
+    let review_process = Arc::new(ScriptedChannel::default());
+    review.serve(Arc::clone(&review_process) as Arc<dyn ClaudeProcessChannel>);
+    review.read_frame(
+        "assistant",
+        &json!({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "id": "call-1", "name": "Bash", "input": {"command": "sleep 60"}},
+        ]}})
+        .to_string(),
+    );
+    for task_id in ["task-1", "task-2"] {
+        review.read_frame(
+            "system/task_started",
+            &json!({"type": "system", "subtype": "task_started", "task_id": task_id,
+                "task_type": "local_bash", "tool_use_id": "call-1"})
+            .to_string(),
+        );
+    }
+    let command = |task_id: &str| RunningCommandParams {
+        session_id,
+        binding_id: binding_id("lead"),
+        command_id: CommandId::new(task_id.to_owned()).expect("a command id"),
+    };
+
+    let moved = parts
+        .run_controls
+        .move_command_to_background(&command("task-1"))
+        .await
+        .expect("the move is answered");
+    parts
+        .run_controls
+        .stop_command(&command("task-1"))
+        .await
+        .expect("the review's process acknowledges the stop");
+
+    assert!(moved);
+    assert!(!session_process.control_requests().iter().any(|request| {
+        ["background_tasks", "stop_task"].contains(&request["subtype"].as_str().unwrap_or_default())
+    }));
+    let requests = review_process.control_requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0]["subtype"], "background_tasks");
+    assert_eq!(requests[0]["tool_use_id"], "call-1");
+    assert_eq!(requests[1]["subtype"], "stop_task");
+    assert_eq!(requests[1]["task_id"], "task-1");
+    let told = review_process.user_frames();
+    assert_eq!(told.len(), 1);
+    assert!(told[0].to_string().contains("The user stopped `sleep 60`."));
+    review.end();
+    review_channel
+        .close()
+        .await
+        .expect("the review's channel is removed");
+}
+
 // Killed by running a side question in the session's own posture instead of plan mode, on the
-// alias instead of its full id, by refusing one on a session at rest, by metering the copy's
-// whole figure, which counts the copied conversation again, and by a copy that keeps an askpass
-// or channel variable or sets only `GIT_TERMINAL_PROMPT` of the no-prompt environment.
+// alias instead of its full id, by refusing one on a session at rest, by metering the copy's turn
+// from the session's reported base instead of from zero (a `result`'s usage is its own turn's), and
+// by a copy that keeps an askpass or channel variable or sets only `GIT_TERMINAL_PROMPT` of the
+// no-prompt environment.
 #[tokio::test(start_paused = true)]
 async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_own_turn() {
     let fixture = ScriptedDriver::new();
@@ -306,7 +392,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
             )
         })
         .collect();
-    assert_eq!(metered, [(resting_session, Some(50), Some(20))]);
+    assert_eq!(metered, [(resting_session, Some(150), Some(30))]);
 }
 
 // The side questions answered so far.

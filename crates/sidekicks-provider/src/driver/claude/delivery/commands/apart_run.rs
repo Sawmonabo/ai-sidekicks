@@ -9,10 +9,11 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
 
-use super::{ClaudeCommandFact, ClaudeCommandTasks, ClaudeTaskFrame};
+use super::{ClaudeCommandFact, ClaudeCommandTasks, ClaudeHeldCommand, ClaudeTaskFrame};
 use crate::command::running_set::RunningCommandSets;
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::port::running_command_publisher::{ProviderCommandEnd, RunningCommandPublisher};
 
 /// How a command of the process ends when its task leaves the background list or outlives the
@@ -23,13 +24,23 @@ const STOPPED_BY_PROVIDER: ProviderCommandEnd = ProviderCommandEnd {
     summary: None,
 };
 
+/// A running command of a process apart from the session's own, with that process, which its
+/// stop and its move to the background go to.
+pub(crate) struct ClaudeApartCommand {
+    /// The process running it.
+    pub(crate) process: Arc<dyn ClaudeProcessChannel>,
+    /// The command.
+    pub(crate) command: ClaudeHeldCommand,
+}
+
 /// One apart process's command tasks, each a row under `run_id` in its session's running
-/// commands.
+/// commands, and the process once it is up.
 pub(crate) struct ClaudeApartRunCommands {
     session_id: SessionId,
     run_id: RunId,
     sets: Arc<RunningCommandSets>,
     tasks: Mutex<ClaudeCommandTasks>,
+    process: Mutex<Option<Arc<dyn ClaudeProcessChannel>>>,
 }
 
 impl ClaudeApartRunCommands {
@@ -42,7 +53,21 @@ impl ClaudeApartRunCommands {
             run_id,
             sets,
             tasks: Mutex::default(),
+            process: Mutex::new(None),
         }
+    }
+
+    /// The process is up: its commands' stops and moves go to it until it ends.
+    pub(crate) fn serve(&self, process: Arc<dyn ClaudeProcessChannel>) {
+        *lock(&self.process) = Some(process);
+    }
+
+    /// The running command `task_id` with the process running it; `None` for a command the
+    /// process does not run, or before it is up.
+    pub(super) fn held_command(&self, task_id: &str) -> Option<ClaudeApartCommand> {
+        let command = lock(&self.tasks).held_command(task_id)?;
+        let process = lock(&self.process).clone()?;
+        Some(ClaudeApartCommand { process, command })
     }
 
     /// Reads one frame of `frame_kind` the process wrote, its lead's or a helper's: a Bash or
@@ -91,6 +116,7 @@ impl ClaudeApartRunCommands {
 
     /// Ends every row still open, once the process ended and its tasks with it.
     pub(crate) fn end(&self) {
+        lock(&self.process).take();
         let tasks = std::mem::take(&mut *lock(&self.tasks));
         for task in tasks.tasks.into_values() {
             self.sets
