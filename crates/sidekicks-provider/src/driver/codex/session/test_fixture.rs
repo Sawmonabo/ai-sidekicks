@@ -49,7 +49,7 @@ use crate::driver::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
 use crate::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
-use crate::driver::codex::run::turn_end_waiters::CodexTurnEndWaiters;
+use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
 };
@@ -144,6 +144,8 @@ pub(crate) struct TestCodexTask {
     pub(crate) engine: Arc<dyn RunHost>,
     /// Run control on the session, which an ended turn's pause or continue is acted on through.
     pub(crate) run_control: Arc<CodexRunControl>,
+    /// How each let-go the driver asked of the record said it stopped being its session's.
+    pub(crate) let_go_exits: Vec<CodexRecordExit>,
     items: mpsc::UnboundedReceiver<CodexSessionInbound>,
 }
 
@@ -267,6 +269,7 @@ impl TestCodexSession {
                 ports,
                 engine: Arc::clone(&engine) as _,
                 run_control,
+                let_go_exits: Vec::new(),
                 items,
             },
             bindings,
@@ -462,10 +465,17 @@ impl TestCodexTask {
                 self.apply(routed).await;
             }
             CodexSessionInbound::HeldThread { .. } => {}
+            // A let-go is kept and answered; the record stays for the test to read.
+            CodexSessionInbound::Lifecycle(CodexLifecycleCall::LetGo { exit, reply }) => {
+                self.let_go_exits.push(exit);
+                let _unheard = reply.send(());
+            }
             CodexSessionInbound::Ask { .. }
             | CodexSessionInbound::AsksWithdrawn { .. }
             | CodexSessionInbound::Lifecycle(_) => {
-                panic!("the test's service asks nothing and its driver calls nothing of its own")
+                panic!(
+                    "the test's service asks nothing and its driver calls nothing else of its own"
+                )
             }
         }
         self.waiters.settle(&self.record);

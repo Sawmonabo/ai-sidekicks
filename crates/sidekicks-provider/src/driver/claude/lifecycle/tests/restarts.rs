@@ -109,6 +109,48 @@ async fn a_relaunch_whose_binding_cannot_open_starts_nothing() {
     assert!(fixture.starts.take_started().is_empty());
 }
 
+// Killed by a restart whose record is refused leaving the process it started running: that process
+// is retired and the queue told it is gone, after the exit that started the restart told it once.
+#[tokio::test(start_paused = true)]
+async fn a_restart_whose_record_is_refused_retires_its_process() {
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .process_gone
+        .register(Arc::clone(&fixture.ports) as _)
+        .expect("the process-gone intake registers once");
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    let first = fixture.next_start().await;
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+    fixture
+        .relaunches
+        .is_relaunch_refused
+        .store(true, Ordering::SeqCst);
+
+    ScriptedDriver::exit(&first);
+    fixture.next_start().await;
+    fixture.relaunches.reported(1).await;
+    settle().await;
+
+    let gone = fixture
+        .ports
+        .calls()
+        .into_iter()
+        .filter(|call| *call == PortCall::ProcessGone(session_id))
+        .count();
+    assert_eq!(
+        gone, 2,
+        "the exit and the retired restart each tell the queue"
+    );
+    assert_eq!(
+        fixture.driver.session_process_state(session_id),
+        SessionProcessState::Down
+    );
+}
+
 // Killed by a waited restart that resumes a session a create or resume took meanwhile: it would
 // fight for the slot and report a failed relaunch over the session the person brought back.
 #[tokio::test(start_paused = true)]

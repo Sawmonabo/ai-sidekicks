@@ -144,7 +144,7 @@ impl SessionAdvisorStore for RecordedAdvisors {
 
 /// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
 /// and each binding it had opened before its resume; every opening is refused once a test sets
-/// `is_open_refused`.
+/// `is_open_refused`, and every report once it sets `is_relaunch_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
@@ -152,6 +152,8 @@ pub(crate) struct RecordedRelaunches {
     reported: Notify,
     /// Whether each opening is refused.
     pub(crate) is_open_refused: AtomicBool,
+    /// Whether each report is refused, after it is kept.
+    pub(crate) is_relaunch_refused: AtomicBool,
 }
 
 impl RecordedRelaunches {
@@ -205,7 +207,14 @@ impl SessionRelaunchListener for RecordedRelaunches {
         };
         lock(&self.taken).push((session_id, binding_id));
         self.reported.notify_waiters();
-        async { Ok(()) }.boxed()
+        let is_refused = self.is_relaunch_refused.load(Ordering::SeqCst);
+        async move {
+            if is_refused {
+                return Err("the test refuses the relaunch's record".into());
+            }
+            Ok(())
+        }
+        .boxed()
     }
 }
 
