@@ -393,7 +393,7 @@ pub use process_containment::{
 pub use process_identity::process_identity;
 pub use process_start::ProcessStart;
 pub use program_install_folders::{ProgramFolder, program_install_folders};
-pub use program_link::link_program;
+pub use program_link::{ProgramLinkError, link_program};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};

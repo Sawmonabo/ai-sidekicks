@@ -126,7 +126,7 @@ async fn fixture() -> Fixture {
     let repo = build_repo_services(RepoServiceStart {
         home_folder: home.path().to_path_buf(),
         run_folder: home.path().join("run"),
-        daemon_program: daemon_program.clone(),
+        program_link_folder: home.path().join("bin"),
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),

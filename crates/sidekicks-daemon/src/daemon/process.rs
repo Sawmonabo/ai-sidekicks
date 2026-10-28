@@ -54,8 +54,8 @@ use sidekicks_std::scheduler::{ScheduleError, Scheduler};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
-use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::DataFolderLock;
+use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
@@ -532,7 +532,7 @@ impl DaemonProcess {
         self.repo = Some(build_repo_services(RepoServiceStart {
             home_folder: home_folder.to_path_buf(),
             run_folder: run_folder.folder_path.clone(),
-            daemon_program: daemon_program.to_path_buf(),
+            program_link_folder: program_link_folder(&data_folder),
             git: git.clone(),
             reads: Arc::clone(&reads),
             writer: Arc::clone(&writer),

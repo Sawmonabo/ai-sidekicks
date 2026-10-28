@@ -13,6 +13,9 @@ const AGENT_MEMORY_FOLDER_NAME: &str = "agent-memory";
 // The folder in the data folder that holds the service log files.
 const SERVICE_LOG_FOLDER_NAME: &str = "logs";
 
+// The folder in the data folder that holds the links the daemon's modes run by.
+const PROGRAM_LINK_FOLDER_NAME: &str = "bin";
+
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub fn data_folder(home: &Path) -> PathBuf {
     home.join(DAEMON_DATA_FOLDER_NAME)
@@ -27,4 +30,10 @@ pub fn agent_memory_folder(data_folder: &Path) -> PathBuf {
 /// The folder in `data_folder` that holds the service log files.
 pub fn service_log_folder(data_folder: &Path) -> PathBuf {
     data_folder.join(SERVICE_LOG_FOLDER_NAME)
+}
+
+/// The folder in `data_folder` that holds the links git, ssh and a provider run the daemon's modes
+/// by, which the daemon makes at its start, since the program's own folder may not be writable.
+pub fn program_link_folder(data_folder: &Path) -> PathBuf {
+    data_folder.join(PROGRAM_LINK_FOLDER_NAME)
 }

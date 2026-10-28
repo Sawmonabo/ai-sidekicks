@@ -2,30 +2,31 @@
 //! any thread exists; then the system's library search, the stable working folder, the hold on the
 //! data folder, the service log and the panic hook that ends the service on any panic, the memory
 //! settings, the hold on every process it will start, the runtime with its two workers and the
-//! names beside its program that its modes run by; then the daemon starts on it and runs until the
+//! links in the data folder that its modes run by; then the daemon starts on it and runs until the
 //! first stop asked for, and the runtime ends within what is left of the stop's drain bound, so the
 //! process exits before its caller's signal.
 
 use std::error::Error;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 use std::time::Instant;
 
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
-    CodeSignatureError, StopRequest, contain_daemon_descendants, create_missing_private_folders,
-    daemon_run_folder, install_tree_sitter_allocator, link_program, process_identity,
-    restrict_library_search, stable_working_folder, turn_off_transparent_huge_pages,
+    CodeSignatureError, ProgramLinkError, StopRequest, contain_daemon_descendants,
+    create_missing_private_folders, daemon_run_folder, install_tree_sitter_allocator, link_program,
+    process_identity, restrict_library_search, stable_working_folder,
+    turn_off_transparent_huge_pages,
 };
 use sidekicks_provider::command::askpass::command_askpass_program_path;
 use sidekicks_provider::command::wrapper::command_wrapper_program_path;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
-use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::events::session::insert::monotonic_ns_now;
 use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
 use tokio_util::sync::CancellationToken;
@@ -94,7 +95,8 @@ enum ServiceStartError {
     /// The service's own program could not be found, which its crash monitor runs.
     #[error("the service's own program could not be found")]
     Program(#[source] io::Error),
-    /// A name beside the service's program that one of its modes runs by could not be made.
+    /// A link one of the service's modes runs by is missing and could not be made, or its folder
+    /// could not be.
     #[error("the program link {} could not be made", link.display())]
     ProgramLink {
         /// The link.
@@ -195,16 +197,10 @@ fn run_daemon(
             ))
         })?;
     let daemon_program = std::env::current_exe().map_err(ServiceStartError::Program)?;
-    // The names git, ssh and a provider's shell prefix run reach the program's modes, and are made
-    // here before any driver sets them on a command.
-    for link in [
-        git_askpass_program_path(&daemon_program),
-        command_wrapper_program_path(&daemon_program),
-        command_askpass_program_path(&daemon_program),
-    ] {
-        link_program(&daemon_program, &link)
-            .map_err(|source| ServiceStartError::ProgramLink { link, source })?;
-    }
+    make_program_links(
+        &daemon_program,
+        &program_link_folder(&data_folder(&home_folder)),
+    )?;
     let caller_process_reader =
         Arc::new(ProcessTableReader::for_this_program().map_err(ServiceStartError::CallerReader)?);
     let (exit_code, drain_started) = runtime.block_on(async {
@@ -265,6 +261,37 @@ fn run_daemon(
     })?;
     runtime.shutdown_timeout(DAEMON_STOP_DRAIN_BOUND.saturating_sub(drain_started.elapsed()));
     Ok(exit_code)
+}
+
+// Makes the links git, ssh and a provider's shell prefix run the program's modes by, in the data
+// folder's link folder, before any driver sets them on a command. A link missing that cannot be
+// made fails the start; one that opens another build and cannot be made again, as on Windows a copy
+// a running command holds, is logged and kept for this start.
+fn make_program_links(daemon_program: &Path, link_folder: &Path) -> Result<(), ServiceStartError> {
+    create_missing_private_folders(link_folder).map_err(|source| {
+        ServiceStartError::ProgramLink {
+            link: link_folder.to_path_buf(),
+            source,
+        }
+    })?;
+    for link in [
+        git_askpass_program_path(link_folder),
+        command_wrapper_program_path(link_folder),
+        command_askpass_program_path(link_folder),
+    ] {
+        match link_program(daemon_program, &link) {
+            Ok(()) => {}
+            Err(ProgramLinkError::Missing(source)) => {
+                return Err(ServiceStartError::ProgramLink { link, source });
+            }
+            Err(ProgramLinkError::Stale(error)) => tracing::warn!(
+                link = %link.display(),
+                error = &error as &(dyn Error + 'static),
+                "a program link that opens another build could not be made again; it is kept"
+            ),
+        }
+    }
+    Ok(())
 }
 
 // Says why the start failed: in the service log once it is installed, which also writes standard
