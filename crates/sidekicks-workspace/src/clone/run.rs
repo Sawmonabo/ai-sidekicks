@@ -251,10 +251,11 @@ impl CloneRuns {
 
     /// Removes the staged folders of the clones the last stop cut short, recorded interrupted
     /// already, on a task of its own the close waits on, so the daemon's start waits for none of
-    /// them. The task holds `starts`, the start lock, until every folder is removed, so no start
-    /// meets a folder it has yet to remove; answers once it holds it. Each folder goes while its
-    /// path still holds what the daemon made, a made one at the destination too once renamed
-    /// there; its record lets it go, or records the clone failed with why it could not.
+    /// them. The task holds `starts`, the start lock, through each folder's removal and lets it go
+    /// between folders, so a start waits out the removal under way but never the whole pass;
+    /// answers once it holds it for the first. Each folder goes while its path still holds what
+    /// the daemon made, a made one at the destination too once renamed there; its record lets it
+    /// go, or records the clone failed with why it could not.
     pub(crate) async fn remove_cut_short_folders(
         self: &Arc<Self>,
         clones: Vec<CutShortFolder>,
@@ -263,11 +264,14 @@ impl CloneRuns {
         let (held, holding) = oneshot::channel();
         let runs = Arc::clone(self);
         self.tasks.spawn(async move {
-            let _starting = starts.acquire(()).await;
-            if held.send(()).is_err() {
-                tracing::debug!("the clone service's start stopped waiting for its recovery");
-            }
+            let mut held = Some(held);
             for clone in clones {
+                let _starting = starts.acquire(()).await;
+                if let Some(held) = held.take()
+                    && held.send(()).is_err()
+                {
+                    tracing::debug!("the clone service's start stopped waiting for its recovery");
+                }
                 runs.remove_cut_short_folder(clone).await;
             }
         });

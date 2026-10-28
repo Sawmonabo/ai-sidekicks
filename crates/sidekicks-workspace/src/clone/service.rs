@@ -175,9 +175,9 @@ pub struct CloneService {
 impl CloneService {
     /// Starts the service: each clone recorded running was cut short by the last stop, so all of
     /// them are recorded interrupted in one write, and the folders the daemon named for their git
-    /// are removed on a task of the service's own, while their paths still hold what it made, the
-    /// start lock held until the last is gone; a folder that cannot be removed records its clone
-    /// failed with the reason. Fails when the cut-short clones cannot be read or their ends cannot
+    /// are removed on a task of the service's own, while their paths still hold what it made, each
+    /// under the start lock; a folder that cannot be removed records its clone failed with the
+    /// reason. Fails when the cut-short clones cannot be read or their ends cannot
     /// be recorded; the broker is then dropped, which stops it.
     pub async fn start(deps: CloneServiceDeps) -> Result<Arc<Self>, CloneServiceError> {
         let cards = Arc::new(CloneCards::default());
