@@ -109,8 +109,8 @@ impl Fixture {
         append(&self.engine, self.session_id, &requested).await;
     }
 
-    /// The `choice` of each settlement of the retry-or-edit choice in the log, oldest first.
-    fn refusal_settlements(&self) -> Vec<String> {
+    /// The `choice` of each `resolved_type` settlement in the log, oldest first.
+    fn settlement_choices(&self, resolved_type: SessionEventType) -> Vec<String> {
         self.database
             .reader()
             .prepare(
@@ -119,10 +119,7 @@ impl Fixture {
             )
             .expect("the test reads the log")
             .query_map(
-                params![
-                    self.session_id.text().as_str(),
-                    SessionEventType::AgentRunRefusalChoiceResolved.as_str()
-                ],
+                params![self.session_id.text().as_str(), resolved_type.as_str()],
                 |row| row.get(0),
             )
             .expect("the log reads")
@@ -310,9 +307,11 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
 
 // A report that shows the provider took a held answer settles it first: a settle that fails once is
 // retried in the same dispatch, and one that fails twice leaves the answer held while the report
-// still applies, so the run never reads waiting for input while its provider runs. Killed by no
-// retry (a single failure leaves the answer unsettled), by applying the report before the settle,
-// and by a failed settle that fails the dispatch instead of applying the report.
+// still applies, so the run never reads waiting for input while its provider runs; the next report
+// then writes the held answer's settlement alone, with the provider's answer. Killed by no retry
+// (a single failure leaves the answer unsettled), by applying the report before the settle, by a
+// failed settle that fails the dispatch instead of applying the report, and by dropping the held
+// answer once its run moved (the run's end settles it `runEnded`).
 #[rstest]
 #[case::settled_on_its_retry(true, 1)]
 #[case::kept_after_two_failures(false, 0)]
@@ -372,28 +371,39 @@ async fn a_report_settles_the_held_answer_first_and_a_failed_settle_is_retried_o
         release.send(()).expect("the retry waits");
     };
 
+    let report = |entry| InboundDelivery::RunLifecycle {
+        binding: DeliveryBinding {
+            binding_id: binding_id.clone(),
+            operation: None,
+        },
+        change: RunStateReport::new(fixture.run_id, entry),
+        turn_end: None,
+        is_daemon_interrupt_end: false,
+    };
+
     let (delivered, ()) = tokio::join!(
-        dispatch.dispatch(InboundDelivery::RunLifecycle {
-            binding: DeliveryBinding {
-                binding_id: binding_id.clone(),
-                operation: None,
-            },
-            change: RunStateReport::new(
-                fixture.run_id,
-                RunStateEntry::Running {
-                    execution_posture: None,
-                },
-            ),
-            turn_end: None,
-            is_daemon_interrupt_end: false,
-        }),
+        dispatch.dispatch(report(RunStateEntry::Running {
+            execution_posture: None,
+        })),
         let_through
     );
+    let after_the_report = (fixture.state(), fixture.settlements());
+    reader
+        .execute_batch("DROP TRIGGER IF EXISTS refuse_settlements")
+        .expect("the test lets the settlement through");
+    let later = dispatch
+        .dispatch(report(RunStateEntry::Completed {
+            intended_close: None,
+        }))
+        .await;
 
     assert!(delivered.is_ok(), "{delivered:?}");
+    assert_eq!(after_the_report, ("running".to_owned(), settlements));
+    assert!(later.is_ok(), "{later:?}");
+    assert_eq!(fixture.state(), "completed");
     assert_eq!(
-        (fixture.state(), fixture.settlements()),
-        ("running".to_owned(), settlements)
+        fixture.settlement_choices(SessionEventType::AgentRunUsageCreditsChoiceResolved),
+        ["consent"]
     );
 }
 
@@ -535,6 +545,9 @@ async fn an_edit_prompt_answer_is_its_choices_one_settlement() {
         .expect("the answer settles the choice");
 
     assert_eq!(answered.new_state, RunState::Failed);
-    assert_eq!(fixture.refusal_settlements(), ["editPrompt"]);
+    assert_eq!(
+        fixture.settlement_choices(SessionEventType::AgentRunRefusalChoiceResolved),
+        ["editPrompt"]
+    );
     assert_eq!(fixture.state(), "failed");
 }

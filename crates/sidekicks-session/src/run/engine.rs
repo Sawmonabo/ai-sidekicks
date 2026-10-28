@@ -696,9 +696,10 @@ impl RunEngine {
         }
     }
 
-    // One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
-    // under `hold` where the caller holds the session.
-    async fn append(
+    /// One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
+    /// under `hold` where the caller holds the session. Fails as the write fails or a statement of
+    /// the prelude refuses it.
+    pub(crate) async fn append(
         &self,
         draft: SessionEventDraft,
         transactional_prelude: Vec<WriteStatement>,

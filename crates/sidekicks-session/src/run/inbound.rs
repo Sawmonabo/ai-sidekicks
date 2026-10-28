@@ -491,22 +491,24 @@ impl RunInboundDispatch {
     // Settles the answer the provider got with no reply back before the report that shows it took,
     // so the report finds the move made. A failed settle is tried once more; on a second failure
     // the answer stays held and the report still applies, so the run never reads waiting for input
-    // while its provider runs.
-    async fn settle_held_answer(&self, run_id: RunId, reported: RunState) {
+    // while its provider runs. Answers whether the answer was left held that way.
+    async fn settle_held_answer(&self, run_id: RunId, reported: RunState) -> bool {
         let mut settled = self.choices.settle_held_answer(run_id, reported).await;
         if settled.is_err() {
             #[cfg(test)]
             self.settle_retry_pause.pass().await;
             settled = self.choices.settle_held_answer(run_id, reported).await;
         }
-        if let Err(error) = settled {
-            tracing::warn!(
-                run_id = %run_id,
-                error = &error as &(dyn Error + 'static),
-                "the answer held on a run's choice was not settled; it stays held and the \
-                 provider's report applies"
-            );
-        }
+        let Err(error) = settled else {
+            return false;
+        };
+        tracing::warn!(
+            run_id = %run_id,
+            error = &error as &(dyn Error + 'static),
+            "the answer held on a run's choice was not settled; it stays held and the provider's \
+             report applies"
+        );
+        true
     }
 
     // Makes a delivery's engine call; a run that has ended absorbs it.
@@ -533,16 +535,23 @@ impl RunInboundDispatch {
             } => {
                 let run_id = change.run_id;
                 let change = RunStateChange::from(change);
-                self.settle_held_answer(run_id, RunState::from(change.entry.state()))
+                let is_answer_left_held = self
+                    .settle_held_answer(run_id, RunState::from(change.entry.state()))
                     .await;
                 match self
                     .engine
                     .apply_provider_state_change(change, turn_end)
                     .await
                 {
-                    Ok(written) => InboundOutcome::Transitioned {
-                        state: written.log_resend_failure(run_id).state,
-                    },
+                    Ok(written) => {
+                        // The report made the run's move, so the held answer settles alone.
+                        if is_answer_left_held {
+                            self.choices.hold_answer_as_settlement_alone(run_id);
+                        }
+                        InboundOutcome::Transitioned {
+                            state: written.log_resend_failure(run_id).state,
+                        }
+                    }
                     // The end of a turn the daemon interrupted is expected to find the run ended.
                     Err(error) if is_ended_run_refusal(&error) && is_daemon_interrupt_end => {
                         InboundOutcome::Absorbed {
