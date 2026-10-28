@@ -33,6 +33,7 @@ pub struct LastingChild {
     pub process: PinnedProcess,
     /// What a later daemon re-pins the child from.
     pub record: ProcessRecord,
-    /// The child's exit, answered once it has exited; fails with the system's error from the wait.
+    /// The child's exit, answered once it has exited and been reaped; fails with the system's error
+    /// from the wait for its end or its reap.
     pub exit: Pin<Box<dyn Future<Output = io::Result<ExitStatus>> + Send>>,
 }

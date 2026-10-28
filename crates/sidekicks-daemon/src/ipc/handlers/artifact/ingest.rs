@@ -6,13 +6,12 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_artifact::ingest::service::ArtifactIngestService;
 use sidekicks_contracts::artifacts::methods::{
     ArtifactIngestComplete, ArtifactIngestStart, ArtifactIngestWrite,
 };
 use sidekicks_contracts::method::Method as _;
-
-use crate::artifacts::ingest::service::ArtifactIngestService;
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 
 /// Registers the three ingest calls, answered by `ingest`. A completion on a connection that
 /// carries no device is a fault in the daemon, answered as an internal error, since every artifact

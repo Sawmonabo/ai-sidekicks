@@ -1,0 +1,43 @@
+[package]
+name = "sidekicks-browser"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The browser runtime and the preview's serving pieces."
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-shear]
+ignored = [
+  # The browser tools and the preview's pages over DevTools.
+  "chromiumoxide_cdp",
+  "psl",
+]
+ignored-paths = [
+  # Each module's doc names what it will hold, for the browser tools and the preview.
+  "src/cdp.rs",
+  "src/choosers.rs",
+  "src/dev_servers.rs",
+  "src/headless.rs",
+  "src/host.rs",
+  "src/input_owner.rs",
+  "src/marks.rs",
+  "src/page_link.rs",
+  "src/pages.rs",
+  "src/relay.rs",
+  "src/saves.rs",
+  "src/screencast.rs",
+  "src/site_data.rs",
+  "src/snapshot.rs",
+  "src/tools.rs",
+]
+
+[lib]
+doctest = false
+
+[dependencies]
+chromiumoxide_cdp.workspace = true
+psl.workspace = true
+
+[lints]
+workspace = true

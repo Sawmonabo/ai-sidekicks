@@ -12,42 +12,42 @@ use std::sync::Arc;
 use futures::FutureExt as _;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_platforms::{askpass_socket_path, inotify_watch_ceiling};
+use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::live_folders::{
+    LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
+};
+use sidekicks_session::worktree_naming::worktrees_folder;
+use sidekicks_std::scheduler::{
+    JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
+};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
+use sidekicks_workspace::clone::askpass::program::git_askpass_program_path;
+use sidekicks_workspace::event_emitter::WorkspaceEventEmitter;
+use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
+use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
+use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
+use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
+use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
+use sidekicks_workspace::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
+use sidekicks_workspace::git::worktree::watch::{
+    SLOW_TICK_INTERVAL, WorkingFolderWatcher, WorkingFolderWatcherDeps,
+};
+use sidekicks_workspace::managed::service::ManagedWorkspaceService;
+use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::repo::mount::health::{RepoMountHealthReprobe, ReprobeError};
+use sidekicks_workspace::repo::mount::service::RepoMountService;
+use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use tokio::sync::{Notify, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
 use crate::daemon::process::stop::TaskStopFailure;
-use crate::daemon::scheduler::{
-    JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
-};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::DatabaseWriter;
-use crate::events::log_service::EventLogService;
-use crate::events::session::followers::SessionEventFollowers;
-use crate::git::process::GitRunner;
-use crate::git::turn_snapshot::service::TurnSnapshotService;
-use crate::git::worktree::branch_list::BranchListReader;
-use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
-use crate::git::worktree::live_session_folders::{
-    LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
-};
-use crate::git::worktree::naming::worktrees_folder;
-use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
-use crate::git::worktree::watch::{
-    SLOW_TICK_INTERVAL, WorkingFolderWatcher, WorkingFolderWatcherDeps,
-};
-use crate::session::directory::list_feed::SessionListFeed;
-use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
-use crate::workspace::clone::askpass::program::git_askpass_program_path;
-use crate::workspace::event_emitter::WorkspaceEventEmitter;
-use crate::workspace::managed::service::ManagedWorkspaceService;
-use crate::workspace::managed::write_watcher::ManagedWorkspaceWrite;
-use crate::workspace::repo::mount::health::{RepoMountHealthReprobe, ReprobeError};
-use crate::workspace::repo::mount::service::RepoMountService;
-use crate::workspace::repo::root_resolver::RepoRootResolver;
 
 // The chats' writes the watch may report ahead of their recording; a full channel holds the watch
 // until the versions catch up.
@@ -393,10 +393,10 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sidekicks_platforms::askpass_socket_path;
+    use sidekicks_workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 
     use super::{RepoServiceStartError, askpass_or_unavailable};
     use crate::daemon::already_running_error::{DaemonAlreadyRunningError, HeldPlace};
-    use crate::workspace::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 
     // The first case is killed by the `Unsupported` arm deleted, which fails the start where the
     // system has no askpass socket; the second by the `Unsupported` guard widened to every listen

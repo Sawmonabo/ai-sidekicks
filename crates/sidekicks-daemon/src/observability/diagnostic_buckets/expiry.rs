@@ -20,51 +20,62 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use sidekicks_platforms::atomic_write_target_of;
+use sidekicks_provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::service_log::{
+    SERVICE_LOG_CAP_BYTES, cap_provider_service_log, is_provider_service_log_file_name,
+};
+use sidekicks_std::missing_entry::{MissingEntry, is_gone};
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+};
+use sidekicks_store::data_folder::service_log_folder;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::crash::monitor::{CRASH_DUMPS_FOLDER_NAME, is_partial_dump_name};
-use crate::daemon::data_folder::service_log_folder;
-use crate::daemon::scheduler::ScheduledJobOutcome;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
 use crate::daemon::service_log::{
     CRASH_REPORTS_FOLDER_NAME, ServiceLogFiles, is_service_log_file_name,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::missing_entry::{MissingEntry, is_gone};
 use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
-use crate::provider::account_homes::{account_home_diagnostic_folders, read_account_homes};
-use crate::provider::driver::contract::ProviderDriver;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::service_log::{
-    SERVICE_LOG_CAP_BYTES, cap_provider_service_log, is_provider_service_log_file_name,
-};
 
 /// How often the expiry runs: hourly, so no log outlives its bound by more than an hour.
 pub(crate) const DIAGNOSTIC_LOG_EXPIRY_INTERVAL: Duration = Duration::from_hours(1);
 
 const DAY: Duration = Duration::from_hours(24);
 
+// What an expiry pass counts its work in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiagnosticExpiryWorkUnit {
+    // Entries the expiry examined.
+    EntriesExamined,
+    // Files the expiry deleted.
+    FilesDeleted,
+    // Rows a provider's own diagnostic store deleted for the expiry.
+    RowsDeleted,
+}
+
 // A pass's processor time: under 1 ms per entry examined, 5 ms per file deleted and 20 µs per row
 // a provider's own diagnostic store deleted.
-const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget = JobBudget::new(&[
+const DIAGNOSTIC_EXPIRY_BUDGET: JobBudget<DiagnosticExpiryWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_millis(1),
         per: 1,
-        unit: WorkUnit::EntriesExamined,
+        unit: DiagnosticExpiryWorkUnit::EntriesExamined,
     },
     BudgetTerm {
         figure: Duration::from_millis(5),
         per: 1,
-        unit: WorkUnit::FilesDeleted,
+        unit: DiagnosticExpiryWorkUnit::FilesDeleted,
     },
     BudgetTerm {
         figure: Duration::from_micros(20),
         per: 1,
-        unit: WorkUnit::RowsDeleted,
+        unit: DiagnosticExpiryWorkUnit::RowsDeleted,
     },
 ]);
 
@@ -124,7 +135,10 @@ pub(crate) fn diagnostic_expiry_job(
 
 // One pass: every deletion runs on one blocking thread, metered, and only the cut of a running
 // provider service's log runs after it.
-async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> MeteredJobOutcome {
+async fn run_expiry(
+    deps: Arc<DiagnosticExpiryDeps>,
+    meter: ProcessorMeter,
+) -> MeteredJobOutcome<DiagnosticExpiryWorkUnit> {
     let days = deps
         .configuration
         .current()
@@ -227,9 +241,9 @@ async fn run_expiry(deps: Arc<DiagnosticExpiryDeps>, meter: ProcessorMeter) -> M
             );
         }
     }
-    let mut workload = JobWorkload::of(WorkUnit::EntriesExamined, count.examined);
-    workload.add(WorkUnit::FilesDeleted, count.deleted);
-    workload.add(WorkUnit::RowsDeleted, count.rows_deleted);
+    let mut workload = JobWorkload::of(DiagnosticExpiryWorkUnit::EntriesExamined, count.examined);
+    workload.add(DiagnosticExpiryWorkUnit::FilesDeleted, count.deleted);
+    workload.add(DiagnosticExpiryWorkUnit::RowsDeleted, count.rows_deleted);
     Ok(Some(workload))
 }
 
@@ -355,6 +369,13 @@ mod tests {
     use std::time::{Duration, SystemTime};
 
     use rusqlite::types::Value;
+    use sidekicks_provider::driver::PROVIDERS;
+    use sidekicks_provider::driver::contract::{MockProviderDriver, ProviderDriver};
+    use sidekicks_provider::driver::test_registry::registry_of_first_providers;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
     use tokio_util::sync::CancellationToken;
 
     use super::{DiagnosticExpiryDeps, diagnostic_expiry_job};
@@ -362,16 +383,9 @@ mod tests {
         ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
     use crate::daemon::crash::monitor::CRASH_DUMPS_FOLDER_NAME;
+    use crate::daemon::schema::schema_parts;
     use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::statement::{StatementBindings, WriteStatement};
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::log_service::tests::open_log;
     use crate::observability::diagnostic_buckets::recorders::diagnostic_bucket_folders;
-    use crate::provider::driver::PROVIDERS;
-    use crate::provider::driver::contract::{MockProviderDriver, ProviderDriver};
-    use crate::provider::driver::test_registry::registry_of_first_providers;
-    use crate::remote::shared_ports::schema::schema_parts;
 
     // Past the default bound of seven days.
     const OLD: Duration = Duration::from_hours(24 * 8);

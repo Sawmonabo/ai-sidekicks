@@ -8,9 +8,8 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::session::tags::{
     SessionTagAdd, SessionTagList, SessionTagRemove, SessionTagRequest,
 };
-
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::session::tags::SessionTagService;
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_session::tags::SessionTagService;
 
 /// Registers the three tag verbs, refusing a change to a session the daemon does not hold
 /// `session.notFound` and keeping nothing. Fails the start when a verb is already registered.

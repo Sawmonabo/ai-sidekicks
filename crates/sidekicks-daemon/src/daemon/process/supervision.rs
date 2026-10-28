@@ -6,10 +6,10 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::daemon::status::DaemonProcessState;
+use sidekicks_ipc::registry::TransportId;
+use sidekicks_std::mutex_lock::lock;
 
 use crate::ipc::local_gateway::{SupervisionDisconnectReason, SupervisionHooks};
-use crate::ipc::registry::TransportId;
-use crate::mutex_lock::lock;
 
 /// Where the daemon is in its own life: starting until it is ready, then running, degraded once
 /// its listener failed, and stopping from its stop on.

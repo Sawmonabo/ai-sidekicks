@@ -240,49 +240,50 @@ mod tests {
         let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
         let terminal =
             start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let peer_failure_noted = Once::new();
         let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
-        let acting = prompt.is_ok().then(|| at_prompt.apply(&terminal));
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
-        if prompt.is_ok() && !is_marked && !matches!(at_prompt, AtPrompt::Stop) {
+        // A stop is sent once the command waits in its read, so it stops in that read and not in
+        // the shell about to replace itself with it, whose stop macOS drops once the command runs.
+        let is_stopped = matches!(at_prompt, AtPrompt::Stop);
+        let before_stop = if prompt.is_ok() && is_stopped {
+            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
+                reading.is_waiting
+            })
+            .await
+        } else {
+            Vec::new()
+        };
+        let acting = prompt.is_ok().then(|| at_prompt.apply(&terminal));
+        if prompt.is_ok() && !is_marked && !is_stopped {
             tokio::time::sleep(SETTLE).await;
         }
-        let peer_failure_noted = Once::new();
         // A waiting command is read until it reads as waiting; one that waits on nothing is read
         // across the whole bound, and must never read as waiting.
-        let window_start = Instant::now();
-        let mut readings = Vec::new();
-        let mut output = [0_u8; 4_096];
-        while prompt.is_ok() {
-            // The output is read as the daemon reads it, so a command drawing a screen never
-            // blocks on a full terminal.
-            while terminal
-                .pty
-                .file()
-                .read(&mut output)
-                .is_ok_and(|count| count > 0)
-            {}
-            let reading = match read_terminal_master(&terminal.pty, &peer_failure_noted) {
-                Ok(master) => {
-                    let device = terminal.device;
-                    read_input_wait(&spawner, &InputTerminal { device, master }).await
-                }
-                Err(error) => Err(error),
-            };
-            let is_settled = reading
-                .as_ref()
-                .map_or(true, |reading| is_marked && *reading == expected);
-            readings.push(reading);
-            if is_settled || window_start.elapsed() >= WAIT_BOUND {
-                break;
-            }
-            tokio::time::sleep(Duration::from_millis(5)).await;
-        }
+        let readings = if prompt.is_ok() {
+            read_input_waits(&terminal, &spawner, &peer_failure_noted, |reading| {
+                is_marked && *reading == expected
+            })
+            .await
+        } else {
+            Vec::new()
+        };
         end_inner_terminal(terminal);
 
         prompt.expect("the command prompts");
         acting
             .expect("the command prompted")
             .expect("the test acts on the command");
+        if is_stopped {
+            let before_stop = before_stop
+                .into_iter()
+                .collect::<std::io::Result<Vec<_>>>()
+                .expect("the wait reads before the stop");
+            assert!(
+                before_stop.last().is_some_and(|reading| reading.is_waiting),
+                "{script} before its stop: {before_stop:?}"
+            );
+        }
         let readings = readings
             .into_iter()
             .collect::<std::io::Result<Vec<_>>>()
@@ -294,6 +295,41 @@ mod tests {
                 readings.iter().all(|reading| *reading == expected),
                 "{script}: {readings:?}"
             );
+        }
+    }
+
+    // The readings of `terminal`'s wait every few milliseconds until one `is_settled`, one fails or
+    // the bound passes, the command's output read away as the daemon reads it, so a command drawing
+    // a screen never blocks on a full terminal.
+    async fn read_input_waits(
+        terminal: &InnerTerminal,
+        spawner: &Spawner,
+        peer_failure_noted: &Once,
+        is_settled: impl Fn(&InputWaitReading) -> bool,
+    ) -> Vec<std::io::Result<InputWaitReading>> {
+        let window_start = Instant::now();
+        let mut readings = Vec::new();
+        let mut output = [0_u8; 4_096];
+        loop {
+            while terminal
+                .pty
+                .file()
+                .read(&mut output)
+                .is_ok_and(|count| count > 0)
+            {}
+            let reading = match read_terminal_master(&terminal.pty, peer_failure_noted) {
+                Ok(master) => {
+                    let device = terminal.device;
+                    read_input_wait(spawner, &InputTerminal { device, master }).await
+                }
+                Err(error) => Err(error),
+            };
+            let is_done = reading.as_ref().map_or(true, &is_settled);
+            readings.push(reading);
+            if is_done || window_start.elapsed() >= WAIT_BOUND {
+                return readings;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
         }
     }
 

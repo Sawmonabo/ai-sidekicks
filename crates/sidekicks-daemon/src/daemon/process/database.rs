@@ -20,109 +20,111 @@ use std::sync::{Arc, OnceLock, Weak};
 use std::time::{Duration, Instant};
 
 use jiff::Timestamp;
+use sidekicks_approval::reviewer_denials::REVIEWER_DENIALS_STATEMENT_CAPACITY;
+use sidekicks_approval::rules::APPROVAL_RULES_STATEMENT_CAPACITY;
+use sidekicks_approval::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
+use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
+use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
+use sidekicks_queue::provider_session::PROVIDER_SESSIONS_STATEMENT_CAPACITY;
+use sidekicks_recovery::damaged_history::DAMAGED_HISTORY_STATEMENT_CAPACITY;
+use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
+use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
+use sidekicks_recovery::database_file::last_run::{
+    LastRunEnd, LastRunError, forget_last_run, read_last_run_end, record_clean_stop,
+    record_run_start,
+};
+use sidekicks_recovery::database_file::repair::{
+    DatabaseFileRepairFailure, DatabaseFileRepairOptions,
+};
+use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACITY;
+use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
+use sidekicks_recovery::session_write_refusal::refuse_session_event;
+use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
+use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
+use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
+use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
+use sidekicks_session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
+use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::questions::projection::question_projection_statements;
+use sidekicks_session::questions::service::QUESTION_STATEMENT_CAPACITY;
+use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
+use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
+use sidekicks_session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
+use sidekicks_session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
+use sidekicks_session::run::live_count::count_live_runs_after_commits;
+use sidekicks_session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
+use sidekicks_session::run::provider_choice::PROVIDER_CHOICE_STATEMENT_CAPACITY;
+use sidekicks_session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
+use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
+use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_std::bounded_wait::wait_within;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::atomic_write::AtomicWriteError;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadPool, DatabaseReadPoolCloseError,
+};
+use sidekicks_store::database::connection::writer_open::{DatabaseOpenError, open_database};
+use sidekicks_store::database::damage::{
+    DatabaseDamageWatch, is_database_damage_error, record_database_damage,
+};
+use sidekicks_store::database::schema::DatabaseSchema;
+use sidekicks_store::database::statement::WriteStatement;
+use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
+use sidekicks_store::database::writer::{
+    DatabaseWriter, DatabaseWriterOpenError, DatabaseWriterOptions, ThreadJoinError,
+    WriteFailureListener, WriterCloseError, WritesHeldError,
+};
+use sidekicks_store::events::log_service::{
+    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies, ProjectionError,
+};
+use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::machine::registry::MACHINE_REGISTRY_STATEMENT_CAPACITY;
+use sidekicks_workflow::definitions::drafts::WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY;
+use sidekicks_workflow::definitions::kept_values::WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY;
+use sidekicks_workflow::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
+use sidekicks_workflow::definitions::store::WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY;
+use sidekicks_workflow::definitions::versions::history::WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
+use sidekicks_workflow::runs::attention::WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY;
+use sidekicks_workflow::runs::deletion::WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY;
+use sidekicks_workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY;
+use sidekicks_workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
+use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
+use sidekicks_workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
 use tokio::sync::{oneshot, watch};
 use tokio::task::{JoinError, JoinHandle};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::AbortOnDropHandle;
 
-use crate::approvals::reviewer_denials::REVIEWER_DENIALS_STATEMENT_CAPACITY;
-use crate::approvals::rules::APPROVAL_RULES_STATEMENT_CAPACITY;
-use crate::approvals::store::APPROVAL_REQUEST_READER_STATEMENT_CAPACITY;
-use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
-use crate::bootstrap::secure_defaults::SecureDefaults;
-use crate::bounded_wait::wait_within;
-use crate::cleanup_failures::CleanupFailures;
+use crate::bootstrap::SecureDefaults;
 use crate::daemon::backup::run::BACKUP_STATEMENT_CAPACITY;
 use crate::daemon::configuration::DAEMON_CONFIGURATION_STATEMENT_CAPACITY;
-use crate::daemon::machine::registry::MACHINE_REGISTRY_STATEMENT_CAPACITY;
 use crate::daemon::process::supervision::ProcessStateTracker;
 use crate::daemon::repairing_socket::{
     DatabaseFileRepairEnd, RepairingSocketDeps, RepairingSocketError,
     repair_database_file_while_answering,
 };
 use crate::daemon::retention_methods::RETENTION_STATEMENT_CAPACITY;
-use crate::database::connection::read_pool::{DatabaseReadPool, DatabaseReadPoolCloseError};
-use crate::database::connection::writer_open::{DatabaseOpenError, open_database};
-use crate::database::schema::DatabaseSchema;
-use crate::database::statement::WriteStatement;
-use crate::database::writer::{
-    DatabaseWriter, DatabaseWriterOpenError, DatabaseWriterOptions, ThreadJoinError,
-    WriteFailureListener, WriterCloseError, WritesHeldError,
-};
-use crate::error_description::describe_error;
-use crate::events::log_service::{
-    EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies, ProjectionError,
-};
-use crate::events::session::appender::UnsequencedEventEnvelope;
-use crate::events::session::followers::SessionEventFollowers;
-use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
-use crate::events::session::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
-use crate::file::atomic_write::AtomicWriteError;
-use crate::git::turn_snapshot::service::TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY;
-use crate::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
-use crate::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
-use crate::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
-use crate::ipc::caller_process::contract::CallerProcessReader;
+use crate::daemon::schema::schema_parts;
+use crate::data_acts::purge::rows::SESSION_PURGE_STATEMENT_CAPACITY;
 use crate::ipc::handlers::approval::APPROVAL_METHODS_STATEMENT_CAPACITY;
-use crate::ipc::handlers::driver::methods::DRIVER_METHODS_STATEMENT_CAPACITY;
-use crate::plans::service::PLANS_STATEMENT_CAPACITY;
-use crate::provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
-use crate::questions::projection::question_projection_statements;
-use crate::questions::service::QUESTION_STATEMENT_CAPACITY;
-use crate::queue::provider_session::PROVIDER_SESSIONS_STATEMENT_CAPACITY;
-use crate::recovery::damaged_history::DAMAGED_HISTORY_STATEMENT_CAPACITY;
-use crate::recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
-use crate::recovery::database_file::copy::DatabaseFileCopier;
-use crate::recovery::database_file::damage::{
-    DatabaseDamageWatch, is_database_damage_error, record_database_damage,
-};
-use crate::recovery::database_file::last_run::{
-    LastRunEnd, LastRunError, forget_last_run, read_last_run_end, record_clean_stop,
-    record_run_start,
-};
-use crate::recovery::database_file::repair::{
-    DatabaseFileRepairFailure, DatabaseFileRepairOptions,
-};
-use crate::recovery::database_file::sqlite_shell::SqliteShell;
-use crate::recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACITY;
-use crate::recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
-use crate::recovery::session_write_refusal::refuse_session_event;
-use crate::recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
-use crate::recovery::status::RecoveryStatusTracker;
-use crate::remote::shared_ports;
-use crate::session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
-use crate::session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
-use crate::session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
-use crate::session::directory::list_feed::rows::SESSION_LIST_ROWS_STATEMENT_CAPACITY;
-use crate::session::directory::row::{DirectoryEvent, directory_statements_for};
-use crate::session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
-use crate::session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
-use crate::session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
-use crate::session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
-use crate::session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
-use crate::session::run::engine::RUN_ENGINE_STATEMENT_CAPACITY;
-use crate::session::run::live_bindings::LIVE_RUN_BINDINGS_STATEMENT_CAPACITY;
-use crate::session::run::live_count::count_live_runs_after_commits;
-use crate::session::run::pause::RUN_PAUSE_STATEMENT_CAPACITY;
-use crate::session::run::provider_choice::PROVIDER_CHOICE_STATEMENT_CAPACITY;
-use crate::session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
-use crate::session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
-use crate::session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
-use crate::session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
-use crate::workflow::definitions::drafts::WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY;
-use crate::workflow::definitions::kept_values::WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY;
-use crate::workflow::definitions::library::WORKFLOW_LIBRARY_STATEMENT_CAPACITY;
-use crate::workflow::definitions::store::WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY;
-use crate::workflow::definitions::versions::history::WORKFLOW_VERSIONS_STATEMENT_CAPACITY;
-use crate::workflow::runs::attention::WORKFLOW_RUN_ATTENTION_STATEMENT_CAPACITY;
-use crate::workflow::runs::deletion::WORKFLOW_RUN_DELETION_STATEMENT_CAPACITY;
-use crate::workflow::runs::step_payload::WORKFLOW_STEP_PAYLOAD_STATEMENT_CAPACITY;
-use crate::workflow::runs::store::WORKFLOW_RUN_STORE_STATEMENT_CAPACITY;
-use crate::workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
-use crate::workspace::repo::mount::service::REPO_MOUNT_SERVICE_STATEMENT_CAPACITY;
+use crate::ipc::handlers::driver::DRIVER_METHODS_STATEMENT_CAPACITY;
 
 /// The statements each read connection keeps prepared: every reading service's set, summed, so a
 /// statement stays prepared on whichever connection a read borrows. A service whose set holds
@@ -340,7 +342,7 @@ pub(crate) async fn open_database_file(
         stop,
     } = start;
     // The daemon's whole schema, which the repair readies a fresh file with and the writer opens.
-    let schema = shared_ports::schema::schema_parts().into_schema();
+    let schema = schema_parts().into_schema();
     // Before anything opens the file, so a repaired file replaces it whole.
     let repaired = repair_database_file_while_answering(RepairingSocketDeps {
         options: &DatabaseFileRepairOptions {

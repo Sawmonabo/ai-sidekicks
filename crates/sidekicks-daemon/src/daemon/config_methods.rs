@@ -10,12 +10,12 @@ use sidekicks_contracts::daemon::config::{
 };
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
+use sidekicks_ipc::registry::{
+    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
+};
 
 use crate::daemon::configuration::{
     ConfigurationChange, ConfigurationError, ConfigurationStore, DaemonConfiguration,
-};
-use crate::ipc::registry::{
-    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 
 /// What the config methods read beside the store.
@@ -92,17 +92,17 @@ mod tests {
     };
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::method::Method as _;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
 
     use super::{ConfigMethodsDeps, register_config_methods};
     use crate::daemon::configuration::{
         ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, DispatchError, MethodRegistryBuilder, Reply};
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     // The port and step bound as the row holds them.
     fn stored_settings(database: &TestDatabase) -> (i64, Option<i64>) {

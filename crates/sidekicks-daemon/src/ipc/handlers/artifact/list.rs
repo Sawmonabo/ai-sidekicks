@@ -4,11 +4,10 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_artifact::list::list_artifacts;
 use sidekicks_contracts::artifacts::methods::ArtifactList;
-
-use crate::artifacts::list::list_artifacts;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
 /// Registers `artifact.list`, read through `reads`. Fails the start when the method is already
 /// registered.

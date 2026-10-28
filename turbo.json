@@ -70,7 +70,7 @@
       "cache": false,
       "command": ["cargo", "test", "--workspace", "--doc", "--all-features", "--locked"]
     },
-    // The daemon embeds the JavaScript bundles its engines run.
+    // The daemon embeds the grammars its colorer runs, which its engines' package builds.
     "sidekicks-daemon#build": {
       "dependsOn": ["^build", "@ai-sidekicks/daemon-engines#build"]
     },

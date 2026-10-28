@@ -37,28 +37,28 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_ipc::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
 use sidekicks_platforms::{
     LeftoverSweep, atomic_write_target_of, create_file_atomically, is_held,
     remove_atomic_write_leftovers, remove_unless_held, replace_file_atomically,
 };
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+};
+use sidekicks_std::text_cut::cut_to_code_points;
 use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
-use crate::cleanup_failures::CleanupFailures;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PANIC_RECORD_SUFFIX, PanicRecord,
     is_partial_dump_name, panic_record_path, partial_dump_name,
 };
-use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{PANIC_RECORD_FILE_EXTENSION, PANIC_RECORD_FILE_PREFIX};
-use crate::daemon::scheduler::ScheduledJobOutcome;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
-use crate::missing_entry::MissingEntry as _;
-use crate::redaction::{DRIVE_PATH, UNC_PATH, UNIX_PATH, scrub_credentials};
-use crate::text_cut::cut_to_code_points;
 
 /// A report's file extension in the crash reports folder.
 pub(crate) const REPORT_EXTENSION: &str = "json";
@@ -80,11 +80,18 @@ const SERVICE_PROCESS_TYPE: &str = "service";
 // service's, takes the version the pass is given.
 const APP_VERSION_ANNOTATION: &str = "_version";
 
+// What a crash pass counts its work in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CrashReportWorkUnit {
+    // Bytes of the crash dump a report was built from.
+    DumpBytes,
+}
+
 // A build's processor time: under 2 s per 64 MiB of dump.
-const CRASH_REPORT_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+const CRASH_REPORT_BUDGET: JobBudget<CrashReportWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_secs(2),
     per: 64 * 1024 * 1024,
-    unit: WorkUnit::DumpBytes,
+    unit: CrashReportWorkUnit::DumpBytes,
 }]);
 
 // The hex digits of a hashed id a report keeps.
@@ -162,7 +169,7 @@ async fn run_crash_report_pass(
     deps: &CrashReportDeps,
     stop: &CancellationToken,
     meter: &ProcessorMeter,
-) -> MeteredJobOutcome {
+) -> MeteredJobOutcome<CrashReportWorkUnit> {
     let pass = build_crash_reports(deps, stop, meter).await?;
     if let Some(failures) = &pass.removal_failures {
         tracing::warn!(
@@ -178,7 +185,10 @@ async fn run_crash_report_pass(
         failed = pass.failed,
         "the crash dumps were built into reports"
     );
-    Ok(Some(JobWorkload::of(WorkUnit::DumpBytes, pass.dump_bytes)))
+    Ok(Some(JobWorkload::of(
+        CrashReportWorkUnit::DumpBytes,
+        pass.dump_bytes,
+    )))
 }
 
 /// One pass over the crash dumps folder, as the module's doc says, its blocking work charged to

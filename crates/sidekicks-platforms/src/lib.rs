@@ -9,8 +9,10 @@
     reason = "the terminal's window size, queued-byte counts (`FIONREAD`, on Linux on the \
               program's side `TIOCGPTPEER` opens), signal request (`TIOCSIG`), console, console \
               input count (`GetNumberOfConsoleInputEvents`) and library-search calls, the shell \
-              start's signal and console-handler calls, the parent check a `Command` child runs in \
-              `pre_exec`, a lasting child's `setsid` and `prctl` in `pre_exec`, the stop of a \
+              start's signal and console-handler calls, the parent check a Linux `Command` child \
+              runs in `pre_exec`, a Linux lasting child's `setsid` and `prctl` in `pre_exec`, a \
+              lasting child's and a session child's `posix_spawn` on macOS (its attributes, file \
+              actions and reap), a Linux session child's `setsid` in `pre_exec`, the stop of a \
               pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, descendant list \
               and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
               `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
@@ -58,6 +60,7 @@
 mod atomic_write;
 mod base_environment;
 mod bash_start;
+mod c_string_array;
 mod caller_process;
 mod child_command;
 mod child_tree;
@@ -94,6 +97,7 @@ mod program_start;
 mod recreate_link;
 mod run_folder;
 mod running_program;
+mod session_child;
 mod shell_folder_start;
 mod shell_line_command;
 mod shell_start;
@@ -125,6 +129,7 @@ pub use atomic_write::{
 };
 pub use base_environment::{BaseEnvironmentSource, base_environment_source};
 pub use bash_start::{BashStart, BashStartInput, start_bash};
+pub use c_string_array::null_terminated_pointers;
 #[cfg(not(target_os = "macos"))]
 pub use caller_process::read_responsible_process;
 #[cfg(unix)]
@@ -189,6 +194,8 @@ pub use linux::processes::list_user_process_ids;
 #[cfg(target_os = "linux")]
 pub use linux::read_command_argument_limit;
 #[cfg(target_os = "linux")]
+pub use linux::session_child::{SessionChild, start_session_child};
+#[cfg(target_os = "linux")]
 pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
@@ -231,6 +238,8 @@ pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
+pub use macos::session_child::{SessionChild, start_session_child};
+#[cfg(target_os = "macos")]
 pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
@@ -254,7 +263,7 @@ pub use posix::askpass::askpass_listener;
 #[cfg(unix)]
 pub use posix::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
-    prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_session_child_command,
+    prepare_child_command, spawn_lasting_child, wrap_child_command, wrap_group_child_command,
 };
 #[cfg(unix)]
 pub use posix::command_wrapper::{
@@ -279,8 +288,8 @@ pub use posix::entry_identity::{entry_identity, open_file_identity};
 pub use posix::error_codes::is_illegal_byte_sequence;
 #[cfg(unix)]
 pub use posix::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
-    is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(unix)]
 pub use posix::file_facts::{entry_changed_at, file_facts};
@@ -320,8 +329,7 @@ pub use posix::shell_start::{
 };
 #[cfg(unix)]
 pub use posix::shell_start::{
-    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, arm_parent_death, default_shell, prepare_shell_start,
-    start_program,
+    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(unix)]
 pub use posix::terminal::inner::start_inner_terminal;
@@ -380,6 +388,7 @@ pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
 pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
+pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;
 pub use shell_folder_start::ShellFolderStart;
@@ -427,7 +436,7 @@ pub use windows::caller_process::{
 #[cfg(target_os = "windows")]
 pub use windows::child_command::{
     CAN_LINK_A_SOCKET, CAN_SIGNAL_A_STOP, ask_child_to_stop, lasting_child_asked_end,
-    prepare_child_command, wrap_child_command, wrap_session_child_command,
+    prepare_child_command, wrap_child_command, wrap_group_child_command,
 };
 #[cfg(target_os = "windows")]
 pub use windows::command_argument_limit::read_command_argument_limit;
@@ -456,8 +465,8 @@ pub use windows::entry_identity::{entry_identity, open_file_identity};
 pub use windows::error_codes::is_illegal_byte_sequence;
 #[cfg(target_os = "windows")]
 pub use windows::error_codes::{
-    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_no_such_process,
-    is_out_of_open_files, is_resource_busy,
+    is_hard_link_unsupported, is_held_file_error, is_link_loop, is_out_of_open_files,
+    is_resource_busy,
 };
 #[cfg(target_os = "windows")]
 pub use windows::file_facts::{entry_changed_at, file_facts};
@@ -508,6 +517,8 @@ pub use windows::real_path::real_path;
 pub use windows::run_folder::{
     RUN_FOLDER_FILE_MODE, check_private_run_folder, create_private_run_folder, daemon_run_folder,
 };
+#[cfg(target_os = "windows")]
+pub use windows::session_child::{SessionChild, start_session_child};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::shell_folder_start::SHELL_FOLDER_PROBES;
 #[cfg(target_os = "windows")]
@@ -519,8 +530,7 @@ pub use windows::shell_start::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::shell_start::{
-    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, arm_parent_death, default_shell, prepare_shell_start,
-    start_program,
+    LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, default_shell, prepare_shell_start, start_program,
 };
 #[cfg(target_os = "windows")]
 pub use windows::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};

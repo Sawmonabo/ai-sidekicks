@@ -4,13 +4,13 @@
 use std::path::Path;
 use std::time::Duration;
 
-use sidekicks_daemon::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-use sidekicks_daemon::database::schema::session_directory::insert_session_row;
-use sidekicks_daemon::database::writer::test_file::TestDatabase;
-use sidekicks_daemon::remote::shared_ports::schema::schema_parts;
-use sidekicks_daemon::session::search::index::live::test_services::TestDaemonServices;
-use sidekicks_daemon::session::search::index::live::{LiveIndex, LiveIndexOptions};
+use sidekicks_daemon::daemon::schema::schema_parts;
 use sidekicks_platforms::{PinnedProcess, pin_child_process};
+use sidekicks_session::search::index::live::test_services::TestDaemonServices;
+use sidekicks_session::search::index::live::{LiveIndex, LiveIndexOptions};
+use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::TestDatabase;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::helpers::{daemon_program, spawner};

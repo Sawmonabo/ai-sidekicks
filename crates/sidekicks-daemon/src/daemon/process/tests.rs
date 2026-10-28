@@ -3,30 +3,30 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused,
     askpass_socket_path, check_socket_path, create_missing_private_folders, process_identity,
     replace_file_atomically,
 };
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::driver::test_registry::test_driver_services;
+use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
+use sidekicks_store::credential_store::os::TestStoreAccess;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::data_folder::lock::DataFolderLock;
 use tempfile::TempDir;
 use tokio_util::sync::CancellationToken;
 
 use super::{DaemonProcess, DaemonStartError, DaemonStartFailure};
-use crate::credential_store::items::{SecretItems, SecretItemsStart};
-use crate::credential_store::os::TestStoreAccess;
 use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, CRASH_MONITOR_MODE, crash_monitor_socket_path, serve_crash_monitor,
 };
-use crate::daemon::data_folder::data_folder;
-use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::process::start_options::{DaemonStartOptions, ProviderBaseEnvironment};
 use crate::daemon::release_version::this_build_release_version;
 use crate::daemon::service_log::open_service_log;
 use crate::data_acts::erase::{DataErase, DataEraseDeps};
-use crate::ipc::caller_process::system_reader::ProcessTableReader;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::driver::test_registry::test_driver_services;
 
 // The variable the stand-in crash monitor reads its socket's path from.
 const MONITOR_SOCKET_VARIABLE: &str = "SIDEKICKS_TEST_CRASH_MONITOR_SOCKET";

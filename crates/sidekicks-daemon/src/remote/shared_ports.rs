@@ -14,13 +14,13 @@ use jiff::{SignedDuration, Timestamp};
 use sidekicks_contracts::preview::port::{PreviewPortShareListFrame, PreviewSharedPort};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::Port;
+use sidekicks_ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::{DatabaseWriter, WriteError};
-use crate::ipc::stream::latest_value::{LatestValueOutlet, LatestValueOutlets};
-use crate::mutex_lock::lock;
 use crate::remote::shared_ports::listening::{
     PortListeningReadings, PortListeningSink, SharedPortListeningSource,
 };
@@ -35,7 +35,7 @@ use crate::remote::shared_ports::store::{
 pub(crate) mod listening;
 pub(crate) mod loopback;
 pub(crate) mod methods;
-pub mod schema;
+pub(crate) mod schema;
 pub(crate) mod store;
 
 /// Why a port could not be shared.
@@ -357,6 +357,13 @@ mod tests {
     use sidekicks_contracts::preview::port::{PreviewPortShareListFrame, PreviewSharedPort};
     use sidekicks_contracts::wire::integer::Port;
     use sidekicks_contracts::wire::text::NonEmptyText;
+    use sidekicks_ipc::domain_error::refusal_fields;
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
+    use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+    use sidekicks_std::mutex_lock::lock;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use tokio::sync::watch;
     use tokio_util::sync::CancellationToken;
 
@@ -367,14 +374,7 @@ mod tests {
     use super::methods::port_not_shared;
     use super::store::SHARED_PORTS_STATEMENT_CAPACITY;
     use super::{SharedPortAddError, SharedPorts, added_after};
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::TestDatabase;
-    use crate::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use crate::ipc::domain_error::refusal_fields;
-    use crate::ipc::stream::feed::{CreditGate, Feed};
-    use crate::ipc::stream::latest_value::LatestValueFeed;
-    use crate::mutex_lock::lock;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     const WAIT: Duration = Duration::from_secs(10);
 

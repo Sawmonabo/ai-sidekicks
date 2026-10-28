@@ -2,5 +2,5 @@
 //! builder that turns each dump into a stripped report, and the method that lists the reports.
 
 pub(crate) mod methods;
-pub mod monitor;
+pub(crate) mod monitor;
 pub(crate) mod reports;

@@ -8,9 +8,8 @@ use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::session::methods::{
     SessionRecoveryContinue, SessionRecoveryDelete, SessionTargetRequest,
 };
-
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::recovery::damaged_history::DamagedHistory;
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_recovery::damaged_history::DamagedHistory;
 
 /// Registers the two recovery actions, refusing a session the daemon does not hold
 /// `session.notFound` and one the action does not fit `session.recovery.refused`. Fails the start

@@ -8271,6 +8271,91 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidekicks-agent"
+version = "0.0.0"
+
+[[package]]
+name = "sidekicks-approval"
+version = "0.0.0"
+dependencies = [
+ "console",
+ "futures",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-platforms",
+ "sidekicks-policy",
+ "sidekicks-provider",
+ "sidekicks-session",
+ "sidekicks-std",
+ "sidekicks-store",
+ "sidekicks-workspace",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "sidekicks-artifact"
+version = "0.0.0"
+dependencies = [
+ "base16ct 1.0.0",
+ "bytes",
+ "fast_image_resize",
+ "file-format",
+ "flate2",
+ "futures",
+ "gif",
+ "image",
+ "image-webp",
+ "jiff",
+ "pdfium-render",
+ "png",
+ "rstest",
+ "rusqlite",
+ "satteri-pulldown-cmark",
+ "serde_json",
+ "sha2 0.11.1",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-platforms",
+ "sidekicks-provider",
+ "sidekicks-session",
+ "sidekicks-std",
+ "sidekicks-store",
+ "sidekicks-workspace",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "unicode-normalization",
+ "unicode-properties",
+ "webp",
+ "zune-jpeg",
+]
+
+[[package]]
+name = "sidekicks-artifact-fuzz"
+version = "0.0.0"
+dependencies = [
+ "file-format",
+ "libfuzzer-sys",
+]
+
+[[package]]
+name = "sidekicks-browser"
+version = "0.0.0"
+dependencies = [
+ "chromiumoxide_cdp",
+ "psl",
+]
+
+[[package]]
 name = "sidekicks-cli"
 version = "0.0.0"
 dependencies = [
@@ -8412,49 +8497,24 @@ name = "sidekicks-daemon"
 version = "0.0.0"
 dependencies = [
  "alacritty_terminal",
- "anyhow",
- "axum",
  "base16ct 1.0.0",
- "base64 0.23.1",
  "blake3",
  "bytes",
  "cc",
- "cedar-policy",
- "chromiumoxide_cdp",
- "console",
  "crash-handler",
- "croner",
- "csv",
- "deadpool",
- "diffy",
- "dugong",
  "ed25519-dalek",
- "fast_image_resize",
  "ferriki-textmate",
  "ferroni",
- "file-format",
- "flate2",
  "flexi_logger",
- "form_urlencoded",
  "futures",
- "garde",
  "getrandom 0.4.3",
- "gif",
  "h2",
  "hkdf 0.13.0",
  "hmac 0.13.0",
- "hpke",
  "hyper-util",
- "icu_collator",
- "ignore",
- "image",
- "image-webp",
- "insta",
  "instant-acme",
  "interprocess",
  "jiff",
- "jsonata-core",
- "jsonc-parser",
  "jwt-simple",
  "lettre",
  "libsqlite3-sys",
@@ -8466,87 +8526,110 @@ dependencies = [
  "minidump-processor",
  "minidump-unwind",
  "minidumper",
- "mockall",
- "notify",
- "opentelemetry-proto",
  "p256 0.14.0",
  "pasetors",
- "pdfium-render",
- "percent-encoding",
- "png",
- "process-wrap",
  "proptest",
- "psl",
  "quick_cache",
- "reflink-copy",
  "regex",
  "reqwest",
- "rmcp",
  "rquickjs",
  "rstest",
  "rusqlite",
  "rustls-platform-verifier",
- "satteri-pulldown-cmark",
- "schemars 1.2.3",
  "secrecy",
- "semver",
  "serde",
- "serde-saphyr",
  "serde_json",
- "serde_json_canonicalizer",
- "serde_with",
  "sha2 0.11.1",
  "sha3 0.12.0",
- "shlex",
+ "sidekicks-approval",
+ "sidekicks-artifact",
  "sidekicks-contracts",
- "sidekicks-daemon",
+ "sidekicks-ipc",
  "sidekicks-platforms",
- "sidekicks-search",
+ "sidekicks-policy",
+ "sidekicks-provider",
+ "sidekicks-queue",
+ "sidekicks-recovery",
+ "sidekicks-session",
+ "sidekicks-shell",
+ "sidekicks-std",
+ "sidekicks-store",
  "sidekicks-terminal",
+ "sidekicks-workflow",
+ "sidekicks-workspace",
  "snow",
- "sse-stream 0.3.0",
  "standardwebhooks",
- "starlark",
  "strum 0.28.0",
- "subtle",
  "sysinfo",
- "tar",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
  "tokio-rustls",
- "tokio-tungstenite",
  "tokio-util",
- "toml",
- "toml_edit",
  "tracing",
  "tracing-subscriber",
- "tree-sitter",
- "tree-sitter-bash",
- "typify",
- "unicode-normalization",
- "unicode-properties",
- "unicode-segmentation",
  "url",
  "uuid",
- "vte",
  "walkdir",
  "web-push-native",
- "webp",
  "x-wing",
- "yaml-edit",
- "zeroize",
- "zip",
- "zstd",
- "zune-jpeg",
 ]
 
 [[package]]
-name = "sidekicks-daemon-fuzz"
+name = "sidekicks-ipc"
 version = "0.0.0"
 dependencies = [
- "file-format",
- "libfuzzer-sys",
+ "bytes",
+ "form_urlencoded",
+ "futures",
+ "garde",
+ "interprocess",
+ "percent-encoding",
+ "regex",
+ "rstest",
+ "rusqlite",
+ "schemars 1.2.3",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-platforms",
+ "sidekicks-std",
+ "sidekicks-store",
+ "subtle",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "sidekicks-mcp"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "bytes",
+ "futures",
+ "jwt-simple",
+ "p256 0.14.0",
+ "process-wrap",
+ "reqwest",
+ "rmcp",
+ "rstest",
+ "rusqlite",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-platforms",
+ "sidekicks-provider",
+ "sidekicks-std",
+ "sidekicks-store",
+ "sse-stream 0.3.0",
+ "strum 0.28.0",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -8607,6 +8690,136 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidekicks-policy"
+version = "0.0.0"
+dependencies = [
+ "cedar-policy",
+ "memchr",
+ "proptest",
+ "rstest",
+ "serde_json",
+ "shlex",
+ "sidekicks-contracts",
+ "strum 0.28.0",
+ "thiserror 2.0.21",
+ "tokio",
+ "tree-sitter",
+ "tree-sitter-bash",
+]
+
+[[package]]
+name = "sidekicks-provider"
+version = "0.0.0"
+dependencies = [
+ "alacritty_terminal",
+ "anyhow",
+ "base16ct 1.0.0",
+ "base64 0.23.1",
+ "blake3",
+ "bytes",
+ "console",
+ "diffy",
+ "futures",
+ "getrandom 0.4.3",
+ "hpke",
+ "interprocess",
+ "jiff",
+ "jsonc-parser",
+ "lru 0.19.0",
+ "memchr",
+ "mockall",
+ "notify",
+ "opentelemetry-proto",
+ "process-wrap",
+ "proptest",
+ "regex",
+ "rstest",
+ "rusqlite",
+ "semver",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "sha2 0.11.1",
+ "sha3 0.12.0",
+ "shlex",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-platforms",
+ "sidekicks-policy",
+ "sidekicks-std",
+ "sidekicks-store",
+ "sidekicks-workspace",
+ "starlark",
+ "strum 0.28.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-tungstenite",
+ "tokio-util",
+ "toml",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+ "typify",
+ "url",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
+name = "sidekicks-queue"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "rstest",
+ "rusqlite",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-provider",
+ "sidekicks-session",
+ "sidekicks-std",
+ "sidekicks-store",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
+name = "sidekicks-recovery"
+version = "0.0.0"
+dependencies = [
+ "futures",
+ "garde",
+ "getrandom 0.4.3",
+ "jiff",
+ "memchr",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sidekicks-approval",
+ "sidekicks-artifact",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-platforms",
+ "sidekicks-provider",
+ "sidekicks-session",
+ "sidekicks-std",
+ "sidekicks-store",
+ "sidekicks-workflow",
+ "sidekicks-workspace",
+ "sysinfo",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "sidekicks-search"
 version = "0.0.0"
 dependencies = [
@@ -8629,6 +8842,124 @@ dependencies = [
 ]
 
 [[package]]
+name = "sidekicks-session"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "diffy",
+ "futures",
+ "garde",
+ "ignore",
+ "jiff",
+ "lru 0.19.0",
+ "mockall",
+ "notify",
+ "regex",
+ "rstest",
+ "rusqlite",
+ "satteri-pulldown-cmark",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-mcp",
+ "sidekicks-platforms",
+ "sidekicks-provider",
+ "sidekicks-search",
+ "sidekicks-std",
+ "sidekicks-store",
+ "sidekicks-terminal",
+ "sidekicks-workspace",
+ "strum 0.28.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
+name = "sidekicks-shell"
+version = "0.0.0"
+dependencies = [
+ "alacritty_terminal",
+ "bytes",
+ "futures",
+ "getrandom 0.4.3",
+ "memchr",
+ "rstest",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-platforms",
+ "sidekicks-provider",
+ "sidekicks-std",
+ "sidekicks-terminal",
+ "sidekicks-workspace",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "unicode-segmentation",
+ "vte",
+]
+
+[[package]]
+name = "sidekicks-std"
+version = "0.0.0"
+dependencies = [
+ "base16ct 1.0.0",
+ "futures",
+ "getrandom 0.4.3",
+ "reflink-copy",
+ "rstest",
+ "serde-saphyr",
+ "sidekicks-contracts",
+ "sidekicks-platforms",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unicode-segmentation",
+ "yaml-edit",
+]
+
+[[package]]
+name = "sidekicks-store"
+version = "0.0.0"
+dependencies = [
+ "base16ct 1.0.0",
+ "blake3",
+ "deadpool",
+ "futures",
+ "garde",
+ "getrandom 0.4.3",
+ "rstest",
+ "rusqlite",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "serde_json_canonicalizer",
+ "sha2 0.11.1",
+ "sidekicks-contracts",
+ "sidekicks-platforms",
+ "sidekicks-std",
+ "strum 0.28.0",
+ "subtle",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "walkdir",
+ "zeroize",
+ "zstd",
+]
+
+[[package]]
 name = "sidekicks-terminal"
 version = "0.0.0"
 dependencies = [
@@ -8636,6 +8967,7 @@ dependencies = [
  "bytes",
  "rstest",
  "sidekicks-platforms",
+ "sidekicks-std",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
@@ -8643,6 +8975,75 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "vte",
+]
+
+[[package]]
+name = "sidekicks-workflow"
+version = "0.0.0"
+dependencies = [
+ "blake3",
+ "croner",
+ "csv",
+ "dugong",
+ "flate2",
+ "futures",
+ "garde",
+ "jiff",
+ "jsonata-core",
+ "proptest",
+ "rquickjs",
+ "rstest",
+ "rusqlite",
+ "schemars 1.2.3",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-store",
+ "sidekicks-workspace",
+ "tar",
+ "thiserror 2.0.21",
+ "tokio",
+ "uuid",
+ "zip",
+]
+
+[[package]]
+name = "sidekicks-workspace"
+version = "0.0.0"
+dependencies = [
+ "base16ct 1.0.0",
+ "futures",
+ "getrandom 0.4.3",
+ "icu_collator",
+ "ignore",
+ "insta",
+ "interprocess",
+ "jiff",
+ "lru 0.19.0",
+ "memchr",
+ "notify",
+ "regex",
+ "rstest",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "sidekicks-contracts",
+ "sidekicks-ipc",
+ "sidekicks-platforms",
+ "sidekicks-std",
+ "sidekicks-store",
+ "strum 0.28.0",
+ "tempfile",
+ "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "unicode-normalization",
+ "url",
+ "uuid",
 ]
 
 [[package]]

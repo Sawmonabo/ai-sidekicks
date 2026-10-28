@@ -1,0 +1,57 @@
+[package]
+name = "sidekicks-store"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Where the daemon keeps its data: the database, the event log, the credential store and the data folder."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+base16ct.workspace = true
+blake3.workspace = true
+deadpool.workspace = true
+futures.workspace = true
+garde.workspace = true
+getrandom.workspace = true
+rusqlite.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_json_canonicalizer.workspace = true
+sha2.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-std.workspace = true
+strum.workspace = true
+subtle.workspace = true
+# The temporary folder of the test database other crates' tests open.
+tempfile = { workspace = true, optional = true }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+walkdir.workspace = true
+zeroize.workspace = true
+zstd.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+# The in-memory and sealed credential stores and the unreadable files the tests use.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+# The paused clock the writer's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# Helpers other crates' tests use: a database file with a crate's schema list and the session rows
+# other tables build on, the event log's test rows and its test log, the test credential store and
+# the keychain refusal's cause, and the write-ahead log truncation's settle; platforms' feature
+# gives the unusable-store error the test credential store refuses to open with.
+test-support = ["dep:tempfile", "sidekicks-platforms/test-support"]
+
+[lints]
+workspace = true

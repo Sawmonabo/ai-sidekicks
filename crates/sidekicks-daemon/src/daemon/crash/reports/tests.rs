@@ -8,6 +8,7 @@ use std::sync::Arc;
 use rstest::rstest;
 use sidekicks_contracts::machine::settings::MachineSettingsChange;
 use sidekicks_platforms::harness_test_name;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
 use tokio_util::sync::CancellationToken;
 
 use super::{
@@ -18,9 +19,8 @@ use crate::daemon::crash::monitor::{
     CRASH_DUMPS_FOLDER_NAME, DUMP_EXTENSION, PANIC_RECORD_SUFFIX, attach_crash_handler,
     connect_crash_monitor, crash_monitor_socket_path, partial_dump_name, serve_crash_monitor,
 };
-use crate::daemon::machine::settings::file::MachineSettingsFile;
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::panic_hook::{install_panic_hook, send_panics_to_monitor};
-use crate::daemon::scheduler::budget::ProcessorMeter;
 use crate::daemon::service_log::CRASH_REPORTS_FOLDER_NAME;
 
 // The child's crash, its monitor's socket and its data folder, passed to the crashing child; the

@@ -10,19 +10,17 @@
 pub(crate) mod printing;
 
 use std::path::Path;
-use std::process::Stdio;
 use std::time::Duration;
 
 use sidekicks_platforms::{
-    BaseEnvironmentSource, PathRules, Spawner, base_environment_source, is_no_such_process,
-    name_as_login_shell, windows_drive_mounts, wrap_session_child_command,
+    BaseEnvironmentSource, PathRules, SessionCommand, Spawner, base_environment_source,
+    name_as_login_shell, start_session_child, windows_drive_mounts,
 };
+use sidekicks_std::random_hex::random_hex;
 use tokio::io::{AsyncRead, AsyncReadExt as _};
-use tokio::process::Command;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::login_shell_environment::printing::{CaptureMarkers, ENVIRONMENT_MODE};
-use crate::random_hex::random_hex;
 
 /// How long the login shell may take before the start goes on without it.
 pub(crate) const LOGIN_SHELL_DEADLINE: Duration = Duration::from_secs(5);
@@ -171,36 +169,32 @@ async fn run_capture(
     };
     let markers = CaptureMarkers::new(&token);
     let launch = capture_launch(shell, program_text, &token);
-    let mut command = Command::new(shell);
+    let mut command = SessionCommand {
+        program: shell.to_path_buf(),
+        argument_zero: shell.as_os_str().to_owned(),
+        arguments: launch.arguments,
+        added_environment: vec![(RESOLVING_ENVIRONMENT.to_owned(), "1".to_owned())],
+        working_folder: home_folder.to_path_buf(),
+    };
     if launch.is_named_as_login {
         name_as_login_shell(&mut command, shell);
     }
-    command
-        .args(&launch.arguments)
-        .current_dir(home_folder)
-        .env(RESOLVING_ENVIRONMENT, "1")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::null());
     let daemon_pid = std::process::id();
-    // Its own session, so a failed capture ends whatever the startup files started with it.
+    // Its own session, so an interactive shell run from a daemon in a terminal does not stop
+    // itself, and a failed capture ends whatever the startup files started with it.
     let started = spawner
-        .run(move || wrap_session_child_command(command, daemon_pid).spawn())
+        .run(move || start_session_child(&command, daemon_pid))
         .await
-        .and_then(|spawned| spawned);
+        .and_then(|started| started);
     let mut child = match started {
         Ok(child) => child,
         Err(error) => return CaptureOutcome::Failed(format!("could not be started ({error})")),
     };
-    let output = child
-        .stdout()
-        .take()
-        .expect("the login shell's standard output is piped");
     let outcome = tokio::select! {
         () = stop.cancelled() => {
             CaptureOutcome::Failed("was ended, since the start is stopping".to_owned())
         }
-        read = tokio::time::timeout(deadline, read_capture(output, &markers)) => {
+        read = tokio::time::timeout(deadline, read_capture(child.output_mut(), &markers)) => {
             read.unwrap_or_else(|_| {
                 CaptureOutcome::Failed(format!(
                     "did not finish within {} ms",
@@ -211,11 +205,10 @@ async fn run_capture(
     };
     // A capture that failed ends the shell's whole group, whatever the startup files started with
     // it, the shell itself ended or not, a group already empty being done; a captured one leaves
-    // the group alone, so an agent a profile started keeps running, and the handle's drop ends
+    // the group alone, so an agent a profile started keeps running, and the child's drop ends
     // only a shell still printing.
     if let CaptureOutcome::Failed(_) = &outcome
-        && let Err(error) = child.start_kill()
-        && !is_no_such_process(&error)
+        && let Err(error) = child.end_group().await
     {
         tracing::warn!(
             error = &error as &(dyn std::error::Error + 'static),

@@ -9,11 +9,11 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::budget::metered_job;
+use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
 
 use super::{BACKUP_BUDGET, BackupTrigger, Backups, last_finished_at};
-use crate::daemon::scheduler::budget::metered_job;
-use crate::daemon::scheduler::{JobCondition, ScheduleError, Scheduler};
-use crate::mutex_lock::lock;
 
 // How long after the last run ended the daily run goes whatever runs.
 const DAILY_LATEST_AFTER: Duration = Duration::from_hours(25);

@@ -26,22 +26,21 @@ use sidekicks_contracts::session::methods::{
 };
 use sidekicks_contracts::transcript::content::TranscriptRowContent;
 use sidekicks_contracts::wire::instant::WireInstant;
-use tokio::sync::watch;
-
-use crate::database::connection::read_pool::DatabaseReadError;
-use crate::events::log_service::{EventLogReadError, EventLogService, FollowStart};
-use crate::events::session::read::session_read_bound;
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
-use crate::ipc::stream::frame_batcher::ChangeFeed;
-use crate::mutex_lock::lock;
-use crate::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
-use crate::transcript::stream_state::{
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
+use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
+use sidekicks_session::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
+use sidekicks_session::transcript::stream_state::{
     StreamedPiece, TranscriptStreamState, load_piece_texts, read_streamed_pieces,
 };
-use crate::transcript::turn_attribution::{
+use sidekicks_session::transcript::turn_attribution::{
     RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadError;
+use sidekicks_store::events::log_service::{EventLogReadError, EventLogService, FollowStart};
+use sidekicks_store::events::session::read::session_read_bound;
+use tokio::sync::watch;
 
 /// Registers `session.event.subscribe` over `log`. Refuses a session the daemon does not hold
 /// `session.notFound` and a cursor it cannot read `session.event.cursorUnresolvable`, and fails the
@@ -316,19 +315,21 @@ mod tests {
 
     use serde_json::json;
     use sidekicks_contracts::method::Method as _;
-
-    use super::*;
-    use crate::database::writer::test_file::{TestDatabase, test_envelope, test_session_id};
-    use crate::events::log_service::EventLogAppendOptions;
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{Dispatch as _, EncodedFeed, Reply};
-    use crate::ipc::stream::feed::CreditGate;
-    use crate::remote::shared_ports::schema::schema_parts;
-    use crate::transcript::test_log::{
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, EncodedFeed, Reply};
+    use sidekicks_ipc::stream::feed::CreditGate;
+    use sidekicks_session::transcript::test_log::{
         STALLING_TEXT, stalling_parse, wire_block_starts, wire_message,
     };
-    use crate::transcript::window::read_transcript_window;
+    use sidekicks_session::transcript::window::read_transcript_window;
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, test_envelope, test_session_id,
+    };
+    use sidekicks_store::events::log_service::EventLogAppendOptions;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
+
+    use super::*;
+    use crate::daemon::schema::schema_parts;
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);

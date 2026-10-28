@@ -1,5 +1,5 @@
 //! A child leading a tree of its own on macOS and Linux: the leader of a process group of its own,
-//! armed to end with the daemon, whose tree ends by a kill of that group.
+//! prepared as every child of the daemon is, whose tree ends by a kill of that group.
 
 use std::error::Error;
 use std::io;
@@ -17,8 +17,9 @@ use crate::posix::process::group::{IS_GROUP_KILL_REPEATED, signal_group, signal_
 /// How much one read of what a child left in a pipe takes at most.
 const READY_OUTPUT_CHUNK: usize = 64 * 1024;
 
-/// Starts `command` as the leader of a process group of its own, armed to end with the daemon
-/// `daemon_pid`, and killed if its handle drops unreaped. Fails with the spawn's error.
+/// Starts `command` as the leader of a process group of its own, prepared as a child of the daemon
+/// `daemon_pid` by `prepare_child_command`, and killed if its handle drops unreaped. Fails with the
+/// spawn's error.
 pub(crate) fn spawn_child_tree_process(
     mut command: Command,
     daemon_pid: u32,

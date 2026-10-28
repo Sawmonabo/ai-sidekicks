@@ -88,6 +88,16 @@ pub(crate) fn signal_group(id: u32, signal: Signal) -> io::Result<bool> {
     }
 }
 
+/// Kills every member of the group process `id` leads on a blocking thread, as [`signal_group`]
+/// sends a `SIGKILL`; a group already ended is no failure. Must be called within the runtime. Fails
+/// as `signal_group` does.
+pub(crate) async fn end_group(id: u32) -> io::Result<()> {
+    tokio::task::spawn_blocking(move || signal_group(id, Signal::SIGKILL))
+        .await
+        .map_err(io::Error::other)?
+        .map(drop)
+}
+
 /// Sends `signal` once to every member of the group process `id` leads, never listing or sleeping;
 /// `false` when the group had already ended. Fails with `InvalidInput` for an id of 0 or past
 /// `i32::MAX`, else with the system's error, `EPERM` among them.
@@ -141,7 +151,7 @@ fn list_live_group_members(id: u32) -> io::Result<Vec<u32>> {
 /// and answers `None`.
 #[cfg(test)]
 pub(crate) fn read_group_output_to_end(
-    output: &mut std::process::ChildStdout,
+    output: &mut (impl io::Read + std::os::fd::AsFd),
     group_id: u32,
     bound: Duration,
 ) -> Option<Vec<u8>> {
@@ -162,11 +172,10 @@ pub(crate) fn read_group_output_to_end(
 // Reads `output` to its end; `None` when the end has not come within `bound`.
 #[cfg(test)]
 fn read_to_end_within(
-    output: &mut std::process::ChildStdout,
+    output: &mut (impl io::Read + std::os::fd::AsFd),
     bound: Duration,
 ) -> io::Result<Option<Vec<u8>>> {
-    use std::io::Read as _;
-    use std::os::fd::{AsFd as _, AsRawFd as _};
+    use std::os::fd::AsRawFd as _;
 
     use polling::{Event, Poller};
 
@@ -174,7 +183,7 @@ fn read_to_end_within(
 
     let poller = Poller::new()?;
     // SAFETY: `output` outlives the poller, which this call drops.
-    unsafe { poller.add(output.as_raw_fd(), Event::readable(0)) }?;
+    unsafe { poller.add(output.as_fd().as_raw_fd(), Event::readable(0)) }?;
     let give_up_at = Instant::now() + bound;
     let mut read = Vec::new();
     loop {

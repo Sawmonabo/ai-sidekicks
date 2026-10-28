@@ -1,0 +1,48 @@
+[package]
+name = "sidekicks-std"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Primitives that name no daemon, session, run or provider concept and could have lived in std."
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-shear]
+ignored = [
+  # Reading and editing YAML in place: skills' front matter and the workflow step that parses
+  # YAML.
+  "serde-saphyr",
+  "yaml-edit",
+]
+
+[lib]
+doctest = false
+
+[dependencies]
+base16ct.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+reflink-copy.workspace = true
+serde-saphyr.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-platforms.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+unicode-segmentation.workspace = true
+yaml-edit.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+tempfile.workspace = true
+# The paused clock the scheduler's and the bounded read's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# Helpers other crates' tests use: the pause point a test holds a task at, the bounded read's stall,
+# the keyed lock's count of queued holders and the scheduler's names of waiting jobs.
+test-support = []
+
+[lints]
+workspace = true

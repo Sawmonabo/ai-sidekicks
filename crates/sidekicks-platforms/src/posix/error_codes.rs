@@ -46,9 +46,3 @@ pub fn is_hard_link_unsupported(error: &io::Error) -> bool {
 pub fn is_held_file_error(error: &io::Error) -> bool {
     is_resource_busy(error)
 }
-
-/// Whether `error`, from a signal to a process or a group, says nothing was left to signal
-/// (`ESRCH`).
-pub fn is_no_such_process(error: &io::Error) -> bool {
-    error.raw_os_error() == Some(libc::ESRCH)
-}

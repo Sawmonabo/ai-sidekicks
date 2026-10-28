@@ -6,7 +6,6 @@
 use std::convert::Infallible;
 use std::ffi::{CString, OsStr};
 use std::io;
-use std::os::unix::ffi::OsStringExt;
 use std::path::{Path, PathBuf};
 
 use nix::errno::Errno;
@@ -19,6 +18,7 @@ use nix::unistd::{Pid, chdir, getppid};
 
 #[cfg(target_os = "macos")]
 use crate::macos::responsibility::OwnRootStart;
+use crate::posix::c_string::c_string;
 use crate::posix::executable_file::is_executable_file;
 use crate::posix::process::id::system_process_id;
 use crate::posix::shell_start_confirmation::{WriterCheck, receive_launch};
@@ -40,6 +40,7 @@ pub const LOGIN_SHELL_ARGUMENTS: &[&str] = &["-l"];
 const DEFAULT_SEARCH_PATH: &str = "/usr/bin:/bin";
 
 // No such process: the daemon, once another process is the parent.
+#[cfg(target_os = "linux")]
 const DAEMON_GONE_ERRNO: Errno = Errno::ESRCH;
 
 enum ArmingFailure {
@@ -68,11 +69,12 @@ pub const POSIX_SHELL: &str = "/bin/sh";
 #[cfg(any(test, feature = "test-support"))]
 pub const DOES_POSIX_SHELL_LACK_BUILTIN: bool = cfg!(target_os = "linux");
 
-/// Arms the process to end with the daemon `daemon_pid` and checks the daemon is still its parent;
-/// on Linux also clears the huge-page switch the daemon set for itself. Async-signal-safe and
-/// allocation-free, so a `Command`'s `pre_exec` calls it. Fails with `ESRCH` when the daemon is no
-/// longer the parent, and with the system's error when a call is refused.
-pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
+/// Arms the process to end with the daemon `daemon_pid`, checks the daemon is still its parent and
+/// clears the huge-page switch the daemon set for itself. Async-signal-safe and allocation-free, so
+/// a `Command`'s `pre_exec` calls it. Fails with `ESRCH` when the daemon is no longer the parent,
+/// and with the system's error when a call is refused.
+#[cfg(target_os = "linux")]
+pub(crate) fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => io::Error::from(DAEMON_GONE_ERRNO),
         #[cfg(target_os = "linux")]
@@ -81,7 +83,8 @@ pub fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
 }
 
 /// Prepares the `shell` mode's own process for its exec and answers the launch the daemon sent:
-/// arms it as [`arm_parent_death`] does; reads the daemon's confirmation that it started this
+/// arms it to end with the daemon and checks the daemon is still its parent (on macOS, which has no
+/// parent-death signal, the check alone); reads the daemon's confirmation that it started this
 /// process and the shell's launch after it, written by the daemon `daemon_pid` (on macOS also its
 /// own responsible process, without which no program starts as its own responsible process);
 /// enters the shell's folder, which the shell inherits across the exec; then sets `SIGPIPE` back to
@@ -157,7 +160,7 @@ fn exec_program(start: &ShellStart) -> io::Result<Infallible> {
         CString::new(program)?
     } else {
         let resolved = find_program(OsStr::new(&start.program), search_path(start))?;
-        CString::new(resolved.into_os_string().into_vec())?
+        c_string(resolved.as_os_str())?
     };
     #[cfg(target_os = "linux")]
     return execve(&path, &argv, &envp).map_err(io::Error::from);

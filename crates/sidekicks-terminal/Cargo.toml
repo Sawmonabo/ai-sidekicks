@@ -11,6 +11,7 @@ publish.workspace = true
 alacritty_terminal.workspace = true
 bytes.workspace = true
 sidekicks-platforms.workspace = true
+sidekicks-std.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
@@ -25,7 +26,7 @@ tokio = { workspace = true, features = ["test-util"] }
 tracing-subscriber.workspace = true
 
 [features]
-# The screen copy drawn without a shell, for the daemon's tests of its screen listener.
+# The screen copy drawn without a shell, for the shell crate's tests of its screen listener.
 test-support = []
 
 [lints]

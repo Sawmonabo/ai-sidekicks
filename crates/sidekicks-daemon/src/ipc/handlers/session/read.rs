@@ -9,14 +9,13 @@ use futures::FutureExt as _;
 use sidekicks_contracts::session::methods::{
     SessionRead, SessionReadRequest, SessionReadResponse, SessionRecord,
 };
-
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::session::addresses::SessionInboxAddresses;
-use crate::session::draft_store::SessionDraftStore;
-use crate::session::service::{SessionLogRead, SessionReadRecord, SessionService};
-use crate::session::staged_attachments::StagedAttachments;
+use sidekicks_session::addresses::SessionInboxAddresses;
+use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::service::{SessionLogRead, SessionReadRecord, SessionService};
+use sidekicks_session::staged_attachments::StagedAttachments;
 
 // What `session.read` composes its answer from.
 struct SessionReadSources {
@@ -111,22 +110,24 @@ mod tests {
     use sidekicks_contracts::session::draft::{SessionAttachmentSummary, SessionDraftUpdate};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionRead;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
     use sidekicks_platforms::PathRules;
+    use sidekicks_provider::driver::test_registry::session_inbox_addresser;
+    use sidekicks_session::addresses::SessionInboxAddresses;
+    use sidekicks_session::draft_store::{
+        SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore,
+    };
+    use sidekicks_session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
+    use sidekicks_session::staged_attachments::{StagedAttachments, StagedAttachmentsError};
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::schema::session_directory::insert_session_row;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::log_service::test_fixture::open_log;
 
     use super::register_session_read;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::schema::session_directory::insert_session_row;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::events::log_service::tests::open_log;
-    use crate::ipc::call_fixtures::{context, request};
+    use crate::daemon::schema::schema_parts;
     use crate::ipc::handlers::session::draft_update::register_session_draft_update;
-    use crate::ipc::registry::{Dispatch as _, MethodRegistry, MethodRegistryBuilder, Reply};
-    use crate::provider::driver::ClaudeSessionInboxAddresser;
-    use crate::remote::shared_ports::schema::schema_parts;
-    use crate::session::addresses::SessionInboxAddresses;
-    use crate::session::draft_store::{SESSION_DRAFT_STORE_STATEMENT_CAPACITY, SessionDraftStore};
-    use crate::session::service::{SESSION_SERVICE_STATEMENT_CAPACITY, SessionService};
-    use crate::session::staged_attachments::{StagedAttachments, StagedAttachmentsError};
 
     /// A session with no files staged.
     struct NoStagedAttachments;
@@ -184,7 +185,7 @@ mod tests {
                     PathRules::Windows,
                     vec![Some(Place::Windows(WindowsPlace::Value))],
                     true,
-                    Arc::new(ClaudeSessionInboxAddresser::new([])),
+                    session_inbox_addresser(),
                 )
                 .expect("the places fit the computer"),
             ),

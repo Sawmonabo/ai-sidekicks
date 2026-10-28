@@ -5,13 +5,13 @@ use std::sync::Arc;
 
 use sidekicks_contracts::approval::ApprovalListRequest;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 
 use super::{APPROVAL_METHODS_STATEMENT_CAPACITY, list_approvals};
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::database::writer::test_file::{TestDatabase, test_session_id};
-use crate::ipc::registry::HandlerError;
-use crate::remote::shared_ports::schema::schema_parts;
+use crate::daemon::schema::schema_parts;
 
 // A list of a session with no row is refused `session.notFound`, and once its row is written the
 // same list answers its asks, none yet. Killed by dropping the existence read, which answers the

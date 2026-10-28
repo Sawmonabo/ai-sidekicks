@@ -3,7 +3,7 @@ name = "sidekicks-daemon"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The daemon: sessions with Claude Code and Codex, git worktrees, terminals and the SQLite store."
+description = "The daemon's program at the top of its crates."
 license.workspace = true
 publish.workspace = true
 
@@ -11,21 +11,8 @@ publish.workspace = true
 ignored = [
   # The linking digits of a device link.
   "hkdf",
-  # The browser tools and Preview's pages over DevTools.
-  "chromiumoxide_cdp",
-  "psl",
-  # A workflow schedule's next run in its time zone.
-  "croner",
-  # The workflow step that parses CSV.
-  "csv",
-  # Laying out a workflow an agent wrote with no layout of its own.
-  "dugong",
   # The machine's identity key and the statements it signs.
   "ed25519-dalek",
-  # An attachment's picture, its first page and its covered copy.
-  "fast_image_resize",
-  "pdfium-render",
-  "webp",
   # The channel to each WSL 2 distribution's WSL server, the daemon the client and the WSL server
   # the server.
   "h2",
@@ -39,9 +26,7 @@ ignored = [
   "hyper-util",
   "instant-acme",
   "tokio-rustls",
-  # A workflow's expressions.
-  "jsonata-core",
-  # The MCP sign-in's keys, thumbprints and proofs.
+  # The DPoP proofs on the program's control-plane calls.
   "jwt-simple",
   "p256",
   # The email digest of what needs the person's attention.
@@ -52,73 +37,34 @@ ignored = [
   # The passkey statement checks.
   "llrt_buffer",
   "llrt_crypto",
-  # The token prices read from what the providers report.
-  "opentelemetry-proto",
+  "rquickjs",
   # The passkey relying party's and the relay channel's tokens.
   "pasetors",
-  # The redaction set built from each secret of a run.
-  "form_urlencoded",
-  "percent-encoding",
-  # The JavaScript engine of a workflow's quick code step, its file-watch trigger's path patterns
-  # and the passkey statement checks.
-  "rquickjs",
   # The relay channel: its Noise sessions and the relay's certificate check.
   "rustls-platform-verifier",
   "snow",
-  # YAML front matter, skills and the workflow step that parses YAML, read and edited in place.
-  "serde-saphyr",
-  "yaml-edit",
-  # Fetching and unpacking the tools a workflow code step runs on.
-  "tar",
-  "zip",
-  # Editing the providers' and tool servers' TOML settings in place.
-  "toml_edit",
 ]
 
+[lib]
+doctest = false
+
 [dependencies]
-alacritty_terminal.workspace = true
-anyhow.workspace = true
-axum = { workspace = true, features = ["http1", "tokio"] }
-base16ct.workspace = true
-base64.workspace = true
 blake3.workspace = true
 bytes.workspace = true
-cedar-policy.workspace = true
-chromiumoxide_cdp.workspace = true
-console.workspace = true
 crash-handler.workspace = true
-croner.workspace = true
-csv.workspace = true
-deadpool.workspace = true
-diffy.workspace = true
-dugong.workspace = true
 ed25519-dalek.workspace = true
-fast_image_resize.workspace = true
 ferriki-textmate.workspace = true
 ferroni.workspace = true
-file-format.workspace = true
-# Unpacks a workflow code step's tools, and writes each PNG chunk's CRC in the picture size tests.
-flate2.workspace = true
 flexi_logger.workspace = true
-form_urlencoded.workspace = true
 futures.workspace = true
-garde.workspace = true
 getrandom.workspace = true
-gif.workspace = true
 h2.workspace = true
 hkdf.workspace = true
 hmac.workspace = true
-hpke.workspace = true
 hyper-util.workspace = true
-icu_collator.workspace = true
-ignore.workspace = true
-image.workspace = true
-image-webp.workspace = true
 instant-acme.workspace = true
 interprocess.workspace = true
 jiff.workspace = true
-jsonata-core.workspace = true
-jsonc-parser.workspace = true
 jwt-simple.workspace = true
 lettre.workspace = true
 # Its version is the one `rusqlite` bundles, whose SQLite the vendored shell is checked against.
@@ -131,104 +77,88 @@ minidump.workspace = true
 minidump-processor.workspace = true
 minidump-unwind.workspace = true
 minidumper.workspace = true
-notify.workspace = true
-opentelemetry-proto.workspace = true
 p256.workspace = true
 pasetors.workspace = true
-pdfium-render.workspace = true
-percent-encoding.workspace = true
-png.workspace = true
-process-wrap.workspace = true
-psl.workspace = true
 quick_cache.workspace = true
-reflink-copy.workspace = true
 regex.workspace = true
 reqwest.workspace = true
-rmcp.workspace = true
 rquickjs.workspace = true
 rusqlite.workspace = true
 rustls-platform-verifier.workspace = true
-satteri-pulldown-cmark.workspace = true
-schemars.workspace = true
 secrecy = { workspace = true, features = ["serde"] }
-semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-serde_json_canonicalizer.workspace = true
-serde-saphyr.workspace = true
-serde_with.workspace = true
 sha2.workspace = true
-shlex.workspace = true
+sidekicks-approval.workspace = true
+sidekicks-artifact.workspace = true
 sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
-sidekicks-search = { workspace = true, features = ["index"] }
+sidekicks-policy.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-queue.workspace = true
+sidekicks-recovery.workspace = true
+sidekicks-session.workspace = true
+sidekicks-shell.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
 sidekicks-terminal.workspace = true
+sidekicks-workflow.workspace = true
+sidekicks-workspace.workspace = true
 snow.workspace = true
-sse-stream.workspace = true
-starlark.workspace = true
 strum.workspace = true
-subtle.workspace = true
 sysinfo.workspace = true
-tar.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-rustls.workspace = true
-tokio-tungstenite.workspace = true
 tokio-util.workspace = true
-toml.workspace = true
-toml_edit.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-tree-sitter.workspace = true
-tree-sitter-bash.workspace = true
-unicode-normalization.workspace = true
-unicode-properties.workspace = true
-unicode-segmentation.workspace = true
 url.workspace = true
 uuid.workspace = true
-vte = { workspace = true, features = ["ansi"] }
 walkdir.workspace = true
 web-push-native.workspace = true
-webp.workspace = true
-yaml-edit.workspace = true
-zeroize.workspace = true
-zip.workspace = true
-zstd.workspace = true
-zune-jpeg.workspace = true
 
 [dev-dependencies]
-insta.workspace = true
-mockall.workspace = true
+alacritty_terminal.workspace = true
 proptest.workspace = true
 rstest.workspace = true
-# The test database and session rows the integration tests build on.
-sidekicks-daemon = { path = ".", features = ["test-support"] }
-# A file whose removal the system refuses, for the clone's failed-removal test.
+# The artifact test store the tests open.
+sidekicks-artifact = { workspace = true, features = ["test-support"] }
+# The call fixtures and the credit gate the tests use.
+sidekicks-ipc = { workspace = true, features = ["test-support"] }
+# The in-memory credential store, this process's pin and footprint, and the harness's test names
+# the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
-# The documents an index holds under a row's key, for the search apply's damaged-row test.
-sidekicks-search = { workspace = true, features = ["index", "test-support"] }
-# The screen copy drawn without a shell, for the screen listener's answer tests.
-sidekicks-terminal = { workspace = true, features = ["test-support"] }
+# The test driver registry, the mock driver and the runtime binding's test store the tests build
+# on.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The provider session opening the tests compose.
+sidekicks-queue = { workspace = true, features = ["test-support"] }
+# The run rows, the live count's log, the transcript test log and the search index's test services
+# the tests build on.
+sidekicks-session = { workspace = true, features = ["test-support"] }
+# The shell table the tests open.
+sidekicks-shell = { workspace = true, features = ["test-support"] }
+# The pause points the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
+# The workflow rows the tests build on.
+sidekicks-workflow = { workspace = true, features = ["test-support"] }
+# The git runner the tests script.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
 standardwebhooks.workspace = true
-# The paused clock the clone progress gate's and the stream batcher's tests drive.
+# The paused clock the local gateway's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
 x-wing.workspace = true
 
 [build-dependencies]
 # The SQLite shell, compiled from its vendored source after its hash is checked.
+base16ct.workspace = true
 cc.workspace = true
-# Codex's app-server protocol types, generated from the release's schema bundle after its hash is
-# checked.
-serde_json.workspace = true
 sha3.workspace = true
-typify.workspace = true
-zstd.workspace = true
-
-[features]
-# Helpers the integration tests use: a database file with the daemon's schema and the session
-# rows other tables build on.
-test-support = []
 
 [lints]
 workspace = true

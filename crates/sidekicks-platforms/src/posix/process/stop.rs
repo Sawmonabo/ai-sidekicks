@@ -62,7 +62,6 @@ pub(crate) fn wait_for_event(poller: &Poller, bound: Duration) -> io::Result<boo
 mod tests {
     use std::io::Read as _;
     use std::os::unix::process::ExitStatusExt as _;
-    use std::process::Stdio;
     use std::time::{Duration, Instant};
 
     use nix::sys::signal::Signal;
@@ -70,8 +69,9 @@ mod tests {
 
     use crate::child_command::ChildEnd;
     use crate::pin_child_process;
-    use crate::posix::child_command::prepare_lasting_child_command;
+    use crate::posix::child_command::StandInChild;
     use crate::posix::process::group::read_group_output_to_end;
+    use crate::session_child::SessionCommand;
 
     // Fails when `SIGKILL` goes first, which ends the answering child by the kill and answers
     // `Kill`; when the `SIGKILL` is skipped, which leaves the trapping child running, so the stop
@@ -100,29 +100,30 @@ mod tests {
         #[case] expected_signal: Signal,
     ) {
         let grace = Duration::from_millis(300);
-        let mut command = tokio::process::Command::new("/bin/sh");
-        command
-            .args(["-c", script])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped());
-        prepare_lasting_child_command(&mut command);
-        let mut child = command.as_std_mut().spawn().expect("the child starts");
+        let mut child = StandInChild::start_session_leader(&SessionCommand {
+            program: "/bin/sh".into(),
+            argument_zero: "sh".into(),
+            arguments: vec!["-c".to_owned(), script.to_owned()],
+            added_environment: Vec::new(),
+            working_folder: std::env::temp_dir(),
+        })
+        .expect("the child starts");
         // The line comes once the trap is set and before the child waits.
-        let mut output = child.stdout.take().expect("the child's output is piped");
         let mut ready = [0; 6];
-        output
+        child
+            .output
             .read_exact(&mut ready)
             .expect("the child's line reads");
         assert_eq!(&ready, b"ready\n");
 
         let started = Instant::now();
-        let end = pin_child_process(child.id()).and_then(|process| process.stop(grace));
+        let end = pin_child_process(child.id).and_then(|process| process.stop(grace));
         let elapsed = started.elapsed();
 
-        drop(child.stdin.take());
+        drop(child.input.take());
         let status = child.wait().expect("the child is reaped");
         // The output ends only once every process of the group holding it has ended.
-        let rest = read_group_output_to_end(&mut output, child.id(), Duration::from_secs(5));
+        let rest = read_group_output_to_end(&mut child.output, child.id, Duration::from_secs(5));
         assert_eq!(
             end.expect("the child pins and its stop ends it"),
             expected_end

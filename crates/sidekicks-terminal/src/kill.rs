@@ -10,6 +10,7 @@ use std::time::Duration;
 use sidekicks_platforms::{
     HELPER_PROGRAM_TIME_LIMIT, ProcessTreeEnd, TerminalSignal, TerminalSignalRoute,
 };
+use sidekicks_std::mutex_lock::lock;
 use tokio::task::AbortHandle;
 use tokio::time::Instant;
 
@@ -68,11 +69,7 @@ impl Escalation {
     /// Makes `handle`'s task the pending escalation, aborting the one it replaces.
     fn arm(&self, handle: AbortHandle) {
         // The slot holds no invariant a panic could break, so a poisoned lock is still sound.
-        let replaced = self
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .replace(handle);
+        let replaced = lock(&self.pending).replace(handle);
         if let Some(replaced) = replaced {
             replaced.abort();
         }
@@ -80,7 +77,7 @@ impl Escalation {
 
     /// Aborts `handle`'s task when it is still the pending escalation, leaving a later one armed.
     fn disarm(&self, handle: &AbortHandle) {
-        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut pending = lock(&self.pending);
         if pending
             .as_ref()
             .is_some_and(|armed| armed.id() == handle.id())
@@ -92,11 +89,7 @@ impl Escalation {
 
     /// Aborts the pending escalation, if one is armed.
     fn cancel(&self) {
-        let pending = self
-            .pending
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
+        let pending = lock(&self.pending).take();
         if let Some(pending) = pending {
             pending.abort();
         }

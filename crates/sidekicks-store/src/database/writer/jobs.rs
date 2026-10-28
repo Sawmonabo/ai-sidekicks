@@ -1,0 +1,132 @@
+//! The writer's scheduled maintenance: the passive WAL checkpoint every five minutes, and the
+//! daily optimize a long-lived connection runs to keep the query planner's statistics current.
+//! Each run is metered against its processor budget, in the units the store's jobs count.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
+use sidekicks_std::scheduler::ScheduledJobOutcome;
+use sidekicks_std::scheduler::budget::{BudgetTerm, JobBudget, JobWorkload, Measured, metered_job};
+use tokio_util::sync::CancellationToken;
+
+use crate::database::checkpoint::CheckpointMode;
+use crate::database::writer::{DatabaseWriter, MaintenanceError};
+
+/// What the store's jobs count their work in, the writer's maintenance and the copies of the store.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StoreWorkUnit {
+    /// Bytes of the store a run copied or repacked.
+    Bytes,
+    /// Bytes of write-ahead log a checkpoint moved into the store.
+    CheckpointedLogBytes,
+    /// Runs of the job, one each, for the fixed work every run does.
+    Runs,
+}
+
+/// How often the passive WAL checkpoint job runs on the scheduler.
+pub const PASSIVE_CHECKPOINT_INTERVAL: Duration = Duration::from_mins(5);
+
+/// The passive checkpoint's processor budget: 250 ms per 64 MiB of log it moves into the store.
+const PASSIVE_CHECKPOINT_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
+    figure: Duration::from_millis(250),
+    per: 64 * 1024 * 1024,
+    unit: StoreWorkUnit::CheckpointedLogBytes,
+}]);
+
+/// How often the writer runs `PRAGMA optimize`: once a day, as SQLite advises for a long-lived
+/// connection, the first a day after the start, whose open already ran it.
+pub const OPTIMIZE_INTERVAL: Duration = Duration::from_hours(24);
+
+/// The optimize's processor budget: 100 ms a run. It is usually a no-op, and where it analyzes a
+/// table its temporary analysis limit bounds the scan, so a run's cost does not grow with the file:
+/// SQLite's own comment on that limit says "the worst case run-time for PRAGMA optimize on a 100MB
+/// database will usually be less than 100 milliseconds on a RaspberryPI-4 class machine". The
+/// daemon sets no connection `analysis_limit`, since one below the optimize's would replace it.
+const OPTIMIZE_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
+    figure: Duration::from_millis(100),
+    per: 1,
+    unit: StoreWorkUnit::Runs,
+}]);
+
+impl DatabaseWriter {
+    /// The scheduler's passive WAL checkpoint job, run every [`PASSIVE_CHECKPOINT_INTERVAL`] and
+    /// metered against its budget; each run fails as `DatabaseWriter::checkpoint` does.
+    pub fn passive_checkpoint_job(
+        writer: Arc<Self>,
+    ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
+    {
+        // The checkpoint waits for the batch in flight, so the scheduler's stop ends the wait; a
+        // hold answers it at once, so the scheduler never waits a hold out.
+        metered_job(
+            PASSIVE_CHECKPOINT_BUDGET,
+            Box::new(move |stop, meter| {
+                let writer = Arc::clone(&writer);
+                async move {
+                    let checkpointed = tokio::select! {
+                        biased;
+                        () = stop.cancelled() => return Ok(None),
+                        checkpointed = writer.checkpoint_measured(CheckpointMode::Passive) => {
+                            checkpointed
+                        }
+                    };
+                    match checkpointed {
+                        Ok(Measured {
+                            report,
+                            processor_time,
+                        }) => {
+                            meter.add(processor_time);
+                            tracing::debug!(
+                                is_busy = report.result.is_busy,
+                                log_frames = report.result.log_frames,
+                                checkpointed_frames = report.result.checkpointed_frames,
+                                moved_frames = report.moved_frames,
+                                "the passive WAL checkpoint ran"
+                            );
+                            Ok(Some(JobWorkload::of(
+                                StoreWorkUnit::CheckpointedLogBytes,
+                                report.checkpointed_bytes(),
+                            )))
+                        }
+                        Err(MaintenanceError::Held) => {
+                            tracing::debug!(
+                                "the passive WAL checkpoint did not run: the writer holds its \
+                                 writes"
+                            );
+                            Ok(None)
+                        }
+                        Err(failure) => Err(failure.into()),
+                    }
+                }
+                .boxed()
+            }),
+        )
+    }
+
+    /// The scheduler's daily optimize job, run every [`OPTIMIZE_INTERVAL`] and metered against its
+    /// budget; each run fails as `DatabaseWriter::optimize` does.
+    pub fn optimize_job(
+        writer: Arc<Self>,
+    ) -> impl FnMut(CancellationToken) -> BoxFuture<'static, ScheduledJobOutcome> + Send + 'static
+    {
+        // The optimize waits for the batch in flight and any hold, so the scheduler's stop ends
+        // the wait.
+        metered_job(
+            OPTIMIZE_BUDGET,
+            Box::new(move |stop, meter| {
+                let writer = Arc::clone(&writer);
+                async move {
+                    let optimized = tokio::select! {
+                        biased;
+                        () = stop.cancelled() => return Ok(None),
+                        optimized = writer.optimize() => optimized?,
+                    };
+                    meter.add(optimized.processor_time);
+                    Ok(Some(JobWorkload::of(StoreWorkUnit::Runs, 1)))
+                }
+                .boxed()
+            }),
+        )
+    }
+}

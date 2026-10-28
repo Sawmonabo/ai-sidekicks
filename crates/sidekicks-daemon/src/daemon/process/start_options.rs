@@ -6,12 +6,12 @@ use std::sync::Arc;
 
 use sidekicks_contracts::process_identity::ProcessIdentity;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_store::data_folder::lock::DataFolderLock;
 use tokio_util::sync::CancellationToken;
 
-use crate::daemon::data_folder_lock::DataFolderLock;
 use crate::daemon::service_log::ServiceLogFiles;
-use crate::ipc::caller_process::contract::CallerProcessReader;
 
 /// What the daemon's start runs with.
 pub(crate) struct DaemonStartOptions {

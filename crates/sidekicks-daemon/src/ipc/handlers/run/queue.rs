@@ -19,21 +19,22 @@ use sidekicks_contracts::run::control::{
 use sidekicks_contracts::run::queue::{AgentQueueItemSubscribeRequest, RunQueueStreamFrame};
 use sidekicks_contracts::session::event_cursor::decode_event_cursor;
 use sidekicks_contracts::wire::list::BoundedVec;
-use tokio::sync::watch;
-
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::events::log_service::{EventLogService, FollowStart};
-use crate::events::session::read::{DamagedFromSequenceReader, SessionLogReadError};
-use crate::ipc::registry::{
+use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use crate::ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
-use crate::ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
-use crate::queue::changes::{
+use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
+use sidekicks_ipc::stream::frame_batcher::{ChangeFeed, FrameChanges};
+use sidekicks_queue::changes::{
     QueueChange, QueueChangeCursor, QueueChangeReadError, QueueChangeSignals, QueueKey,
     read_current_queue_cursor, read_queue_changes_after,
 };
-use crate::queue::service::RunQueue;
+use sidekicks_queue::service::RunQueue;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::events::log_service::{EventLogService, FollowStart};
+use sidekicks_store::events::session::read::{DamagedFromSequenceReader, SessionLogReadError};
+use tokio::sync::watch;
 
 /// What the queue methods act through.
 pub(crate) struct RunQueueMethods {

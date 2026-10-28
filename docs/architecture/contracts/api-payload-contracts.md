@@ -2,7 +2,7 @@
 
 Typed payload definitions for all named interfaces across all specs. Each contract specifies request shape, response shape, and error shapes in TypeScript notation, the form the generated TypeScript takes.
 
-**Usage:** Implementation agents translate these definitions into Rust types in `crates/sidekicks-contracts` when the shape crosses a boundary between independently built surfaces — the daemon, the desktop app, the CLI, the control plane, the relay, and the phone and web clients — or is a wire enum or schema; the TypeScript types and Ajv validators in `packages/contracts/src/` are generated from them and never edited. A shape this file marks daemon-internal or in-process lives in `crates/sidekicks-daemon`, and one only the control plane uses lives in `crates/sidekicks-control-plane`; this file documents them beside the wire so a reader sees the whole seam. The organization by plan follows the build order recorded in [cross-plan-dependencies.md](../cross-plan-dependencies.md).
+**Usage:** Implementation agents translate these definitions into Rust types in `crates/sidekicks-contracts` when the shape crosses a boundary between independently built surfaces — the daemon, the desktop app, the CLI, the control plane, the relay, and the phone and web clients — or is a wire enum or schema; the TypeScript types and Ajv validators in `packages/contracts/src/` are generated from them and never edited. A shape this file marks daemon-internal or in-process lives in the daemon's crate that owns it under `crates/`, and one only the control plane uses lives in `crates/sidekicks-control-plane`; this file documents them beside the wire so a reader sees the whole seam. The organization by plan follows the build order recorded in [cross-plan-dependencies.md](../cross-plan-dependencies.md).
 
 **Schema reference:** Column types and constraints are in [Local SQLite Schema](../schemas/local-sqlite-schema.md) and [Hosted Account Schema](../schemas/hosted-account-schema.md).
 
@@ -65,8 +65,8 @@ This file is the **design surface** for cross-cutting payload contracts — bran
 Package-local typed surfaces are **canonical in code**, in the crate that owns them, not in this file. Examples (non-exhaustive):
 
 - The method table — every method's params, result, refusal codes and procedure type, declared once — and the frame codec — `crates/sidekicks-contracts/src/jsonrpc/` (`registry.rs`, `message.rs`, `framing.rs`); the TypeScript method map is generated from the table
-- The subscription frames (`SubscriptionNotifyParams<T>` and its acknowledgment, end and cancel) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (the daemon sends them from `crates/sidekicks-daemon/src/ipc/stream/subscriptions.rs`; the client-side consumer is `Subscription<T>` in `crates/sidekicks-client/src/transport/subscription.rs`)
-- `SecureDefaults` config and its `local_ipc_path()` — `crates/sidekicks-daemon/src/bootstrap/secure_defaults.rs`
+- The subscription frames (`SubscriptionNotifyParams<T>` and its acknowledgment, end and cancel) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs` (the daemon sends them from `crates/sidekicks-ipc/src/stream/subscriptions.rs`; the client-side consumer is `Subscription<T>` in `crates/sidekicks-client/src/transport/subscription.rs`)
+- `SecureDefaults` config and its `local_ipc_path()` — `crates/sidekicks-daemon/src/bootstrap.rs`
 - LSP-style streaming method-name taxonomy (`$/subscription/notify`, `$/subscription/end`, `$/subscription/cancel`) — `crates/sidekicks-contracts/src/jsonrpc/streaming.rs`
 - `SessionEvent`, an internally tagged enum — `crates/sidekicks-contracts/src/event/session.rs`
 - The daemon's method and event map — the `DaemonMethod` union, the method-to-params and method-to-result maps (`DaemonParams`, `DaemonResult`) and the `DaemonEvent` union with its event-to-payload map (`DaemonEventPayload`), generated from the method table into `packages/contracts/src/daemon/method-map.ts`. The preload bridge's `daemon.call` and `daemon.subscribe` are typed by it, and the renderer's daemon client takes its types from it rather than restating them.
@@ -294,7 +294,7 @@ type DriverCapabilityFlag =
 // The daemon's own gate on what it asks a driver to do; no client reads these flags, and a screen
 // draws a control from the provider read (`provider.list`), the model rows and the session's
 // provider state. The executable union
-// (crates/sidekicks-daemon/src/provider/driver/capabilities.rs) must declare every member above, so
+// (crates/sidekicks-provider/src/driver/capabilities.rs) must declare every member above, so
 // no member is declarable in doc only. assertValidCapabilityFlags rejects any snapshot whose key
 // count differs, so the union, the validator, the driver_capabilities.capability_flag CHECK in the
 // one local schema and the conformance tests change together as ONE change or not at all.

@@ -43,7 +43,7 @@ pub fn wrap_child_command(command: Command, _daemon_pid: u32) -> CommandWrap {
 
 /// Wraps `command` as a child that ends with the daemon, with what it starts: as
 /// [`wrap_child_command`] wraps it, since its job already holds its whole tree.
-pub fn wrap_session_child_command(command: Command, daemon_pid: u32) -> CommandWrap {
+pub fn wrap_group_child_command(command: Command, daemon_pid: u32) -> CommandWrap {
     wrap_child_command(command, daemon_pid)
 }
 

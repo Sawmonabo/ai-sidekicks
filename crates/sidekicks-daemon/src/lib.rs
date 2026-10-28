@@ -1,58 +1,16 @@
-//! The daemon: one program that runs sessions with each provider's agent, their git worktrees,
-//! terminals and the SQLite store, and the helper modes it starts by name.
+//! The daemon's program, at the top of the daemon's crates: the start, the jobs on its one
+//! scheduler, every IPC handler on the local socket, the data acts, the service log, code
+//! highlighting, observability, orchestration, the control-plane credential, Remote Control on this
+//! machine, and the helper modes it starts by name. It sits over std, store, ipc, workspace,
+//! policy, workflow, provider, shell, session, approval, queue, artifact and recovery.
 
-pub mod admission;
-pub mod approvals;
-pub mod artifacts;
-pub(crate) mod askpass_prompt;
-pub mod attention;
-pub mod bootstrap;
-pub mod bounded_wait;
-pub mod cleanup_failures;
-pub mod crash_window;
-pub(crate) mod credential_store;
+pub(crate) mod bootstrap;
+pub(crate) mod control_plane_credential;
 pub mod daemon;
 pub(crate) mod data_acts;
-pub mod database;
-pub(crate) mod elapsed;
-pub(crate) mod error_description;
-pub mod events;
-pub mod file;
-pub(crate) mod file_watch;
-pub mod git;
-pub(crate) mod helper_mode;
-pub mod highlight;
-pub mod interventions;
-pub mod ipc;
-pub mod keyed_lock;
-pub mod keyed_wait;
-pub mod mcp;
-pub mod missing_entry;
-pub(crate) mod mutex_lock;
-pub mod observability;
-pub mod orchestration;
-#[cfg(test)]
-pub(crate) mod pause_point;
-pub mod plans;
-pub mod policy;
-pub mod process_exit;
-pub mod processor_bound;
+pub(crate) mod highlight;
+pub(crate) mod ipc;
+pub(crate) mod observability;
+pub(crate) mod orchestration;
 pub mod program;
-pub mod provider;
-pub mod pty;
-pub mod questions;
-pub mod queue;
-pub mod random_hex;
-pub mod read_retry;
-pub mod recovery;
-pub(crate) mod redaction;
-pub mod remote;
-pub mod retry_waits;
-pub mod session;
-pub mod settle_all;
-pub(crate) mod standard_error;
-pub mod text_cut;
-pub mod transcript;
-pub(crate) mod utf8_stream;
-pub mod workflow;
-pub mod workspace;
+pub(crate) mod remote;

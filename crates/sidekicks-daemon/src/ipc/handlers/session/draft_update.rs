@@ -8,9 +8,8 @@ use futures::FutureExt as _;
 use sidekicks_contracts::session::draft::{
     SessionDraftUpdate, SessionDraftUpdateRequest, SessionDraftUpdateResponse,
 };
-
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::session::draft_store::SessionDraftStore;
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_session::draft_store::SessionDraftStore;
 
 /// Registers `session.draft.update`, refusing a session the daemon does not hold
 /// `session.notFound` and keeping nothing. Fails the start when the method is already registered.

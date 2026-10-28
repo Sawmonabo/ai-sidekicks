@@ -45,9 +45,9 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // `ProviderCommandEntry` / `ProviderOutputSpeedState`) below and in
 // provider-driver-capability-payloads.md — are bounded (length + non-whitespace + NUL-rejection) by
 // the `FreeFormText<MAX>` text newtype — rules not expressible in these TS interface shapes. The
-// daemon's provider layer (`crates/sidekicks-daemon/src/provider/`) realizes this enumeration for
+// daemon's provider layer (`crates/sidekicks-provider/src/`) realizes this enumeration for
 // the driver-internal shapes, `ApplyInterventionResponse` among them, a driver result the daemon
-// keeps in `crates/sidekicks-daemon/src/provider/driver/run_control.rs`;
+// keeps in `crates/sidekicks-provider/src/driver/run_control.rs`;
 // `crates/sidekicks-contracts/src/provider/driver/commands.rs` (`ProviderCommandEntry`) and
 // `output_speed.rs` (`ProviderOutputSpeedState`) in the same folder realize it for the ones that
 // reach a client, and `crates/sidekicks-contracts/src/wire/text.rs` holds the
@@ -360,7 +360,7 @@ interface SessionProviderCommandList {
 // a run's normalized events into ordered turns (Spec-004 §The canonical transcript is a projection,
 // never a store). It never crosses a wire and is never persisted, so only its IDENTITY is mirrored
 // here: the per-turn element shape is authored by Plan-003 T3.16 in
-// `crates/sidekicks-daemon/src/provider/hand_over/canonical_transcript.rs` and is bounded by the
+// `crates/sidekicks-provider/src/hand_over/canonical_transcript.rs` and is bounded by the
 // Spec-005 normalized taxonomy, which is what makes "anything that never became an event is not in
 // the transcript" true by construction rather than by discipline.
 interface CanonicalTranscriptProjection {

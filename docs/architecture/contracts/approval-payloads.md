@@ -8,7 +8,7 @@ Part of [API Payload Contracts](./api-payload-contracts.md), which holds the sha
 // Plan-009 shapes (D-009-1/D-009-3) — the Rust types live in
 // crates/sidekicks-contracts/src/approval.rs; the generated TypeScript keeps
 // packages/contracts/src/approval.ts. PermissionCheck, whose two shapes live in the daemon
-// (`crates/sidekicks-daemon/src/policy/`, beside the permission check), is a daemon-internal API
+// (`crates/sidekicks-policy/src/`, beside the permission check), is a daemon-internal API
 // (Spec-010: "inside the local daemon"); it has no JSON-RPC method string and no SDK surface in V1
 // (D-009-5; the in-process check is the composed enforcement gate per D-009-18 — evaluate, then on
 // an ask-policy outcome create the request via the approval service (whose create persists and
@@ -249,7 +249,7 @@ interface ApprovalResolveResponse {
 }
 
 // PermissionCheck (daemon-internal pre-execution gate — no wire method string, D-009-5/D-009-18;
-// both shapes are the daemon's own, in `crates/sidekicks-daemon/src/policy/permission_check.rs`)
+// both shapes are the daemon's own, in `crates/sidekicks-approval/src/permission_check.rs`)
 type PermissionCheckRequest =
   // A provider's permission ask, under the id the daemon minted for it; `signal` is canceled once
   // the provider takes the ask back, and an ask taken back before its card is raised raises none.

@@ -8,34 +8,34 @@ use std::path::PathBuf;
 use std::sync::{Arc, Weak};
 
 use futures::FutureExt as _;
+use sidekicks_approval::permission_asks::{PermissionAsks, PermissionAsksDeps};
+use sidekicks_approval::permission_check::{PermissionCheck, PermissionCheckDeps};
+use sidekicks_approval::reviewer_denials::ReviewerDenials;
+use sidekicks_approval::rules::session_end::SessionRuleEnding;
+use sidekicks_approval::rules::{ApprovalRules, RevokeAtProvider};
+use sidekicks_approval::run_blocking::{ApprovalRunEnd, ApprovalRunHolds, RunHoldFollowing};
+use sidekicks_approval::service::ApprovalService;
+use sidekicks_approval::service::session_sweep::ApprovalSweep;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_policy::authorizer::Authorizer;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_session::driver_resolution::read_session_driver;
+use sidekicks_session::run::engine::RunEngine;
+use sidekicks_store::data_folder::agent_memory_folder;
+use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_store::machine::local::LocalMachine;
+use sidekicks_store::machine::registry::MachineRegistry;
+use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
-use crate::approvals::permission_asks::{PermissionAsks, PermissionAsksDeps};
-use crate::approvals::reviewer_denials::ReviewerDenials;
-use crate::approvals::rules::session_end::SessionRuleEnding;
-use crate::approvals::rules::{ApprovalRules, RevokeAtProvider};
-use crate::approvals::run_blocking::{ApprovalRunEnd, ApprovalRunHolds, RunHoldFollowing};
-use crate::approvals::service::ApprovalService;
-use crate::approvals::service::session_sweep::ApprovalSweep;
-use crate::daemon::data_folder::agent_memory_folder;
-use crate::daemon::machine::local::LocalMachine;
-use crate::daemon::machine::registry::MachineRegistry;
 use crate::daemon::process::stop::TaskStopFailure;
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
-use crate::database::writer::DatabaseWriter;
-use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::git::worktree::watch::WorkingFolderWatcher;
-use crate::ipc::domain_error::DomainError;
-use crate::ipc::handlers::driver::resolution::read_session_driver;
-use crate::policy::authorizer::Authorizer;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::permission_check::{PermissionCheck, PermissionCheckDeps};
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::session::run::engine::RunEngine;
 
 /// What the approval side is built from.
 pub(crate) struct ApprovalStart {
@@ -254,17 +254,17 @@ mod tests {
     use sidekicks_contracts::approval::{RememberedRuleSense, RememberedScopeKind};
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::session::id::SessionId;
+    use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
+    use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+    use sidekicks_provider::driver::session_control::RevokeRuleParams;
+    use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
+    use sidekicks_store::events::log_service::test_fixture::open_log;
+    use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
     use super::revoke_at_session_provider;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::writer::test_file::{TestDatabase, test_session_id};
-    use crate::events::log_service::tests::open_log;
-    use crate::events::session::read::DamagedFromSequenceReader;
-    use crate::policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-    use crate::provider::driver::contract::{DriverError, MockProviderDriver};
-    use crate::provider::driver::session_control::RevokeRuleParams;
-    use crate::provider::driver::test_registry::registry_of_first_provider;
-    use crate::remote::shared_ports::schema::schema_parts;
+    use crate::daemon::schema::schema_parts;
 
     // Killed by mapping the read's refusal to an internal failure, which the person would read as
     // a fault instead of the session being gone.

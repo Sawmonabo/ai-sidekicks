@@ -7,15 +7,15 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_session::search::index::live::LiveIndexCloseError;
+use sidekicks_workspace::clone::askpass::broker::AskpassBrokerError;
 use tokio::task::JoinError;
 
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
-use crate::provider::driver::contract::DriverError;
-use crate::provider::driver::daemon_stop::DaemonStopIntent;
-use crate::session::search::index::live::LiveIndexCloseError;
-use crate::workspace::clone::askpass::broker::AskpassBrokerError;
 
 /// Why a step of the stop failed; every other step still ran.
 #[derive(Debug, thiserror::Error)]

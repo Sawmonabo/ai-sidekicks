@@ -10,6 +10,15 @@ use serde_json::json;
 use sidekicks_contracts::daemon::backup::BackupLastRun;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{WallClockTimer, check_private_run_folder};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::Scheduler;
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_store::backup_mirror::MirrorRoot;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
+use sidekicks_store::database::writer::test_file::TestDatabase;
+use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
@@ -18,17 +27,8 @@ use super::{
     BACKUP_STATEMENT_CAPACITY, BackupDeps, BackupManifestFacts, BackupTrigger, Backups,
     MirrorRootsReader,
 };
-use crate::daemon::backup::mirror::MirrorRoot;
-use crate::daemon::data_folder::data_folder;
-use crate::daemon::machine::settings::file::{MachineSettingsFile, machine_settings_file_path};
-use crate::daemon::scheduler::Scheduler;
-use crate::daemon::scheduler::budget::ProcessorMeter;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::test_file::TestDatabase;
-use crate::events::log_service::tests::{TestLog, open_log};
-use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
-use crate::mutex_lock::lock;
-use crate::remote::shared_ports::schema::schema_parts;
+use crate::daemon::machine_settings::file::{MachineSettingsFile, machine_settings_file_path};
+use crate::daemon::schema::schema_parts;
 
 /// The service's backups over the test's `database` and `log`, under the home folder
 /// `home_folder`, the mirror keeping what `read_mirror_roots` lists.

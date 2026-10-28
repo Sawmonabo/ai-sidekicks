@@ -1,9 +1,0 @@
----
-source: crates/sidekicks-daemon/src/git/turn_snapshot/capture_steps.rs
-expression: message
----
-sidekicks: turn-boundary snapshot
-
-Skipped-Embedded-Repositories: ["vendor/😀","vendor/～","vendor/�"]
-
-Sparse-Boundary-Paths: ["vendor/ï½","vendor/ð","vendor/ÿ"]

@@ -1,0 +1,48 @@
+[package]
+name = "sidekicks-queue"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The run queue: sending, ordering, admitting, delivering and recording runs per session."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+futures.workspace = true
+rusqlite.workspace = true
+serde_json.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-provider.workspace = true
+sidekicks-session.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+# The test driver registry, the mock driver, the runtime binding's test store and the unanswered
+# driver error the tests build on.
+sidekicks-provider = { workspace = true, features = ["test-support"] }
+# The run engine and a run's stored state the tests build on.
+sidekicks-session = { workspace = true, features = ["test-support"] }
+# The pause points the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+# The paused clock the memory gate's and the delivery's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# Helpers other crates' tests use: a provider session opened for a test.
+test-support = ["sidekicks-provider/test-support"]
+
+[lints]
+workspace = true

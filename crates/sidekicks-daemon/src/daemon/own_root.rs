@@ -3,8 +3,8 @@
 
 use std::process::ExitCode;
 
-use crate::error_description::describe_error;
-use crate::standard_error::write_error_line;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::standard_error::write_error_line;
 
 /// Makes the daemon its own responsible process, re-running it in place when it is not yet, so
 /// every process it starts reads the daemon as responsible. A failure is written to standard error,

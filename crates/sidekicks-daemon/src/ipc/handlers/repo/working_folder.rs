@@ -10,11 +10,10 @@ use sidekicks_contracts::repo::git_reads::{
     SessionWorkingFolderSubscribeRequest, WorkingTreeChange,
 };
 use sidekicks_contracts::repo::methods::SessionWorkingFolderSubscribe;
-
-use crate::git::worktree::watch::WorkingFolderWatcher;
-use crate::ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
-use crate::ipc::stream::feed::Feed;
-use crate::ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_ipc::stream::latest_value::LatestValueFeed;
+use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 
 /// Registers `session.workingFolder.subscribe` on `watcher`; a session this daemon holds no row
 /// for is refused with `session.notFound`, leaving nothing open. Fails the start when the method

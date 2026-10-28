@@ -1,0 +1,71 @@
+[package]
+name = "sidekicks-workflow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Workflows: their definitions and versions, runs, secrets and the agent tools that write them."
+license.workspace = true
+publish.workspace = true
+
+[package.metadata.cargo-shear]
+ignored = [
+  # A workflow schedule's next run in its time zone.
+  "croner",
+  # The workflow step that parses CSV.
+  "csv",
+  # Laying out a workflow an agent wrote with no layout of its own.
+  "dugong",
+  # A workflow's expressions.
+  "jsonata-core",
+  # The JavaScript engine of a workflow's quick code step and its file-watch trigger's path
+  # patterns.
+  "rquickjs",
+  # Fetching and unpacking the tools a workflow code step runs on.
+  "flate2",
+  "tar",
+  "zip",
+]
+
+[lib]
+doctest = false
+
+[dependencies]
+blake3.workspace = true
+croner.workspace = true
+csv.workspace = true
+dugong.workspace = true
+flate2.workspace = true
+garde.workspace = true
+jiff.workspace = true
+jsonata-core.workspace = true
+rquickjs.workspace = true
+rusqlite.workspace = true
+schemars.workspace = true
+secrecy = { workspace = true, features = ["serde"] }
+serde.workspace = true
+serde_json.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-store.workspace = true
+sidekicks-workspace.workspace = true
+tar.workspace = true
+thiserror.workspace = true
+zip.workspace = true
+
+[dev-dependencies]
+futures.workspace = true
+proptest.workspace = true
+rstest.workspace = true
+# The test database the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
+# The worktree rows the tests build on.
+sidekicks-workspace = { workspace = true, features = ["test-support"] }
+tokio.workspace = true
+uuid.workspace = true
+
+[features]
+# Helpers other crates' tests use: the workflow rows other tables build on.
+test-support = []
+
+[lints]
+workspace = true

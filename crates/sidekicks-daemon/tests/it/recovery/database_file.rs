@@ -9,25 +9,23 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
-use sidekicks_daemon::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
-use sidekicks_daemon::database::schema::DatabaseSchema;
-use sidekicks_daemon::recovery::database_file::aside_copy::{
+use sidekicks_daemon::daemon::schema::schema_parts;
+use sidekicks_platforms::physical_memory;
+use sidekicks_recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
-use sidekicks_daemon::recovery::database_file::check::{
-    DatabaseFileCheck, DatabaseFileCheckAnswer,
-};
-use sidekicks_daemon::recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
-use sidekicks_daemon::recovery::database_file::fresh::{
+use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
+use sidekicks_recovery::database_file::copy::{DatabaseCopyError, DatabaseFileCopier};
+use sidekicks_recovery::database_file::fresh::{
     FreshFileError, FreshFilePreparation, prepare_fresh_file,
 };
-use sidekicks_daemon::recovery::database_file::repair::{
+use sidekicks_recovery::database_file::repair::{
     DatabaseFileRepair, DatabaseFileRepairError, DatabaseFileRepairOptions, LeftoverFile,
     repair_damaged_file,
 };
-use sidekicks_daemon::recovery::database_file::sqlite_shell::SqliteShell;
-use sidekicks_daemon::remote::shared_ports::schema::schema_parts;
-use sidekicks_platforms::physical_memory;
+use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
+use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_store::database::schema::DatabaseSchema;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 

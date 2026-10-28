@@ -5,10 +5,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::processor_bound::processor_count;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
-
-use crate::mutex_lock::lock;
-use crate::processor_bound::processor_count;
 
 /// One reading over a process and every process under it.
 #[derive(Clone, Copy, Debug, PartialEq)]

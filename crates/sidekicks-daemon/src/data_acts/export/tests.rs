@@ -5,23 +5,23 @@ use std::sync::{Arc, Mutex};
 
 use rusqlite::params;
 use sha2::{Digest as _, Sha256};
+use sidekicks_artifact::payload_store::{ContentHash, PayloadStore};
+use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::daemon::data::{DataExportJobId, DataExportProgress};
 use sidekicks_contracts::event::envelope::{HydratedSessionEvent, HydratedSessionEventContent};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_session::transcript::test_log::TranscriptTestLog;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
+use sidekicks_store::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
 use tokio::sync::watch;
 
 use super::{
     DataExportDeps, DataExportStartRefusal, DataExports, ExportJobs, RunningExport, is_finished,
 };
-use crate::artifacts::payload_store::{ContentHash, PayloadStore};
-use crate::artifacts::schema::ARTIFACT_STATEMENT_CAPACITY;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::schema::session_directory::insert_session_row;
-use crate::events::session::read::HYDRATED_PAGE_TEXT_BYTES;
-use crate::mutex_lock::lock;
-use crate::transcript::test_log::TranscriptTestLog;
 
 // Planted where the export must not read: an account's home folder, the credential in it, a
 // pasted token and a workflow secret in the data folder's secrets file, and a key.
@@ -149,7 +149,7 @@ async fn wait_until_finished(exports: &DataExports, job_id: DataExportJobId) -> 
 // column read or the account's home copied, and by a second export let start.
 #[tokio::test]
 async fn an_export_holds_every_part_decoded_and_no_credential() {
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     let long_body = "\u{e9}".repeat(1_500);
     log.session_log.reply("m1", Some(0), &long_body);
     let homes = tempfile::tempdir().expect("the homes folder is made");
@@ -294,7 +294,7 @@ async fn export_session_lines(log: &TranscriptTestLog) -> Vec<String> {
 // and by the first piece's length taken for the whole.
 #[tokio::test]
 async fn a_reply_too_long_for_a_page_is_written_as_its_whole_line() {
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     insert_session_row(
         &log.session_log.writer,
         log.session_log.session_id.text().as_str(),
@@ -345,7 +345,7 @@ async fn an_export_of_long_replies_stays_within_64_mib() {
         Err(error) if error.kind() == ErrorKind::Unsupported => return,
         Err(error) => panic!("the footprint read failed: {error}"),
     };
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     insert_session_row(
         &log.session_log.writer,
         log.session_log.session_id.text().as_str(),
@@ -429,7 +429,7 @@ async fn an_export_that_panics_frees_its_slot_and_fails() {
 // refused as an existing folder. Killed by a failure that leaves the folder behind.
 #[tokio::test]
 async fn a_failed_export_leaves_no_folder_and_the_same_folder_starts_again() {
-    let log = TranscriptTestLog::new(crate::remote::shared_ports::schema::schema_parts());
+    let log = TranscriptTestLog::new(crate::daemon::schema::schema_parts());
     insert_session_row(
         &log.session_log.writer,
         log.session_log.session_id.text().as_str(),

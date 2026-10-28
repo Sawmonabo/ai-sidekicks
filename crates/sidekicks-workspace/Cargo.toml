@@ -1,0 +1,62 @@
+[package]
+name = "sidekicks-workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Workspaces, repositories, git and worktrees, the file watch and the run setup gates."
+license.workspace = true
+publish.workspace = true
+
+[lib]
+doctest = false
+
+[dependencies]
+base16ct.workspace = true
+futures.workspace = true
+getrandom.workspace = true
+icu_collator.workspace = true
+ignore.workspace = true
+interprocess.workspace = true
+jiff.workspace = true
+lru.workspace = true
+memchr.workspace = true
+notify.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sidekicks-contracts.workspace = true
+sidekicks-ipc.workspace = true
+sidekicks-platforms.workspace = true
+sidekicks-std.workspace = true
+sidekicks-store.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+unicode-normalization.workspace = true
+url.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+rstest.workspace = true
+# The unremovable and unreadable files and the folder links the tests make.
+sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The pause points and stalled reads the tests arm.
+sidekicks-std = { workspace = true, features = ["test-support"] }
+# The test database and the session rows the tests build on.
+sidekicks-store = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+# The paused clock the clone and copy progress gates' and the worktree setup's tests drive.
+tokio = { workspace = true, features = ["test-util"] }
+
+[features]
+# Helpers other crates' tests use: the workspace and worktree rows other tables build on, the git
+# runner a test scripts, the link it writes through git, and the background fetch's counts.
+test-support = []
+
+[lints]
+workspace = true

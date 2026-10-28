@@ -12,16 +12,16 @@ use std::time::Duration;
 use interprocess::local_socket::tokio::{Listener, Stream};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use sidekicks_contracts::trust_statement::DeviceId;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
+use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
+use sidekicks_ipc::registry::{Dispatch, MethodRegistry, TransportId};
+use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_platforms::{PinnedProcess, bind_socket_listener};
 use tokio::task::{JoinError, JoinHandle, JoinSet};
 use tokio_util::sync::CancellationToken;
 
 use self::writer::Outbox;
-use crate::bootstrap::secure_defaults::SecureDefaults;
-use crate::ipc::caller_process::contract::CallerProcessReader;
-use crate::ipc::protocol_negotiation::ProtocolNegotiator;
-use crate::ipc::registry::{Dispatch, MethodRegistry, TransportId};
-use crate::ipc::stream::subscriptions::Subscriptions;
+use crate::bootstrap::SecureDefaults;
 
 mod connection;
 #[cfg(test)]

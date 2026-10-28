@@ -26,23 +26,25 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_ipc::registry::{
+    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
+};
+use sidekicks_ipc::stream::feed::Feed;
+use sidekicks_ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
+use sidekicks_std::scheduler::budget::ProcessorMeter;
+use sidekicks_std::scheduler::{JobCondition, Scheduler};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::sql_list::sql_list_of;
+use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::writer::repack::{RepackJobDeps, repack_job};
+use sidekicks_workflow::runs::record::{StoredInstantBound, stored_instant_bound};
 
 use crate::daemon::backup::run::{BackupTrigger, Backups};
 use crate::daemon::configuration::{ConfigurationChange, ConfigurationStore};
-use crate::daemon::scheduler::budget::ProcessorMeter;
-use crate::daemon::scheduler::{JobCondition, Scheduler};
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::sql_list::sql_list_of;
-use crate::database::stored_column::text_column;
-use crate::database::writer::repack::{RepackJobDeps, repack_job};
-use crate::events::session::purge::rows::PurgeCaller;
-use crate::events::session::purge::{SessionPurge, SessionPurgeOutcome};
-use crate::ipc::registry::{
-    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
-};
-use crate::ipc::stream::feed::Feed;
-use crate::ipc::stream::latest_value::{LatestValueFeed, LatestValueOutlet};
-use crate::workflow::runs::record::{StoredInstantBound, stored_instant_bound};
+use crate::data_acts::purge::rows::PurgeCaller;
+use crate::data_acts::purge::{SessionPurge, SessionPurgeOutcome};
 
 /// The statements the methods' reads prepare, counted into the read pool's statement capacity.
 pub(crate) const RETENTION_STATEMENT_CAPACITY: usize = 2;
@@ -343,11 +345,11 @@ fn follow_bounds(
 
 #[cfg(test)]
 mod tests {
-    use futures::FutureExt as _;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
 
+    use futures::FutureExt as _;
     use rusqlite::Connection;
     use serde_json::json;
     use sidekicks_contracts::daemon::retention::{
@@ -358,34 +360,37 @@ mod tests {
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionState;
+    use sidekicks_contracts::wire::instant::WireInstant;
+    use sidekicks_ipc::call_fixtures::{context, request};
+    use sidekicks_ipc::registry::{
+        Dispatch as _, EncodedFeed, MethodRegistry, MethodRegistryBuilder, Reply,
+    };
+    use sidekicks_ipc::stream::feed::CreditGate;
     use sidekicks_platforms::WallClockTimer;
+    use sidekicks_shell::test_table::TableFixture;
+    use sidekicks_std::scheduler::Scheduler;
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+    use sidekicks_store::database::statement::{StatementBindings, WriteStatement};
+    use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
+    use sidekicks_store::database::writer::DatabaseWriter;
+    use sidekicks_store::database::writer::repack::{
+        RepackJobDeps, VolumeFreeBytesReader, repack_job,
+    };
+    use sidekicks_store::database::writer::test_file::{
+        TestDatabase, insert_test_event, test_session_id,
+    };
+    use sidekicks_store::events::log_service::test_fixture::TestLog;
+    use tempfile::TempDir;
     use tokio::sync::watch;
     use tokio_util::sync::CancellationToken;
 
     use super::{RETENTION_STATEMENT_CAPACITY, RetentionMethodsDeps, register_retention_methods};
+    use crate::daemon::backup::run::BACKUP_BUDGET;
+    use crate::daemon::backup::run::tests::test_backups;
     use crate::daemon::configuration::{
         ConfigurationStore, DAEMON_CONFIGURATION_STATEMENT_CAPACITY,
     };
-    use tempfile::TempDir;
-
-    use crate::daemon::backup::run::BACKUP_BUDGET;
-    use crate::daemon::backup::run::tests::test_backups;
-    use crate::daemon::scheduler::Scheduler;
-    use crate::database::connection::read_pool::DatabaseReadPool;
-    use crate::database::statement::{StatementBindings, WriteStatement};
-    use crate::database::writer::DatabaseWriter;
-    use crate::database::writer::repack::{RepackJobDeps, VolumeFreeBytesReader, repack_job};
-    use crate::database::writer::test_file::{TestDatabase, insert_test_event, test_session_id};
-    use crate::events::log_service::tests::TestLog;
-    use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
-    use crate::events::session::purge::tests::{PurgeFixture, purge_fixture, store_session};
-    use crate::ipc::call_fixtures::{context, request};
-    use crate::ipc::registry::{
-        Dispatch as _, EncodedFeed, MethodRegistry, MethodRegistryBuilder, Reply,
-    };
-    use crate::ipc::stream::feed::CreditGate;
-    use crate::pty::shell::test_table::TableFixture;
-    use sidekicks_contracts::wire::instant::WireInstant;
+    use crate::data_acts::purge::tests::{PurgeFixture, purge_fixture, store_session};
 
     const WAIT: Duration = Duration::from_secs(10);
 

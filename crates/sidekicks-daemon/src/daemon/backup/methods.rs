@@ -13,13 +13,13 @@ use sidekicks_contracts::daemon::backup::{
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_ipc::registry::{
+    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
+};
+use sidekicks_std::scheduler::Scheduler;
 use walkdir::WalkDir;
 
 use crate::daemon::backup::run::{BackupTrigger, Backups, read_backups};
-use crate::daemon::scheduler::Scheduler;
-use crate::ipc::registry::{
-    HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
-};
 
 /// What the backup methods read and run through.
 pub(crate) struct BackupMethodsDeps {

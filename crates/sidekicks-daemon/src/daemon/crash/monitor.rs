@@ -4,7 +4,10 @@
 //! crash; a panic first sends its message and place, which the monitor keeps beside the dump. A
 //! dump is written under a temporary name, held locked until it is renamed once whole, so the
 //! report builder never reads one half written nor takes it for a leftover. The monitor ends once
-//! it has written a dump or its service has gone.
+//! it has written a dump or its service has gone, or once no service has said it is connected
+//! within the monitor's wait: the service says so after the channel's own handshake, since on
+//! macOS the monitor's socket accepts a connection before its port is named, and a service that
+//! reaches it in between is dropped by the handshake and tries again.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -12,7 +15,7 @@ use std::fs::File;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, sync_channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -26,17 +29,16 @@ use sidekicks_platforms::{
     LeftoverSweep, SocketPathRefused, check_socket_path, create_held_file, create_private_folder,
     pin_running_process, rename_replacing, replace_file_atomically,
 };
-
-use crate::cleanup_failures::CleanupFailures;
-use crate::daemon::data_folder::data_folder;
-use crate::error_description::describe_error;
-use crate::missing_entry::MissingEntry as _;
-use crate::mutex_lock::lock;
-use crate::standard_error::write_error_line;
+use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::missing_entry::MissingEntry as _;
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::standard_error::write_error_line;
+use sidekicks_store::data_folder::data_folder;
 
 /// The word the daemon's own program is started with to run the crash monitor; the socket's path
 /// follows it.
-pub const CRASH_MONITOR_MODE: &str = "minidump";
+pub(crate) const CRASH_MONITOR_MODE: &str = "minidump";
 
 /// The folder of crash dumps in the data folder, the service's and the app's alike.
 pub(crate) const CRASH_DUMPS_FOLDER_NAME: &str = "crash-dumps";
@@ -49,6 +51,10 @@ pub(crate) const PANIC_RECORD_SUFFIX: &str = ".panic.json";
 
 // The kind of message that carries a panic's record to the monitor.
 const PANIC_MESSAGE_KIND: u32 = 1;
+
+// The kind of message the service sends once it is connected: from then on, its disconnect means
+// it has gone.
+const SERVICE_CONNECTED_MESSAGE_KIND: u32 = 2;
 
 // How long a panic waits for the monitor to take its record before it aborts without it.
 const PANIC_RECORD_SEND_BOUND: Duration = Duration::from_secs(2);
@@ -76,6 +82,10 @@ pub(crate) fn is_partial_dump_name(file_name: &str) -> bool {
 // How long the service tries to reach a monitor that is still starting, and how often.
 const CONNECT_BOUND: Duration = Duration::from_secs(10);
 const CONNECT_RETRY_INTERVAL: Duration = Duration::from_millis(100);
+
+// How long the monitor waits for a service to say it is connected before it ends on its own:
+// past the service's whole connect bound, so a service still trying never finds it gone.
+const SERVICE_WAIT_BOUND: Duration = CONNECT_BOUND.saturating_mul(2);
 
 // A dump or panic record readable by the person alone.
 const CRASH_FILE_MODE: u32 = 0o600;
@@ -121,6 +131,9 @@ pub(crate) enum CrashMonitorError {
     /// The monitor's server failed, or the service could not reach it in time.
     #[error("the crash monitor's channel failed")]
     Channel(#[source] minidumper::Error),
+    /// The thread that ends a monitor no service connects to could not start.
+    #[error("the crash monitor's wait for its service could not start")]
+    ServiceWait(#[source] io::Error),
 }
 
 /// Why a panic's record did not reach the monitor before the abort.
@@ -216,7 +229,7 @@ fn log_unremoved_socket(path: &Path, failure: &io::Error) {
 /// Runs the `minidump` mode on the argument after the mode's own, the socket's path, writing dumps
 /// into the data folder's crash dumps folder. Exits 0 once it ends, 1 with why on standard error
 /// when it cannot serve.
-pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
+pub(crate) fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
     let [socket_path] = arguments else {
         write_error_line("the crash monitor is started with its socket's path");
         return ExitCode::FAILURE;
@@ -239,7 +252,8 @@ pub fn run_crash_monitor(arguments: &[OsString]) -> ExitCode {
 }
 
 /// Serves the monitor's socket at `socket_path`, writing each dump into `dumps_folder`, until it
-/// has written one or its service has gone. Fails when the path or the folder cannot be used or
+/// has written one, its connected service has gone, or no service has said it is connected within
+/// the monitor's wait. Fails when the path or the folder cannot be used, the wait cannot start or
 /// the server fails.
 pub(crate) fn serve_crash_monitor(
     socket_path: &Path,
@@ -252,24 +266,52 @@ pub(crate) fn serve_crash_monitor(
     })?;
     let mut server =
         Server::with_name(SocketName::path(name)).map_err(CrashMonitorError::Channel)?;
+    let is_service_connected = Arc::new(AtomicBool::new(false));
     let handler = DumpWriter {
         dumps_folder: dumps_folder.to_path_buf(),
         panic: Mutex::new(None),
         writing: Mutex::new(None),
+        is_service_connected: Arc::clone(&is_service_connected),
     };
+    let is_ended = Arc::new(AtomicBool::new(false));
+    end_unless_a_service_connects(is_service_connected, Arc::clone(&is_ended))
+        .map_err(CrashMonitorError::ServiceWait)?;
     server
-        .run(Box::new(handler), &AtomicBool::new(false), None)
+        .run(Box::new(handler), &is_ended, None)
         .map_err(CrashMonitorError::Channel)
 }
 
+// Sets `is_ended` once the monitor's wait passes with no service connected, on a thread of its own,
+// so a monitor whose service was killed between reaching it and saying so does not outlive it.
+fn end_unless_a_service_connects(
+    is_service_connected: Arc<AtomicBool>,
+    is_ended: Arc<AtomicBool>,
+) -> io::Result<()> {
+    thread::Builder::new()
+        .name("service wait".to_owned())
+        .spawn(move || {
+            thread::sleep(SERVICE_WAIT_BOUND);
+            if !is_service_connected.load(Ordering::Relaxed) {
+                is_ended.store(true, Ordering::Relaxed);
+            }
+        })
+        .map(drop)
+}
+
 /// Connects the service to its monitor at `socket_path`, trying for up to ten seconds while the
-/// monitor starts. Blocking. Fails when the path cannot be used or no monitor answers in time.
+/// monitor starts, and tells the monitor it is connected. Blocking. Fails when the path cannot be
+/// used or no monitor answers in time.
 pub(crate) fn connect_crash_monitor(socket_path: &Path) -> Result<Client, CrashMonitorError> {
     let name = socket_name(socket_path)?;
     let give_up_at = Instant::now() + CONNECT_BOUND;
     loop {
         match Client::with_name(SocketName::path(name)) {
-            Ok(client) => return Ok(client),
+            Ok(client) => {
+                client
+                    .send_message(SERVICE_CONNECTED_MESSAGE_KIND, [])
+                    .map_err(CrashMonitorError::Channel)?;
+                return Ok(client);
+            }
             Err(failure) if Instant::now() >= give_up_at => {
                 return Err(CrashMonitorError::Channel(failure));
             }
@@ -369,12 +411,16 @@ fn socket_name(socket_path: &Path) -> Result<&str, CrashMonitorError> {
         })
 }
 
-// Writes each dump into the dumps folder, the latest panic record beside it.
+// Writes each dump into the dumps folder, the latest panic record beside it, and ends the monitor
+// once its connected service has gone.
 struct DumpWriter {
     dumps_folder: PathBuf,
     panic: Mutex<Option<Vec<u8>>>,
     // The dump being written, removed when its write fails.
     writing: Mutex<Option<PathBuf>>,
+    // Whether the service has said it is connected; a connection dropped before that is the
+    // channel's own handshake failing, which the service retries.
+    is_service_connected: Arc<AtomicBool>,
 }
 
 impl ServerHandler for DumpWriter {
@@ -436,11 +482,13 @@ impl ServerHandler for DumpWriter {
     fn on_message(&self, kind: u32, buffer: Vec<u8>) {
         if kind == PANIC_MESSAGE_KIND {
             *lock(&self.panic) = Some(buffer);
+        } else if kind == SERVICE_CONNECTED_MESSAGE_KIND {
+            self.is_service_connected.store(true, Ordering::Relaxed);
         }
     }
 
     fn on_client_disconnected(&self, num_clients: usize) -> LoopAction {
-        if num_clients == 0 {
+        if num_clients == 0 && self.is_service_connected.load(Ordering::Relaxed) {
             LoopAction::Exit
         } else {
             LoopAction::Continue
@@ -519,20 +567,30 @@ pub(crate) fn panic_record_path(dump_path: &Path) -> PathBuf {
 mod tests {
     use std::fs::{self, TryLockError};
     use std::io;
-    use std::sync::Mutex;
+    use std::sync::atomic::AtomicBool;
     use std::sync::mpsc::sync_channel;
+    use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::{Duration, Instant};
 
     use minidumper::{LoopAction, MinidumpBinary, ServerHandler};
     use rstest::rstest;
-
     use sidekicks_platforms::{entry_identity, open_file_identity};
 
     use super::{
-        DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError, panic_record_bytes,
-        send_within,
+        DumpWriter, PANIC_RECORD_MAX_BYTES, PanicRecord, PanicRecordSendError,
+        SERVICE_CONNECTED_MESSAGE_KIND, panic_record_bytes, send_within,
     };
+
+    // A writer no service has reached yet.
+    fn dump_writer(dumps_folder: &std::path::Path) -> DumpWriter {
+        DumpWriter {
+            dumps_folder: dumps_folder.to_path_buf(),
+            panic: Mutex::new(Some(b"{}".to_vec())),
+            writing: Mutex::new(None),
+            is_service_connected: Arc::new(AtomicBool::new(false)),
+        }
+    }
 
     // A dump's file is one its name names, held locked while it is written, so a crash pass leaves
     // it. A dump whose write fails, as a full disk fails it, and one whose finish fails after its
@@ -546,11 +604,7 @@ mod tests {
     #[case::finish_fails(true)]
     fn a_failed_dump_leaves_no_file_of_its_own(#[case] is_written: bool) {
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let writer = DumpWriter {
-            dumps_folder: scratch.path().to_path_buf(),
-            panic: Mutex::new(Some(b"{}".to_vec())),
-            writing: Mutex::new(None),
-        };
+        let writer = dump_writer(scratch.path());
         let (file, path) = writer
             .create_minidump_file()
             .expect("the dump's file is made");
@@ -588,6 +642,31 @@ mod tests {
             Vec::new()
         };
         assert_eq!(left, taken);
+    }
+
+    // A connection the channel's handshake drops before the service says it is connected leaves
+    // the monitor serving; once the service has said so, its disconnect ends the monitor, while
+    // another client's leaves it serving. Killed by an exit on any last disconnect, and by the
+    // service's message ignored.
+    #[test]
+    fn only_the_connected_services_disconnect_ends_the_monitor() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let writer = dump_writer(scratch.path());
+
+        let before_connected = writer.on_client_disconnected(0);
+        writer.on_message(SERVICE_CONNECTED_MESSAGE_KIND, Vec::new());
+        let another_left = writer.on_client_disconnected(1);
+        let service_left = writer.on_client_disconnected(0);
+
+        let is_exit = |action: LoopAction| action == LoopAction::Exit;
+        assert_eq!(
+            [
+                is_exit(before_connected),
+                is_exit(another_left),
+                is_exit(service_left)
+            ],
+            [false, false, true]
+        );
     }
 
     // A message far past the bound, of characters JSON escapes and characters of several bytes,

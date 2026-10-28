@@ -9,15 +9,18 @@
 //! Each is looked up once at run time, so a macOS without one refuses instead of failing to load
 //! the daemon.
 
-use std::ffi::{CString, OsStr, OsString, c_char, c_int, c_short};
+use std::ffi::{CString, OsStr, OsString, c_char, c_int};
 use std::io;
-use std::os::unix::ffi::OsStringExt as _;
 use std::sync::OnceLock;
 
 use crate::ResponsibleProcess;
+use crate::c_string_array::null_terminated_pointers;
 use crate::macos::caller_process::{read_program_path, read_responsible_process};
+use crate::macos::loaded_images::look_up_symbol;
 use crate::macos::pinned_process::pin_running_process;
+use crate::macos::posix_spawn::{SpawnAttributes, check_spawn_status};
 use crate::own_root::OwnRootError;
+use crate::posix::c_string::c_string;
 use crate::posix::process::id::system_process_id;
 
 /// The environment variable a program re-run as its own responsible process starts with, holding
@@ -80,9 +83,9 @@ fn responsibility_calls() -> io::Result<ResponsibilityCalls> {
     CALLS
         .get_or_init(|| {
             let responsible_unique_id =
-                look_up(c"responsibility_get_uniqueid_responsible_for_pid")?;
-            let responsible_id = look_up(c"responsibility_get_pid_responsible_for_pid")?;
-            let disclaim = look_up(c"responsibility_spawnattrs_setdisclaim")?;
+                look_up_symbol(c"responsibility_get_uniqueid_responsible_for_pid")?;
+            let responsible_id = look_up_symbol(c"responsibility_get_pid_responsible_for_pid")?;
+            let disclaim = look_up_symbol(c"responsibility_spawnattrs_setdisclaim")?;
             // SAFETY: each symbol is libquarantine's function of exactly the signature it is cast
             // to.
             unsafe {
@@ -104,13 +107,6 @@ fn responsibility_calls() -> io::Result<ResponsibilityCalls> {
                 "this macOS has no call naming a process's responsible process",
             )
         })
-}
-
-/// The address of `name` in the loaded images, `None` when no image exports it.
-fn look_up(name: &std::ffi::CStr) -> Option<*mut libc::c_void> {
-    // SAFETY: `RTLD_DEFAULT` searches every loaded image, and the name is a C string.
-    let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, name.as_ptr()) };
-    (!symbol.is_null()).then_some(symbol)
 }
 
 /// The unique id of the process responsible for process `id`; `None` for an id of 0 or past
@@ -168,11 +164,10 @@ fn clear_errno() {
 }
 
 /// A program prepared to replace this process as its own responsible process: every array built
-/// and every call found beforehand, so [`OwnRootStart::exec`] makes the one system call and is safe
-/// in a child forked from a process running other threads.
+/// and every call found beforehand, so [`OwnRootStart::exec`] makes the one system call.
 pub(crate) struct OwnRootStart {
-    /// `POSIX_SPAWN_SETEXEC` with the disclaim attribute, destroyed when this drops.
-    attributes: libc::posix_spawnattr_t,
+    /// `POSIX_SPAWN_SETEXEC` with the disclaim attribute.
+    attributes: SpawnAttributes,
     /// The program's path.
     program: CString,
     /// The strings `argument_pointers` points into, kept alive with them.
@@ -194,37 +189,17 @@ impl OwnRootStart {
         arguments: Vec<CString>,
         environment: Vec<CString>,
     ) -> io::Result<Self> {
-        let calls = responsibility_calls()?;
-        let mut attributes: libc::posix_spawnattr_t = std::ptr::null_mut();
-        // SAFETY: `attributes` is a live, writable attributes object for the call to set up.
-        let status = unsafe { libc::posix_spawnattr_init(&raw mut attributes) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
-        let argument_pointers = null_terminated(&arguments);
-        let environment_pointers = null_terminated(&environment);
-        // From here a failure drops the start, which destroys the attributes.
-        let mut start = Self {
+        let attributes = disclaiming_attributes(libc::POSIX_SPAWN_SETEXEC)?;
+        let argument_pointers = null_terminated_pointers(&arguments);
+        let environment_pointers = null_terminated_pointers(&environment);
+        Ok(Self {
             attributes,
             program,
             _arguments: arguments,
             argument_pointers,
             _environment: environment,
             environment_pointers,
-        };
-        let flags = c_short::try_from(libc::POSIX_SPAWN_SETEXEC)
-            .expect("the exec flag fits the flags' short");
-        // SAFETY: the attributes were set up above and live as long as `start`.
-        let status = unsafe { libc::posix_spawnattr_setflags(&raw mut start.attributes, flags) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
-        // SAFETY: the attributes were set up above and live as long as `start`.
-        let status = unsafe { (calls.disclaim)(&raw mut start.attributes, 1) };
-        if status != 0 {
-            return Err(io::Error::from_raw_os_error(status));
-        }
-        Ok(start)
+        })
     }
 
     /// Replaces this process with the program, keeping its id, its descriptors not marked
@@ -239,7 +214,7 @@ impl OwnRootStart {
                 std::ptr::null_mut(),
                 self.program.as_ptr(),
                 std::ptr::null(),
-                &raw const self.attributes,
+                self.attributes.as_ptr(),
                 self.argument_pointers.as_ptr(),
                 self.environment_pointers.as_ptr(),
             )
@@ -248,21 +223,63 @@ impl OwnRootStart {
     }
 }
 
-impl Drop for OwnRootStart {
-    fn drop(&mut self) {
-        // SAFETY: the attributes were set up by `new` and are destroyed only here. The call frees
-        // memory and cannot fail on a set-up object.
-        unsafe { libc::posix_spawnattr_destroy(&raw mut self.attributes) };
-    }
+/// Spawn attributes with `flags` and the disclaim attribute, so the program started with them is
+/// its own responsible process. Fails with the error code the system answers, and with
+/// `Unsupported` on a macOS without the disclaim call.
+fn disclaiming_attributes(flags: c_int) -> io::Result<SpawnAttributes> {
+    let calls = responsibility_calls()?;
+    let mut attributes = SpawnAttributes::new()?;
+    attributes.set_flags(flags)?;
+    // SAFETY: the attributes were set up above and live across the call.
+    check_spawn_status(unsafe { (calls.disclaim)(attributes.as_mut_ptr(), 1) })?;
+    Ok(attributes)
 }
 
-/// Pointers to `strings`, followed by the `NULL` an exec's arrays end with.
-fn null_terminated(strings: &[CString]) -> Vec<*mut c_char> {
-    strings
-        .iter()
-        .map(|string| string.as_ptr().cast_mut())
-        .chain(std::iter::once(std::ptr::null_mut()))
-        .collect()
+/// Starts `program` with exactly `arguments` and `environment` (`NAME=value` entries) as its own
+/// responsible process, a child of this one, its standard output `output` when one is given, and
+/// answers its id once it runs the program; the caller reaps it. Fails with the error code the
+/// system answers, and with `Unsupported` on a macOS without the disclaim call.
+#[cfg(any(test, feature = "test-support"))]
+fn spawn_own_root_child(
+    program: &std::ffi::CStr,
+    arguments: &[CString],
+    environment: &[CString],
+    output: Option<std::os::fd::BorrowedFd<'_>>,
+) -> io::Result<u32> {
+    use std::os::fd::AsRawFd as _;
+
+    use crate::macos::posix_spawn::SpawnFileActions;
+
+    let attributes = disclaiming_attributes(0)?;
+    let mut file_actions = SpawnFileActions::new()?;
+    if let Some(output) = output {
+        // SAFETY: the file actions were set up above, and the descriptor is borrowed for the
+        // call's life, which outlives the spawn.
+        check_spawn_status(unsafe {
+            libc::posix_spawn_file_actions_adddup2(
+                file_actions.as_mut_ptr(),
+                output.as_raw_fd(),
+                libc::STDOUT_FILENO,
+            )
+        })?;
+    }
+    let argument_pointers = null_terminated_pointers(arguments);
+    let environment_pointers = null_terminated_pointers(environment);
+    let mut pid: libc::pid_t = 0;
+    // SAFETY: the path and both arrays are NUL- and NULL-terminated and outlive the call, and the
+    // file actions and the attributes were set up above. `posix_spawn`, never `posix_spawnp`,
+    // which runs a file the kernel refuses through `/bin/sh`.
+    check_spawn_status(unsafe {
+        libc::posix_spawn(
+            &raw mut pid,
+            program.as_ptr(),
+            file_actions.as_ptr(),
+            attributes.as_ptr(),
+            argument_pointers.as_ptr(),
+            environment_pointers.as_ptr(),
+        )
+    })?;
+    Ok(u32::try_from(pid).expect("a started process's id is positive"))
 }
 
 /// Makes this program its own responsible process: when it is not yet, and no other instance of
@@ -347,9 +364,9 @@ fn own_root_step(responsibility: StartResponsibility, has_re_run: bool) -> OwnRo
 /// naming process `id`. Fails when the system cannot name the program, and with `InvalidInput` for
 /// a NUL in it.
 fn this_program_as_own_root(id: u32) -> io::Result<OwnRootStart> {
-    let program = c_string(std::env::current_exe()?.into_os_string())?;
+    let program = c_string(std::env::current_exe()?.as_os_str())?;
     let arguments = std::env::args_os()
-        .map(c_string)
+        .map(|argument| c_string(&argument))
         .collect::<io::Result<Vec<_>>>()?;
     let mut marker = OsString::from(OWN_ROOT_MARKER);
     marker.push(format!("={id}"));
@@ -361,14 +378,9 @@ fn this_program_as_own_root(id: u32) -> io::Result<OwnRootStart> {
             entry
         })
         .chain(std::iter::once(marker))
-        .map(c_string)
+        .map(|entry| c_string(&entry))
         .collect::<io::Result<Vec<_>>>()?;
     OwnRootStart::new(program, arguments, environment)
-}
-
-/// `text` as a C string; `InvalidInput` when it holds a NUL.
-fn c_string(text: OsString) -> io::Result<CString> {
-    CString::new(text.into_vec()).map_err(io::Error::from)
 }
 
 /// How many threads this process runs. Fails with the system's error.
@@ -405,80 +417,59 @@ fn read_thread_count() -> io::Result<i32> {
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn rerun_test_as_own_root(name: &str) -> (bool, String) {
     use std::io::Read as _;
-    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+    use std::os::fd::AsFd as _;
 
-    // Built before the fork, so the child makes only the exec's one system call.
+    use crate::macos::posix_spawn::reap_spawned_child;
+
     let program = std::env::current_exe().expect("the test program names itself");
-    let c_string = |text: OsString| CString::new(text.into_vec()).expect("no NUL");
-    let arguments = std::iter::once(program.clone().into_os_string())
+    let arguments: Vec<CString> = std::iter::once(program.clone().into_os_string())
         .chain(
             crate::test_program::this_test_arguments(name)
                 .into_iter()
                 .map(OsString::from),
         )
-        .map(c_string)
+        .map(|argument| c_string(&argument).expect("no NUL"))
         .collect();
-    let environment = std::env::vars_os()
+    let environment: Vec<CString> = std::env::vars_os()
         .map(|(mut name, value)| {
             name.push("=");
             name.push(value);
-            c_string(name)
+            c_string(&name).expect("no NUL")
         })
         .collect();
-    let start = OwnRootStart::new(c_string(program.into_os_string()), arguments, environment)
-        .expect("the start prepares");
-    let mut ends = [0; 2];
-    // SAFETY: `ends` is a live array of the two descriptors the call fills.
-    let status = unsafe { libc::pipe(ends.as_mut_ptr()) };
-    assert_eq!(status, 0, "the pipe opens");
-    // SAFETY: the call succeeded, so both descriptors are new and owned here alone.
-    let (read_end, write_end) =
-        unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-    // SAFETY: the descriptor is open; the call only sets its close-on-exec flag.
-    let status = unsafe { libc::fcntl(read_end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
-    assert_eq!(status, 0, "the read end closes on exec");
-    let write_descriptor = write_end.as_raw_fd();
-
-    // SAFETY: the child calls only `dup2`, `exec` and `_exit`, each async-signal-safe, so the other
-    // threads' locks the fork copies are never taken.
-    let child = unsafe { libc::fork() };
-    if child == 0 {
-        // SAFETY: both descriptors are open in the child; `dup2` makes the pipe its output.
-        unsafe { libc::dup2(write_descriptor, libc::STDOUT_FILENO) };
-        drop(start.exec());
-        // SAFETY: `_exit` ends the child without running the parent's exit handlers.
-        unsafe { libc::_exit(127) };
-    }
-    assert!(child > 0, "the child forks");
+    // Both ends close on exec, so the child holds only the copy made its standard output.
+    let (mut read_end, write_end) = std::io::pipe().expect("the pipe opens");
+    let child = spawn_own_root_child(
+        &c_string(program.as_os_str()).expect("no NUL"),
+        &arguments,
+        &environment,
+        Some(write_end.as_fd()),
+    )
+    .expect("the test starts as its own responsible process");
     drop(write_end);
     let mut output = String::new();
-    std::fs::File::from(read_end)
+    read_end
         .read_to_string(&mut output)
         .expect("the child's output reads");
-    let mut status = 0;
-    // SAFETY: `child` is this test's own child, which the test reaps here.
-    assert_eq!(unsafe { libc::waitpid(child, &raw mut status, 0) }, child);
-    (
-        libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0,
-        output,
-    )
+    let status = reap_spawned_child(child).expect("the child is reaped");
+    (status.success(), output)
 }
 
 #[cfg(test)]
 mod tests {
     use std::ffi::{CString, OsStr};
-    use std::io::{Read as _, Write as _};
-    use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd};
+    use std::io::Write as _;
 
     use rstest::rstest;
 
     use super::{
-        OwnRootStart, OwnRootStep, StartResponsibility, is_own_marker, own_root_step,
-        read_own_root_step, read_responsible_id, rerun_test_as_own_root,
+        OwnRootStep, StartResponsibility, is_own_marker, own_root_step, read_own_root_step,
+        read_responsible_id, rerun_test_as_own_root, spawn_own_root_child,
     };
     use crate::ResponsibleProcess;
     use crate::macos::caller_process::read_responsible_process;
     use crate::macos::pinned_process::pin_running_process;
+    use crate::macos::posix_spawn::end_spawned_child;
     use crate::test_program::this_test_program;
 
     /// What the stand-in started under an own-root instance of this program prints once it found
@@ -569,43 +560,14 @@ mod tests {
 
     #[test]
     fn a_program_started_as_its_own_root_is_responsible_for_itself() {
-        // Built before the fork, so the child makes only the exec's one system call.
-        let start = OwnRootStart::new(
-            CString::from(c"/bin/sleep"),
-            vec![CString::from(c"sleep"), CString::from(c"30")],
-            Vec::new(),
+        // The spawn answers once the child runs `sleep`.
+        let child_id = spawn_own_root_child(
+            c"/bin/sleep",
+            &[CString::from(c"sleep"), CString::from(c"30")],
+            &[],
+            None,
         )
-        .expect("the start prepares");
-        // A pipe closed on exec, so the parent reads its end once the child has become `sleep`.
-        let mut ends = [0; 2];
-        // SAFETY: `ends` is a live array of the two descriptors the call fills.
-        let status = unsafe { libc::pipe(ends.as_mut_ptr()) };
-        assert_eq!(status, 0, "the pipe opens");
-        // SAFETY: the call succeeded, so both descriptors are new and owned here alone.
-        let (read_end, write_end) =
-            unsafe { (OwnedFd::from_raw_fd(ends[0]), OwnedFd::from_raw_fd(ends[1])) };
-        for end in [&read_end, &write_end] {
-            // SAFETY: the descriptor is open; the call only sets its close-on-exec flag.
-            let status = unsafe { libc::fcntl(end.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) };
-            assert_eq!(status, 0, "the pipe closes on exec");
-        }
-
-        // SAFETY: the child calls only `exec`, one system call, and `_exit`, both
-        // async-signal-safe, so the other threads' locks the fork copies are never taken.
-        let child = unsafe { libc::fork() };
-        if child == 0 {
-            drop(start.exec());
-            // SAFETY: `_exit` ends the child without running the parent's exit handlers.
-            unsafe { libc::_exit(127) };
-        }
-        assert!(child > 0, "the child forks");
-        drop(write_end);
-        let mut until_exec = Vec::new();
-        std::fs::File::from(read_end)
-            .read_to_end(&mut until_exec)
-            .expect("the pipe reads until the exec closes it");
-
-        let child_id = u32::try_from(child).expect("a child's id is positive");
+        .expect("the child starts as its own responsible process");
         let process = pin_running_process(child_id)
             .expect("the child reads")
             .expect("the child runs");
@@ -617,11 +579,7 @@ mod tests {
             read_responsible_process(&process).expect("the read answers"),
             ResponsibleProcess::Itself
         ));
-        // SAFETY: `child` is this test's own child, which the test ends and reaps here.
-        unsafe {
-            libc::kill(child, libc::SIGKILL);
-            libc::waitpid(child, std::ptr::null_mut(), 0);
-        }
+        end_spawned_child(child_id).expect("the child ends and is reaped");
 
         // A child started plainly reads the test's own responsible process, never itself.
         let mut plain = std::process::Command::new("/bin/sleep")

@@ -186,7 +186,7 @@ The adapter answers for GitHub and GitLab, on their public sites and on self-hos
 
 A request is kept current only while someone is looking at it. While the session's header is on screen its request word follows the site through a conditional request every 60 s — an unchanged answer, `304 Not Modified`, costs no rate-limit quota ([GitHub REST: best practices, conditional requests](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api#use-conditional-requests)) — and reads again at once after the person's own git and pull-request acts and after each event that changes the request. The pull-request comparison re-reads the request's state and threads while it is in view, every 60 s while the request is open and every five minutes once it is merged or closed; a read that fails waits one second, then 1.6 times longer each time up to two minutes, with a fifth either way of jitter, waits longer whenever the service names a time, and waits at least a minute after a rate limit that names none, keeping the last state on screen through every failure. With nothing subscribed, nothing asks the host.
 
-The adapter's typed interface is the daemon's own, in its git module (`crates/sidekicks-daemon/src/git/`, which Plan-008 builds); only the `git.*` method shapes are wire contracts.
+The adapter's typed interface is the daemon's own, in its git module (`crates/sidekicks-workspace/src/git/`, which Plan-008 builds); only the `git.*` method shapes are wire contracts.
 
 ## Example Flows
 

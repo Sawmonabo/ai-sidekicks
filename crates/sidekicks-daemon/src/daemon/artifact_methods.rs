@@ -12,29 +12,29 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
+use sidekicks_artifact::admission::UploadAdmission;
+use sidekicks_artifact::attachment_resolver::ArtifactAttachmentResolver;
+use sidekicks_artifact::ingest::service::ArtifactIngestService;
+use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_artifact::publish::ArtifactPublishService;
+use sidekicks_ipc::registry::{MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{WallClock, volume_free_bytes};
-use tokio_util::sync::CancellationToken;
-
-use crate::artifacts::admission::UploadAdmission;
-use crate::artifacts::attachment_resolver::ArtifactAttachmentResolver;
-use crate::artifacts::ingest::service::ArtifactIngestService;
-use crate::artifacts::payload_store::PayloadStore;
-use crate::artifacts::publish::ArtifactPublishService;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
 };
-use crate::daemon::scheduler::{
+use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, ScheduledJobOutcome, Scheduler,
 };
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use tokio_util::sync::CancellationToken;
+
 use crate::ipc::handlers::artifact::ingest::register_artifact_ingest;
 use crate::ipc::handlers::artifact::list::register_artifact_list;
 use crate::ipc::handlers::artifact::publish::register_artifact_publish;
 use crate::ipc::handlers::artifact::read::register_artifact_read;
-use crate::ipc::registry::{MethodRegistryBuilder, RegistrationError};
 
 /// The artifact store's folder in the data folder.
 pub(crate) const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
@@ -43,19 +43,28 @@ pub(crate) const ARTIFACTS_FOLDER_NAME: &str = "artifacts";
 // enough that a stream is ended within minutes of its six-hour lifetime.
 const INGEST_REAPER_INTERVAL: Duration = Duration::from_mins(10);
 
+// What a reaper pass counts its work in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum IngestReaperWorkUnit {
+    // Artifacts the ingest reaper or the orphan sweep examined.
+    ArtifactsExamined,
+    // Passes, one each, for the fixed work every pass does.
+    Runs,
+}
+
 // A reaper pass's processor budget, the reap's and the orphan sweep's work together: 20 µs per
 // artifact examined, and 5 ms for the work every pass does whatever it finds, its two listings
 // and its statements.
-const INGEST_REAPER_BUDGET: JobBudget = JobBudget::new(&[
+const INGEST_REAPER_BUDGET: JobBudget<IngestReaperWorkUnit> = JobBudget::new(&[
     BudgetTerm {
         figure: Duration::from_micros(20),
         per: 1,
-        unit: WorkUnit::ArtifactsExamined,
+        unit: IngestReaperWorkUnit::ArtifactsExamined,
     },
     BudgetTerm {
         figure: Duration::from_millis(5),
         per: 1,
-        unit: WorkUnit::Runs,
+        unit: IngestReaperWorkUnit::Runs,
     },
 ]);
 
@@ -141,7 +150,7 @@ async fn run_reaper_pass(
     payloads: &PayloadStore,
     reads: &DatabaseReadPool,
     meter: &ProcessorMeter,
-) -> MeteredJobOutcome {
+) -> MeteredJobOutcome<IngestReaperWorkUnit> {
     let reaped = ingest.reap(meter).await;
     let swept = payloads.sweep_orphans(reads, meter).await;
     let examined = match (reaped, swept) {
@@ -157,8 +166,8 @@ async fn run_reaper_pass(
             return Err(reap_failure.into());
         }
     };
-    let mut workload = JobWorkload::of(WorkUnit::Runs, 1);
-    workload.add(WorkUnit::ArtifactsExamined, examined);
+    let mut workload = JobWorkload::of(IngestReaperWorkUnit::Runs, 1);
+    workload.add(IngestReaperWorkUnit::ArtifactsExamined, examined);
     Ok(Some(workload))
 }
 
@@ -216,13 +225,13 @@ mod tests {
     use std::sync::Arc;
 
     use sha2::{Digest as _, Sha256};
+    use sidekicks_artifact::payload_store::ContentHash;
+    use sidekicks_artifact::test_store::{ArtifactTestStore, write_payload_reference};
+    use sidekicks_ipc::registry::MethodRegistryBuilder;
     use sidekicks_platforms::WallClockTimer;
     use tokio_util::sync::CancellationToken;
 
     use super::{ARTIFACTS_FOLDER_NAME, ArtifactMethodsDeps, register_artifact_methods};
-    use crate::artifacts::payload_store::ContentHash;
-    use crate::artifacts::test_store::{ArtifactTestStore, write_payload_reference};
-    use crate::ipc::registry::MethodRegistryBuilder;
 
     // One reaper pass sweeps the payloads no reference names and keeps a referenced one. Killed by
     // the sweep left out of the reaper's pass.

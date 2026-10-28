@@ -44,33 +44,36 @@ use sidekicks_platforms::{
     create_missing_private_folders, create_new_private_folder, flush_file, flush_folder,
     remove_tree, rename_replacing,
 };
+use sidekicks_recovery::database_file::check::SOUND_ROW;
+use sidekicks_recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
+use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::atomic_write::{AtomicWriteError, write_and_flush};
+use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::scheduler::budget::{
+    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, metered_job,
+};
+use sidekicks_std::scheduler::{JobCondition, ScheduleError, Scheduler};
+use sidekicks_std::text_cut::cut_to_code_points;
+use sidekicks_store::backup_mirror::{
+    MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, mirror_roots,
+};
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
+use sidekicks_store::database::wal_truncation::WriteAheadLogTruncation;
+use sidekicks_store::database::writer::backup::BackupCopy;
+use sidekicks_store::database::writer::jobs::StoreWorkUnit;
+use sidekicks_store::database::writer::{DatabaseWriter, MaintenanceError};
+use sidekicks_store::events::log_service::{EventLogAppendOptions, EventLogService};
+use sidekicks_store::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_store::machine::local::LocalMachine;
 use tokio_util::sync::CancellationToken;
 
 use crate::daemon::backup::generations::{BackupGeneration, backups_to_prune};
-use crate::daemon::backup::mirror::{
-    MIRROR_FOLDER_NAME, MIRROR_ROOTS_FILE_NAME, MirrorError, MirrorRoot, mirror_roots,
-};
-use crate::daemon::data_folder::data_folder;
-use crate::daemon::machine::local::LocalMachine;
-use crate::daemon::machine::settings::file::{MachineSettingsFile, MachineSettingsFileError};
+use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettingsFileError};
 use crate::daemon::release_version::this_build_release_version;
-use crate::daemon::scheduler::budget::{
-    BudgetTerm, JobBudget, JobWorkload, MeteredJobOutcome, ProcessorMeter, WorkUnit, metered_job,
-};
-use crate::daemon::scheduler::{JobCondition, ScheduleError, Scheduler};
-use crate::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool, ReadLength};
-use crate::database::writer::backup::BackupCopy;
-use crate::database::writer::{DatabaseWriter, MaintenanceError};
-use crate::error_description::describe_error;
-use crate::events::log_service::{EventLogAppendOptions, EventLogService};
-use crate::events::session::appender::{SessionEventDraft, UnsequencedEventEnvelope};
-use crate::events::session::purge::checkpoint::WriteAheadLogTruncation;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::file::atomic_write::{AtomicWriteError, write_and_flush};
-use crate::mutex_lock::lock;
-use crate::recovery::database_file::check::SOUND_ROW;
-use crate::recovery::database_file::newest_backup::{BackupManifestError, read_backup_manifest};
-use crate::text_cut::cut_to_code_points;
 
 /// The lock file in the backups folder a run holds while it writes there.
 pub(crate) const BACKUP_LOCK_FILE_NAME: &str = "backup.lock";
@@ -80,10 +83,10 @@ pub(crate) const BACKUP_STATEMENT_CAPACITY: usize = 1;
 
 /// A run's processor budget, and a repack's, since a `VACUUM` copies the store too: one second
 /// per 256 MiB of store.
-pub(crate) const BACKUP_BUDGET: JobBudget = JobBudget::new(&[BudgetTerm {
+pub(crate) const BACKUP_BUDGET: JobBudget<StoreWorkUnit> = JobBudget::new(&[BudgetTerm {
     figure: Duration::from_secs(1),
     per: 256 * 1024 * 1024,
-    unit: WorkUnit::StoreBytes,
+    unit: StoreWorkUnit::Bytes,
 }]);
 
 // How long a requested run other than `Back up now` waits for no run to be live before it runs
@@ -384,7 +387,7 @@ impl Backups {
         trigger: BackupTrigger,
         stop: &CancellationToken,
         meter: &ProcessorMeter,
-    ) -> MeteredJobOutcome {
+    ) -> MeteredJobOutcome<StoreWorkUnit> {
         let mut joined = JoinedRequests {
             pending: &self.pending,
             is_released: false,
@@ -446,7 +449,7 @@ impl Backups {
             copied_through
         };
         *lock(&self.committed_at_last_copy) = Some(holds);
-        Ok(Some(JobWorkload::of(WorkUnit::StoreBytes, total_bytes)))
+        Ok(Some(JobWorkload::of(StoreWorkUnit::Bytes, total_bytes)))
     }
 
     // Writes one backup into `folder` under its lock, then prunes the backups no day or week
@@ -731,12 +734,15 @@ fn read_last_run(connection: &Connection) -> Result<Option<BackupLastRun>, Backu
         return Ok(None);
     };
     let event_type: String = row.get(0)?;
-    let finished_at = crate::database::stored_column::text_column(row, 1, WireInstant::try_from)?;
+    let finished_at =
+        sidekicks_store::database::stored_column::text_column(row, 1, WireInstant::try_from)?;
     if event_type == SessionEventType::DaemonBackupCompleted.as_str() {
         return Ok(Some(BackupLastRun::Completed { finished_at }));
     }
     let payload: DaemonBackupFailedPayload =
-        crate::database::stored_column::text_column(row, 2, |text| serde_json::from_str(&text))?;
+        sidekicks_store::database::stored_column::text_column(row, 2, |text| {
+            serde_json::from_str(&text)
+        })?;
     Ok(Some(BackupLastRun::Failed {
         finished_at,
         message: payload.message,

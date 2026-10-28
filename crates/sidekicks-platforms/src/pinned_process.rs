@@ -192,7 +192,7 @@ mod tests {
 
         use crate::posix::process::group::read_group_output_to_end;
 
-        let (mut child, mut output, record) = start_group_leader(true);
+        let (mut child, record) = start_group_leader(true);
         let is_held_group_ended = ProcessRecord {
             start: 0,
             ..record.clone()
@@ -200,7 +200,7 @@ mod tests {
         .end_survivors(OWN_ENTRY)
         .expect("the held record's survivors read");
         let is_running = record.pin().expect("the re-pin reads").is_some();
-        drop(child.stdin.take());
+        drop(child.input.take());
         child.wait().expect("the child is reaped");
 
         let refusals = [
@@ -227,7 +227,7 @@ mod tests {
         });
         let is_re_pinned = record.pin().expect("the re-pin reads").is_some();
         let is_group_ended = record.end_survivors(OWN_ENTRY).expect("the survivors end");
-        let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
+        let rest = read_group_output_to_end(&mut child.output, record.id, Duration::from_secs(5));
 
         assert!(!is_held_group_ended);
         assert!(is_running);
@@ -248,13 +248,13 @@ mod tests {
 
         use crate::posix::process::group::{read_group_output_to_end, signal_group};
 
-        let (mut child, mut output, record) = start_group_leader(false);
-        drop(child.stdin.take());
+        let (mut child, record) = start_group_leader(false);
+        drop(child.input.take());
         child.wait().expect("the child is reaped");
 
         let is_group_ended = record.end_survivors(OWN_ENTRY).expect("the survivors read");
         signal_group(record.id, Signal::SIGKILL).expect("the test ends its own child's group");
-        let rest = read_group_output_to_end(&mut output, record.id, Duration::from_secs(5));
+        let rest = read_group_output_to_end(&mut child.output, record.id, Duration::from_secs(5));
 
         assert!(!is_group_ended);
         assert_eq!(rest, Some(Vec::new()));
@@ -369,16 +369,11 @@ mod tests {
     #[cfg(unix)]
     fn start_group_leader(
         is_own_session: bool,
-    ) -> (
-        std::process::Child,
-        std::process::ChildStdout,
-        ProcessRecord,
-    ) {
+    ) -> (crate::posix::child_command::StandInChild, ProcessRecord) {
         use std::io::Read as _;
-        use std::os::unix::process::CommandExt as _;
-        use std::process::Stdio;
 
-        use crate::posix::child_command::prepare_lasting_child_command;
+        use crate::posix::child_command::StandInChild;
+        use crate::session_child::SessionCommand;
         use crate::test_program::this_test_arguments;
 
         // The stand-in keeps the output open on a descriptor of its own, so the test runner's own
@@ -387,35 +382,42 @@ mod tests {
             "(exec \"$0\" {} 3>&1 >/dev/null 2>&1) & echo ready; read never",
             this_test_arguments(SURVIVOR_STAND_IN).join(" ")
         );
-        let mut command = tokio::process::Command::new("/bin/sh");
-        command
-            .arg("-c")
-            .arg(survivor)
-            .arg(std::env::current_exe().expect("the test program names itself"))
-            .env(SURVIVOR_ENTRY.0, SURVIVOR_ENTRY.1)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped());
-        if is_own_session {
-            prepare_lasting_child_command(&mut command);
+        let command = SessionCommand {
+            program: "/bin/sh".into(),
+            argument_zero: "sh".into(),
+            arguments: vec![
+                "-c".to_owned(),
+                survivor,
+                std::env::current_exe()
+                    .expect("the test program names itself")
+                    .to_str()
+                    .expect("the test program's path is text")
+                    .to_owned(),
+            ],
+            added_environment: vec![(SURVIVOR_ENTRY.0.to_owned(), SURVIVOR_ENTRY.1.to_owned())],
+            working_folder: std::env::temp_dir(),
+        };
+        let mut child = if is_own_session {
+            StandInChild::start_session_leader(&command)
         } else {
-            command.as_std_mut().process_group(0);
+            StandInChild::start_group_leader(&command)
         }
-        let mut child = command.as_std_mut().spawn().expect("the child starts");
-        let mut output = child.stdout.take().expect("the child's output is piped");
+        .expect("the child starts");
         // The shell's line and the survivor's arrive in either order.
         let mut lines = [0; 14];
-        output
+        child
+            .output
             .read_exact(&mut lines)
             .expect("the child's and the survivor's lines read");
         let mut lines: Vec<&[u8]> = lines.split_inclusive(|byte| *byte == b'\n').collect();
         lines.sort_unstable();
         assert_eq!(lines, [&b"ready\n"[..], SURVIVOR_LINE]);
-        let record = pin_child_process(child.id())
+        let record = pin_child_process(child.id)
             .expect("the child pins")
             .record()
             .expect("the record reads")
             .expect("the child runs");
-        (child, output, record)
+        (child, record)
     }
 
     #[cfg(unix)]

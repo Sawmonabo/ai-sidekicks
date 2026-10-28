@@ -62,10 +62,10 @@ pub enum ChildTreeOutputError {
 }
 
 /// Starts `command` as a child of the daemon `daemon_pid` leading a tree of its own: on macOS and
-/// Linux the leader of a process group of its own, armed to end with the daemon as
-/// `prepare_child_command` arms it; on Windows in a job of its own that opens no console window
-/// and that closing the daemon's handle does not end. Runs on the daemon's spawner thread. Fails
-/// with the spawn's error, or on Windows the job's.
+/// Linux the leader of a process group of its own, prepared as `prepare_child_command` prepares
+/// it; on Windows in a job of its own that opens no console window and that closing the daemon's
+/// handle does not end. Runs on the daemon's spawner thread. Fails with the spawn's error, or on
+/// Windows the job's.
 pub fn start_child_tree(command: Command, daemon_pid: u32) -> io::Result<ChildTree> {
     Ok(ChildTree {
         process: Some(spawn_child_tree_process(command, daemon_pid)?),

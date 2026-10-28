@@ -7,66 +7,66 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
+use sidekicks_artifact::chat_file_versions::ChatFileVersions;
+use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_artifact::plans::service::PlansService;
+use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_platforms::{Spawner, WallClock};
+use sidekicks_policy::authorizer::Authorizer;
+use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::background_work::BackgroundWorkForms;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_provider::process_identity::ProviderProcessIds;
+use sidekicks_provider::run::posture::ExecutionPostureService;
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_queue::changes::QueueChangeSignals;
+use sidekicks_queue::memory_gate::MemoryGate;
+use sidekicks_queue::provider_session::{
+    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
+};
+use sidekicks_queue::service::{RunQueue, RunQueueDeps};
+use sidekicks_session::auto_title::{SessionAutoTitle, SessionAutoTitling};
+use sidekicks_session::changes::SessionChanges;
+use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::draft_store::SessionDraftStore;
+use sidekicks_session::interventions::service::{InterventionService, InterventionServiceDeps};
+use sidekicks_session::links::service::SessionLinkService;
+use sidekicks_session::plan_holds::PlanHolds;
+use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
+use sidekicks_session::run::binding_cursors::RunBindingCursors;
+use sidekicks_session::run::engine::{RunEngine, RunEngineDeps};
+use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_session::run::inbound::RunInboundDispatch;
+use sidekicks_session::run::pause::RunPauseControl;
+use sidekicks_session::run::provider_choice::ProviderChoiceResolver;
+use sidekicks_session::search::files::service::FileSearchService;
+use sidekicks_session::service::SessionService;
+use sidekicks_session::tags::SessionTagService;
+use sidekicks_shell::console::CONSOLE_MODE;
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::log_service::EventLogService;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_terminal::{CommandLine, Terminals};
+use sidekicks_workspace::git::process::GitRunner;
+use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
+use sidekicks_workspace::managed::service::ManagedWorkspaceService;
+use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
-use crate::admission::memory_gate::MemoryGate;
-use crate::artifacts::chat_file_versions::ChatFileVersions;
-use crate::artifacts::payload_store::PayloadStore;
-use crate::artifacts::publish::ArtifactPublishService;
-use crate::daemon::machine::local::LocalMachine;
 use crate::daemon::process::approvals::{
     ApprovalAttachments, ApprovalStart, Approvals, build_approvals, start_approval_attachments,
 };
 use crate::daemon::process::stop::TaskStopFailure;
-use crate::database::connection::read_pool::DatabaseReadPool;
-use crate::database::writer::DatabaseWriter;
-use crate::events::log_service::EventLogService;
-use crate::events::session::appender::SessionEventAppender;
-use crate::events::session::followers::{FollowerAttachment, SessionEventFollowers};
-use crate::events::session::read::DamagedFromSequenceReader;
-use crate::events::session::version::SESSION_EVENT_VERSION;
-use crate::git::process::GitRunner;
-use crate::git::worktree::watch::WorkingFolderWatcher;
 use crate::highlight::colorer::{CodeHighlighter, CodeHighlighterOptions};
-use crate::interventions::service::{InterventionService, InterventionServiceDeps};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
-use crate::plans::service::PlansService;
-use crate::policy::authorizer::Authorizer;
-use crate::policy::background_work::BackgroundWorkForms;
-use crate::policy::execution_posture_service::ExecutionPostureService;
-use crate::policy::shell_commands::reading_bound::ShellLineReadingBound;
-use crate::provider::driver::registry::ProviderRegistry;
-use crate::provider::process_identity::ProviderProcessIds;
-use crate::provider::runtime_binding::store::RuntimeBindingStore;
-use crate::pty::console::CONSOLE_MODE;
-use crate::questions::service::QuestionsService;
-use crate::queue::changes::QueueChangeSignals;
-use crate::queue::provider_session::{
-    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
-};
-use crate::queue::service::{RunQueue, RunQueueDeps};
-use crate::session::auto_title::{SessionAutoTitle, SessionAutoTitling};
-use crate::session::changes::SessionChanges;
-use crate::session::directory::list_feed::SessionListFeed;
-use crate::session::draft_store::SessionDraftStore;
-use crate::session::links::service::SessionLinkService;
-use crate::session::plan_holds::PlanHolds;
-use crate::session::related::ranking::{RelatedRescoring, SessionRelatedRanking};
-use crate::session::run::binding_cursors::RunBindingCursors;
-use crate::session::run::engine::{RunEngine, RunEngineDeps};
-use crate::session::run::epochs::ExecutionEpochs;
-use crate::session::run::inbound::RunInboundDispatch;
-use crate::session::run::pause::RunPauseControl;
-use crate::session::run::provider_choice::ProviderChoiceResolver;
-use crate::session::run::setup_gates::RunSetupGate;
-use crate::session::search::files::service::FileSearchService;
-use crate::session::service::SessionService;
-use crate::session::tags::SessionTagService;
-use crate::workspace::managed::service::ManagedWorkspaceService;
-use crate::workspace::managed::write_watcher::ManagedWorkspaceWrite;
 
 /// What the session services are built from.
 pub(crate) struct SessionServiceStart {
