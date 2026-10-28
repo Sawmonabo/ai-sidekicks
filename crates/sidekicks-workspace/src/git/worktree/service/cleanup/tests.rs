@@ -25,6 +25,8 @@ use crate::git::process::{
 };
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::removal::FolderProcessOwner;
+use crate::git::worktree::removal::test_owner::{FolderSighting, RecordingOwner};
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
@@ -33,10 +35,13 @@ use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
-// A keeper that records which trees it was asked to keep aside.
+// A keeper that records which trees it was asked to keep aside and, at each, what `owner` had
+// been asked and had released by then.
 #[derive(Default)]
 struct RecordingKeeper {
     kept: Mutex<Vec<WorktreeId>>,
+    owner: Arc<RecordingOwner>,
+    owner_at_keep: Mutex<Vec<(Vec<FolderSighting>, Vec<FolderSighting>)>>,
 }
 
 impl RetiredWorktreeKeeper for RecordingKeeper {
@@ -46,6 +51,10 @@ impl RetiredWorktreeKeeper for RecordingKeeper {
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
             self.kept.lock().expect("the keeper's list").push(row.id);
+            self.owner_at_keep
+                .lock()
+                .expect("the keeper's list")
+                .push((self.owner.asked(), self.owner.released()));
             Ok(())
         })
     }
@@ -270,6 +279,54 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     assert_eq!(second.cleaned, [busy]);
     assert_eq!(second.kept, [kept]);
     assert!(!tree_at("busy").exists());
+}
+
+// Kills ending a tree's processes after it is kept aside or deleted, and dropping their hold
+// before either lands, which lets a process start in the tree again first.
+#[tokio::test]
+async fn a_pass_ends_a_tree_s_processes_before_keeping_or_deleting_it() {
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let clean = fixture.add_tree("clean").await;
+    let kept = fixture.add_tree("kept").await;
+    std::fs::write(kept.join("new.txt"), "new work\n").expect("the new work is written");
+    let connection = fixture.database.reader();
+    store_retired_tree(&connection, &fixture.mount, &clean);
+    store_retired_tree(&connection, &fixture.mount, &kept);
+    let keeper = RecordingKeeper::default();
+    let owners = [Arc::clone(&keeper.owner) as Arc<dyn FolderProcessOwner>];
+
+    fixture
+        .service
+        .cleanup_pass(&keeper, &owners, &CancellationToken::new())
+        .await
+        .expect("the pass succeeds");
+
+    let in_place = |folder: &Path| FolderSighting {
+        folder: folder.to_path_buf(),
+        was_present: true,
+    };
+    let [(asked, released)] = &keeper.owner_at_keep.lock().expect("the keeper's list")[..] else {
+        panic!("one tree is kept aside");
+    };
+    assert!(
+        asked.contains(&in_place(&kept)),
+        "the owner is asked for the kept tree before it is kept aside"
+    );
+    assert!(
+        released.iter().all(|sighting| sighting.folder != kept),
+        "the kept tree's hold stands while it is kept aside"
+    );
+    assert!(
+        keeper.owner.asked().contains(&in_place(&clean)),
+        "the owner is asked for the clean tree while it is in place"
+    );
+    assert!(
+        keeper.owner.released().contains(&FolderSighting {
+            folder: clean,
+            was_present: false,
+        }),
+        "the clean tree's hold drops only once its folder is deleted"
+    );
 }
 
 // Kills a refusal read by its prefix alone, a line that is not the last `fatal:` line read, any

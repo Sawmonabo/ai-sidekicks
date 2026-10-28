@@ -21,7 +21,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
-use sidekicks_workspace::git::worktree::removal::FolderProcessOwner;
+use sidekicks_workspace::git::worktree::removal::{FolderProcessHold, FolderProcessOwner};
 use sidekicks_workspace::trust_envelope::is_contained_within;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, UpdateKind};
 use tokio::sync::watch;
@@ -206,12 +206,10 @@ impl FolderProcessOwner for ShellTable {
     fn end_processes_in_folder<'a>(
         &'a self,
         folder: &'a Path,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        // The hold drops here, before the removal's move: holding it until the move lands needs
-        // the owner's answer to carry it.
+    ) -> BoxFuture<'a, Result<FolderProcessHold, Box<dyn Error + Send + Sync>>> {
+        // The removal keeps the hold until its move or deletion lands.
         Box::pin(async move {
-            drop(self.close_shells_in_folder(folder).await?);
-            Ok(())
+            Ok(Box::new(self.close_shells_in_folder(folder).await?) as FolderProcessHold)
         })
     }
 }

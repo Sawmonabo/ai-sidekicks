@@ -47,7 +47,7 @@ use self::steps::{
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
-use crate::git::worktree::removal::FolderProcessOwner;
+use crate::git::worktree::removal::{FolderProcessHold, FolderProcessOwner};
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
 use crate::trust_envelope::is_contained_within;
 
@@ -604,10 +604,13 @@ impl<W: Watcher + Send + 'static> FolderProcessOwner for WorktreeSetupRunner<W> 
     fn end_processes_in_folder<'a>(
         &'a self,
         folder: &'a Path,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        Box::pin(
-            async move { Ok(WorktreeSetupRunner::end_processes_in_folder(self, folder).await?) },
-        )
+    ) -> BoxFuture<'a, Result<FolderProcessHold, Box<dyn Error + Send + Sync>>> {
+        // Nothing is held: a retry of the card's failed step can still start in the folder before
+        // its move or deletion lands.
+        Box::pin(async move {
+            WorktreeSetupRunner::end_processes_in_folder(self, folder).await?;
+            Ok(Box::new(()) as FolderProcessHold)
+        })
     }
 }
 

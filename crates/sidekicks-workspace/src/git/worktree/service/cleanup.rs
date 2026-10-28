@@ -312,7 +312,8 @@ impl WorktreeService {
         if !retired.is_cleanup_started || record_folder.is_some() {
             if is_folder_present && self.holds_something_new(retired).await? {
                 if retired.is_mount_attached {
-                    end_processes_in_folder(owners, folder).await?;
+                    // Held until the tree is kept aside.
+                    let _process_holds = end_processes_in_folder(owners, folder).await?;
                     keeper
                         .keep_retired_aside(row)
                         .await
@@ -326,9 +327,12 @@ impl WorktreeService {
                 self.mark_cleanup_started(&row.id).await?;
             }
         }
-        if is_folder_present {
-            end_processes_in_folder(owners, folder).await?;
-        }
+        // Held until the folder is deleted.
+        let _process_holds = if is_folder_present {
+            end_processes_in_folder(owners, folder).await?
+        } else {
+            Vec::new()
+        };
         if record_folder.is_some() {
             stop_file_watch(&self.deps.git, place, folder)
                 .await

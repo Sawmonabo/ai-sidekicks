@@ -18,6 +18,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 
+use super::test_owner::{FolderSighting, RecordingOwner};
 use super::{
     FolderProcessOwner, WorktreeRemoval, WorktreeRemovalDeps, WorktreeRemovalError,
     WorktreeSessionSweep, WorktreeSweep, new_removed_worktree_id,
@@ -38,27 +39,6 @@ use crate::git::worktree::removed_store::rows::KeptWorktreeRecord;
 use crate::git::worktree::removed_store::test_fixture::KeptCopyFixture;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::test_rows::store_run_inside;
-
-// An owner that records each folder it was asked to end processes in.
-#[derive(Default)]
-struct RecordingOwner {
-    folders: Mutex<Vec<PathBuf>>,
-}
-
-impl FolderProcessOwner for RecordingOwner {
-    fn end_processes_in_folder<'a>(
-        &'a self,
-        folder: &'a Path,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        Box::pin(async move {
-            self.folders
-                .lock()
-                .expect("the owner's list")
-                .push(folder.to_path_buf());
-            Ok(())
-        })
-    }
-}
 
 // A session sweep that records each tree it swept.
 #[derive(Default)]
@@ -319,12 +299,7 @@ async fn a_plain_removal_refuses_while_anything_could_be_lost_and_ends_nothing()
     }
 
     assert!(
-        fixture
-            .owner
-            .folders
-            .lock()
-            .expect("the owner's list")
-            .is_empty(),
+        fixture.owner.asked().is_empty(),
         "a refused removal ends nothing"
     );
     assert_eq!(
@@ -399,6 +374,38 @@ async fn a_discard_stops_the_file_watch_in_the_tree_before_it_moves() {
             .lines()
             .any(|event| event.contains(r#""event":"start""#) && event.contains(&stop)),
         "the file watch is stopped in the tree's own folder, before it moves"
+    );
+}
+
+// Kills ending the tree's processes after its move, and dropping their hold before the move, which
+// lets a process start in the tree again before it leaves.
+#[tokio::test]
+async fn a_discard_ends_the_tree_s_processes_in_place_and_holds_them_off_until_it_moves() {
+    let fixture = RemovalFixture::new().await;
+    let tree = fixture.kept.add_tree("held", "held").await;
+    let folder = PathBuf::from(tree.fs_root.as_str());
+
+    fixture
+        .removal
+        .retire(&retire_request(&tree, true))
+        .await
+        .expect("the discard succeeds");
+
+    assert_eq!(
+        fixture.owner.asked(),
+        [FolderSighting {
+            folder: folder.clone(),
+            was_present: true,
+        }],
+        "the owner is asked for the tree's folder while it is in place"
+    );
+    assert_eq!(
+        fixture.owner.released(),
+        [FolderSighting {
+            folder,
+            was_present: false,
+        }],
+        "the hold drops only once the tree has moved"
     );
 }
 

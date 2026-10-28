@@ -65,15 +65,20 @@ use crate::git::worktree::service::{
     RecordRetirementOptions, WorktreeService, WorktreeServiceError, remove_folder,
 };
 
+/// What an owner keeps holding once its processes in a folder have ended, so none starts there
+/// again until it drops; its caller drops it once the folder's move or deletion has landed.
+pub type FolderProcessHold = Box<dyn Send + Sync>;
+
 /// An owner of processes the daemon started, which ends those working in a folder about to be
 /// moved or deleted: the setup card's commands, the Terminal pane's shells.
 pub trait FolderProcessOwner: Send + Sync {
     /// Ends every process this owner started whose working folder is `folder` or inside it,
-    /// answering once each has exited. Fails with the owner's failure, naming what was not ended.
+    /// answering once each has exited, with the hold that keeps new ones out of the folder. Fails
+    /// with the owner's failure, naming what was not ended.
     fn end_processes_in_folder<'a>(
         &'a self,
         folder: &'a Path,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'a, Result<FolderProcessHold, Box<dyn Error + Send + Sync>>>;
 }
 
 /// Why the processes in a folder were not all ended: each owner's failure, in the owners' order.
@@ -97,22 +102,28 @@ impl Error for FolderProcessesEndError {}
 
 /// Ends the processes every one of `owners` started in `folder` or inside it, the owners running
 /// together and all settling before this answers, so nothing still runs there once it fails.
+/// Answers every owner's hold, which the caller keeps until the folder's move or deletion lands.
 /// Fails with every owner's failure.
 pub(crate) async fn end_processes_in_folder(
     owners: &[Arc<dyn FolderProcessOwner>],
     folder: &Path,
-) -> Result<(), FolderProcessesEndError> {
-    let failures: Vec<Box<dyn Error + Send + Sync>> = join_all(
+) -> Result<Vec<FolderProcessHold>, FolderProcessesEndError> {
+    let mut holds = Vec::new();
+    let mut failures = Vec::new();
+    for ended in join_all(
         owners
             .iter()
             .map(|owner| owner.end_processes_in_folder(folder)),
     )
     .await
-    .into_iter()
-    .filter_map(Result::err)
-    .collect();
+    {
+        match ended {
+            Ok(hold) => holds.push(hold),
+            Err(failure) => failures.push(failure),
+        }
+    }
     if failures.is_empty() {
-        Ok(())
+        Ok(holds)
     } else {
         Err(FolderProcessesEndError { failures })
     }
@@ -352,9 +363,12 @@ impl WorktreeRemoval {
                 .into());
             }
         }
-        if has_folder {
-            end_processes_in_folder(&shared.deps.process_owners, &folder).await?;
-        }
+        // Held until this answers, past the move or the sweep.
+        let _process_holds = if has_folder {
+            end_processes_in_folder(&shared.deps.process_owners, &folder).await?
+        } else {
+            Vec::new()
+        };
         if !request.discard || !has_folder {
             shared.record_plain_retirement(&row).await?;
             shared
@@ -772,5 +786,7 @@ impl From<HeldWorkEnd> for WorktreeRemovalError {
     }
 }
 
+#[cfg(test)]
+pub(crate) mod test_owner;
 #[cfg(test)]
 mod tests;
