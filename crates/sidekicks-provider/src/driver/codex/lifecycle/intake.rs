@@ -8,6 +8,11 @@
 //! spend it metered recorded in metering order. Each settled step publishes the session's
 //! context reading again with no usage when its model or window changed. The driver's own calls on
 //! the record take their place among the frames too.
+//!
+//! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
+//! database writer stalls, this session's frames, asks and calls wait behind it, as every other
+//! write of the session would. Its inbound queue stays unbounded, since the connection's reader
+//! serves every session of the service, and is logged as it grows past each depth mark.
 
 use std::sync::Arc;
 
