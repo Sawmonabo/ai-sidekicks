@@ -39,6 +39,7 @@ use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPick};
+use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
@@ -497,6 +498,11 @@ pub trait ProviderDriver: Send + Sync {
     /// unread, never off. A read of state the driver holds, never a request.
     fn observed_options_for(&self, session_id: &SessionId) -> Option<ObservedProviderOptions>;
 
+    /// Whether a provider process serves the session now, the driver brings one back itself, or
+    /// none runs until the daemon opens or resumes it: a read of state the driver holds, never a
+    /// request, which the daemon reads under the session's transition lock.
+    fn session_process_state(&self, session_id: &SessionId) -> SessionProcessState;
+
     /// Moves the session between Build and Plan from its next turn.
     fn update_session_mode(
         &self,
@@ -559,6 +565,22 @@ pub trait ProviderDriver: Send + Sync {
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         Ok(Vec::new())
     }
+}
+
+/// Where a session's provider process stands, as its driver holds it: the one predicate the
+/// session controls choose their arm by.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SessionProcessState {
+    /// A process serves the session now; a control reaches it at once.
+    Live,
+    /// No process serves the session now, and the driver itself brings one back from the state it
+    /// holds, with no open or resume by the daemon. A level or mode move the driver accepts in
+    /// this window reaches the process it brings back; the daemon stores it as on a live session.
+    Restarting,
+    /// No process serves the session, and none starts until the daemon's open or resume, which
+    /// reads the stored mode and level: never opened in this daemon, asleep, closed, or stopped
+    /// restarting after a crash loop.
+    Down,
 }
 
 /// A follow of a session's live command list, ended when this drops.
@@ -628,8 +650,8 @@ pub struct StartRunParams {
     pub step_bound: Option<SafeInt<1>>,
 }
 
-/// The message a run the queue admitted opens with, and where it runs: the session, the binding
-/// its deliveries are attributed on and the agent whose run it is.
+/// The queued item a run the queue admitted opens with, and where it runs: the session, the
+/// binding its deliveries are attributed on and the agent whose run it is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RunOpening {
     /// The session.
@@ -638,14 +660,31 @@ pub struct RunOpening {
     pub binding_id: RuntimeBindingId,
     /// The agent whose run it is.
     pub agent_id: AgentId,
-    /// The message's words.
-    pub content: MessageContent,
-    /// The message's files, in staging order.
-    pub attachments: Vec<ArtifactId>,
-    /// The message's id, stamped on the provider's user message so a later cut can name it.
+    /// The queued item's id, stamped on the provider's user message so a later cut can name it.
     pub message_id: QueueItemId,
-    /// The skills picked for the message, in the order picked.
-    pub skills: Vec<PickedSkill>,
+    /// What the run's turn opens with.
+    pub item: RunOpeningItem,
+}
+
+/// What a run the queue admitted opens its turn with: a message the person sent, or the
+/// provider's own review of the session's changes, which runs as the run's turn and whose report
+/// lands as the agent's reply.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RunOpeningItem {
+    /// A message.
+    Message {
+        /// The message's words.
+        content: MessageContent,
+        /// The message's files, in staging order.
+        attachments: Vec<ArtifactId>,
+        /// The skills picked for the message, in the order picked.
+        skills: Vec<PickedSkill>,
+    },
+    /// The provider's own review.
+    Review {
+        /// What the review covers.
+        target: SessionReviewTarget,
+    },
 }
 
 /// Answers one interactive request a driver raised on a run with the daemon's answer, which the
