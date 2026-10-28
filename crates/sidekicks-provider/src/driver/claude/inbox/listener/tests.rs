@@ -226,9 +226,15 @@ async fn the_sweep_removes_only_the_daemons_sockets_no_process_answers() {
     let _listening = bind_socket_listener(&live).expect("the live process listens");
     let left = folder.join("b000000000000000.sock");
     let other = folder.join("4242-claude.sock");
+    // A listener that ends without removing its socket, as a process that crashed leaves it.
     for socket in [&left, &other] {
-        drop(std::os::unix::net::UnixListener::bind(socket).expect("a socket is made"));
+        let mut ended = bind_socket_listener(socket).expect("a socket is made");
+        ended.do_not_reclaim_name_on_drop();
     }
+    assert!(
+        left.exists() && other.exists(),
+        "the ended listeners leave their sockets"
+    );
 
     super::remove_left_sockets(folder)
         .await
