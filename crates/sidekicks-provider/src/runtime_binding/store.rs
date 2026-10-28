@@ -197,8 +197,8 @@ pub struct RuntimeBinding {
     pub resolved_executable_path: String,
     /// The legs a resume rebuilds from.
     pub spawn_config: RuntimeBindingSpawnConfig,
-    /// The provider's own recovery data.
-    pub(crate) runtime_metadata: Map<String, Value>,
+    /// The provider's own recovery data, which a new binding on the same leg carries over.
+    pub runtime_metadata: Map<String, Value>,
     /// When it was recorded.
     pub created_at: String,
     /// When it last changed.

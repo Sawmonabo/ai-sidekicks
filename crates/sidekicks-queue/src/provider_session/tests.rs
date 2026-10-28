@@ -304,6 +304,51 @@ async fn a_failed_binding_after_a_resume_leaves_one_process_for_the_next_message
     assert_eq!(resumes.load(Ordering::SeqCst), 1, "one process comes up");
 }
 
+// A run bound on a session's open leg carries the leg's recovery data, so a run opened before any
+// usage report keeps the fixed start the provider stored on the leg. Killed by a new run's binding
+// recorded with empty recovery data.
+#[tokio::test]
+async fn a_run_bound_on_the_leg_carries_its_recovery_data() {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {})).await;
+    timeout(
+        WAIT,
+        opening.sessions.open(opening.session_id, opening.run_id),
+    )
+    .await
+    .expect("the open takes its own lock once")
+    .expect("the conversation resumes");
+    let reader = opening.database.reader();
+    // The session's newest binding, the opening run's own, is its leg.
+    reader
+        .execute(
+            "UPDATE runtime_bindings SET runtime_metadata = '{\"contextFixedStartTokens\":12000}'
+             WHERE run_id = ?1",
+            [opening.run_id.text().as_str()],
+        )
+        .expect("the test stores the leg's fixed start");
+    let next_run_id = new_run_id();
+    insert_running_run(&opening.database, opening.session_id, next_run_id);
+
+    let next_binding = timeout(
+        WAIT,
+        opening
+            .sessions
+            .open_run_binding(next_run_id, opening.session_id),
+    )
+    .await
+    .expect("the binding takes its own lock once")
+    .expect("the next run binds on the leg");
+
+    let recovery_data: String = reader
+        .query_row(
+            "SELECT runtime_metadata FROM runtime_bindings WHERE id = ?1",
+            [next_binding.as_str()],
+            |row| row.get(0),
+        )
+        .expect("the next run's binding reads");
+    assert_eq!(recovery_data, r#"{"contextFixedStartTokens":12000}"#);
+}
+
 // The idle sleep's wake of a session no process holds, as after a daemon restart, resumes its
 // conversation once with the timed fires the idle sleep stored for it and no other session's, and
 // records it as the session's opening, so the next admission binds its run to that process and

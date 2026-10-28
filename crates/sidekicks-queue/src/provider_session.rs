@@ -458,7 +458,9 @@ impl ProviderSessions {
                 },
                 resume_handle: current.resume_handle,
                 spawn_config: current.spawn_config,
-                runtime_metadata: Map::new(),
+                // The provider's recovery data goes with the leg, so a run bound before any
+                // usage report keeps what the leg's provider stored, its fixed start among it.
+                runtime_metadata: current.runtime_metadata,
             })
             .await?;
         Ok(binding.id)
