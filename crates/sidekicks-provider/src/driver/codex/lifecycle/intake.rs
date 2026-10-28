@@ -21,8 +21,7 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::{ProviderTurnId, TurnUsageUpdate};
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio::sync::oneshot;
-use tokio::task::JoinHandle;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
@@ -77,6 +76,16 @@ use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::usage_delta_accountant::{MeteredUsageDelta, WindowTelemetry};
 
+/// How many batches of metered spend a session's recorder holds while its sink is busy.
+const USAGE_RECORDER_QUEUE: usize = 256;
+
+/// The usage sink fell so far behind that a session's recorder dropped a batch of metered spend.
+#[derive(Debug, thiserror::Error)]
+#[error("the usage record fell behind, so {dropped} metered deltas were not recorded")]
+struct UsageRecorderBehind {
+    dropped: usize,
+}
+
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
 
@@ -103,8 +112,9 @@ pub(crate) struct CodexSessionIntake {
     // The input of the session's first usage report, its fixed start, which the context
     // reading's bottom stop counts from.
     fixed_start_tokens: Option<u64>,
-    // The recording of the spend metered last, which the next recording waits for.
-    usage_recording: Option<JoinHandle<()>>,
+    // The session's one usage recorder, fed in metering order; opened at the first spend metered
+    // once the usage service registered, and ended when the session's task ends.
+    usage_recorder: Option<mpsc::Sender<Vec<MeteredUsage>>>,
 }
 
 impl CodexSessionIntake {
@@ -121,7 +131,7 @@ impl CodexSessionIntake {
             waiters: CodexTurnEndWaiters::default(),
             parts,
             fixed_start_tokens: None,
-            usage_recording: None,
+            usage_recorder: None,
         }
     }
 
@@ -164,9 +174,10 @@ impl CodexSessionIntake {
         self.record_usage(usage);
     }
 
-    // Records `usage` on the driver's task once the recording before it ended, so the record
-    // takes each delta in metering order. It is never awaited here: a run's token-limit stop
-    // reaches its session through this same queue.
+    // Hands `usage` to the session's recorder, which records each delta in metering order on the
+    // driver's tasks. It is never awaited here: a run's token-limit stop reaches its session
+    // through this same queue. A recorder whose bounded queue is full, a sink stalled that long,
+    // drops the batch and reports it.
     fn record_usage(&mut self, usage: Vec<MeteredUsage>) {
         let Some(record) = &self.record else {
             return;
@@ -174,13 +185,8 @@ impl CodexSessionIntake {
         if usage.is_empty() {
             return;
         }
-        // Before the usage service registers its record there is nothing to record into.
-        let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
-            return;
-        };
         let provider_account_id = record.provider_account_id.clone();
         let session_id = self.session_id;
-        let previous = self.usage_recording.take();
         let report = move |error: Box<dyn std::error::Error + Send + Sync>| {
             CodexTransportDiagnostic::PortDeliveryFailed {
                 provider_account_id: Some(provider_account_id.clone()),
@@ -190,19 +196,32 @@ impl CodexSessionIntake {
             }
             .report();
         };
-        self.usage_recording = Some(self.parts.tasks.spawn(async move {
-            // A recording that ended unfinished may have left its deltas unrecorded.
-            if let Some(previous) = previous
-                && let Err(error) = previous.await
-            {
-                report(Box::new(error));
-            }
-            for metered in usage {
-                if let Err(error) = sink.record_metered(metered).await {
-                    report(error);
+        if self.usage_recorder.is_none() {
+            // Before the usage service registers its record there is nothing to record into.
+            let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
+                return;
+            };
+            let (sender, mut batches) = mpsc::channel::<Vec<MeteredUsage>>(USAGE_RECORDER_QUEUE);
+            let report = report.clone();
+            self.parts.tasks.spawn(async move {
+                while let Some(batch) = batches.recv().await {
+                    for metered in batch {
+                        if let Err(error) = sink.record_metered(metered).await {
+                            report(error);
+                        }
+                    }
                 }
-            }
-        }));
+            });
+            self.usage_recorder = Some(sender);
+        }
+        let Some(recorder) = &self.usage_recorder else {
+            return;
+        };
+        if let Err(refused) = recorder.try_send(usage) {
+            report(Box::new(UsageRecorderBehind {
+                dropped: refused.into_inner().len(),
+            }));
+        }
     }
 
     // The waits each item may have answered settled, and the record's view shown as it stands.
