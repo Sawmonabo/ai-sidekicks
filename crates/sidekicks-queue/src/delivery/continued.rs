@@ -1,8 +1,8 @@
-//! The messages a paused run's resume delivers: read and marked handed under the session lock,
-//! admitted once the driver continued the run, given back when it did not, and kept when the
-//! resume went out with no answer back. A kept message is read by no later continue and stays
-//! handed past the run's end, until the provider shows it took it or its own record says what
-//! became of it, which is final only once no live provider process still holds it.
+//! The messages a paused run's resume delivers, never a review: read and marked handed under the
+//! session lock, admitted once the driver continued the run, given back when it did not, and kept
+//! when the resume went out with no answer back. A kept message is read by no later continue and
+//! stays handed past the run's end, until the provider shows it took it or its own record says
+//! what became of it, which is final only once no live provider process still holds it.
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::run::id::RunId;
@@ -27,7 +27,7 @@ impl QueueDelivery {
         run_id: RunId,
         handing: MessageHanding,
     ) -> Result<Vec<WaitingMessage>, DeliveryError> {
-        let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
+        let lead_waiting = self.lead_messages(self.read_waiting(run_id).await?);
         let process = self.shared.deps.processes.process_identity(&session_id);
         let items = {
             let mut state = self.lock_state();
@@ -40,12 +40,18 @@ impl QueueDelivery {
             items
         };
         Ok(items
-            .into_iter()
-            .map(|item| WaitingMessage {
-                id: item.id,
-                attachments: item.body.attachment_ids(),
-                skills: item.body.skills.unwrap_or_default(),
-                content: item.body.content,
+            .iter()
+            .map(|item| {
+                let message = item
+                    .body
+                    .as_message()
+                    .expect("a continue gathers only messages, so a review is never continued");
+                WaitingMessage {
+                    id: item.id,
+                    attachments: message.attachment_ids(),
+                    skills: message.skills.clone().unwrap_or_default(),
+                    content: message.content.clone(),
+                }
             })
             .collect())
     }

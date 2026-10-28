@@ -1,7 +1,8 @@
 //! Starts each run a send queued, and continues an interrupted run with the messages waiting for
 //! it. The run waits its turn at the memory gate, then passes the run's setup gates; the session's
 //! provider session is opened at its first admission after them, and the driver is handed the
-//! run's first waiting message as the turn's opening. A run still waiting at the gate past the
+//! run's first waiting item as the turn's opening: a message, or a review, which opens a run of its
+//! own and is never a continue's opening. A run still waiting at the gate past the
 //! delivery timeout ends failed with its messages not delivered, and so does a run whose start
 //! failed while it still read queued. An interrupt that ends a run during its start leaves the
 //! opening to the interrupt's choice.
@@ -463,7 +464,10 @@ impl QueueAdmission {
                 ),
                 queue_item: Some(summary_of(opening.clone())),
                 provider,
-                output_speed: opening.body.output_speed_for_turn.clone(),
+                output_speed: opening
+                    .body
+                    .as_message()
+                    .and_then(|message| message.output_speed_for_turn.clone()),
                 running_statements: None,
             })
             .await;

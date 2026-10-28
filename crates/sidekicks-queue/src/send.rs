@@ -1,9 +1,11 @@
-//! Writes a person's send to a session's lead: a new message, which goes into the lead run that is
-//! live, continues the current one resting interrupted, or starts the next one; an edit of a
-//! waiting message, which takes its place; and a retry of one not delivered, which goes again as a
-//! new message with the same words and files while the failed one reads superseded. Each is one
-//! write, taken under the queue's session lock its caller holds. A send into a paused or pausing
-//! run answers the run to resume, which the caller resumes once it has let the lock go.
+//! Writes a send to a session's lead: a person's new message, which goes into the lead run that is
+//! live, continues the current one resting interrupted, or starts the next one; a review of the
+//! session's changes, which goes the same way but is never handed into a running or continued
+//! turn, so it opens a run of its own once the messages before it went; an edit of a waiting
+//! message, which takes its place; and a retry of one not delivered, which goes again as a new
+//! message with the same words and files while the failed one reads superseded. Each is one write,
+//! taken under the queue's session lock its caller holds. A send into a paused or pausing run
+//! answers the run to resume, which the caller resumes once it has let the lock go.
 
 use std::sync::Arc;
 
@@ -12,6 +14,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{AgentQueueItemChangeRefusedReason, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
@@ -21,7 +24,8 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
+    RecordedQueueItemState,
 };
 use sidekicks_session::run::agent::read_lead_agent_through;
 use sidekicks_session::run::read::{RunRead, read_run_through};
@@ -44,14 +48,34 @@ use crate::run_lifecycle::QueueRunLifecycle;
 /// Reads and writes of a send before a lead run that keeps moving under it is refused.
 const SEND_ATTEMPTS: usize = 3;
 
-/// One message as a send writes it: its new id, what it carries and the key it was sent under.
+/// One message as a person's send writes it: its new id, what it carries and the key it was sent
+/// under.
 pub(crate) struct QueueSendMessage {
     /// The new item.
     pub(crate) item_id: QueueItemId,
     /// What it carries.
-    pub(crate) body: QueueItemBody,
+    pub(crate) body: QueueMessageBody,
     /// The send's own key.
     pub(crate) client_idempotency_key: ClientUuid,
+}
+
+/// What a send writes: a person's message from their device, or a review of the session's changes
+/// the daemon queues as the session's next item, which opens a run of its own.
+pub(crate) enum QueueSendItem {
+    /// A person's message.
+    Message {
+        /// The message.
+        message: QueueSendMessage,
+        /// The device that sent it.
+        device_id: DeviceId,
+    },
+    /// A review.
+    Review {
+        /// The new item.
+        item_id: QueueItemId,
+        /// What the review covers.
+        target: SessionReviewTarget,
+    },
 }
 
 /// A send as written: its row, and the paused or pausing run it went into, which the caller
@@ -95,20 +119,21 @@ impl QueueSends {
         }
     }
 
-    /// A new message from `device_id`: into the lead run that is live, the current one resting
-    /// interrupted, or as the opening of the next one. `retries` names a not-delivered message it
-    /// sends again, which reads superseded in the same write. Called under `hold`; refuses a
-    /// session closed or being purged, a retry whose message left meanwhile, a key spent meanwhile
-    /// answers the item it saved, and a lead run that changed under every attempt refuses
-    /// `agent.queueItem.runChanged`.
+    /// A new item: a message into the lead run that is live, the current one resting interrupted,
+    /// or as the opening of the next one; a review waits for the same run, behind its turn or the
+    /// messages its continue opens with, or opens the next one. `retries` names a not-delivered
+    /// message it sends again, which reads superseded in the same write. Called under `hold`;
+    /// refuses a session closed or being purged, a retry whose message left meanwhile, a key spent
+    /// meanwhile answers the item it saved, and a lead run that changed under every attempt
+    /// refuses `agent.queueItem.runChanged`.
     pub(crate) async fn send(
         &self,
         hold: &KeyHold<'_, SessionId>,
-        message: QueueSendMessage,
-        device_id: DeviceId,
+        item: QueueSendItem,
         retries: Option<QueueItemRecord>,
     ) -> Result<WrittenSend, QueueError> {
         let session_id = *hold.key();
+        let is_review = matches!(item, QueueSendItem::Review { .. });
         let mut attempt = 1;
         loop {
             let (live_run_id, interrupted_run_id) = self.read_lead_runs(session_id).await?;
@@ -124,9 +149,9 @@ impl QueueSends {
                     (run_id, SendRoute::NewRun { queued })
                 }
             };
+            let continues = matches!(route, SendRoute::InterruptedRun);
             let send = RecordedSend {
-                item: new_item(session_id, &message, run_id, &device_id, None),
-                device_id: device_id.clone(),
+                item: new_item(session_id, &item, run_id, None),
                 route,
                 retries: retries.clone(),
             };
@@ -150,25 +175,31 @@ impl QueueSends {
                 }
                 Err(SendFailure::Error(error)) => return Err(*error),
             };
-            let resumes = if live_run_id.is_some() {
-                self.deps
-                    .delivery
-                    .accept_send(hold, &recorded, run_id)
-                    .await?;
-                read_run_through::<QueueError>(&self.deps.pool, run_id)
-                    .await?
-                    .filter(|run| matches!(run.state, RunState::Paused | RunState::Pausing))
-                    .map(|run| (run_id, run))
-            } else {
-                if interrupted_run_id.is_some() {
+            let resumes = match live_run_id {
+                // A review waits behind the live run's turn; the run's end moves it on to a run of
+                // its own.
+                Some(_) if is_review => None,
+                Some(_) => {
                     self.deps
-                        .lifecycle
-                        .continue_interrupted_run(hold, run_id, true)
+                        .delivery
+                        .accept_send(hold, &recorded, run_id)
                         .await?;
-                } else {
-                    self.deps.admission.start(session_id, run_id);
+                    read_run_through::<QueueError>(&self.deps.pool, run_id)
+                        .await?
+                        .filter(|run| matches!(run.state, RunState::Paused | RunState::Pausing))
+                        .map(|run| (run_id, run))
                 }
-                None
+                None => {
+                    if continues {
+                        self.deps
+                            .lifecycle
+                            .continue_interrupted_run(hold, run_id, true)
+                            .await?;
+                    } else {
+                        self.deps.admission.start(session_id, run_id);
+                    }
+                    None
+                }
             };
             return Ok(WrittenSend {
                 item: recorded,
@@ -179,8 +210,9 @@ impl QueueSends {
 
     /// Replaces the lead's message `replaces_queue_item_id`: one still waiting is edited in its
     /// place, and one not delivered is sent again with its own words and files. Called under
-    /// `hold`; refuses an item the lead's queue of the session does not hold, one that has left the
-    /// queue otherwise, and a retry whose words differ from the failed message's.
+    /// `hold`; refuses an item the lead's queue of the session does not hold as a message, one
+    /// that has left the queue otherwise, and a retry whose words differ from the failed
+    /// message's.
     pub(crate) async fn replace(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -189,14 +221,19 @@ impl QueueSends {
         device_id: DeviceId,
     ) -> Result<WrittenSend, QueueError> {
         let session_id = *hold.key();
-        let replaces = self
+        // A review is no message an edit or a retry replaces.
+        let (replaces, replaced) = self
             .read_item(replaces_queue_item_id)
             .await?
             .filter(|item| item.session_id == session_id && item.child_handle.is_none())
+            .and_then(|item| {
+                let replaced = item.body.as_message()?.clone();
+                Some((item, replaced))
+            })
             .ok_or_else(|| queue_item_not_found(replaces_queue_item_id))?;
         match replaces.state {
             RecordedQueueItemState::NotDelivered { .. } => {
-                if message.body.content != replaces.body.content {
+                if message.body.content != replaced.content {
                     return Err(change_refused(
                         AgentQueueItemChangeRefusedReason::NotDelivered,
                         &format!(
@@ -209,12 +246,13 @@ impl QueueSends {
                 }
                 // Its question was marked answered by the first send's row, so the new row marks
                 // it no second time.
-                let body = QueueItemBody {
+                let body = QueueMessageBody {
                     answers_question_id: None,
-                    ..replaces.body.clone()
+                    ..replaced
                 };
                 let message = QueueSendMessage { body, ..message };
-                self.send(hold, message, device_id, Some(replaces)).await
+                let item = QueueSendItem::Message { message, device_id };
+                self.send(hold, item, Some(replaces)).await
             }
             RecordedQueueItemState::Queued => {
                 // An edit goes into its message's run; a waiting message the daemon wrote for no
@@ -265,9 +303,9 @@ impl QueueSends {
         if let QueueWithdrawal::Unreturned(reason) = withdrawal {
             return Err(unreturned_refusal(replaces.id, reason).into());
         }
+        let item = QueueSendItem::Message { message, device_id };
         let send = RecordedSend {
-            item: new_item(*hold.key(), &message, run_id, &device_id, Some(replaces.id)),
-            device_id,
+            item: new_item(*hold.key(), &item, run_id, Some(replaces.id)),
             route: SendRoute::Edit {
                 replaces: replaces.clone(),
             },
@@ -302,13 +340,17 @@ impl QueueSends {
                 Box::new(self.refuse_closed_session(session_id).await),
             )),
             Err(RecordSendError::Refused(SendRefusal::KeySpent)) => {
+                // Only a send under a key conflicts with another.
                 let saved = self
                     .deps
                     .pool
                     .read(ReadLength::Short, move |reader| {
+                        let items = QueueItemReader::new(reader);
                         Ok::<_, QueueError>(
-                            QueueItemReader::new(reader)
-                                .get_by_idempotency_key(&session_id, &key)?,
+                            key.as_ref()
+                                .map(|key| items.get_by_idempotency_key(&session_id, key))
+                                .transpose()?
+                                .flatten(),
                         )
                     })
                     .await
@@ -386,20 +428,34 @@ enum SendFailure {
     Error(Box<QueueError>),
 }
 
+// The row `item` writes for `run_id`: a message under its device and key, a review under neither.
 fn new_item(
     session_id: SessionId,
-    message: &QueueSendMessage,
+    item: &QueueSendItem,
     run_id: RunId,
-    device_id: &DeviceId,
     replaces_queue_item_id: Option<QueueItemId>,
 ) -> NewQueueItem {
+    let (id, body, device_id, client_idempotency_key) = match item {
+        QueueSendItem::Message { message, device_id } => (
+            message.item_id,
+            QueueItemBody::Message(message.body.clone()),
+            Some(device_id.clone()),
+            Some(message.client_idempotency_key.clone()),
+        ),
+        QueueSendItem::Review { item_id, target } => (
+            *item_id,
+            QueueItemBody::Review { target: *target },
+            None,
+            None,
+        ),
+    };
     NewQueueItem {
-        id: message.item_id,
+        id,
         session_id,
-        body: message.body.clone(),
+        body,
         target_run_id: run_id,
-        device_id: Some(device_id.clone()),
-        client_idempotency_key: message.client_idempotency_key.clone(),
+        device_id,
+        client_idempotency_key,
         replaces_queue_item_id,
         now: WireInstant::now(),
     }

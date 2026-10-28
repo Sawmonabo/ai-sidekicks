@@ -25,6 +25,7 @@ use sidekicks_contracts::run::queue::{
     QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::{ClientUuid, UuidText};
@@ -43,10 +44,35 @@ use sidekicks_store::database::stored_column::{
 use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
 use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
-/// What a queued message carries, as its payload stores it: the words and what rides with them.
+/// What a queued item carries, as its payload stores it under its `kind`: a person's message, or
+/// a review of the session's changes, which opens a run of its own and is never handed into a
+/// running or continued turn.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum QueueItemBody {
+    /// A message.
+    Message(QueueMessageBody),
+    /// The provider's own review.
+    Review {
+        /// What the review covers.
+        target: SessionReviewTarget,
+    },
+}
+
+impl QueueItemBody {
+    /// The message the item carries, `None` for a review.
+    pub fn as_message(&self) -> Option<&QueueMessageBody> {
+        match self {
+            Self::Message(message) => Some(message),
+            Self::Review { .. } => None,
+        }
+    }
+}
+
+/// What a queued message carries: the words and what rides with them.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct QueueItemBody {
+pub struct QueueMessageBody {
     /// The words.
     pub content: MessageContent,
     /// The message's files in staging order.
@@ -66,7 +92,7 @@ pub struct QueueItemBody {
     pub workspace_id: Option<WorkspaceId>,
 }
 
-impl QueueItemBody {
+impl QueueMessageBody {
     /// The ids of the message's files in staging order, none when it carries none.
     pub fn attachment_ids(&self) -> Vec<ArtifactId> {
         self.attachments
@@ -123,7 +149,7 @@ pub struct QueueItemRecord {
     pub sent_now_id: Option<InterventionId>,
 }
 
-/// A message to insert. It takes the place of `replaces_queue_item_id` when it is an edit, else
+/// An item to insert. It takes the place of `replaces_queue_item_id` when it is an edit, else
 /// the place after every item its queue has held.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewQueueItem {
@@ -135,10 +161,10 @@ pub struct NewQueueItem {
     pub body: QueueItemBody,
     /// The run it goes to.
     pub target_run_id: RunId,
-    /// The device that sent it.
+    /// The device that sent it; absent on a review the daemon queues.
     pub device_id: Option<DeviceId>,
-    /// The send's own key.
-    pub client_idempotency_key: ClientUuid,
+    /// The send's own key; absent on a review the daemon queues.
+    pub client_idempotency_key: Option<ClientUuid>,
     /// The waiting item an edit replaces.
     pub replaces_queue_item_id: Option<QueueItemId>,
     /// When it is queued.
@@ -194,8 +220,8 @@ pub const COLUMN_COUNT: usize = 13;
 pub const QUEUE_ORDER: &str = "ORDER BY position, created_at DESC, id";
 
 // Changes no row when the send's key was already spent in the session, so the write that carries
-// it is refused and nothing saved is replaced. Only a person's send reaches here, so the queue is
-// the lead's.
+// it is refused and nothing saved is replaced; an item with no key never conflicts. Only a
+// person's send and a review reach here, so the queue is the lead's.
 static INSERT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO queue_items
@@ -446,9 +472,9 @@ pub fn insert_queue_item_statement(item: &NewQueueItem) -> WriteStatement {
                     .as_ref()
                     .map(UuidText::as_str),
             ),
-            text_binding(
+            nullable_text_binding(
                 "@client_idempotency_key",
-                item.client_idempotency_key.as_str(),
+                item.client_idempotency_key.as_ref().map(ClientUuid::as_str),
             ),
             text_binding("@now", item.now.as_str()),
         ]),

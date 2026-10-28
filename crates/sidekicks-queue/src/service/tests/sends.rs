@@ -1,5 +1,6 @@
 //! A person's send: into a paused run, which it resumes, into a session whose lead run changes
-//! between the send's read and its write, and with a skill its provider does not list.
+//! between the send's read and its write, and with a skill its provider does not list; and a review
+//! queued as the session's next item, which opens a run of its own.
 
 use std::sync::Arc;
 
@@ -7,15 +8,18 @@ use futures::FutureExt as _;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::run::queue::QueuedSkillPick;
+use sidekicks_contracts::run::queue::{QueueItemId, QueuedSkillPick};
+use sidekicks_contracts::session::controls::methods::{
+    SessionCodeReviewStartRequest, SessionReviewTarget,
+};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::{DriverError, RunOpeningItem};
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
-use sidekicks_session::queue_store::RecordedQueueItemState;
+use sidekicks_session::queue_store::{QueueItemBody, QueueItemRecord, RecordedQueueItemState};
 use tokio::time::timeout;
 
-use super::{DriverCalls, WAIT, fixture, recording_driver};
+use super::{DriverCalls, Fixture, WAIT, fixture, recording_driver};
 use crate::error::QueueError;
 
 // A send into a paused run resumes it with the message, which the provider is handed on the
@@ -152,4 +156,88 @@ async fn a_send_picking_a_skill_its_provider_does_not_list_is_refused() {
     assert_eq!(detail["path"], json!("/skills/review"));
     assert_eq!(detail["reason"], json!("notListed"));
     assert_eq!(fixture.count_items(), 0);
+}
+
+impl Fixture {
+    /// Queues a review of the session's staged set as `session.codeReview.start` does.
+    async fn queue_review(&self) {
+        timeout(
+            WAIT,
+            self.queue.queue_review(SessionCodeReviewStartRequest {
+                session_id: self.session_id,
+                target: SessionReviewTarget::Staged,
+            }),
+        )
+        .await
+        .expect("the review answers")
+        .expect("the review is queued");
+    }
+
+    /// The session's one stored review.
+    fn stored_review(&self) -> QueueItemRecord {
+        let item_id = self
+            .database
+            .reader()
+            .query_row(
+                "SELECT id FROM queue_items WHERE json_extract(payload, '$.kind') = 'review'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("the test reads its one review");
+        self.stored_item(QueueItemId::new(&item_id).expect("a stored id is a queue item id"))
+    }
+}
+
+// A review on a session with no live run is queued as the lead's one item, a review, and the run
+// it queues starts through the driver opening with that review, which reads admitted. Killed by a
+// review that skips the queue, or one whose run opens with a message.
+#[tokio::test]
+async fn a_review_on_a_session_with_no_live_run_opens_a_run_of_its_own() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+
+    fixture.queue_review().await;
+    fixture.queue.stop().await;
+
+    let review = fixture.stored_review();
+    assert_eq!(fixture.count_items(), 1);
+    assert_eq!(
+        review.body,
+        QueueItemBody::Review {
+            target: SessionReviewTarget::Staged
+        }
+    );
+    let run_id = review.target_run_id.expect("the review waits for its run");
+    assert_eq!(calls.starts(), [(run_id, review.id)]);
+    assert_eq!(
+        calls.opening_items(),
+        [RunOpeningItem::Review {
+            target: SessionReviewTarget::Staged
+        }]
+    );
+    assert_eq!(review.state, RecordedQueueItemState::Admitted);
+}
+
+// A review queued behind a running turn waits for that run's end: a message sent after it is
+// steered into the turn, and the review is neither steered nor started. Killed by a hand that
+// steers a review into the running turn.
+#[tokio::test]
+async fn a_review_behind_a_running_turn_is_never_handed_into_it() {
+    let calls = Arc::new(DriverCalls::default());
+    let fixture = fixture(recording_driver(&calls)).await;
+    let run_id = fixture.insert_run("running");
+    bind_run_to_first_provider(&fixture.database, run_id);
+
+    fixture.queue_review().await;
+    let message_id = timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers")
+        .expect("the send is saved");
+    fixture.queue.stop().await;
+
+    let review = fixture.stored_review();
+    assert_eq!(calls.steers(), [(message_id, false)]);
+    assert!(calls.starts().is_empty(), "{:?}", calls.starts());
+    assert_eq!(review.target_run_id, Some(run_id));
+    assert_eq!(review.state, RecordedQueueItemState::Queued);
 }

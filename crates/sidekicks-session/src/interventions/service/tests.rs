@@ -55,7 +55,9 @@ use crate::interventions::interrupt_queue::{
 };
 use crate::questions::schema::schema_parts;
 use crate::queue_store::send_now::{SentNow, mark_sent_now_statement, record_sent_now_statement};
-use crate::queue_store::{NewQueueItem, QueueItemBody, insert_queue_item_statement};
+use crate::queue_store::{
+    NewQueueItem, QueueItemBody, QueueMessageBody, insert_queue_item_statement,
+};
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{insert_running_run, stored_run_state, test_engine};
 use crate::run::state_change::RunStateChange;
@@ -359,17 +361,17 @@ impl Harness {
         let item = NewQueueItem {
             id: item_id,
             session_id: self.session_id,
-            body: QueueItemBody {
+            body: QueueItemBody::Message(QueueMessageBody {
                 content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
                 attachments: None,
                 skills: None,
                 answers_question_id: None,
                 output_speed_for_turn: None,
                 workspace_id: None,
-            },
+            }),
             target_run_id: self.run_id,
             device_id: None,
-            client_idempotency_key: key(OTHER_KEY),
+            client_idempotency_key: Some(key(OTHER_KEY)),
             replaces_queue_item_id: None,
             now: WireInstant::now(),
         };

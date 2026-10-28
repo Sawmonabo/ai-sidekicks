@@ -1,10 +1,11 @@
-//! The run queue: a person's sends to a session's lead, and the edit, removal and reorder of the
-//! messages still waiting. A send is written whole before anything acts on it. Every decision on a
-//! session's waiting messages is taken under the queue's one lock per session, so a send, a change
-//! and a run's end never interleave; a skill pick is resolved before the lock, so a read waiting
-//! at the memory gate never holds the session's writes. A change to a message a provider was
-//! handed takes it back first, and one the provider does not give back reads not delivered and
-//! leaves the change. A send into a paused or pausing run resumes it once the lock is let go.
+//! The run queue: a person's sends to a session's lead, the reviews of a session's changes queued
+//! as its next item, and the edit, removal and reorder of the messages still waiting. A send is
+//! written whole before anything acts on it. Every decision on a session's waiting messages is
+//! taken under the queue's one lock per session, so a send, a change and a run's end never
+//! interleave; a skill pick is resolved before the lock, so a read waiting at the memory gate never
+//! holds the session's writes. A change to a message a provider was handed takes it back first,
+//! and one the provider does not give back reads not delivered and leaves the change. A send into
+//! a paused or pausing run resumes it once the lock is let go.
 
 mod interrupt;
 #[cfg(test)]
@@ -23,12 +24,14 @@ use sidekicks_contracts::run::queue::{
     QueueItemId, QueueItemState,
 };
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::methods::SessionCodeReviewStartRequest;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
@@ -37,7 +40,7 @@ use sidekicks_session::driver_resolution::read_session_driver;
 use sidekicks_session::interventions::store::read_sessions_with_unreleased_interrupts;
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
-    QueueItemBody, QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
+    QueueItemOutcome, QueueItemReader, QueueItemRecord, QueueMessageBody, RecordedQueueItemState,
 };
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::pause::RunPauseControl;
@@ -64,7 +67,7 @@ use crate::refusals::{
     UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
 };
 use crate::run_lifecycle::{QueueRunLifecycle, QueueRunLifecycleDeps, RunLifecycleListener};
-use crate::send::{QueueSendMessage, QueueSends, QueueSendsDeps};
+use crate::send::{QueueSendItem, QueueSendMessage, QueueSends, QueueSendsDeps};
 use crate::session_lock::{QueueSessionLock, UnreleasedInterrupts};
 
 // The detail of a queued run ended because every message it was queued for was removed.
@@ -301,7 +304,7 @@ impl RunQueue {
             }
             let message = QueueSendMessage {
                 item_id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is an id"),
-                body: QueueItemBody {
+                body: QueueMessageBody {
                     content: request.content,
                     attachments: request.attachments,
                     skills,
@@ -312,7 +315,10 @@ impl RunQueue {
                 client_idempotency_key: key,
             };
             match request.replaces_queue_item_id {
-                None => self.sends.send(&hold, message, device_id, None).await?,
+                None => {
+                    let item = QueueSendItem::Message { message, device_id };
+                    self.sends.send(&hold, item, None).await?
+                }
                 Some(replaces) => {
                     self.sends
                         .replace(&hold, replaces, message, device_id)
@@ -326,8 +332,41 @@ impl RunQueue {
         Ok(created_response_of(written.item))
     }
 
+    /// Queues the provider's own review of the session's changes as its lead's next item, which
+    /// opens a run of its own: behind the live lead run's turn or the messages waiting to continue
+    /// the interrupted one, else at once, waking a session with no live process as a message does;
+    /// its report lands as the agent's reply. Refuses a
+    /// session the daemon does not hold or whose provider has no driver, one closed
+    /// (`session.alreadyClosed`) or being purged (`session.changeRefused`), a review the store
+    /// cannot keep and one whose lead run kept moving under it, writing nothing.
+    pub async fn queue_review(
+        &self,
+        request: SessionCodeReviewStartRequest,
+    ) -> Result<(), QueueError> {
+        let SessionCodeReviewStartRequest { session_id, target } = request;
+        read_session_driver::<QueueError>(
+            &self.pool,
+            &self.providers,
+            self.read_damaged_from_sequence.as_ref(),
+            session_id,
+        )
+        .await?;
+        let state = read_session_state_through::<QueueError>(&self.pool, session_id).await?;
+        if let Some(state) = state {
+            refuse_unchangeable_session(&session_id, state)?;
+        }
+        let hold = self.session_lock.hold_session(session_id).await;
+        let item = QueueSendItem::Review {
+            item_id: QueueItemId::try_from(mint_uuid_v7()).expect("a minted UUID is an id"),
+            target,
+        };
+        self.sends.send(&hold, item, None).await?;
+        Ok(())
+    }
+
     /// A queue, the lead's or a child's, in its order, only the items in `state` when it is
-    /// given. Fails as the read fails.
+    /// given. Refuses a session the daemon does not hold (`session.notFound`); fails as the read
+    /// fails.
     pub async fn list(
         &self,
         request: AgentQueueItemListRequest,
@@ -337,16 +376,13 @@ impl RunQueue {
             child_handle,
             state,
         } = request;
-        let items = self
-            .pool
-            .read(ReadLength::Short, move |reader| {
-                Ok::<_, QueueError>(QueueItemReader::new(reader).list(
-                    &session_id,
-                    child_handle.as_ref(),
-                    state,
-                )?)
-            })
-            .await?;
+        if read_session_state_through::<QueueError>(&self.pool, session_id)
+            .await?
+            .is_none()
+        {
+            return Err(session_not_found(&session_id).into());
+        }
+        let items = self.read_queue(session_id, child_handle, state).await?;
         Ok(AgentQueueItemListResponse {
             items: items.into_iter().map(summary_of).collect(),
         })

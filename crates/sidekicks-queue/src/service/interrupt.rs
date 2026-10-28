@@ -343,7 +343,9 @@ impl RunQueue {
                 intervention_id: sent.intervention_id,
             });
         }
-        let takes_now = item_run_id == run_id
+        // A review is never handed into a turn: it goes first and marked, opening the next run.
+        let takes_now = item.body.as_message().is_some()
+            && item_run_id == run_id
             && matches!(
                 run.state,
                 RunState::Running | RunState::WaitingForApproval | RunState::WaitingForInput

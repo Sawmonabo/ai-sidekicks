@@ -1,4 +1,4 @@
-//! The message each run the queue starts or continues opens with: the table of openings whose
+//! The item each run the queue starts or continues opens with: the table of openings whose
 //! outcome is not yet written, the driver's start of the run's turn with it, and the binding of a
 //! turn the daemon starts on a session itself.
 
@@ -12,12 +12,14 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::contract::{ProviderDriver, RunOpening, StartRunParams};
+use sidekicks_provider::driver::contract::{
+    ProviderDriver, RunOpening, RunOpeningItem, StartRunParams,
+};
 use sidekicks_provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, InterruptRunRequest,
 };
 use sidekicks_session::console_state::read_session_max_steps_per_turn;
-use sidekicks_session::queue_store::{QueueItemReader, QueueItemRecord};
+use sidekicks_session::queue_store::{QueueItemBody, QueueItemReader, QueueItemRecord};
 use sidekicks_session::run::agent::read_lead_agent_through;
 use sidekicks_session::run::start_request::RunTurnStart;
 use sidekicks_std::mutex_lock::lock;
@@ -124,7 +126,10 @@ impl QueueAdmission {
         };
         RunTurnStart {
             run_id,
-            workspace_id: opening.body.workspace_id,
+            workspace_id: opening
+                .body
+                .as_message()
+                .and_then(|message| message.workspace_id),
             execution_posture,
             start_driver: Box::new(start_driver),
             interrupt_driver: Box::new(interrupt_driver),
@@ -163,7 +168,18 @@ impl QueueAdmission {
             .await?;
         let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
         let step_bound = read_step_bound(&self.deps.pool, session_id).await?;
-        let output_speed_for_turn = opening.body.output_speed_for_turn.clone();
+        // Skill picks, files and the turn's own output speed ride a message only.
+        let (item, output_speed_for_turn) = match opening.body {
+            QueueItemBody::Message(message) => (
+                RunOpeningItem::Message {
+                    attachments: message.attachment_ids(),
+                    skills: message.skills.unwrap_or_default(),
+                    content: message.content,
+                },
+                message.output_speed_for_turn,
+            ),
+            QueueItemBody::Review { target } => (RunOpeningItem::Review { target }, None),
+        };
         driver
             .start_run(StartRunParams {
                 run_id,
@@ -171,10 +187,8 @@ impl QueueAdmission {
                     session_id,
                     binding_id,
                     agent_id,
-                    attachments: opening.body.attachment_ids(),
-                    skills: opening.body.skills.unwrap_or_default(),
-                    content: opening.body.content,
                     message_id: opening.id,
+                    item,
                 },
                 conversation_history: None,
                 output_speed: None,
@@ -223,6 +237,8 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                     | ProviderSessionError::Store(_)
                     | ProviderSessionError::LevelNotStored { .. }
                     | ProviderSessionError::LevelNotMovedBack { .. }
+                    | ProviderSessionError::ModeNotStored { .. }
+                    | ProviderSessionError::ModeNotMovedBack { .. }
                     | ProviderSessionError::Read(_)
                     | ProviderSessionError::Pool(_)) => {
                         DaemonTurnBindingError::BindingNotRecorded {
