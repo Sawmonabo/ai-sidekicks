@@ -495,10 +495,10 @@ async fn a_conversation_not_resumed_in_place_leaves_the_session_down_and_tells_t
             .is_ok()
     );
     let service = Arc::clone(&scripted.service);
-    parts.recovery.owe_resumes(&service);
+    let generation = parts.recovery.owe_resumes(&service);
     let recovering = parts
         .recovery
-        .recover(&service, CodexServiceRecoveryCause::Crash);
+        .recover(&service, CodexServiceRecoveryCause::Crash, generation);
     let mut recovering = std::pin::pin!(recovering);
     tokio::time::timeout(CLOSE_BOUND, async {
         loop {

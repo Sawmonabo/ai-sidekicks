@@ -110,7 +110,9 @@ type QueueMessageSummary = QueueItemByState<{
 // A queued review of the session's changes, on the lead's queue: what it covers. It carries no
 // words, so an edit naming it is refused (`agent.queueItem.changeRefused`, `reviewItem`); one that
 // reads not delivered is sent again as a message is, through `replacesQueueItemId`, and queues the
-// same review, the send's words unread.
+// same review, the send's words unread. A review takes no files, skills, answered question or
+// speed, so a retry carrying `attachments`, `skills`, `answersQuestionId` or `outputSpeedForTurn`
+// is refused (`request.paramsInvalid`, an issue at each member it carried).
 type QueueReviewSummary = QueueItemByState<{
   target: SessionReviewTarget;
 }>;

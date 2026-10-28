@@ -171,7 +171,9 @@ pub struct AgentQueueItemCreateRequest {
     pub skills: Option<Vec<QueuedSkillPick>>,
     /// Edits this waiting message in place: it keeps its place and the old item reads
     /// `superseded`. Naming a message not delivered, with its own words, is a retry that queues
-    /// its words and files again as a new message at the queue's end.
+    /// its words and files again as a new message at the queue's end. Naming a review not
+    /// delivered queues the same review, the words unread; carrying `attachments`, `skills`,
+    /// `answersQuestionId` or `outputSpeedForTurn` beside it is refused `request.paramsInvalid`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",

@@ -1,15 +1,17 @@
 //! A person's send: into a paused run, which it resumes, into a session whose lead run changes
 //! between the send's read and its write, and with a skill its provider does not list; and a review
 //! queued as the session's next item, which opens a run of its own, takes no edit and is sent again
-//! once not delivered.
+//! once not delivered, a retry carrying none of a message's extras.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use futures::FutureExt as _;
 use serde_json::json;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::question::QuestionId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemCreateRequest, AgentQueueItemCreateResponse, QueueItemId,
     QueueItemNotDeliveredReason, QueuedSkillPick,
@@ -18,7 +20,7 @@ use sidekicks_contracts::session::controls::methods::{
     SessionCodeReviewStartRequest, SessionReviewTarget,
 };
 use sidekicks_contracts::trust_statement::DeviceId;
-use sidekicks_contracts::wire::id::ClientUuid;
+use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{DriverError, RunOpeningItem};
@@ -193,21 +195,32 @@ impl Fixture {
         &self,
         replaces: QueueItemId,
     ) -> Result<AgentQueueItemCreateResponse, QueueError> {
+        self.replace_item_carrying(replaces, |_| {}).await
+    }
+
+    /// Sends again the item `replaces` with what `carry` adds to the send, and answers the send.
+    async fn replace_item_carrying(
+        &self,
+        replaces: QueueItemId,
+        carry: impl FnOnce(&mut AgentQueueItemCreateRequest),
+    ) -> Result<AgentQueueItemCreateResponse, QueueError> {
+        let mut request = AgentQueueItemCreateRequest {
+            session_id: self.session_id,
+            to: None,
+            workspace_id: None,
+            client_idempotency_key: client_key(),
+            content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
+            attachments: None,
+            skills: None,
+            replaces_queue_item_id: Some(replaces),
+            answers_question_id: None,
+            output_speed_for_turn: None,
+        };
+        carry(&mut request);
         timeout(
             WAIT,
             self.queue.create(
-                AgentQueueItemCreateRequest {
-                    session_id: self.session_id,
-                    to: None,
-                    workspace_id: None,
-                    client_idempotency_key: client_key(),
-                    content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
-                    attachments: None,
-                    skills: None,
-                    replaces_queue_item_id: Some(replaces),
-                    answers_question_id: None,
-                    output_speed_for_turn: None,
-                },
+                request,
                 DeviceId::new("device-1".to_owned()).expect("a test device id"),
             ),
         )
@@ -385,5 +398,49 @@ async fn a_review_not_delivered_is_sent_again_as_the_same_review() {
                 target: SessionReviewTarget::Staged
             }
         ]
+    );
+}
+
+// A retry of a review not delivered that carries an answered question and a speed is refused
+// `request.paramsInvalid`, an issue at each member, and the failed review stays not delivered,
+// nothing written. Killed by a retry that queues the review and drops what the send carried.
+#[tokio::test]
+async fn a_review_s_retry_carrying_what_a_review_cannot_take_is_refused() {
+    let calls = Arc::new(DriverCalls::default());
+    calls.start_failures_left.store(1, Ordering::SeqCst);
+    let fixture = fixture(recording_driver(&calls)).await;
+    let failed_id = fixture.queue_review(client_key()).await;
+    fixture.queue.stop().await;
+
+    let retried = fixture
+        .replace_item_carrying(failed_id, |request| {
+            request.answers_question_id =
+                Some(QuestionId::try_from(mint_uuid_v7()).expect("a minted UUID"));
+            request.output_speed_for_turn =
+                Some(ProviderToken::new("standard".to_owned()).expect("a speed token"));
+        })
+        .await;
+    fixture.queue.stop().await;
+
+    let Err(QueueError::Refused(DomainError { code, detail, .. })) = retried else {
+        panic!("the retry is refused, got {retried:?}");
+    };
+    assert_eq!(code, RefusalCode::RequestParamsInvalid);
+    let paths: Vec<_> = detail.expect("the refusal names its issues")["issues"]
+        .as_array()
+        .expect("the issues are a list")
+        .iter()
+        .map(|issue| issue["path"].clone())
+        .collect();
+    assert_eq!(
+        paths,
+        [json!(["answersQuestionId"]), json!(["outputSpeedForTurn"])]
+    );
+    assert_eq!(fixture.count_items(), 1);
+    assert_eq!(
+        fixture.stored_state(failed_id),
+        RecordedQueueItemState::NotDelivered {
+            reason: QueueItemNotDeliveredReason::Failed {}
+        }
     );
 }

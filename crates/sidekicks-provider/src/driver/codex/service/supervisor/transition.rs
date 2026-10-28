@@ -213,6 +213,13 @@ pub(crate) enum CodexServiceAvailability {
     ShutDown,
 }
 
+impl CodexServiceAvailability {
+    /// Whether the service is on its way back up: starting, reconnecting or restarting.
+    pub(crate) const fn is_coming_back(&self) -> bool {
+        matches!(self, Self::Starting | Self::Reconnecting | Self::Restarting)
+    }
+}
+
 /// One supervisor's state, its kind and its crash window.
 #[derive(Debug)]
 pub(crate) struct Supervision {

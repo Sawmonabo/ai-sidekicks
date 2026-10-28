@@ -249,8 +249,9 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
             .task
             .drive(async {
                 recovery.forget_exit(&service);
+                let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
                     .await;
             })
             .await;
@@ -274,8 +275,13 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                     .await;
                 assert_eq!(gone_steps(&steps, session_id), gone_before + 1);
                 recovery.forget_exit(&service);
+                let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::PersonRestart)
+                    .recover(
+                        &service,
+                        CodexServiceRecoveryCause::PersonRestart,
+                        generation,
+                    )
                     .await;
             })
             .await;
@@ -315,8 +321,9 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
                     .end_turns_on_exit(&service, Some(exit_code(1)))
                     .await;
                 recovery.forget_exit(&service);
+                let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
                     .await;
                 recovery.end_turns_on_exit(&service, None).await;
                 recovery
@@ -373,6 +380,54 @@ async fn a_crash_loop_while_resumes_are_owed_reads_down_at_the_notice() {
         .await;
 
     assert_eq!(steps.holders_at_gone(), [Some(CodexSessionSlotState::Live)]);
+}
+
+// Killed by a recovery that settles the resumes a later one owes: the session reads live before
+// the later recovery claimed its slot, so a move or a run reaches a conversation not yet resumed.
+#[tokio::test]
+async fn a_recovery_s_end_leaves_the_resumes_a_later_recovery_owes() {
+    tokio::time::timeout(Duration::from_secs(30), async {
+        let mut session = TestCodexSession::start().await;
+        let folder = tempfile::tempdir().expect("the test makes a folder");
+        let steps = Arc::new(Steps::new(&session));
+        let recovery = test_recovery(&session, folder.path(), &steps);
+        let service = Arc::clone(&session.scripted.service);
+        let session_id = session.task.record.session_id;
+        let slots = Arc::clone(&session.slots);
+        let settings = session.task.record.thread_settings.clone();
+        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
+
+        let first = recovery.owe_resumes(&service);
+        let second = recovery.owe_resumes(&service);
+        session
+            .task
+            .drive(async {
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash, first)
+                    .await;
+            })
+            .await;
+        assert_eq!(
+            slots.describe_holder(session_id),
+            Some(CodexSessionSlotState::Establishing)
+        );
+
+        session
+            .task
+            .drive(async {
+                recovery
+                    .recover(&service, CodexServiceRecoveryCause::Crash, second)
+                    .await;
+            })
+            .await;
+        assert_eq!(
+            slots.describe_holder(session_id),
+            Some(CodexSessionSlotState::Live)
+        );
+        service_side.abort();
+    })
+    .await
+    .expect("both recoveries end within the bound");
 }
 
 // The payload of each notice delivered on `session_id`, in order.

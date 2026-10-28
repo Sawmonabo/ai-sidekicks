@@ -317,7 +317,7 @@ interface ProviderCommandBinding {
 }
 // Tagged on `kind`; only a tool server's prompt names its server and carries a title.
 type ProviderCommandEntry =
-  | ({ kind: "command" | "skill" } & ProviderCommandEntryMembers)
+  | ({ kind: "command" | "skill"; server?: never; title?: never } & ProviderCommandEntryMembers)
   | ({
       kind: "prompt";
       server: string; // the tool server that publishes it

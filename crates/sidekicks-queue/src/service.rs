@@ -264,7 +264,8 @@ impl RunQueue {
     /// review as the same review. Refuses a session the daemon does not hold, one closed
     /// (`session.alreadyClosed`) or being purged (`session.changeRefused`), an edit of a message
     /// the agent has taken or its provider did not give back, an edit of a waiting review, a retry
-    /// of a message in other words, a skill pick the provider does not list or whose read
+    /// of a message in other words, a review's retry carrying files, skills, an answered question
+    /// or a speed (`request.paramsInvalid`), a skill pick the provider does not list or whose read
     /// waited past the delivery timeout, a send the store cannot keep and one whose lead run kept
     /// moving under it, writing nothing.
     pub async fn create(

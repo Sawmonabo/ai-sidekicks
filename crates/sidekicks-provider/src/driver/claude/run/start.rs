@@ -1,6 +1,6 @@
 //! A run's start on Claude Code: its opening words written to the session's live process as typed,
 //! with its staged files, one turn at a time, after the output-speed level the run asks for is
-//! applied. A turn the daemon starts itself (a goal, a review, an `Allow once` with no run) or one
+//! applied. A turn the daemon starts itself (a goal, an `Allow once` with no run) or one
 //! Claude Code started by itself is started as the session's own run through the run engine before
 //! anything is written, at the session's current posture, so every row of the turn has a run.
 

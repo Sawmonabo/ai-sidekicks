@@ -480,25 +480,13 @@ impl CodexService {
     /// Whether the service is on its way back up: starting, reconnecting or restarting, after which
     /// its conversations resume at the settings their records hold.
     pub(crate) fn is_coming_back(&self) -> bool {
-        matches!(
-            *self.availability.borrow(),
-            CodexServiceAvailability::Starting
-                | CodexServiceAvailability::Reconnecting
-                | CodexServiceAvailability::Restarting
-        )
+        self.availability.borrow().is_coming_back()
     }
 
     /// Answers once the service is no longer on its way back up: up, or ended, stopped or down.
     pub(crate) async fn when_back(&self) {
-        self.wait_for(|availability| {
-            !matches!(
-                availability,
-                CodexServiceAvailability::Starting
-                    | CodexServiceAvailability::Reconnecting
-                    | CodexServiceAvailability::Restarting
-            )
-        })
-        .await;
+        self.wait_for(|availability| !availability.is_coming_back())
+            .await;
     }
 
     /// Answers once the service is shut down for good with the daemon.

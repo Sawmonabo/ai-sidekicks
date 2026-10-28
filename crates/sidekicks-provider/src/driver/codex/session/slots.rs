@@ -1,11 +1,12 @@
 //! The Codex sessions' slots: which session holds a live record, by the queue its task drains, and
 //! the one transition in flight on each, an establishment or a close, taken as a per-session claim
-//! that the next waits behind. A session whose service came back is owed its resume from then until
-//! recovery claims its slot, and reads as being established meanwhile. The record itself stays on
+//! that the next waits behind. A session whose service came back is owed its resume, by each
+//! recovery of it, from then until that recovery claims its slot, and reads as being established
+//! meanwhile. The record itself stays on
 //! its session's task; a close lets it go there, routes and waits first, so nothing reaches it
 //! after.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::pin::pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -36,14 +37,19 @@ pub(crate) const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 /// cannot hold a close.
 pub(crate) const CODEX_LET_GO_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// One recovery of a Codex service, minted at each time it came back, which keys the resumes it
+/// owes its sessions: a later recovery's marks outlive an earlier one's end.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct CodexRecoveryGeneration(pub(crate) u64);
+
 /// One session's slot: its live record's queue, the claims published on it, oldest first, how
-/// many closes it has seen, and whether its service came back with its resume not yet claimed.
+/// many closes it has seen, and the recoveries of its service that owe it a resume not yet claimed.
 #[derive(Default)]
 struct SessionSlot {
     live: Option<CodexSessionInboundSender>,
     claims: Vec<(u64, CodexSessionSlotState)>,
     closes: u64,
-    is_resume_owed: bool,
+    owed_resumes: HashSet<CodexRecoveryGeneration>,
 }
 
 impl SessionSlot {
@@ -54,8 +60,7 @@ impl SessionSlot {
             .last()
             .map(|claim| claim.1)
             .or_else(|| {
-                self.is_resume_owed
-                    .then_some(CodexSessionSlotState::Establishing)
+                (!self.owed_resumes.is_empty()).then_some(CodexSessionSlotState::Establishing)
             })
             .or_else(|| self.live.as_ref().map(|_| CodexSessionSlotState::Live))
     }
@@ -168,9 +173,9 @@ impl CodexSessionSlots {
             resumed.as_mut().enable();
             let (is_owed, holder) = {
                 let slots = self.lock();
-                slots
-                    .get(&session_id)
-                    .map_or((false, None), |slot| (slot.is_resume_owed, slot.holder()))
+                slots.get(&session_id).map_or((false, None), |slot| {
+                    (!slot.owed_resumes.is_empty(), slot.holder())
+                })
             };
             if is_owed {
                 resumed.await;
@@ -211,21 +216,21 @@ impl CodexSessionSlots {
         }
     }
 
-    /// Marks `session_id`'s live record owed its resume, as its service came back: it reads as
-    /// being established until [`Self::settle_resume`].
-    pub(crate) fn owe_resume(&self, session_id: SessionId) {
+    /// Marks `session_id`'s live record owed its resume by `generation`, as its service came
+    /// back: it reads as being established until every recovery owing it settled.
+    pub(crate) fn owe_resume(&self, session_id: SessionId, generation: CodexRecoveryGeneration) {
         if let Some(slot) = self.lock().get_mut(&session_id)
             && slot.live.is_some()
         {
-            slot.is_resume_owed = true;
+            slot.owed_resumes.insert(generation);
         }
     }
 
-    /// Ends `session_id`'s owed resume, once recovery claimed its slot or let it be, and wakes
-    /// whoever waits for it.
-    pub(crate) fn settle_resume(&self, session_id: SessionId) {
+    /// Ends the resume `generation` owed `session_id`, once that recovery claimed its slot or let
+    /// it be, and wakes whoever waits for it.
+    pub(crate) fn settle_resume(&self, session_id: SessionId, generation: CodexRecoveryGeneration) {
         if let Some(slot) = self.lock().get_mut(&session_id) {
-            slot.is_resume_owed = false;
+            slot.owed_resumes.remove(&generation);
         }
         self.resumes_settled.notify_waiters();
     }
@@ -296,7 +301,7 @@ impl CodexSessionSlots {
         };
         slot.claims.retain(|claim| claim.0 != claim_id);
         if slot.claims.is_empty() && slot.live.is_none() {
-            let is_resume_owed = slot.is_resume_owed;
+            let is_resume_owed = !slot.owed_resumes.is_empty();
             slots.remove(&session_id);
             drop(slots);
             if is_resume_owed {
@@ -434,7 +439,7 @@ pub(crate) async fn let_go_codex_thread(service: &CodexService, thread_id: &str)
 mod tests {
     use std::sync::Arc;
 
-    use super::CodexSessionSlots;
+    use super::{CodexRecoveryGeneration, CodexSessionSlots};
     use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
     use crate::driver::codex::session::inbound::codex_session_inbound;
     use crate::driver::test_registry::new_session_id;
@@ -452,7 +457,7 @@ mod tests {
             .await
             .expect("a free slot is claimed")
             .install(sender);
-        slots.owe_resume(session_id);
+        slots.owe_resume(session_id, CodexRecoveryGeneration(1));
         assert_eq!(
             slots.describe_holder(session_id),
             Some(CodexSessionSlotState::Establishing)
@@ -477,7 +482,7 @@ mod tests {
             "the move waits for the owed resume"
         );
 
-        slots.settle_resume(session_id);
+        slots.settle_resume(session_id, CodexRecoveryGeneration(1));
         moved
             .await
             .expect("the move goes once the resume is no longer owed");

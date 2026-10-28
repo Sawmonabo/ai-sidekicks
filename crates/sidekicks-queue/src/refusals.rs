@@ -1,7 +1,9 @@
 //! The run queue's refusals of a send or a change: an item it does not hold, one no longer waiting
-//! or not given back by its provider, and a skill pick its provider does not list.
+//! or not given back by its provider, a review's retry carrying what a review cannot take, and a
+//! skill pick its provider does not list.
 
 use serde_json::json;
+use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemChangeRefusedDetails, AgentQueueItemChangeRefusedReason, QueueItemId,
@@ -65,6 +67,27 @@ pub(crate) fn unreturned_refusal(
             ),
         ),
     }
+}
+
+/// The `request.paramsInvalid` refusal of a retry of the review `queue_item_id` that carries
+/// `members`, a message's files, skills, answered question or speed, which a review cannot take.
+pub(crate) fn review_retry_refusal(queue_item_id: QueueItemId, members: &[&str]) -> DomainError {
+    let issues: Vec<Issue> = members
+        .iter()
+        .map(|member| Issue {
+            path: vec![IssuePathSegment::Member((*member).to_owned())],
+            message: "a retry of a review carries none".to_owned(),
+            params: None,
+        })
+        .collect();
+    DomainError::new(
+        format!(
+            "Queue item {queue_item_id} is a review, whose retry carries no {}",
+            members.join(", ")
+        ),
+        RefusalCode::RequestParamsInvalid,
+    )
+    .with_detail(json!({ "issues": issues }))
 }
 
 /// The `skill.pathRefused` refusal of a skill pick the session's provider does not list.

@@ -42,7 +42,8 @@ use crate::recorder::{
     lead_run_queued,
 };
 use crate::refusals::{
-    UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found, unreturned_refusal,
+    UnreturnedReason, change_refused, left_queue_refusal, queue_item_not_found,
+    review_retry_refusal, unreturned_refusal,
 };
 use crate::run_lifecycle::QueueRunLifecycle;
 
@@ -215,7 +216,8 @@ impl QueueSends {
     /// place, and an item not delivered is sent again, a message with its own words and files and
     /// a review as the same review, the send's words unread. Called under `hold`; refuses an item
     /// the lead's queue of the session does not hold, an edit of a waiting review, one that has
-    /// left the queue otherwise, and a retry of a message in other words than its own.
+    /// left the queue otherwise, a retry of a message in other words than its own, and a review's
+    /// retry that carries files, skills, an answered question or a speed.
     pub(crate) async fn replace(
         &self,
         hold: &KeyHold<'_, SessionId>,
@@ -231,6 +233,20 @@ impl QueueSends {
             .ok_or_else(|| queue_item_not_found(replaces_queue_item_id))?;
         match (&replaces.body, &replaces.state) {
             (QueueItemBody::Review { target }, RecordedQueueItemState::NotDelivered { .. }) => {
+                let body = &message.body;
+                let carried = [
+                    ("attachments", body.attachments.is_some()),
+                    ("skills", body.skills.is_some()),
+                    ("answersQuestionId", body.answers_question_id.is_some()),
+                    ("outputSpeedForTurn", body.output_speed_for_turn.is_some()),
+                ];
+                let members: Vec<&str> = carried
+                    .into_iter()
+                    .filter_map(|(member, is_carried)| is_carried.then_some(member))
+                    .collect();
+                if !members.is_empty() {
+                    return Err(review_retry_refusal(replaces.id, &members).into());
+                }
                 let item = QueueSendItem::Review {
                     item_id: message.item_id,
                     target: *target,
