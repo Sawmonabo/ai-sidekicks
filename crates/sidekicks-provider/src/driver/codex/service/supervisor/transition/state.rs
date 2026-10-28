@@ -36,7 +36,8 @@ pub(crate) enum SupervisorState {
         silence: Option<u64>,
     },
     /// The connection dropped while the service runs; a redial is waiting or under way, until
-    /// it reconnects or the silence watch ends the service.
+    /// it reconnects or the silence watch ends the service. A service the daemon joined redials
+    /// until it reconnects.
     Reconnecting {
         /// The ticket of the start whose process runs.
         launch: u64,

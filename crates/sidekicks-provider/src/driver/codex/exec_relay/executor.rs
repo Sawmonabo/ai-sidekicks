@@ -445,7 +445,10 @@ async fn own_executor_child(mut child: Box<dyn ChildWrapper>, mut ended: watch::
     tokio::select! {
         status = child.wait() => match status {
             Ok(status) => tracing::warn!(%status, "the Codex executor exited"),
-            Err(error) => tracing::warn!(error = &error as &(dyn std::error::Error + 'static), "the Codex executor's end could not be read"),
+            Err(error) => {
+                let error = &error as &(dyn std::error::Error + 'static);
+                tracing::warn!(error, "the Codex executor's end could not be read");
+            }
         },
         // The connection ended or every handle on it dropped; the child's drop kills it.
         _ended = ended.wait_for(|is_ended| *is_ended) => {}
