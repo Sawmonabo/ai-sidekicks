@@ -58,10 +58,13 @@ const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 18] = [
     "GIT_NAMESPACE",
 ];
 
+/// The variable that keeps git from asking on a terminal, and its value.
+pub const GIT_TERMINAL_PROMPT_OFF: (&str, &str) = ("GIT_TERMINAL_PROMPT", "0");
+
 /// Set on every call after the strip: git's messages in English, which callers read refusals
 /// from, and no prompt, which would wait on a terminal the daemon lacks until the timeout.
 const PINNED_GIT_ENVIRONMENT: [(&str, &str); 3] =
-    [("LC_ALL", "C"), ("LANG", "C"), ("GIT_TERMINAL_PROMPT", "0")];
+    [("LC_ALL", "C"), ("LANG", "C"), GIT_TERMINAL_PROMPT_OFF];
 
 /// The environment that keeps git and ssh from asking anyone for a credential: no askpass
 /// program, no credential manager dialog, no ssh askpass and no terminal prompt, so a question
@@ -70,7 +73,7 @@ pub const NO_PROMPT_ENVIRONMENT: [(&str, &str); 4] = [
     ("GIT_ASKPASS", ""),
     ("GCM_INTERACTIVE", "never"),
     ("SSH_ASKPASS_REQUIRE", "never"),
-    ("GIT_TERMINAL_PROMPT", "0"),
+    GIT_TERMINAL_PROMPT_OFF,
 ];
 
 /// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
