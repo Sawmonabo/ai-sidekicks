@@ -11,6 +11,7 @@ pub(crate) mod file_watch;
 pub mod folder;
 pub mod git;
 pub(crate) mod last_error;
+pub mod machine_settings;
 pub mod managed;
 pub mod project;
 pub(crate) mod projector;

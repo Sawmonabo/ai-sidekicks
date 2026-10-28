@@ -54,7 +54,7 @@ use crate::repo::root_resolver::{ROOT_RESOLUTION_GIT_TIMEOUT, refusal_of_filesys
 
 /// Why a folder listing failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum FolderListError {
+pub enum FolderListError {
     /// The request was refused: the top level, a WSL distribution, a path naming no complete
     /// location, or a folder that cannot be read, with the system's reason.
     #[error(transparent)]
@@ -70,7 +70,7 @@ pub(crate) enum FolderListError {
 
 /// Why one folder's repository check failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum RepositoryCheckError {
+pub enum RepositoryCheckError {
     /// git could not answer: it could not start, was ended, or printed what cannot be read.
     #[error("git could not check whether a folder is a repository")]
     Git(#[from] GitError),
@@ -80,23 +80,15 @@ pub(crate) enum RepositoryCheckError {
 }
 
 /// Lists the machine's folders for another device's folder chooser.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the folder list method's handler")
-)]
-pub(crate) struct FolderListService {
+pub struct FolderListService {
     home_folder: PathBuf,
     git: GitRunner,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the folder list method's handler")
-)]
 impl FolderListService {
     /// The listing starting at `home_folder`, the home folder of the account the service runs as,
     /// asking `git` which folders are repositories.
-    pub(crate) fn new(home_folder: PathBuf, git: GitRunner) -> Self {
+    pub fn new(home_folder: PathBuf, git: GitRunner) -> Self {
         Self { home_folder, git }
     }
 
@@ -107,7 +99,7 @@ impl FolderListService {
     /// no complete location or with `pathNotFound` or `notReadable` and the system's reason for a
     /// folder that cannot be read after one retry or in time; and with the other variants when
     /// the path cannot be sent or git cannot check a folder.
-    pub(crate) async fn list(
+    pub async fn list(
         &self,
         request: MachineFolderListRequest,
     ) -> Result<MachineFolderListResponse, FolderListError> {
