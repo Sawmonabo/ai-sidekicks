@@ -620,11 +620,6 @@ fn run_bound(
             ..StatementResult::default()
         });
     }
-    let column_names = prepared
-        .column_names()
-        .into_iter()
-        .map(str::to_owned)
-        .collect();
     let mut rows = Vec::new();
     let mut returned = prepared.query(params)?;
     while let Some(row) = returned.next()? {
@@ -636,7 +631,6 @@ fn run_bound(
     }
     Ok(StatementResult {
         row_count: rows.len(),
-        column_names,
         rows,
     })
 }

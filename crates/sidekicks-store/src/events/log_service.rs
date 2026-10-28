@@ -127,7 +127,7 @@ pub struct EventLogAppendReceipt {
     /// The event's id, as given.
     pub id: FreeFormText<EVENT_FIELD_MAX_LEN>,
     /// The event's sequence in its session's log.
-    pub(crate) sequence: SafeInt<0>,
+    pub sequence: SafeInt<0>,
 }
 
 /// Why an append was not kept; none of its events is stored.
@@ -273,9 +273,9 @@ pub struct EventReadAfterCursorResponse {
     /// The events after the cursor, in sequence order.
     pub events: Vec<EventEnvelope>,
     /// Resumes right after the last event returned; when none was, the position read after.
-    pub(crate) next_cursor: EventCursor,
+    pub next_cursor: EventCursor,
     /// Whether the limit left events beyond `next_cursor`.
-    pub(crate) has_more: bool,
+    pub has_more: bool,
 }
 
 /// What [`EventLogService::read_window`] reads: both sequences are included.
@@ -290,6 +290,10 @@ pub(crate) struct EventReadWindowRequest {
 }
 
 /// What [`EventLogService::read_window`] returns.
+#[expect(
+    dead_code,
+    reason = "the rebuilds and inspection that read a window of the log"
+)]
 #[derive(Clone, Debug)]
 pub(crate) struct EventReadWindowResponse {
     /// The window's events, in sequence order.
@@ -437,19 +441,6 @@ impl EventLogService {
         .await
     }
 
-    /// The cursor of the session's newest readable event, below its last good point while its
-    /// history is damaged, or the start of its log when it has none. Fails as the read fails.
-    pub(crate) async fn read_newest_cursor(
-        &self,
-        session_id: SessionId,
-    ) -> Result<EventCursor, EventLogReadError> {
-        self.read(ReadLength::Short, move |reads, _, _| {
-            let head = reads.read_head(&session_id)?;
-            Ok(encode_event_cursor(head.unwrap_or(START_OF_LOG_POSITION))?)
-        })
-        .await
-    }
-
     /// The position a follow of `session_id` starts after, as a cursor: the start of its log, its
     /// newest readable event, or the event `start` names, checked against its head. Fails with
     /// [`EventLogFollowError::SessionNotFound`] for a session with no events and no damaged
@@ -538,6 +529,10 @@ impl EventLogService {
 
     /// The events with a sequence from the request's first to its last, in sequence order. Fails
     /// as the read fails.
+    #[expect(
+        dead_code,
+        reason = "the rebuilds and inspection that read a window of the log"
+    )]
     pub(crate) async fn read_window(
         &self,
         request: EventReadWindowRequest,
@@ -551,13 +546,6 @@ impl EventLogService {
             Ok(EventReadWindowResponse { events })
         })
         .await
-    }
-
-    /// Whether this log appends through `writer`. A row written with an event commits in the
-    /// event's own write only when both go through one writer, so a service relying on that
-    /// checks it.
-    pub(crate) fn writes_through(&self, writer: &Arc<DatabaseWriter>) -> bool {
-        Arc::ptr_eq(&self.writer, writer)
     }
 
     /// Runs `read` on a borrowed connection on a blocking thread, handing it the log's reads on it,
