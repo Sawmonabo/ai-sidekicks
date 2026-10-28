@@ -9,7 +9,7 @@ Machine-scoped governance state for [Spec-024](../../specs/024-mcp-server-config
 CREATE TABLE mcp_server_bindings (
   provider           TEXT NOT NULL,  -- the provider's open id, checked against the registered drivers where a request or a provider's reading brings it in; a row keeps it as written
   scope              TEXT NOT NULL
-                     CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on every provider; 'connector' (a claude.ai connector) and 'managed' (a server an administrator layer declares) are the servers a provider brings itself, Claude Code's today, read-only, their rows holding the tool overrides; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
+                     CHECK(scope IN ('user', 'project', 'local', 'plugin', 'connector', 'managed')),  -- scope axis of the binding identity (Spec-024 §Unified Inventory): writable at user, project and local on every provider; 'connector' (a claude.ai connector) and 'managed' (a server any provider's administrator layer declares) are the servers a provider brings itself, read-only, their rows holding the tool overrides; a Codex 'local' binding is the daemon's emulation and has a row like any other; a 'plugin' binding is a server an installed plugin declares, whose row holds the person's switch and tool overrides while its declaration changes only with the plugin
   scope_ref          TEXT NOT NULL DEFAULT '',  -- canonical project root (project) / keying directory (local) / the plugin's name (plugin) / the provider account's id (connector); '' for user and managed scope
   scope_place        TEXT NOT NULL DEFAULT '',  -- the WSL 2 distribution a project or local root is in; '' for a root outside one and for every other scope
   server_name        TEXT NOT NULL,
@@ -94,7 +94,7 @@ CREATE TABLE mcp_project_server_switches (
   updated_at    TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name, project_root, project_place),
   CHECK((scope = 'managed') = (scope_ref = '')),
-  CHECK(scope IN ('project', 'local') OR scope_place = ''),
+  CHECK(scope_place = ''),  -- neither scope a switch takes has a distribution
   FOREIGN KEY (provider, scope, scope_ref, scope_place, server_name)
     REFERENCES mcp_server_bindings(provider, scope, scope_ref, scope_place, server_name)
     ON DELETE CASCADE  -- a switch never outlives its binding row

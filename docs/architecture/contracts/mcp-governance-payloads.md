@@ -399,10 +399,11 @@ interface McpRegistryServer {
 // durable row, and Spec-024 forbids filesystem paths in both.
 type McpServerStatusChangedNotice = McpServerBindingAuditRef & {
   type: "mcp.server.status.changed";
+  // "sessionFeed": the leg's own status before and now, so a page updates that leg's line; "sessionEnded": the aggregate before the leg left and over the legs that remain; "machineProbe": the probe's own reading before and now
   previousStatus: McpServerStatus;
   status: McpServerStatus;
   failureReason?: string; // sanitized
-  // a session's own feed, a session's end retiring its leg, or the daemon's probe of a server no session runs
+  // a session's own feed, a session's leg leaving the binding (retired, or now serving the server from another binding), or the daemon's probe of a server no session runs
   origin: "sessionFeed" | "sessionEnded" | "machineProbe";
   // REQUIRED for origins "sessionFeed" and "sessionEnded", the session whose feed saw it or that ended; ABSENT for "machineProbe"
   sessionId?: SessionId;
