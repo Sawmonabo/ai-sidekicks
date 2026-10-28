@@ -66,6 +66,9 @@ pub struct CreateSessionParams {
     pub larger_window: Option<SafeInt<1>>,
     /// How the session may touch the machine.
     pub execution_posture: Option<ExecutionPosture>,
+    /// Build or Plan, as the session stores it, which the new provider runs in from its first
+    /// turn.
+    pub mode: SessionMode,
     /// The agent's accepted output-speed level (gated on `outputSpeed`), sent when the process
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
