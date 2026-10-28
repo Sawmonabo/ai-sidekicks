@@ -203,8 +203,13 @@ mod tests {
         refused.engine.fail_daemon_turns();
         refused.frame(&turn()[0]);
         settle().await;
-        let requests = refused.channel.control_requests();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["subtype"], "interrupt");
+        // The process's start is also read for its context, which asks nothing of the turn.
+        let interrupts = refused
+            .channel
+            .control_requests()
+            .into_iter()
+            .filter(|request| request["subtype"] == "interrupt")
+            .count();
+        assert_eq!(interrupts, 1);
     }
 }
