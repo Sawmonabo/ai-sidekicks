@@ -3,6 +3,23 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytes::Bytes;
+use futures::{SinkExt as _, StreamExt as _};
+use rstest::rstest;
+use rusqlite::Connection;
+use serde_json::{Value, json};
+use sidekicks_client::daemon_connection::{DaemonConnection, DaemonEndpoint};
+use sidekicks_client::transport::local_socket::connect_local_socket;
+use sidekicks_contracts::daemon::config::{DaemonConfigUpdate, DaemonConfigUpdateRequest};
+use sidekicks_contracts::daemon::lifecycle::{DaemonRestart, DaemonStop};
+use sidekicks_contracts::daemon::status::{DaemonProcessState, DaemonStatusRead};
+use sidekicks_contracts::jsonrpc::framing::frame::{Frame, FrameCodec, LaneId};
+use sidekicks_contracts::jsonrpc::framing::incoming::IncomingLanes;
+use sidekicks_contracts::jsonrpc::framing::{MAX_CHUNK_BYTES, MessageBody};
+use sidekicks_contracts::jsonrpc::negotiation::CURRENT_PROTOCOL_VERSION;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::method::Method as _;
+use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CAN_BIND_A_SOCKET_LISTENER, CredentialStore, DaemonRunFolder, LeftoverSweep, SocketPathRefused,
@@ -20,6 +37,7 @@ use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, open_database,
 };
 use tempfile::TempDir;
+use tokio_util::codec::Framed;
 use tokio_util::sync::CancellationToken;
 
 use super::DaemonProcess;
@@ -39,6 +57,10 @@ const MONITOR_SOCKET_VARIABLE: &str = "SIDEKICKS_TEST_CRASH_MONITOR_SOCKET";
 
 // The longest a started daemon's test waits for the erase to end the process.
 const ERASE_WAIT: Duration = Duration::from_secs(30);
+
+// The longest a test waits for an asked stop to reach the process and for the stop to run: the
+// caller's wait for the service to exit.
+const STOP_WAIT: Duration = Duration::from_secs(10);
 
 // The crash monitor the daemon starts in these tests: this test binary, run through a script as
 // the daemon's own program, serving the socket the mode's argument names; the script fails every
@@ -284,6 +306,157 @@ async fn a_stop_before_ready_fails_the_start_as_stopped_and_leaves_no_socket() {
     );
     assert!(!home.run_folder.socket_path.exists());
     assert!(!home.monitor_socket_path().exists());
+}
+
+// Sends `method` on a new connection to the socket at `socket_path` before any handshake, and
+// answers the daemon's reply.
+async fn call_before_handshake(socket_path: &Path, method: &str) -> Value {
+    let stream = connect_local_socket(socket_path)
+        .await
+        .expect("the socket answers");
+    let mut frames = Framed::new(stream, FrameCodec);
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": {},
+        "protocolVersion": CURRENT_PROTOCOL_VERSION,
+    });
+    let message = MessageBody {
+        json: Bytes::from(serde_json::to_vec(&request).expect("the request writes")),
+        attachments: Vec::new(),
+    }
+    .encode()
+    .expect("the request is within its caps");
+    for frame in Frame::data_chunks(LaneId::CONTROL, message, MAX_CHUNK_BYTES, false) {
+        frames.send(frame).await.expect("the request is sent");
+    }
+    let mut incoming = IncomingLanes::default();
+    loop {
+        let frame = frames
+            .next()
+            .await
+            .expect("the connection stays open for the reply")
+            .expect("the daemon's frames decode");
+        if let Some(reply) = incoming
+            .receive(frame)
+            .expect("the daemon's frames are well formed")
+        {
+            return serde_json::from_slice(&reply.body.json).expect("the reply is JSON");
+        }
+    }
+}
+
+// A call on the served socket before its handshake is refused as the handshake's gate refuses
+// it, the same call past the handshake answers with this start's data folder, and the stop leaves
+// no socket and the data folder free to hold at once. Killed by the chain dispatching past the
+// handshake's gate, and by the stop keeping the data folder's hold.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_call_is_answered_only_past_the_handshake_and_the_stop_lets_the_data_folder_go() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    let process = home
+        .start(CancellationToken::new())
+        .await
+        .expect("the daemon starts");
+
+    let refused = call_before_handshake(
+        &home.run_folder.socket_path,
+        DaemonStatusRead::DESCRIPTOR.method,
+    )
+    .await;
+    let connection = DaemonConnection::connect(DaemonEndpoint::new(home.run_folder.clone()))
+        .await
+        .expect("the handshake completes");
+    let status = connection
+        .client()
+        .call::<DaemonStatusRead>(&EmptyPayload {})
+        .await
+        .expect("the status read answers");
+    connection.close().await;
+    process
+        .stop(DaemonStopIntent::Stop)
+        .await
+        .expect("the stop fails nothing");
+
+    assert_eq!(
+        refused["error"]["data"]["type"],
+        RefusalCode::ConnectionHandshakeRequired.as_str(),
+        "{refused}"
+    );
+    assert_eq!(status.process_state, DaemonProcessState::Running);
+    assert_eq!(
+        Path::new(status.data_directory.as_str()),
+        home.data_folder()
+    );
+    assert!(!home.run_folder.socket_path.exists(), "the socket is gone");
+    DataFolderLock::take(&home.data_folder()).expect("the stop let the data folder go");
+}
+
+// `daemon.stop` and `daemon.restart` each end the daemon for their own reason while another client
+// is still connected, and the stop runs without waiting for that client; the write the caller had
+// acknowledged is in the file afterwards. Killed by the restart asking for a stop, and by a stop
+// that waits for every client to close.
+#[rstest]
+#[case::stop(DaemonStopIntent::Stop)]
+#[case::restart(DaemonStopIntent::Restart)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_lifecycle_verb_ends_the_daemon_for_its_reason_with_another_client_connected(
+    #[case] intent: DaemonStopIntent,
+) {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let home = TestHome::new();
+    let mut process = home
+        .start(CancellationToken::new())
+        .await
+        .expect("the daemon starts");
+    let endpoint = DaemonEndpoint::new(home.run_folder.clone());
+    let caller = DaemonConnection::connect(endpoint.clone())
+        .await
+        .expect("the caller connects");
+    let other = DaemonConnection::connect(endpoint)
+        .await
+        .expect("the other client connects");
+    caller
+        .client()
+        .call::<DaemonConfigUpdate>(&DaemonConfigUpdateRequest::RecordTraces(true))
+        .await
+        .expect("the write is acknowledged");
+
+    match intent {
+        DaemonStopIntent::Stop => caller.client().call::<DaemonStop>(&EmptyPayload {}).await,
+        DaemonStopIntent::Restart => {
+            caller
+                .client()
+                .call::<DaemonRestart>(&EmptyPayload {})
+                .await
+        }
+    }
+    .expect("the verb is accepted");
+    let asked = tokio::time::timeout(STOP_WAIT, process.wait_for_stop())
+        .await
+        .expect("the verb reaches the process");
+    tokio::time::timeout(STOP_WAIT, process.stop(asked))
+        .await
+        .expect("the stop does not wait for the other client")
+        .expect("the stop fails nothing");
+
+    assert_eq!(asked, intent);
+    let is_recording_traces: bool =
+        Connection::open(home.data_folder().join(DAEMON_DATABASE_FILE_NAME))
+            .expect("the file opens")
+            .query_row(
+                "SELECT record_traces FROM daemon_configuration WHERE singleton = 1",
+                [],
+                |row| row.get(0),
+            )
+            .expect("the setting reads");
+    assert!(is_recording_traces, "the acknowledged write is in the file");
+    drop(other);
 }
 
 // A store another build made fails the start as another version's saved sessions, and the start
