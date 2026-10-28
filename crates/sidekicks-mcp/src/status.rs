@@ -13,9 +13,8 @@ use sidekicks_contracts::mcp::governance::{
     McpServerStatusChangedNotice, McpServerStatusChangedType,
 };
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
@@ -25,7 +24,7 @@ use sidekicks_provider::driver::mcp_server_status::{
 };
 use sidekicks_std::mutex_lock::lock;
 
-use self::legs::{ChangeOrigin, LegId, McpLegs, StatusChange};
+use self::legs::{ChangeOrigin, LegId, McpLegs, ObservationOutcome, StatusChange};
 use self::notices::{McpNoticeBoard, McpNoticeKey, McpNoticeKind, McpNoticeOrigin};
 use crate::binding_store::McpBindingKey;
 
@@ -58,9 +57,11 @@ pub(crate) struct McpBindingStatusReading {
                   probe and the inventory call it"
     )
 )]
-pub(crate) struct McpServerStatusCore {
+pub(crate) struct McpServerStatusTracker {
     legs: Mutex<McpLegs>,
     board: Arc<McpNoticeBoard>,
+    /// Each binding a leg first reports or the probe reads, for the drain to record; the drain
+    /// keeps which bindings it has recorded, so one whose write failed is tried again.
     first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
 }
 
@@ -72,9 +73,9 @@ pub(crate) struct McpServerStatusCore {
                   probe and the inventory call it"
     )
 )]
-impl McpServerStatusCore {
-    /// A core with no leg, sending its status notices on `board` and each binding's ref, once at
-    /// its first observation in this process, through `first_observations`.
+impl McpServerStatusTracker {
+    /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
+    /// leg first reports or the probe reads through `first_observations`, whose drain records it.
     pub(crate) fn new(
         board: Arc<McpNoticeBoard>,
         first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
@@ -99,24 +100,18 @@ impl McpServerStatusCore {
         };
         lock(&self.legs).open_sink(leg.clone());
         McpLegStatusSink {
-            core: Arc::clone(self),
+            tracker: Arc::clone(self),
             leg,
         }
     }
 
     /// Applies one server's reading from a leg, `binding` being the effective binding the leg
     /// serves the server from. A reading for a retired leg changes nothing.
-    pub(crate) fn observe(&self, binding: &McpServerBindingRef, update: McpServerStatusUpdate) {
+    fn observe(&self, binding: &McpServerBindingRef, update: McpServerStatusUpdate) {
         let observed_at = WireInstant::now();
         let mut legs = lock(&self.legs);
         let outcome = legs.observe(binding, update, observed_at);
-        if let Some(first) = outcome.first_observation {
-            self.first_observations
-                .send(McpBindingKey::of(&first), first);
-        }
-        for change in outcome.changes {
-            self.send(change);
-        }
+        self.apply(outcome);
     }
 
     /// Retires the leg `binding_id` of `session_id`, at its session's close or its driver's exit:
@@ -134,7 +129,8 @@ impl McpServerStatusCore {
     }
 
     /// Stores the machine probe's newest reading of `binding`, which stands for the binding while
-    /// no live leg holds a status; a `machineProbe` notice goes out when the aggregate changed.
+    /// no live leg holds a status; a `machineProbe` notice goes out when the probe's own reading
+    /// changed, and the binding goes to the drain as a leg's first report does.
     pub(crate) fn record_probe(
         &self,
         binding: &McpServerBindingRef,
@@ -143,9 +139,8 @@ impl McpServerStatusCore {
     ) {
         let observed_at = WireInstant::now();
         let mut legs = lock(&self.legs);
-        if let Some(change) = legs.record_probe(binding, status, failure_text, observed_at) {
-            self.send(change);
-        }
+        let outcome = legs.record_probe(binding, status, failure_text, observed_at);
+        self.apply(outcome);
     }
 
     /// The status of the binding `binding` keys.
@@ -159,19 +154,31 @@ impl McpServerStatusCore {
         lock(&self.legs).leg_count()
     }
 
+    /// Hands the reading's binding to the drain and sends its changes; called under the state
+    /// lock, so notices leave in the order their changes were applied.
+    fn apply(&self, outcome: ObservationOutcome) {
+        if let Some(binding) = outcome.observed_binding {
+            self.first_observations
+                .send(McpBindingKey::of(&binding), binding);
+        }
+        for change in outcome.changes {
+            self.send(change);
+        }
+    }
+
     /// Sends `change` as its status notice; called under the state lock, so notices leave in the
     /// order their changes were applied. The failure reason is the deciding source's text,
     /// sanitized, and only on a `failed` status.
     fn send(&self, change: StatusChange) {
         let StatusChange {
             binding_key,
-            binding,
             origin,
             previous_status,
             status,
             failure_text,
         } = change;
-        let (provider, server_name) = provider_and_server_name(&binding);
+        let provider = binding_key.provider.clone();
+        let server_name = binding_key.server_name.clone();
         let scope = binding_key.scope;
         let failure_reason = failure_text
             .filter(|_| status == McpServerStatus::Failed)
@@ -248,19 +255,22 @@ impl McpServerStatusCore {
     )
 )]
 pub(crate) struct McpLegStatusSink {
-    core: Arc<McpServerStatusCore>,
+    tracker: Arc<McpServerStatusTracker>,
     leg: LegId,
 }
 
 impl McpLegStatusSink {
     /// Applies a driver's emission for this leg, `binding` being the effective binding the leg
     /// serves the server from.
-    #[expect(
-        dead_code,
-        reason = "the producer each leg is spawned with reports through it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the producer each leg is spawned with reports through it"
+        )
     )]
     pub(crate) fn observe(&self, binding: &McpServerBindingRef, emission: McpServerStatusEmission) {
-        self.core.observe(
+        self.tracker.observe(
             binding,
             McpServerStatusUpdate::new(self.leg.session_id, self.leg.binding_id.clone(), emission),
         );
@@ -269,45 +279,7 @@ impl McpLegStatusSink {
 
 impl Drop for McpLegStatusSink {
     fn drop(&mut self) {
-        lock(&self.core.legs).close_sink(&self.leg);
-    }
-}
-
-/// The provider and the server's name `binding` names.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status core sends a notice per change")
-)]
-fn provider_and_server_name(binding: &McpServerBindingRef) -> (ProviderId, McpServerName) {
-    match binding {
-        McpServerBindingRef::User {
-            provider,
-            server_name,
-        }
-        | McpServerBindingRef::Project {
-            provider,
-            server_name,
-            ..
-        }
-        | McpServerBindingRef::Local {
-            provider,
-            server_name,
-            ..
-        }
-        | McpServerBindingRef::Plugin {
-            provider,
-            server_name,
-            ..
-        }
-        | McpServerBindingRef::Connector {
-            provider,
-            server_name,
-            ..
-        }
-        | McpServerBindingRef::Managed {
-            provider,
-            server_name,
-        } => (provider.clone(), server_name.clone()),
+        lock(&self.tracker.legs).close_sink(&self.leg);
     }
 }
 
@@ -317,9 +289,12 @@ mod tests {
 
     use futures::FutureExt as _;
     use rstest::rstest;
+    use sidekicks_contracts::mcp::server::McpBindingScope::{self, Managed, User};
+    use sidekicks_contracts::mcp::server::McpServerName;
     use sidekicks_contracts::mcp::server::McpServerStatus::{
         Connected, Failed, NeedsAuth, Starting, Unknown,
     };
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed as _};
     use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
@@ -327,26 +302,32 @@ mod tests {
 
     use super::*;
 
-    /// One call on the core, legs named by their runtime binding id.
+    /// One call on the tracker, legs named by their runtime binding id.
     enum Step {
         /// Opens one more sink for the leg.
         Open(&'static str),
-        /// The leg reports the server, with the provider's error text.
-        Observe(&'static str, McpServerReading, Option<&'static str>),
+        /// The leg reports the server from the binding of that scope, through its newest sink,
+        /// with the provider's error text.
+        Observe(
+            &'static str,
+            McpBindingScope,
+            McpServerReading,
+            Option<&'static str>,
+        ),
         /// Retires the leg.
         Retire(&'static str),
         /// Drops the leg's newest open sink.
         DropSink(&'static str),
-        /// The machine probe reads the server.
+        /// The machine probe reads the server from the `user` binding.
         Probe(McpServerStatus),
     }
 
     fn observe(leg: &'static str, status: McpServerStatus) -> Step {
-        Step::Observe(leg, McpServerReading::Observed(status), None)
+        Step::Observe(leg, User, McpServerReading::Observed(status), None)
     }
 
     fn switch_off(leg: &'static str) -> Step {
-        Step::Observe(leg, McpServerReading::SwitchedOff, None)
+        Step::Observe(leg, User, McpServerReading::SwitchedOff, None)
     }
 
     /// What a notice says, its leg named by its runtime binding id.
@@ -359,73 +340,81 @@ mod tests {
 
     #[derive(Debug, PartialEq, Eq)]
     struct Notice {
+        scope: McpBindingScope,
         origin: Origin,
         previous_status: McpServerStatus,
         status: McpServerStatus,
         failure_reason: Option<String>,
     }
 
-    fn feed(leg: &str, previous_status: McpServerStatus, status: McpServerStatus) -> Notice {
+    fn notice(origin: Origin, previous_status: McpServerStatus, status: McpServerStatus) -> Notice {
         Notice {
-            origin: Origin::Feed(leg.to_owned()),
+            scope: User,
+            origin,
             previous_status,
             status,
             failure_reason: None,
         }
+    }
+
+    fn feed(leg: &str, previous_status: McpServerStatus, status: McpServerStatus) -> Notice {
+        notice(Origin::Feed(leg.to_owned()), previous_status, status)
     }
 
     fn ended(leg: &str, previous_status: McpServerStatus, status: McpServerStatus) -> Notice {
-        Notice {
-            origin: Origin::Ended(leg.to_owned()),
-            previous_status,
-            status,
-            failure_reason: None,
-        }
+        notice(Origin::Ended(leg.to_owned()), previous_status, status)
     }
 
     fn probe(previous_status: McpServerStatus, status: McpServerStatus) -> Notice {
-        Notice {
-            origin: Origin::Probe,
-            previous_status,
-            status,
-            failure_reason: None,
-        }
+        notice(Origin::Probe, previous_status, status)
     }
 
     fn read_notice(notice: McpServerStatusChangedNotice) -> Notice {
-        let (origin, previous_status, status, failure_reason) = match notice {
+        let (scope, origin, previous_status, status, failure_reason) = match notice {
             McpServerStatusChangedNotice::SessionFeed {
+                scope,
                 binding_id,
                 previous_status,
                 status,
                 failure_reason,
                 ..
             } => (
+                scope,
                 Origin::Feed(binding_id.as_str().to_owned()),
                 previous_status,
                 status,
                 failure_reason,
             ),
             McpServerStatusChangedNotice::SessionEnded {
+                scope,
                 binding_id,
                 previous_status,
                 status,
                 failure_reason,
                 ..
             } => (
+                scope,
                 Origin::Ended(binding_id.as_str().to_owned()),
                 previous_status,
                 status,
                 failure_reason,
             ),
             McpServerStatusChangedNotice::MachineProbe {
+                scope,
                 previous_status,
                 status,
                 failure_reason,
                 ..
-            } => (Origin::Probe, previous_status, status, failure_reason),
+            } => (
+                scope,
+                Origin::Probe,
+                previous_status,
+                status,
+                failure_reason,
+            ),
         };
         Notice {
+            scope,
             origin,
             previous_status,
             status,
@@ -433,7 +422,8 @@ mod tests {
         }
     }
 
-    // Each case's comment names the mistake it catches.
+    // Each case's comment names the mistake it catches. A `sessionFeed` notice carries its leg's
+    // own statuses; a `sessionEnded` one the binding's aggregate before and after the leg left.
     #[rstest]
     // A notice per observation: the unchanged re-observation would send one.
     #[case::a_first_observation_and_a_change_notify_and_a_repeat_does_not(
@@ -442,21 +432,22 @@ mod tests {
         vec![feed("leg-a", Unknown, Connected), feed("leg-a", Connected, Failed)],
         Failed, 1, 1,
     )]
-    // A reordered severity: `starting` over `unknown` keeps `starting` at the second leg, and
-    // `needsAuth` over `failed` keeps `needsAuth` at the fourth.
+    // A reordered severity: `needsAuth` over `failed` would read `needsAuth` before the first
+    // retire, and `starting` over `unknown` would read `starting` after the second.
     #[case::the_most_severe_leg_holds_the_aggregate(
         vec![Step::Open("leg-a"), Step::Open("leg-b"), Step::Open("leg-c"), Step::Open("leg-d"),
              observe("leg-a", Starting), observe("leg-b", Unknown), observe("leg-c", NeedsAuth),
-             observe("leg-d", Failed)],
-        vec![feed("leg-a", Unknown, Starting), feed("leg-b", Starting, Unknown),
-             feed("leg-c", Unknown, NeedsAuth), feed("leg-d", NeedsAuth, Failed)],
-        Failed, 4, 4,
+             observe("leg-d", Failed), Step::Retire("leg-d"), Step::Retire("leg-c")],
+        vec![feed("leg-a", Unknown, Starting), feed("leg-b", Unknown, Unknown),
+             feed("leg-c", Unknown, NeedsAuth), feed("leg-d", Unknown, Failed),
+             ended("leg-d", Failed, NeedsAuth), ended("leg-c", NeedsAuth, Unknown)],
+        Unknown, 2, 4,
     )]
     // A skipped retire: the closed session's failed leg would still hold the aggregate.
     #[case::a_retired_leg_leaves_the_aggregate_with_a_session_ended_notice(
         vec![Step::Open("leg-a"), Step::Open("leg-b"), observe("leg-a", Failed),
              observe("leg-b", Connected), Step::Retire("leg-a")],
-        vec![feed("leg-a", Unknown, Failed), feed("leg-b", Failed, Failed),
+        vec![feed("leg-a", Unknown, Failed), feed("leg-b", Unknown, Connected),
              ended("leg-a", Failed, Connected)],
         Connected, 1, 2,
     )]
@@ -467,20 +458,23 @@ mod tests {
         vec![feed("leg-a", Unknown, Connected), ended("leg-a", Connected, Unknown)],
         Unknown, 0, 1,
     )]
-    // `SwitchedOff` held in the aggregate: the switched-off failed leg would keep it `failed`.
+    // `SwitchedOff` held in the aggregate: the switched-off failed leg would keep it `failed` when
+    // the other leg ends. A switch-off changes no leg's status, so it sends nothing, and the leg's
+    // same status again brings it back into the aggregate without a notice.
     #[case::a_switched_off_leg_leaves_the_aggregate_until_it_reports_again(
         vec![Step::Open("leg-a"), Step::Open("leg-b"), observe("leg-a", Failed),
-             observe("leg-b", Connected), switch_off("leg-a"), observe("leg-a", Failed),
-             switch_off("leg-b")],
-        vec![feed("leg-a", Unknown, Failed), feed("leg-b", Failed, Failed),
-             feed("leg-a", Failed, Connected), feed("leg-a", Connected, Failed)],
+             observe("leg-b", Connected), switch_off("leg-a"), Step::Retire("leg-b"),
+             observe("leg-a", Failed)],
+        vec![feed("leg-a", Unknown, Failed), feed("leg-b", Unknown, Connected),
+             ended("leg-b", Connected, Unknown)],
         Failed, 1, 2,
     )]
-    // A probe reading used beside a live leg would send a `needsAuth` probe notice.
+    // A probe reading used beside a live leg would make the aggregate `needsAuth` before the
+    // retire.
     #[case::a_probe_reading_stands_only_while_no_live_leg_holds_a_status(
         vec![Step::Probe(Failed), Step::Open("leg-a"), observe("leg-a", Connected),
              Step::Probe(NeedsAuth), Step::Retire("leg-a")],
-        vec![probe(Unknown, Failed), feed("leg-a", Failed, Connected),
+        vec![probe(Unknown, Failed), feed("leg-a", Unknown, Connected), probe(Failed, NeedsAuth),
              ended("leg-a", Connected, NeedsAuth)],
         NeedsAuth, 0, 1,
     )]
@@ -503,26 +497,44 @@ mod tests {
     // The raw text would put the path on the wire; a reason on a status not `failed` is dropped.
     #[case::a_failure_reason_leaves_redacted_and_only_on_failed(
         vec![Step::Open("leg-a"),
-             Step::Observe("leg-a", McpServerReading::Observed(Failed),
+             Step::Observe("leg-a", User, McpServerReading::Observed(Failed),
                            Some("spawn /Users/someone/servers/docs failed")),
-             Step::Observe("leg-a", McpServerReading::Observed(Connected),
+             Step::Observe("leg-a", User, McpServerReading::Observed(Connected),
                            Some("/Users/someone/servers/docs"))],
         vec![Notice { failure_reason: Some("spawn <redacted-path> failed".to_owned()),
                       ..feed("leg-a", Unknown, Failed) },
              feed("leg-a", Failed, Connected)],
         Connected, 1, 1,
     )]
+    // A leg that now serves the name from another binding leaves the old one: without the
+    // `sessionEnded`, a page would keep the leg's line on the old binding, here where the old
+    // aggregate stays `failed`.
+    #[case::a_leg_moved_to_another_binding_ends_on_the_old_one(
+        vec![Step::Open("leg-a"), Step::Open("leg-b"), observe("leg-a", Connected),
+             observe("leg-b", Failed),
+             Step::Observe("leg-a", Managed, McpServerReading::Observed(Connected), None)],
+        vec![feed("leg-a", Unknown, Connected), feed("leg-b", Unknown, Failed),
+             ended("leg-a", Failed, Failed),
+             Notice { scope: Managed, ..feed("leg-a", Unknown, Connected) }],
+        Failed, 1, 2,
+    )]
     #[tokio::test]
-    async fn the_core_folds_each_leg_and_notifies_each_change(
+    async fn the_tracker_folds_each_leg_and_notifies_each_change(
         #[case] steps: Vec<Step>,
         #[case] expected_notices: Vec<Notice>,
         #[case] expected_status: McpServerStatus,
         #[case] expected_reading_legs: usize,
         #[case] expected_remembered_legs: usize,
     ) {
+        let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
+        let server_name = McpServerName::new("docs".to_owned()).expect("a server name");
         let binding = McpServerBindingRef::User {
-            provider: ProviderId::new("provider-a".to_owned()).expect("a provider id"),
-            server_name: McpServerName::new("docs".to_owned()).expect("a server name"),
+            provider: provider.clone(),
+            server_name: server_name.clone(),
+        };
+        let managed_binding = McpServerBindingRef::Managed {
+            provider,
+            server_name: server_name.clone(),
         };
         let board = Arc::new(McpNoticeBoard::default());
         let subscriber_board = Arc::clone(&board);
@@ -539,7 +551,7 @@ mod tests {
         })
         .await
         .expect("the follow succeeds");
-        let core = Arc::new(McpServerStatusCore::new(
+        let tracker = Arc::new(McpServerStatusTracker::new(
             Arc::clone(&board),
             first_observations.expect("the follow kept the outlet"),
         ));
@@ -562,25 +574,29 @@ mod tests {
                     sinks
                         .entry(name)
                         .or_default()
-                        .push(core.open_leg(session_id, binding_id));
+                        .push(tracker.open_leg(session_id, binding_id));
                 }
-                Step::Observe(name, reading, failure_text) => {
-                    let (session_id, binding_id) = leg_of(name);
-                    core.observe(
-                        &binding,
-                        McpServerStatusUpdate {
-                            session_id,
-                            binding_id,
-                            server_name: McpServerName::new("docs".to_owned())
-                                .expect("a server name"),
-                            reading,
-                            failure_text: failure_text.map(str::to_owned),
-                        },
-                    );
+                Step::Observe(name, scope, reading, failure_text) => {
+                    let observed_binding = match scope {
+                        Managed => &managed_binding,
+                        _ => &binding,
+                    };
+                    sinks
+                        .get(name)
+                        .and_then(|leg_sinks| leg_sinks.last())
+                        .expect("the case opened a sink")
+                        .observe(
+                            observed_binding,
+                            McpServerStatusEmission::new(
+                                server_name.clone(),
+                                reading,
+                                failure_text.map(str::to_owned),
+                            ),
+                        );
                 }
                 Step::Retire(name) => {
                     let (session_id, binding_id) = leg_of(name);
-                    core.retire_leg(session_id, binding_id);
+                    tracker.retire_leg(session_id, binding_id);
                 }
                 Step::DropSink(name) => {
                     let sink = sinks
@@ -589,7 +605,7 @@ mod tests {
                         .expect("the case opened a sink");
                     drop(sink);
                 }
-                Step::Probe(status) => core.record_probe(&binding, status, None),
+                Step::Probe(status) => tracker.record_probe(&binding, status, None),
             }
             // Read after each step, so each notice is seen before a later one under its key
             // replaces it.
@@ -602,13 +618,13 @@ mod tests {
                     McpSubscribeEmission::ConfigChanged(_)
                     | McpSubscribeEmission::GovernanceEvent(_) => None,
                 }
-                .expect("the core sends only status notices");
+                .expect("the tracker sends only status notices");
                 notices.push(read_notice(notice));
             }
         }
 
         assert_eq!(notices, expected_notices);
-        let reading = core.reading(&McpBindingKey::of(&binding));
+        let reading = tracker.reading(&McpBindingKey::of(&binding));
         assert_eq!(reading.status, expected_status);
         assert_eq!(reading.legs.len(), expected_reading_legs);
         // Only a binding nothing has observed reads with no instant.
@@ -616,6 +632,6 @@ mod tests {
             reading.observed_at.is_none(),
             expected_status == Unknown && expected_reading_legs == 0
         );
-        assert_eq!(core.leg_count(), expected_remembered_legs);
+        assert_eq!(tracker.leg_count(), expected_remembered_legs);
     }
 }

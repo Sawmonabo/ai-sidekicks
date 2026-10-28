@@ -191,7 +191,8 @@ CREATE TABLE mcp_project_server_switches (
   updated_at     TEXT NOT NULL,
   PRIMARY KEY (provider, scope, scope_ref, scope_place, server_name, project_root, project_place),
   CHECK((scope = '{managed}') = (scope_ref = '')),
-  CHECK(scope IN ({scopes_with_place}) OR scope_place = ''),
+  -- Neither scope a switch takes has a distribution.
+  CHECK(scope_place = ''),
   FOREIGN KEY (provider, scope, scope_ref, scope_place, server_name)
     REFERENCES mcp_server_bindings(provider, scope, scope_ref, scope_place, server_name)
     ON DELETE CASCADE
@@ -240,7 +241,7 @@ mod tests {
         connection.execute(
             "INSERT INTO mcp_server_bindings
                (provider, scope, scope_ref, scope_place, server_name, first_observed_at, updated_at)
-             VALUES ('claude', ?1, ?2, ?3, ?4, 't', 't')",
+             VALUES ('provider-a', ?1, ?2, ?3, ?4, 't', 't')",
             params![scope, scope_ref, scope_place, server_name],
         )
     }
@@ -253,8 +254,8 @@ mod tests {
             .expect("the test counts the table's rows")
     }
 
-    // Every member of each closed set is stored, on a binding whose reference and place fit its
-    // scope.
+    // Every member of each closed set is stored as the wire spells it, on a binding whose
+    // reference and place fit its scope.
     #[test]
     fn every_closed_value_is_stored() {
         let (_database, connection) = open_database();
@@ -266,9 +267,10 @@ mod tests {
                 McpBindingScope::Plugin => ("tools-plugin", ""),
                 McpBindingScope::Connector => ("account-1", ""),
             };
+            let word = serde_json::to_value(scope).expect("a scope is JSON");
             insert_binding(
                 &connection,
-                (*scope).into(),
+                word.as_str().expect("a scope is a JSON string"),
                 scope_ref,
                 scope_place,
                 "server",
@@ -276,23 +278,28 @@ mod tests {
             .unwrap_or_else(|error| panic!("a {scope:?} binding is stored: {error}"));
         }
         for approval_mode in McpApprovalMode::VARIANTS {
-            let word: &str = (*approval_mode).into();
+            let word = serde_json::to_value(approval_mode).expect("an approval mode is JSON");
+            let word = word.as_str().expect("an approval mode is a JSON string");
             connection
                 .execute(
                     "INSERT INTO mcp_tool_overrides (provider, scope, server_name, tool_name,
                        approval_mode, created_at, updated_at)
-                     VALUES ('claude', 'user', 'server', ?1, ?1, 't', 't')",
+                     VALUES ('provider-a', 'user', 'server', ?1, ?1, 't', 't')",
                     params![word],
                 )
                 .unwrap_or_else(|error| panic!("approval mode {word} is stored: {error}"));
         }
         for idempotency_class in McpAssignableIdempotencyClass::VARIANTS {
-            let word: &str = (*idempotency_class).into();
+            let word =
+                serde_json::to_value(idempotency_class).expect("an idempotency class is JSON");
+            let word = word
+                .as_str()
+                .expect("an idempotency class is a JSON string");
             connection
                 .execute(
                     "INSERT INTO mcp_tool_overrides (provider, scope, server_name, tool_name,
                        idempotency_class, created_at, updated_at)
-                     VALUES ('claude', 'user', 'server', ?1, ?1, 't', 't')",
+                     VALUES ('provider-a', 'user', 'server', ?1, ?1, 't', 't')",
                     params![word],
                 )
                 .unwrap_or_else(|error| panic!("idempotency class {word} is stored: {error}"));
@@ -324,21 +331,23 @@ mod tests {
     #[rstest]
     #[case::outsider_scope(
         "INSERT INTO mcp_server_bindings (provider, scope, scope_ref, server_name,
-           first_observed_at, updated_at) VALUES ('claude', 'team', 'team-1', 'server', 't', 't')"
+           first_observed_at, updated_at)
+         VALUES ('provider-a', 'team', 'team-1', 'server', 't', 't')"
     )]
     #[case::outsider_override_scope(
         "INSERT INTO mcp_tool_overrides (provider, scope, scope_ref, server_name, tool_name,
            enabled, created_at, updated_at)
-         VALUES ('claude', 'team', 'team-1', 'server', 'tool', 0, 't', 't')"
+         VALUES ('provider-a', 'team', 'team-1', 'server', 'tool', 0, 't', 't')"
     )]
     #[case::outsider_approval_mode(
         "INSERT INTO mcp_tool_overrides (provider, scope, server_name, tool_name, approval_mode,
-           created_at, updated_at) VALUES ('claude', 'user', 'server', 'tool', 'never', 't', 't')"
+           created_at, updated_at)
+         VALUES ('provider-a', 'user', 'server', 'tool', 'never', 't', 't')"
     )]
     #[case::outsider_idempotency_class(
         "INSERT INTO mcp_tool_overrides (provider, scope, server_name, tool_name,
            idempotency_class, created_at, updated_at)
-         VALUES ('claude', 'user', 'server', 'tool', 'manualReconcileOnly', 't', 't')"
+         VALUES ('provider-a', 'user', 'server', 'tool', 'manualReconcileOnly', 't', 't')"
     )]
     #[case::outsider_receipt_status(
         "INSERT INTO mcp_mutation_receipts (client_idempotency_key, operation, status, created_at)
@@ -346,19 +355,22 @@ mod tests {
     )]
     #[case::outsider_switch_scope(
         "INSERT INTO mcp_project_server_switches (provider, scope, scope_ref, server_name,
-           project_root, updated_at) VALUES ('claude', 'project', '/repo', 'server', '/repo', 't')"
+           project_root, updated_at)
+         VALUES ('provider-a', 'project', '/repo', 'server', '/repo', 't')"
     )]
     #[case::user_with_ref(
         "INSERT INTO mcp_server_bindings (provider, scope, scope_ref, server_name,
-           first_observed_at, updated_at) VALUES ('claude', 'user', '/repo', 'other', 't', 't')"
+           first_observed_at, updated_at) VALUES ('provider-a', 'user', '/repo', 'other', 't', 't')"
     )]
     #[case::managed_with_ref(
         "INSERT INTO mcp_server_bindings (provider, scope, scope_ref, server_name,
-           first_observed_at, updated_at) VALUES ('claude', 'managed', 'org', 'other', 't', 't')"
+           first_observed_at, updated_at)
+         VALUES ('provider-a', 'managed', 'org', 'other', 't', 't')"
     )]
     #[case::user_with_place(
         "INSERT INTO mcp_server_bindings (provider, scope, scope_place, server_name,
-           first_observed_at, updated_at) VALUES ('claude', 'user', 'Ubuntu', 'other', 't', 't')"
+           first_observed_at, updated_at)
+         VALUES ('provider-a', 'user', 'Ubuntu', 'other', 't', 't')"
     )]
     fn a_row_outside_a_closed_column_or_its_scope_rules_is_refused(#[case] statement: &str) {
         let (_database, connection) = open_database();
@@ -401,7 +413,7 @@ mod tests {
             .execute(
                 "INSERT INTO mcp_tool_overrides (provider, scope, scope_ref, server_name, tool_name,
                    enabled, created_at, updated_at)
-                 VALUES ('claude', 'connector', 'account-1', 'Slack', 'search', 0, 't', 't')",
+                 VALUES ('provider-a', 'connector', 'account-1', 'Slack', 'search', 0, 't', 't')",
                 [],
             )
             .expect("the override is stored");
@@ -409,7 +421,7 @@ mod tests {
             .execute(
                 "INSERT INTO mcp_project_server_switches (provider, scope, scope_ref, server_name,
                    project_root, updated_at)
-                 VALUES ('claude', 'connector', 'account-1', 'Slack', '/repo', 't')",
+                 VALUES ('provider-a', 'connector', 'account-1', 'Slack', '/repo', 't')",
                 [],
             )
             .expect("the switch is stored");

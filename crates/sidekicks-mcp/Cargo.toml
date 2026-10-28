@@ -3,7 +3,7 @@ name = "sidekicks-mcp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The MCP client a session's tool servers are reached through, its tool calls and command receipts."
+description = "The MCP client a session's tool servers are reached through, its tool calls and command receipts, each server's status folded from its bindings and session legs, and the MCP governance tables."
 license.workspace = true
 publish.workspace = true
 

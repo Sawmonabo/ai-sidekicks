@@ -17,12 +17,15 @@ use crate::daemon::schema::schema_parts;
 /// Long enough for a frame that is coming to come, many windows over.
 const QUIET: Duration = Duration::from_millis(250);
 
+/// How long a read the test expects waits before the test fails instead of hanging.
+const READ_BOUND: Duration = Duration::from_secs(10);
+
 /// Appends a finished sign-in to `server_name` to the sentinel session's log.
 async fn sign_in_completed(log: &EventLogService, server_name: &str) {
     let completed = serde_json::from_value(json!({
         "type": "mcp.server.signIn.completed",
         "payload": {
-            "provider": "claude",
+            "provider": "provider-a",
             "scope": "user",
             "serverName": server_name,
             "outcome": "success",
@@ -37,11 +40,11 @@ async fn sign_in_completed(log: &EventLogService, server_name: &str) {
     .expect("the append commits");
 }
 
-/// The next emission, as JSON.
+/// The next emission, as JSON; fails the test when none comes within `READ_BOUND`.
 async fn next_json(feed: &mut Box<dyn EncodedFeed>, gate: &CreditGate) -> Value {
-    let value = feed
-        .next(gate)
+    let value = tokio::time::timeout(READ_BOUND, feed.next(gate))
         .await
+        .expect("an emission comes in time")
         .expect("the stream reads")
         .expect("the stream goes on");
     serde_json::from_slice(&value.json).expect("the emission is JSON")
@@ -70,7 +73,7 @@ async fn the_stream_reads_what_is_sent_after_the_acknowledgment_and_nothing_stor
     };
 
     let binding: McpServerBindingRef = serde_json::from_value(json!({
-        "provider": "claude",
+        "provider": "provider-a",
         "scope": "user",
         "serverName": "github",
     }))
@@ -78,7 +81,7 @@ async fn the_stream_reads_what_is_sent_after_the_acknowledgment_and_nothing_stor
     let notice: McpServerStatusChangedNotice = serde_json::from_value(json!({
         "type": "mcp.server.status.changed",
         "origin": "machineProbe",
-        "provider": "claude",
+        "provider": "provider-a",
         "scope": "user",
         "serverName": "github",
         "previousStatus": "unknown",

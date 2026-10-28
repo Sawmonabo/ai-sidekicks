@@ -2,10 +2,12 @@
 //! identity, written when a binding is first observed.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
 
-use sidekicks_contracts::mcp::server::{McpBindingScope, McpServerBindingRef};
+use sidekicks_contracts::mcp::server::{McpBindingScope, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::WslPlace;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
 use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
@@ -17,8 +19,8 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 /// One path in two distributions is two keys, and same-named servers in two scopes stay two keys.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct McpBindingKey {
-    /// The provider's id, as written.
-    pub(crate) provider: String,
+    /// The provider's id.
+    pub(crate) provider: ProviderId,
     /// The binding's scope.
     pub(crate) scope: McpBindingScope,
     /// The project root, the plugin's name or the provider account's id; `''` for `user` and
@@ -27,7 +29,7 @@ pub(crate) struct McpBindingKey {
     /// The WSL 2 distribution a `project` or `local` root is in; `''` elsewhere.
     pub(crate) scope_place: String,
     /// The server's name.
-    pub(crate) server_name: String,
+    pub(crate) server_name: McpServerName,
 }
 
 impl McpBindingKey {
@@ -105,11 +107,11 @@ impl McpBindingKey {
             ),
         };
         Self {
-            provider: provider.as_str().to_owned(),
+            provider: provider.clone(),
             scope,
             scope_ref,
             scope_place,
-            server_name: server_name.as_str().to_owned(),
+            server_name: server_name.clone(),
         }
     }
 }
@@ -191,11 +193,11 @@ impl McpBindingStore {
             .write(vec![WriteStatement {
                 sql: Cow::Borrowed(RECORD_FIRST_OBSERVATION_SQL.as_str()),
                 bindings: StatementBindings::Named(vec![
-                    text_binding("@provider", &key.provider),
+                    text_binding("@provider", key.provider.as_str()),
                     text_binding("@scope", <&'static str>::from(key.scope)),
                     text_binding("@scope_ref", &key.scope_ref),
                     text_binding("@scope_place", &key.scope_place),
-                    text_binding("@server_name", &key.server_name),
+                    text_binding("@server_name", key.server_name.as_str()),
                 ]),
                 expected_row_count: None,
             }])
@@ -205,13 +207,13 @@ impl McpBindingStore {
     }
 }
 
-/// Opens the drain that records each binding the status core observes for the first time in this
-/// process: answers the outlet the core is built with and the drain's run, which writes each
-/// binding's row through `store` and ends once the core, holding the outlet, is dropped. A
-/// binding whose write fails is logged and left without a row until the next start observes it.
+/// Opens the drain that records each binding the status tracker hands it: answers the outlet the
+/// tracker is built with and the drain's run, which writes each binding's row through `store` once
+/// in this process and ends once the tracker, holding the outlet, is dropped. A binding whose
+/// write fails is logged and not marked recorded, so its next observation tries again.
 #[expect(
     dead_code,
-    reason = "the daemon's start builds the status core over it and spawns the run"
+    reason = "the daemon's start builds the status tracker over it and spawns the run"
 )]
 pub(crate) async fn open_first_observation_drain(
     store: McpBindingStore,
@@ -225,17 +227,36 @@ pub(crate) async fn open_first_observation_drain(
         async { Ok(|| {}) }
     })
     .await;
-    let (Some(outlet), Ok(mut feed)) = (outlet, feed) else {
-        unreachable!("the drain's follow takes its outlet and never fails");
-    };
+    let mut feed = feed.expect("the drain's follow never fails");
+    let outlet = outlet.expect("the drain's follow takes its outlet");
     let run = async move {
-        // The outlet never fails, so the feed ends only with `None` once the core is gone.
-        while let Ok(Some(binding)) = feed.recv().await {
-            if let Err(error) = store.record_first_observation(&binding).await {
-                tracing::error!(
+        let mut recorded = HashSet::new();
+        loop {
+            let binding = match feed.recv().await {
+                Ok(Some(binding)) => binding,
+                // The tracker, holding the outlet, is gone.
+                Ok(None) => break,
+                Err(error) => {
+                    tracing::error!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "the MCP first-observation drain stopped"
+                    );
+                    break;
+                }
+            };
+            let key = McpBindingKey::of(&binding);
+            if recorded.contains(&key) {
+                continue;
+            }
+            match store.record_first_observation(&binding).await {
+                Ok(()) => {
+                    recorded.insert(key);
+                }
+                Err(error) => tracing::error!(
                     error = &error as &(dyn std::error::Error + 'static),
-                    "an MCP binding's first observation was not recorded"
-                );
+                    "an MCP binding's first observation was not recorded; its next observation \
+                     tries again"
+                ),
             }
         }
     };
@@ -263,7 +284,7 @@ mod tests {
             .expect("the writer opens its database");
         let store = McpBindingStore::new(Arc::new(writer));
         let binding = McpServerBindingRef::User {
-            provider: ProviderId::new("claude".to_owned()).expect("a provider id"),
+            provider: ProviderId::new("provider-a".to_owned()).expect("a provider id"),
             server_name: McpServerName::new("github".to_owned()).expect("a server name"),
         };
 

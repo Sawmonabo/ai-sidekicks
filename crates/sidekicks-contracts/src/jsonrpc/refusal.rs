@@ -412,7 +412,9 @@ refusal_codes! {
     /// A write to a provider's own configuration lost to a concurrent edit, on either arm: a
     /// `user`-scope write's expected version was refused as stale, returned at once with no retry
     /// and carrying both version tokens so the caller can re-inspect, or the `project` file no
-    /// longer hashes to what the daemon last read, so the edit is not written.
+    /// longer hashes to what the daemon last read, so the edit is not written (`data.fields`:
+    /// `provider`, `scope`, `serverName`, `reason` `staleVersion` or `projectFileChanged`, and on
+    /// `staleVersion` `expectedVersion` and `currentVersion`).
     McpServerConfigWriteConflict = "mcp.server.configWriteConflict" (Aborted, 409);
     /// No server with the requested `(provider, scope, scopeRef, serverName)` binding exists in the
     /// unified inventory.

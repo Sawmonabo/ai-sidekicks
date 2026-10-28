@@ -76,11 +76,13 @@ macro_rules! status_notice {
 
 status_notice! {
     /// `mcp.server.status.changed`, the live notice of a status change on `mcp.subscribe`,
-    /// written to no log, tagged on `origin`: a `sessionFeed` observation names the session and
-    /// the live leg it came from; a `sessionEnded` notice names the session whose leg left, its
-    /// `status` the aggregate over the legs that remain; a `machineProbe` observation has neither.
+    /// written to no log, tagged on `origin`: a `sessionFeed` notice names the session and the live
+    /// leg whose own status changed, its two statuses that leg's, so a page updates that leg's
+    /// line; a `sessionEnded` notice names the session whose leg left, its `status` the aggregate
+    /// over the legs that remain; a `machineProbe` notice carries the probe's own readings and
+    /// names neither.
     pub enum McpServerStatusChangedNotice {
-        /// A session's live leg saw the change.
+        /// A session's live leg's own status changed.
         SessionFeed {
             /// The session.
             session_id: SessionId,
@@ -95,7 +97,7 @@ status_notice! {
             /// The leg that left.
             binding_id: RuntimeBindingId,
         },
-        /// The daemon's own probe saw the change.
+        /// The daemon's own probe's reading changed.
         MachineProbe {
             /// Never present: no session saw it.
             #[serde(
@@ -125,6 +127,19 @@ pub enum McpServerSignInOutcome {
     Success,
     /// Not signed in.
     Failure,
+}
+
+/// Why a write to a provider's own config lost to a concurrent edit: the
+/// `mcp.server.configWriteConflict` refusal's `data.fields.reason`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum McpServerConfigWriteConflictReason {
+    /// The provider refused the write's expected version as stale; `data.fields` carries
+    /// `expectedVersion` and `currentVersion` so the caller can read the config again.
+    StaleVersion,
+    /// The project file no longer hashes to what the daemon last read, so the edit was not
+    /// written and the file was left as it was.
+    ProjectFileChanged,
 }
 
 /// The payload of `mcp.server.signIn.completed`: how a sign-in ended. A sign-in that fails after
@@ -273,14 +288,16 @@ ts_constants! {
     MCP_SERVER_SIGN_IN_FAILED_CODE = RefusalCode::McpServerSignInFailed;
 }
 
-/// The TypeScript module of the `mcp.*` method table, the status notice and the sign-in payload.
+/// The TypeScript module of the `mcp.*` method table, the status notice, the sign-in payload and
+/// a write conflict's reason.
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "mcp/governance",
-    doc: "The `mcp.*` method table, the sign-in event payload, the status notice and the refusal \
-          codes.",
+    doc: "The `mcp.*` method table, the sign-in event payload, the status notice, the refusal \
+          codes and a write conflict's reason.",
     definitions: &[
         Definition::read::<McpServerStatusChangedNotice>().checked(),
         Definition::read::<McpServerSignInOutcome>(),
+        Definition::read::<McpServerConfigWriteConflictReason>(),
         Definition::read::<McpServerSignInCompletedPayload>().checked(),
     ],
     constants: TS_CONSTANTS,

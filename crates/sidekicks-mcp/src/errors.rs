@@ -9,17 +9,16 @@ use std::error::Error;
 
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
-use strum::IntoStaticStr;
 
 use crate::binding_store::McpBindingKey;
 
-/// Why a write to a provider's own config lost to a concurrent edit; its name is the detail's
-/// `reason`.
+/// Why a write to a provider's own config lost to a concurrent edit, with what each reason
+/// carries; its reason is the detail's `reason`.
 #[expect(dead_code, reason = "the mcp.* handlers refuse through it")]
-#[derive(Debug, IntoStaticStr)]
-#[strum(serialize_all = "camelCase")]
+#[derive(Debug)]
 pub(crate) enum McpConfigWriteConflict {
     /// The provider refused the write's expected version as stale; both versions go back so the
     /// caller can read the config again.
@@ -145,9 +144,9 @@ fn binding_words(binding: &McpServerBindingRef) -> String {
     let key = McpBindingKey::of(binding);
     format!(
         "MCP server {} ({} scope, provider {})",
-        key.server_name,
+        key.server_name.as_str(),
         <&'static str>::from(key.scope),
-        key.provider
+        key.provider.as_str()
     )
 }
 
@@ -155,9 +154,9 @@ fn binding_words(binding: &McpServerBindingRef) -> String {
 fn binding_fields(binding: &McpServerBindingRef) -> Map<String, Value> {
     let key = McpBindingKey::of(binding);
     refusal_fields(json!({
-        "provider": key.provider,
+        "provider": key.provider.as_str(),
         "scope": <&'static str>::from(key.scope),
-        "serverName": key.server_name,
+        "serverName": key.server_name.as_str(),
     }))
 }
 
@@ -166,17 +165,18 @@ fn write_conflict_fields(
     binding: &McpServerBindingRef,
     conflict: &McpConfigWriteConflict,
 ) -> Map<String, Value> {
-    let reason = <&'static str>::from(conflict);
     let conflict_fields = match conflict {
         McpConfigWriteConflict::StaleVersion {
             expected_version,
             current_version,
         } => json!({
-            "reason": reason,
+            "reason": McpServerConfigWriteConflictReason::StaleVersion,
             "expectedVersion": expected_version,
             "currentVersion": current_version,
         }),
-        McpConfigWriteConflict::ProjectFileChanged => json!({ "reason": reason }),
+        McpConfigWriteConflict::ProjectFileChanged => {
+            json!({ "reason": McpServerConfigWriteConflictReason::ProjectFileChanged })
+        }
     };
     let mut fields = binding_fields(binding);
     fields.extend(refusal_fields(conflict_fields));

@@ -21,7 +21,7 @@ pub(crate) enum McpNoticeKind {
         not(any(test, feature = "test-support")),
         expect(
             dead_code,
-            reason = "the status core sends its status notices under it"
+            reason = "the status tracker sends its status notices under it"
         )
     )]
     Status,
@@ -41,7 +41,7 @@ pub(crate) enum McpNoticeOrigin {
         not(test),
         expect(
             dead_code,
-            reason = "the status core sends each leg's notices under it"
+            reason = "the status tracker sends each leg's notices under it"
         )
     )]
     Leg {
@@ -55,7 +55,7 @@ pub(crate) enum McpNoticeOrigin {
         not(any(test, feature = "test-support")),
         expect(
             dead_code,
-            reason = "the status core sends the probe's notices under it"
+            reason = "the status tracker sends the probe's notices under it"
         )
     )]
     Probe,
@@ -81,8 +81,8 @@ pub struct McpNoticeKey {
 }
 
 /// The outlets of every open `mcp.subscribe` feed. The daemon builds one board and hands it to the
-/// status core and to the subscribe handler, which attaches each feed's outlet and detaches it when
-/// the feed drops.
+/// status tracker and to the subscribe handler, which attaches each feed's outlet and detaches it
+/// when the feed drops.
 #[derive(Default)]
 pub struct McpNoticeBoard {
     outlets: Mutex<KeyedLatestValueOutlets<McpNoticeKey, McpSubscribeEmission>>,
@@ -107,14 +107,14 @@ impl McpNoticeBoard {
     /// under that key.
     #[cfg_attr(
         not(any(test, feature = "test-support")),
-        expect(dead_code, reason = "the status core sends its notices through it")
+        expect(dead_code, reason = "the status tracker sends its notices through it")
     )]
     pub(crate) fn send(&self, key: &McpNoticeKey, emission: &McpSubscribeEmission) {
         lock(&self.outlets).send(key, emission);
     }
 }
 
-#[cfg(feature = "test-support")]
+#[cfg(any(test, feature = "test-support"))]
 impl McpNoticeBoard {
     /// Sends `notice` as the machine probe's status notice of `binding`, under the key the status
     /// core sends it by; for the tests of the crates that read the board.

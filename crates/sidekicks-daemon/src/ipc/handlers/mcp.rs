@@ -1,8 +1,8 @@
 //! `mcp.subscribe`, the MCP governance stream: the stored governance events of the daemon-scope
 //! sentinel session's log, followed from its head when the call is taken, and the newest notice
-//! per key from the status core's notice board, the stream's place in the board taken before the
-//! acknowledgment goes out, so a notice sent after it is read and none falls between the call and
-//! a first `mcp.server.list`.
+//! per key from the status tracker's notice board, the stream's place in the board taken before
+//! the acknowledgment goes out, so a notice sent after it is read and none falls between the call
+//! and a first `mcp.server.list`.
 #![cfg_attr(
     not(test),
     expect(dead_code, reason = "the daemon's start registers the MCP methods")
@@ -45,7 +45,7 @@ static MCP_GOVERNANCE_EVENT_TYPE_NAMES: LazyLock<Vec<&'static str>> = LazyLock::
         .collect()
 });
 
-/// Registers `mcp.subscribe` over the event `log` and the status core's notice `board`. A first
+/// Registers `mcp.subscribe` over the event `log` and the status tracker's notice `board`. A first
 /// read of the log that fails refuses the call with nothing open. Fails the start when the method
 /// is already registered.
 pub(crate) fn register_mcp_methods(
@@ -208,11 +208,15 @@ impl Feed for McpSubscribeFeed {
         gate: &'a dyn SendGate,
     ) -> BoxFuture<'a, Result<Option<McpSubscribeEmission>, HandlerError>> {
         async move {
-            if let Some(event) = self.unsent_events.pop_front() {
+            if !self.unsent_events.is_empty() {
+                // The gate first, so a read dropped while it waits keeps the event.
                 if gate.ready().await.is_err() {
                     return Ok(None);
                 }
-                return Ok(Some(McpSubscribeEmission::GovernanceEvent(event)));
+                return Ok(self
+                    .unsent_events
+                    .pop_front()
+                    .map(McpSubscribeEmission::GovernanceEvent));
             }
             let Self {
                 events,

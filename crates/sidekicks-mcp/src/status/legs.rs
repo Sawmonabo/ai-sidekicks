@@ -1,6 +1,6 @@
 //! The legs map: what each live leg last saw of each MCP server, the machine probe's newest reading
 //! per binding, and the fold of a binding's status from them. It reads no clock and sends nothing:
-//! each change answers the status change the core sends.
+//! each change answers the status change the tracker sends.
 
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
@@ -21,7 +21,7 @@ use crate::binding_store::McpBindingKey;
 /// One leg: a runtime binding of one session.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core keys its legs by it")
+    expect(dead_code, reason = "the status tracker keys its legs by it")
 )]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) struct LegId {
@@ -34,7 +34,7 @@ pub(super) struct LegId {
 /// What one leg last saw of one server.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core keeps each leg's servers")
+    expect(dead_code, reason = "the status tracker keeps each leg's servers")
 )]
 struct LegServer {
     /// The effective binding the leg serves the server from.
@@ -52,7 +52,7 @@ struct LegServer {
 /// A leg's servers and the sinks that can still report for it.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core keeps each leg")
+    expect(dead_code, reason = "the status tracker keeps each leg")
 )]
 struct Leg {
     /// Each server the leg reported, by name.
@@ -77,64 +77,63 @@ struct ProbeReading {
 /// One binding's sources and its folded status.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core folds each binding")
+    expect(dead_code, reason = "the status tracker folds each binding")
 )]
 struct BindingStatus {
-    /// The binding, as its first source named it.
-    binding: McpServerBindingRef,
     /// The legs holding an entry for the binding: the index the fold reads instead of every leg.
     legs: HashSet<LegId>,
     /// The machine probe's newest reading.
     probe: Option<ProbeReading>,
-    /// The aggregate the last change answered, the next notice's previous status.
+    /// The aggregate the last change left, the previous status of the next `sessionEnded`.
     aggregate: McpServerStatus,
 }
 
 /// Where a status change came from.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core sends a notice per change")
+    expect(dead_code, reason = "the status tracker sends a notice per change")
 )]
 pub(super) enum ChangeOrigin {
-    /// A live leg's observation.
+    /// A live leg's own status changed.
     SessionFeed(LegId),
-    /// A retired leg left the aggregate.
+    /// A leg left the binding's aggregate: retired, or now serving the server from another
+    /// binding.
     SessionEnded(LegId),
-    /// The machine probe's reading.
+    /// The machine probe's reading changed.
     MachineProbe,
 }
 
-/// A binding's folded status after one change, with the status before it.
+/// One status notice to send: a `sessionFeed`'s two statuses are its leg's own, a
+/// `sessionEnded`'s the binding's aggregate before and after the leg left, a `machineProbe`'s the
+/// probe's own readings.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core sends a notice per change")
+    expect(dead_code, reason = "the status tracker sends a notice per change")
 )]
 pub(super) struct StatusChange {
     /// The binding's key.
     pub(super) binding_key: McpBindingKey,
-    /// The binding.
-    pub(super) binding: McpServerBindingRef,
     /// Where the change came from.
     pub(super) origin: ChangeOrigin,
-    /// The aggregate before the change.
+    /// The status before the change.
     pub(super) previous_status: McpServerStatus,
-    /// The aggregate now.
+    /// The status now.
     pub(super) status: McpServerStatus,
-    /// The raw error text of the source the aggregate comes from.
+    /// The raw error text of the source the status comes from.
     pub(super) failure_text: Option<String>,
 }
 
-/// What an observation changed: the status change to send, if any, and the binding when this is
-/// its first observation in this process.
+/// What a reading changed: the status changes to send, and the binding when the reading is the
+/// leg's first report of it, or a probe's, for the drain to record.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core applies each observation")
+    expect(dead_code, reason = "the status tracker applies each reading")
 )]
 pub(super) struct ObservationOutcome {
     /// The status changes to send, in order.
     pub(super) changes: Vec<StatusChange>,
-    /// The binding, seen for the first time.
-    pub(super) first_observation: Option<McpServerBindingRef>,
+    /// The binding to record, when this reading may be its first in this process.
+    pub(super) observed_binding: Option<McpServerBindingRef>,
 }
 
 /// A binding's status folded from its sources.
@@ -144,20 +143,19 @@ struct Fold {
     observed_at: Option<WireInstant>,
 }
 
-/// Every leg, every binding's sources, and the bindings already observed in this process.
+/// Every leg and every binding's sources.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core keeps its state in it")
+    expect(dead_code, reason = "the status tracker keeps its state in it")
 )]
 pub(super) struct McpLegs {
     legs: HashMap<LegId, Leg>,
     bindings: HashMap<McpBindingKey, BindingStatus>,
-    first_observed: HashSet<McpBindingKey>,
 }
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core keeps its state in it")
+    expect(dead_code, reason = "the status tracker keeps its state in it")
 )]
 impl McpLegs {
     /// No leg, no binding.
@@ -165,20 +163,12 @@ impl McpLegs {
         Self {
             legs: HashMap::new(),
             bindings: HashMap::new(),
-            first_observed: HashSet::new(),
         }
     }
 
     /// Counts one more open sink for `leg`.
     pub(super) fn open_sink(&mut self, leg: LegId) {
-        self.legs
-            .entry(leg)
-            .or_insert_with(|| Leg {
-                servers: HashMap::new(),
-                open_sinks: 0,
-                is_retired: false,
-            })
-            .open_sinks += 1;
+        self.legs.entry(leg).or_insert_with(Leg::new).open_sinks += 1;
     }
 
     /// Counts one sink of `leg` closed; a retired leg whose last sink closed is forgotten, since
@@ -194,7 +184,10 @@ impl McpLegs {
     }
 
     /// Applies one server's reading from a leg, `binding` being the effective binding the leg
-    /// serves it from. A retired leg's reading changes nothing.
+    /// serves it from. A notice goes out when the leg's own status changed; a switch-off changes
+    /// no status, so it only takes the leg out of the aggregate. A leg that now serves the name
+    /// from another binding leaves the old one with a `sessionEnded`. A retired leg's reading
+    /// changes nothing.
     pub(super) fn observe(
         &mut self,
         binding: &McpServerBindingRef,
@@ -206,96 +199,81 @@ impl McpLegs {
             binding_id: update.binding_id,
         };
         let key = McpBindingKey::of(binding);
-        let leg = self.legs.entry(leg_id.clone()).or_insert_with(|| Leg {
-            servers: HashMap::new(),
-            open_sinks: 0,
-            is_retired: false,
-        });
         let mut outcome = ObservationOutcome {
             changes: Vec::new(),
-            first_observation: None,
+            observed_binding: None,
         };
+        let leg = self.legs.entry(leg_id.clone()).or_insert_with(Leg::new);
         if leg.is_retired {
             return outcome;
         }
-        let mut is_new_on_leg = true;
-        let mut must_notify = true;
-        match leg.servers.entry(update.server_name) {
+        let new_entry = || {
+            leg_server(
+                key.clone(),
+                update.reading,
+                update.failure_text.clone(),
+                observed_at.clone(),
+            )
+        };
+        // The leg's status on this binding before the reading, `None` when the leg had none; and
+        // the binding the leg served the name from before, when it moved.
+        let (previous, moved_from, is_new_on_binding) = match leg.servers.entry(update.server_name)
+        {
             Entry::Occupied(mut held) if held.get().binding_key == key => {
-                is_new_on_leg = false;
                 let server = held.get_mut();
+                let previous = server.status;
                 match update.reading {
-                    McpServerReading::Observed(status)
-                        if !server.is_switched_off && server.status == Some(status) =>
-                    {
-                        server.observed_at = observed_at;
-                        return outcome;
-                    }
                     McpServerReading::Observed(status) => {
                         server.status = Some(status);
                         server.is_switched_off = false;
-                        server.failure_text = update.failure_text;
+                        // The newest text, so a later notice this leg decides quotes it.
+                        server.failure_text = update.failure_text.clone();
                     }
                     // The last status and its text stay; the leg only leaves the aggregate.
-                    McpServerReading::SwitchedOff => {
-                        server.is_switched_off = true;
-                        must_notify = false;
-                    }
+                    McpServerReading::SwitchedOff => server.is_switched_off = true,
                 }
                 server.observed_at = observed_at;
+                (previous, None, false)
             }
             Entry::Occupied(mut held) => {
-                // The leg now serves the name from another binding, which leaves the old one.
-                let moved_from = mem::replace(
-                    held.get_mut(),
-                    leg_server(
-                        key.clone(),
-                        update.reading,
-                        update.failure_text,
-                        observed_at,
-                    ),
-                );
-                must_notify = update.reading != McpServerReading::SwitchedOff;
-                if let Some(binding_status) = self.bindings.get_mut(&moved_from.binding_key) {
-                    binding_status.legs.remove(&leg_id);
-                }
-                outcome.changes.extend(
-                    self.refold(
-                        &moved_from.binding_key,
-                        ChangeOrigin::SessionFeed(leg_id.clone()),
-                    )
-                    .filter(StatusChange::is_change),
-                );
+                let moved_from = mem::replace(held.get_mut(), new_entry());
+                (None, Some(moved_from.binding_key), true)
             }
             Entry::Vacant(vacant) => {
-                must_notify = update.reading != McpServerReading::SwitchedOff;
-                vacant.insert(leg_server(
-                    key.clone(),
-                    update.reading,
-                    update.failure_text,
-                    observed_at,
-                ));
+                vacant.insert(new_entry());
+                (None, None, true)
             }
+        };
+        if let Some(moved_from) = moved_from {
+            if let Some(binding_status) = self.bindings.get_mut(&moved_from) {
+                binding_status.legs.remove(&leg_id);
+            }
+            outcome.changes.extend(
+                self.refold(&moved_from).map(|fold| {
+                    fold.change(moved_from, ChangeOrigin::SessionEnded(leg_id.clone()))
+                }),
+            );
         }
-        if is_new_on_leg {
+        if is_new_on_binding {
             self.bindings
                 .entry(key.clone())
-                .or_insert_with(|| BindingStatus {
-                    binding: binding.clone(),
-                    legs: HashSet::new(),
-                    probe: None,
-                    aggregate: McpServerStatus::Unknown,
-                })
+                .or_insert_with(BindingStatus::new)
                 .legs
                 .insert(leg_id.clone());
-            if self.first_observed.insert(key.clone()) {
-                outcome.first_observation = Some(binding.clone());
-            }
+            outcome.observed_binding = Some(binding.clone());
         }
-        outcome.changes.extend(
-            self.refold(&key, ChangeOrigin::SessionFeed(leg_id))
-                .filter(|change| must_notify || change.is_change()),
-        );
+        self.refold(&key);
+        if let McpServerReading::Observed(status) = update.reading
+            && previous != Some(status)
+        {
+            outcome.changes.push(StatusChange {
+                binding_key: key,
+                origin: ChangeOrigin::SessionFeed(leg_id),
+                previous_status: previous.unwrap_or(McpServerStatus::Unknown),
+                status,
+                failure_text: update.failure_text,
+            });
+        }
         outcome
     }
 
@@ -316,39 +294,54 @@ impl McpLegs {
             if let Some(binding_status) = self.bindings.get_mut(&server.binding_key) {
                 binding_status.legs.remove(leg_id);
             }
-            changes.extend(self.refold(
-                &server.binding_key,
-                ChangeOrigin::SessionEnded(leg_id.clone()),
-            ));
+            changes.extend(self.refold(&server.binding_key).map(|fold| {
+                fold.change(
+                    server.binding_key,
+                    ChangeOrigin::SessionEnded(leg_id.clone()),
+                )
+            }));
         }
         changes
     }
 
-    /// Stores the machine probe's newest reading of `binding`. It is used only while no live leg
-    /// holds a status, so a change answers only when the aggregate moved.
+    /// Stores the machine probe's newest reading of `binding`, which stands for the binding only
+    /// while no live leg holds a status; a change answers when the probe's own reading moved.
     pub(super) fn record_probe(
         &mut self,
         binding: &McpServerBindingRef,
         status: McpServerStatus,
         failure_text: Option<String>,
         observed_at: WireInstant,
-    ) -> Option<StatusChange> {
+    ) -> ObservationOutcome {
         let key = McpBindingKey::of(binding);
-        self.bindings
+        let binding_status = self
+            .bindings
             .entry(key.clone())
-            .or_insert_with(|| BindingStatus {
-                binding: binding.clone(),
-                legs: HashSet::new(),
-                probe: None,
-                aggregate: McpServerStatus::Unknown,
-            })
-            .probe = Some(ProbeReading {
+            .or_insert_with(BindingStatus::new);
+        let previous_status = binding_status
+            .probe
+            .as_ref()
+            .map_or(McpServerStatus::Unknown, |probe| probe.status);
+        binding_status.probe = Some(ProbeReading {
             status,
-            failure_text,
+            failure_text: failure_text.clone(),
             observed_at,
         });
-        self.refold(&key, ChangeOrigin::MachineProbe)
-            .filter(StatusChange::is_change)
+        self.refold(&key);
+        let changes = (previous_status != status)
+            .then(|| StatusChange {
+                binding_key: key,
+                origin: ChangeOrigin::MachineProbe,
+                previous_status,
+                status,
+                failure_text,
+            })
+            .into_iter()
+            .collect();
+        ObservationOutcome {
+            changes,
+            observed_binding: Some(binding.clone()),
+        }
     }
 
     /// `key`'s status and the legs in its aggregate; `unknown` with no leg for a binding nothing
@@ -384,15 +377,13 @@ impl McpLegs {
         self.legs.len()
     }
 
-    /// Folds `key`'s status again, stores it, and answers the change from the stored aggregate;
-    /// a binding left with no leg and no probe reading is forgotten, its aggregate `unknown`.
-    fn refold(&mut self, key: &McpBindingKey, origin: ChangeOrigin) -> Option<StatusChange> {
+    /// Folds `key`'s status again and stores it as the binding's aggregate, answering the
+    /// aggregate before and after; a binding left with no leg and no probe reading is forgotten,
+    /// its aggregate `unknown`.
+    fn refold(&mut self, key: &McpBindingKey) -> Option<AggregateFold> {
         let binding_status = self.bindings.get(key)?;
         let folded = fold(&self.legs, key, binding_status);
-        let change = StatusChange {
-            binding_key: key.clone(),
-            binding: binding_status.binding.clone(),
-            origin,
+        let aggregate = AggregateFold {
             previous_status: binding_status.aggregate,
             status: folded.status,
             failure_text: folded.failure_text,
@@ -400,27 +391,66 @@ impl McpLegs {
         if binding_status.legs.is_empty() && binding_status.probe.is_none() {
             self.bindings.remove(key);
         } else if let Some(binding_status) = self.bindings.get_mut(key) {
-            binding_status.aggregate = change.status;
+            binding_status.aggregate = aggregate.status;
         }
-        Some(change)
+        Some(aggregate)
+    }
+}
+
+/// A binding's aggregate before and after one change, with the deciding source's error text.
+struct AggregateFold {
+    previous_status: McpServerStatus,
+    status: McpServerStatus,
+    failure_text: Option<String>,
+}
+
+impl AggregateFold {
+    /// The aggregate as `binding_key`'s status change from `origin`.
+    fn change(self, binding_key: McpBindingKey, origin: ChangeOrigin) -> StatusChange {
+        StatusChange {
+            binding_key,
+            origin,
+            previous_status: self.previous_status,
+            status: self.status,
+            failure_text: self.failure_text,
+        }
     }
 }
 
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core sends a notice per change")
+    expect(dead_code, reason = "the status tracker keeps each leg")
 )]
-impl StatusChange {
-    /// Whether the aggregate moved.
-    fn is_change(&self) -> bool {
-        self.previous_status != self.status
+impl Leg {
+    /// A leg with no server and no open sink.
+    fn new() -> Self {
+        Self {
+            servers: HashMap::new(),
+            open_sinks: 0,
+            is_retired: false,
+        }
+    }
+}
+
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the status tracker folds each binding")
+)]
+impl BindingStatus {
+    /// A binding with no source yet.
+    fn new() -> Self {
+        Self {
+            legs: HashSet::new(),
+            probe: None,
+            aggregate: McpServerStatus::Unknown,
+        }
     }
 }
 
 /// A new leg entry for one reading.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core keeps each leg's servers")
+    expect(dead_code, reason = "the status tracker keeps each leg's servers")
 )]
 fn leg_server(
     binding_key: McpBindingKey,
@@ -445,7 +475,7 @@ fn leg_server(
 /// each with that status.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core folds each binding")
+    expect(dead_code, reason = "the status tracker folds each binding")
 )]
 fn live_servers<'a>(
     legs: &'a HashMap<LegId, Leg>,
@@ -466,7 +496,7 @@ fn live_servers<'a>(
 /// the probe's.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core folds each binding")
+    expect(dead_code, reason = "the status tracker folds each binding")
 )]
 fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &BindingStatus) -> Fold {
     let mut deciding: Option<(usize, McpServerStatus, &LegServer)> = None;
@@ -508,7 +538,7 @@ fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &Bindin
 /// `status`'s place in the severity order, `0` the most severe.
 #[cfg_attr(
     not(test),
-    expect(dead_code, reason = "the status core folds each binding")
+    expect(dead_code, reason = "the status tracker folds each binding")
 )]
 fn severity_rank(status: McpServerStatus) -> usize {
     MCP_SERVER_STATUS_SEVERITY_ORDER
