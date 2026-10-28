@@ -226,7 +226,7 @@ pub struct DaemonStatusReadResponse {
     #[schemars(with = "DaemonSecretsFile")]
     pub secrets_file: Option<DaemonSecretsFile>,
     /// Where this computer's keys for other devices stand while the service does not hold them:
-    /// `reading` while the start's first read runs, else why none is held; absent while held.
+    /// `reading` while a read of them runs, else why a key is not held; absent while both are held.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -241,8 +241,8 @@ pub struct DaemonStatusReadResponse {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct DaemonMachineKey {
-    /// Whether the keys are still being read, no key was made yet, or the one made was lost or
-    /// changed.
+    /// Whether the keys are still being read, no key could be read or made, or the one made was
+    /// lost or changed.
     pub state: DaemonMachineKeyState,
     /// What stopped the service; absent where the state says it all.
     #[serde(
@@ -285,9 +285,9 @@ impl DaemonMachineKey {
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub enum DaemonMachineKeyState {
-    /// The start's first read of the keys has not ended yet.
+    /// A read of the keys runs: the start's, or one a status read started after the store refused.
     Reading,
-    /// No key was made: the store or the service could not make one yet.
+    /// No key could be read or made: the store or the service refused.
     NotMinted,
     /// The key this computer made is gone from the store.
     Lost,

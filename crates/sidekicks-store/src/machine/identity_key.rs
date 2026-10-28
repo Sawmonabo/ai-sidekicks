@@ -80,9 +80,6 @@ pub enum IdentityKeyError {
     /// A stored pin is not a 32-byte public key.
     #[error("this machine's stored key pin is not a public key")]
     StoredPin,
-    /// The keys were to be minted again for a sign-in while this machine is registered.
-    #[error("this machine is registered, so only linking it again mints its keys again")]
-    Registered,
     /// The read pool is closed, a connection did not open, or the read's task did not finish.
     #[error("this machine's key pins could not be read")]
     Read(#[from] DatabaseReadError),
@@ -98,9 +95,8 @@ pub enum IdentityKeyError {
 }
 
 impl IdentityKeyError {
-    // What the status read says for this refusal; `None` for a sign-in refused while registered,
-    // which says nothing about the keys.
-    fn machine_key(&self) -> Option<DaemonMachineKey> {
+    // What the status read says for this refusal.
+    fn machine_key(&self) -> DaemonMachineKey {
         let (state, cause) = match self {
             Self::Store(refusal) => {
                 let cause = if refusal.is_secrets_file_unopened() {
@@ -127,19 +123,30 @@ impl IdentityKeyError {
                 DaemonMachineKeyState::Changed,
                 Some(DaemonMachineKeyCause::StoredPin),
             ),
-            Self::Registered => return None,
         };
-        Some(DaemonMachineKey { state, cause })
+        DaemonMachineKey { state, cause }
     }
+}
+
+/// Why a sign-in did not mint this machine's keys again.
+#[derive(Debug, thiserror::Error)]
+pub enum MintAgainUnregisteredError {
+    /// This machine is registered, so only linking it again mints its keys again.
+    #[error("this machine is registered, so only linking it again mints its keys again")]
+    Registered,
+    /// The registration could not be read, or the keys could not be minted.
+    #[error(transparent)]
+    Keys(#[from] IdentityKeyError),
 }
 
 /// This machine's two keys, each read or minted once and held for the run; see the module doc.
 /// Every read, mint and pin change runs under one lock.
 pub struct MachineIdentity {
-    /// The keys and what reads and writes them, shared with the first read.
+    /// The keys and what reads and writes them, shared with the background read.
     store: Arc<MachineKeyStore>,
-    /// The start's first read, until the stop joins it.
-    first_read: Mutex<Option<AbortOnDropHandle<()>>>,
+    /// The last background read of both keys, the start's or one a status read started, until
+    /// the stop joins it.
+    background_read: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
 impl MachineIdentity {
@@ -181,22 +188,17 @@ impl MachineIdentity {
                 channel: KeyOutcome::Reading,
             }),
         });
-        let first_read = AbortOnDropHandle::new(tokio::spawn({
-            let store = Arc::clone(&store);
-            async move {
-                // Each key's outcome is recorded, and a refusal logged, where it is made.
-                let _keys = store.both().await;
-            }
-        }));
+        let first_read = read_in_background(&store);
         Arc::new(Self {
             store,
-            first_read: Mutex::new(Some(first_read)),
+            background_read: Mutex::new(Some(first_read)),
         })
     }
 
     /// The public halves of both keys, each read from the credential store or, before any was
-    /// made, minted. Fails with [`IdentityKeyError`] when the store refuses, a pinned key is gone or
-    /// changed, the database fails or the system gives no random bytes; nothing is minted then.
+    /// made, minted. Fails with [`IdentityKeyError`] when the store refuses, a pinned key is gone
+    /// or changed, the database fails or the system gives no random bytes; the refused key is not
+    /// minted, while the other key is still read or, before any was made, minted.
     pub async fn key(&self) -> Result<MachinePublicKeys, IdentityKeyError> {
         let (identity, channel) = self.store.both().await?;
         Ok(public_keys(&identity, &channel))
@@ -211,15 +213,17 @@ impl MachineIdentity {
     }
 
     /// Mints both keys anew for a sign-in, only while this machine has no registration, since
-    /// nothing pins an unregistered key. Fails with [`IdentityKeyError::Registered`] when it has
-    /// one, and otherwise as [`MachineIdentity::mint_again`] does.
-    pub async fn mint_again_unregistered(&self) -> Result<MachinePublicKeys, IdentityKeyError> {
+    /// nothing pins an unregistered key. Fails with [`MintAgainUnregisteredError::Registered`]
+    /// when it has one, and otherwise as [`MachineIdentity::mint_again`] does.
+    pub async fn mint_again_unregistered(
+        &self,
+    ) -> Result<MachinePublicKeys, MintAgainUnregisteredError> {
         let mut cached = self.store.keys.lock().await;
         // A refused registration read leaves the keys as they were, so nothing is recorded.
         if self.store.is_registered().await? {
-            return Err(IdentityKeyError::Registered);
+            return Err(MintAgainUnregisteredError::Registered);
         }
-        self.store.mint_again(&mut cached).await
+        Ok(self.store.mint_again(&mut cached).await?)
     }
 
     /// Signs `message` with the identity key and answers the signature with the key's public
@@ -244,20 +248,34 @@ impl MachineIdentity {
         Ok(use_secret(channel.key.as_bytes()))
     }
 
-    /// Where the keys stand as the last read, mint or relink of each left them, without reading
-    /// again: `reading` while the start's first read runs, the identity key's refusal, else the
-    /// channel key's, and `None` while both are held.
+    /// Where the keys stand, never waiting on a read: `reading` while a background read runs,
+    /// else the identity key's refusal, else the channel key's, and `None` while both are held.
+    /// A refusal by the credential store starts a background read of both keys and answers
+    /// `reading`, so the state clears once the store answers. Must be called inside a tokio
+    /// runtime.
     pub fn machine_key(&self) -> Option<DaemonMachineKey> {
-        lock(&self.store.outcomes).machine_key()
+        let mut background_read = lock(&self.background_read);
+        if background_read
+            .as_ref()
+            .is_some_and(|read| !read.is_finished())
+        {
+            return Some(READING);
+        }
+        let machine_key = lock(&self.store.outcomes).machine_key();
+        if machine_key.is_some_and(is_store_refusal) {
+            *background_read = Some(read_in_background(&self.store));
+            return Some(READING);
+        }
+        machine_key
     }
 
-    /// Waits for the start's first read to end; a later call returns at once.
+    /// Waits for the last background read to end; a later call returns at once.
     pub async fn stop(&self) {
-        let Some(first_read) = lock(&self.first_read).take() else {
+        let Some(background_read) = lock(&self.background_read).take() else {
             return;
         };
-        first_read.await.expect(
-            "the first read neither panics, which aborts the service, nor is aborted while awaited",
+        background_read.await.expect(
+            "the read neither panics, which aborts the service, nor is aborted while awaited",
         );
     }
 }
@@ -308,7 +326,7 @@ impl MachineKeyStore {
             return Ok(Arc::clone(key));
         }
         let read = self.read_or_mint::<Key>().await;
-        self.record(&[Key::ROLE], read.as_ref().map(|_key| ()));
+        self.record(Key::ROLE.into(), read.as_ref().map(|_key| ()));
         Ok(Arc::clone(Key::cached(cached).insert(Arc::new(read?))))
     }
 
@@ -347,10 +365,7 @@ impl MachineKeyStore {
         cached: &mut CachedKeys,
     ) -> Result<MachinePublicKeys, IdentityKeyError> {
         let minted = self.mint_both(cached).await;
-        self.record(
-            &[KeyRole::Identity, KeyRole::Channel],
-            minted.as_ref().map(|_keys| ()),
-        );
+        self.record(RecordedKeys::Both, minted.as_ref().map(|_keys| ()));
         minted
     }
 
@@ -470,31 +485,66 @@ impl MachineKeyStore {
             .await
     }
 
-    // Records `outcome` for the keys `roles` names and logs a refusal in the status member's words.
-    fn record(&self, roles: &[KeyRole], outcome: Result<(), &IdentityKeyError>) {
+    // Records `outcome` for `keys` and logs a refusal in the status member's words.
+    fn record(&self, keys: RecordedKeys, outcome: Result<(), &IdentityKeyError>) {
         let recorded = match outcome {
             Ok(()) => KeyOutcome::Held,
             Err(error) => {
-                let Some(machine_key) = error.machine_key() else {
-                    return;
-                };
-                log_refusal(roles, error, machine_key);
+                let machine_key = error.machine_key();
+                log_refusal(keys, error, machine_key);
                 KeyOutcome::Refused(machine_key)
             }
         };
         let mut outcomes = lock(&self.outcomes);
-        for role in roles {
-            *outcomes.of(*role) = recorded;
+        match keys {
+            RecordedKeys::Identity => outcomes.identity = recorded,
+            RecordedKeys::Channel => outcomes.channel = recorded,
+            RecordedKeys::Both => {
+                outcomes.identity = recorded;
+                outcomes.channel = recorded;
+            }
         }
     }
 }
 
-// One log line for a refusal of the keys `roles` names, with the member's state, cause and action.
-fn log_refusal(roles: &[KeyRole], error: &IdentityKeyError, machine_key: DaemonMachineKey) {
-    let keys = match roles {
-        [KeyRole::Identity] => "identity",
-        [KeyRole::Channel] => "channel",
-        _ => "identity and channel",
+// The status member while a background read runs.
+const READING: DaemonMachineKey = DaemonMachineKey {
+    state: DaemonMachineKeyState::Reading,
+    cause: None,
+};
+
+// Starts a read of both keys on a task; each key's outcome is recorded, and a refusal logged,
+// where it is made.
+fn read_in_background(store: &Arc<MachineKeyStore>) -> AbortOnDropHandle<()> {
+    let store = Arc::clone(store);
+    AbortOnDropHandle::new(tokio::spawn(async move {
+        let _keys = store.both().await;
+    }))
+}
+
+// Whether `machine_key` is a refusal by the credential store, which a later read can clear.
+fn is_store_refusal(machine_key: DaemonMachineKey) -> bool {
+    match machine_key.cause {
+        Some(
+            DaemonMachineKeyCause::Locked
+            | DaemonMachineKeyCause::Unavailable
+            | DaemonMachineKeyCause::SecretsFile,
+        ) => true,
+        Some(
+            DaemonMachineKeyCause::Random
+            | DaemonMachineKeyCause::Database
+            | DaemonMachineKeyCause::StoredPin,
+        )
+        | None => false,
+    }
+}
+
+// One log line for a refusal of `keys`, with the member's state, cause and action.
+fn log_refusal(keys: RecordedKeys, error: &IdentityKeyError, machine_key: DaemonMachineKey) {
+    let keys = match keys {
+        RecordedKeys::Identity => "identity",
+        RecordedKeys::Channel => "channel",
+        RecordedKeys::Both => "identity and channel",
     };
     let state: &'static str = machine_key.state.into();
     let cause = machine_key.cause.map(<&'static str>::from);
@@ -529,10 +579,27 @@ enum KeyRole {
     Channel,
 }
 
+/// The keys an outcome is recorded for: one read's key, or both for a relink.
+#[derive(Clone, Copy)]
+enum RecordedKeys {
+    Identity,
+    Channel,
+    Both,
+}
+
+impl From<KeyRole> for RecordedKeys {
+    fn from(role: KeyRole) -> Self {
+        match role {
+            KeyRole::Identity => Self::Identity,
+            KeyRole::Channel => Self::Channel,
+        }
+    }
+}
+
 /// The last outcome of a read, mint or relink of one key.
 #[derive(Clone, Copy)]
 enum KeyOutcome {
-    /// The start's first read has not reached the key yet.
+    /// No read has reached the key yet.
     Reading,
     /// The key is held.
     Held,
@@ -540,32 +607,20 @@ enum KeyOutcome {
     Refused(DaemonMachineKey),
 }
 
-/// Each key's last outcome.
 struct KeyOutcomes {
     identity: KeyOutcome,
     channel: KeyOutcome,
 }
 
 impl KeyOutcomes {
-    // The outcome of the key `role` names.
-    fn of(&mut self, role: KeyRole) -> &mut KeyOutcome {
-        match role {
-            KeyRole::Identity => &mut self.identity,
-            KeyRole::Channel => &mut self.channel,
-        }
-    }
-
-    // What the status read says: the identity key's refusal, else the channel key's, else
-    // `reading` while either is not reached yet; nothing while both are held.
+    // What the status read says: `reading` while either key is not reached yet, else the
+    // identity key's refusal, else the channel key's; nothing while both are held.
     fn machine_key(&self) -> Option<DaemonMachineKey> {
         match (self.identity, self.channel) {
+            (KeyOutcome::Reading, _) | (_, KeyOutcome::Reading) => Some(READING),
             (KeyOutcome::Refused(machine_key), _) | (_, KeyOutcome::Refused(machine_key)) => {
                 Some(machine_key)
             }
-            (KeyOutcome::Reading, _) | (_, KeyOutcome::Reading) => Some(DaemonMachineKey {
-                state: DaemonMachineKeyState::Reading,
-                cause: None,
-            }),
             (KeyOutcome::Held, KeyOutcome::Held) => None,
         }
     }
@@ -600,7 +655,6 @@ fn identity_key(identity: &Resolved<SigningKey>) -> MachineIdentityKey {
 
 /// A key the credential store keeps as its seed and this machine's row pins by its public half.
 trait PinnedKey: Sized {
-    /// Which of the two keys it is.
     const ROLE: KeyRole;
 
     /// The key `seed` makes.

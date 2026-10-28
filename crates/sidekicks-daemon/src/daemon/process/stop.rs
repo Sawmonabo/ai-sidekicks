@@ -29,9 +29,9 @@ pub(crate) enum DaemonStopFailure {
     /// Mutating calls were still running when the drain bound ran out.
     #[error("{0} mutating calls were still running when the stop's drain bound ran out")]
     MutatingCallsRunning(usize),
-    /// The machine key's first read was still running when the drain bound ran out; the next
-    /// start reads the key again.
-    #[error("the machine key's first read was still running when the stop's drain bound ran out")]
+    /// The machine keys' background read was still running when the drain bound ran out; the
+    /// next start reads the keys again.
+    #[error("the machine keys' read was still running when the stop's drain bound ran out")]
     MachineKeyReadRunning,
     /// The capability refresh's task ended abnormally.
     #[error("the capability refresh ended abnormally")]
@@ -88,8 +88,8 @@ pub(crate) enum CrashMonitorEndFailure {
 }
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
-/// comes; then, within what is left of `bound`, the mutating calls under way, the machine key's
-/// first read, the capability refresh, the providers' registration, the repository services'
+/// comes; then, within what is left of `bound`, the mutating calls under way, the machine keys'
+/// background read, the capability refresh, the providers' registration, the repository services'
 /// background work, the chats' write watch and file recount, the scheduler, the working-folder
 /// watch, the askpass broker, the search index, the drivers and the git trees a failed call left.
 /// Answers each step's failure, every step having run.
@@ -117,7 +117,7 @@ pub(crate) async fn stop_work(
             failures.push(DaemonStopFailure::MutatingCallsRunning(running));
         }
     }
-    // Past the bound, the dropped stop drops the first read's handle, which aborts it.
+    // Past the bound, the dropped stop drops the background read's handle, which aborts it.
     if let Some(machine_identity) = process.machine_identity.take()
         && tokio::time::timeout(remaining(), machine_identity.stop())
             .await

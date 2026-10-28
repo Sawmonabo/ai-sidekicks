@@ -279,7 +279,7 @@ pub(crate) struct DaemonProcess {
     pub(crate) data_folder_lock: Option<DataFolderLock>,
     /// The database file, closed first as the data folder closes.
     pub(crate) database: Option<DatabaseFile>,
-    /// This machine's two keys, whose first read the stop joins within the drain bound.
+    /// This machine's two keys, whose background read the stop joins within the drain bound.
     pub(crate) machine_identity: Option<Arc<MachineIdentity>>,
     /// When the stop began, from which what is left of the drain bound is counted.
     pub(crate) stop_started: Option<Instant>,

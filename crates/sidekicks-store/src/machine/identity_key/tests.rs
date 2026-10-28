@@ -21,7 +21,10 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 use x25519_dalek::StaticSecret;
 
-use super::{IdentityKeyError, KEY_LENGTH, MachineIdentity, MachinePublicKeys, PinnedKey};
+use super::{
+    IdentityKeyError, KEY_LENGTH, MachineIdentity, MachinePublicKeys, MintAgainUnregisteredError,
+    PinnedKey,
+};
 use crate::credential_store::{KeychainRefusal, SecretKeychain};
 use crate::database::connection::read_pool::DatabaseReadPool;
 use crate::database::schema::schema_parts;
@@ -379,9 +382,9 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
         }
         Expected::Refused(state, cause) => {
             let error = read.expect_err("the read is refused");
-            let machine_key = Some(DaemonMachineKey { state, cause });
+            let machine_key = DaemonMachineKey { state, cause };
             assert_eq!(error.machine_key(), machine_key);
-            assert_eq!(recorded, machine_key);
+            assert_eq!(recorded, Some(machine_key));
             assert_eq!(pins_after, pins_before);
             assert!(
                 items_after == items_before,
@@ -408,27 +411,27 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
     }
 }
 
-/// A store that refuses the first read as locked: the status member reads `reading` until the
-/// start's first read ends, then the identity key's refusal while the channel key, read on its own,
-/// is minted; a later read mints the identity key. Killed by a status that waits for the first read
-/// or guesses its outcome, a cached refusal, and a pair resolved as one.
+/// A store that refuses the first read as locked, then answers: the status member reads `reading`
+/// until the start's first read ends, which records the identity key's refusal while the channel
+/// key, read on its own, is minted. The next status read starts a read of both keys and reads
+/// `reading`; once that read ends, the status read finds both keys held. Killed by a status that
+/// waits for the first read or guesses its outcome, a pair resolved as one, and no read started
+/// by the status read.
 #[tokio::test]
-async fn a_locked_first_read_is_reported_and_the_next_read_mints() {
+async fn a_locked_first_read_is_read_again_by_the_status_read() {
     let fixture = Fixture::new((None, None)).await;
     *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
     let identity = fixture.identity();
+    let reading = Some(DaemonMachineKey {
+        state: DaemonMachineKeyState::Reading,
+        cause: None,
+    });
 
-    assert_eq!(
-        identity.machine_key(),
-        Some(DaemonMachineKey {
-            state: DaemonMachineKeyState::Reading,
-            cause: None,
-        })
-    );
+    assert_eq!(identity.machine_key(), reading);
 
     identity.stop().await;
     assert_eq!(
-        identity.machine_key(),
+        lock(&identity.store.outcomes).machine_key(),
         Some(DaemonMachineKey {
             state: DaemonMachineKeyState::NotMinted,
             cause: Some(DaemonMachineKeyCause::Locked),
@@ -436,10 +439,8 @@ async fn a_locked_first_read_is_reported_and_the_next_read_mints() {
     );
     assert_eq!(fixture.keychain.writes(), 1);
 
-    identity
-        .key()
-        .await
-        .expect("the store answers, so the identity key is minted");
+    assert_eq!(identity.machine_key(), reading);
+    identity.stop().await;
     assert_eq!(identity.machine_key(), None);
     assert_eq!(fixture.keychain.writes(), 2);
 }
@@ -476,7 +477,7 @@ async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
     let items_before = fixture.items();
     let identity = fixture.identity();
     identity.stop().await;
-    let refused = Some(DaemonMachineKey { state, cause: None });
+    let refused = DaemonMachineKey { state, cause: None };
 
     let pair = identity.key().await;
     let channel = identity.with_channel_secret(|_secret| ()).await;
@@ -502,7 +503,7 @@ async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
     );
     verify_ed25519(&identity_half, message, &signature.to_bytes())
         .expect("the signature verifies under the identity key");
-    assert_eq!(identity.machine_key(), refused);
+    assert_eq!(identity.machine_key(), Some(refused));
     assert!(
         fixture.items() == items_before,
         "the items are kept as they were"
@@ -511,9 +512,10 @@ async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
     assert_eq!(fixture.keychain.writes(), 0);
 }
 
-/// A relink whose pin write fails after both items landed: the next read adopts the new keys,
-/// both of them. Killed by a relink that keeps the cache, one that sets the pins before writing
-/// the items, and one that rotates only the identity key.
+/// A relink whose pin write fails after both items landed is reported for both keys, and the next
+/// read adopts the new keys, both of them. Killed by a relink that keeps the cache, one that sets
+/// the pins before writing the items, one whose failure is not recorded, and one that rotates
+/// only the identity key.
 #[tokio::test]
 async fn a_relink_stopped_before_its_pins_is_finished_by_the_next_read() {
     let fixture = Fixture::new((None, None)).await;
@@ -534,6 +536,13 @@ async fn a_relink_stopped_before_its_pins_is_finished_by_the_next_read() {
 
     assert!(matches!(refused, Err(IdentityKeyError::Write(_))));
     assert_eq!(fixture.pins(), (None, None));
+    assert_eq!(
+        identity.machine_key(),
+        Some(DaemonMachineKey {
+            state: DaemonMachineKeyState::NotMinted,
+            cause: Some(DaemonMachineKeyCause::Database),
+        })
+    );
     fixture
         .database
         .reader()
@@ -594,7 +603,10 @@ async fn a_sign_in_mints_again_only_while_unregistered(
         assert_ne!(now.identity_key, first.identity_key);
         assert_ne!(now.channel_key, first.channel_key);
     } else {
-        assert!(matches!(minted, Err(IdentityKeyError::Registered)));
+        assert!(matches!(
+            minted,
+            Err(MintAgainUnregisteredError::Registered)
+        ));
         assert_eq!(now, first);
         assert_eq!(identity.machine_key(), None);
     }
