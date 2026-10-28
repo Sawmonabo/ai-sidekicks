@@ -107,6 +107,12 @@ impl PinnedProcess {
         self.send_through_descriptor(Signal::SIGHUP, 0)
     }
 
+    /// Kills the process alone with `SIGKILL` through its descriptor, so no process given its id
+    /// meanwhile is signaled; `false` when it has ended. Fails with the system's error.
+    pub fn kill(&self) -> io::Result<bool> {
+        self.send_through_descriptor(Signal::SIGKILL, 0)
+    }
+
     /// Waits with no bound and no thread for the process's end, an end before the wait included:
     /// the runtime watches a copy of its descriptor, which reads ready once it has exited. Dropping
     /// the wait calls it off. Must be called within the runtime. Fails with the system's error.

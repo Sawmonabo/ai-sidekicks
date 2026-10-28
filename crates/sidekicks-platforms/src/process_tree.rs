@@ -1,10 +1,14 @@
-//! The one process table every reader of the machine's processes builds, and the walk from a
-//! process down to every process under it.
+//! The one process table every reader of the machine's processes builds, the walk from a process
+//! down to every process under it, and the outright end of the processes such a walk lists.
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::Once;
 
 use sysinfo::{Pid, System};
+
+use crate::pinned_process::KILL_WAIT_BOUND;
+use crate::{PinnedProcess, pin_running_process};
 
 // The open-files setting is process-wide and takes effect at the first refresh, so it is set once.
 static NO_OPEN_PROCESS_FILES: Once = Once::new();
@@ -39,4 +43,47 @@ pub fn tree_under(system: &System, root: Pid) -> Vec<Pid> {
         }
     }
     tree
+}
+
+/// Ends each of `process_ids` outright in the order given, so a parent listed before its children,
+/// as [`tree_under`] lists them, starts no new one once its children are killed, and answers once
+/// each has exited; a process already gone is skipped. Each is pinned before its kill, so no
+/// process its id passes to meanwhile is ended. Fails with the first error a pin, a kill or a wait
+/// met, every kill still sent, and with `TimedOut` when one outlives the kill's bound.
+pub async fn end_processes(process_ids: Vec<u32>) -> io::Result<()> {
+    let (killed, kill_result) = tokio::task::spawn_blocking(move || kill_processes(&process_ids))
+        .await
+        .map_err(io::Error::other)?;
+    let mut wait_result = Ok(());
+    for process in &killed {
+        let exit = tokio::time::timeout(KILL_WAIT_BOUND, process.wait_for_end())
+            .await
+            .unwrap_or_else(|_| {
+                Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "a killed process still runs past the kill's bound",
+                ))
+            });
+        wait_result = wait_result.and(exit);
+    }
+    kill_result.and(wait_result)
+}
+
+// Pins and kills each of `process_ids` in order, answering those the kill reached and the first
+// error met.
+fn kill_processes(process_ids: &[u32]) -> (Vec<PinnedProcess>, io::Result<()>) {
+    let mut killed = Vec::new();
+    let mut result = Ok(());
+    for &process_id in process_ids {
+        let kill = pin_running_process(process_id).and_then(|process| match process {
+            Some(process) if process.kill()? => Ok(Some(process)),
+            _ => Ok(None),
+        });
+        match kill {
+            Ok(Some(process)) => killed.push(process),
+            Ok(None) => {}
+            Err(error) => result = result.and(Err(error)),
+        }
+    }
+    (killed, result)
 }

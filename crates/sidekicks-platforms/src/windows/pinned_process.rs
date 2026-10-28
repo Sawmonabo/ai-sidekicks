@@ -117,6 +117,16 @@ impl PinnedProcess {
         ))
     }
 
+    /// Ends the process alone through its handle, so no process given its id meanwhile is ended;
+    /// `false` when it had already exited. Fails with the system's error.
+    pub fn kill(&self) -> io::Result<bool> {
+        if self.wait_for_exit(Duration::ZERO)? {
+            return Ok(false);
+        }
+        self.terminate_process()?;
+        Ok(true)
+    }
+
     /// Waits with no bound and no thread of its own for the process's end, an end before the wait
     /// included: the system's thread pool waits on its handle. Dropping the wait calls it off.
     /// Fails with the system's error when the pool refuses the wait, and with `Unsupported` for
