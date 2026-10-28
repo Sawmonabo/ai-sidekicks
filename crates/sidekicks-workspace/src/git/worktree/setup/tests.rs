@@ -21,24 +21,18 @@ use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{
     WorktreeSetupStage, WorktreeSetupState, WorktreeSetupStatus, WorktreeSetupStepState,
 };
-use sidekicks_platforms::{Spawner, WallClockTimer, command_shell};
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 
 use super::steps::OUTPUT_LINGER;
-use super::{
-    MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupRunnerDeps,
-    WorktreeSetupSources,
-};
+use super::test_runner::test_setup_runner;
+use super::{MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupSources};
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
-use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
-use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
@@ -46,10 +40,6 @@ const READ_STATEMENT_CAPACITY: usize = 16;
     clippy::unnecessary_wraps,
     reason = "it stands in for the machine's ceiling read, which can fail"
 )]
-fn no_ceiling() -> io::Result<Option<u64>> {
-    Ok(None)
-}
-
 // The project's setup as the test saves it, read again at each read; a read refused while
 // `is_unreadable` is set, as a settings file that cannot be read refuses one.
 struct SavedSetup {
@@ -157,33 +147,16 @@ impl SetupFixture {
             ],
         )
         .await;
-        let watcher = Arc::new(WorkingFolderWatcher::<NullWatcher>::new(
-            WorkingFolderWatcherDeps {
-                git: git.clone(),
-                reads: Arc::clone(&reads),
-                occupancy: MountOccupancyReader::new(reads),
-                events: Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
-                scheduler: Arc::new(Scheduler::start(
-                    Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-                    None,
-                    tokio::sync::watch::channel(0).1,
-                )),
-                read_watch_ceiling: no_ceiling,
-                slow_tick_interval: Duration::from_secs(180),
-            },
-        ));
         let sources = Arc::new(SavedSetup {
             setup: Mutex::new(setup),
             is_unreadable: AtomicBool::new(false),
         });
-        let runner = WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
+        let runner = test_setup_runner(
             git,
-            spawner: Spawner::new(tokio::runtime::Handle::current())
-                .expect("the spawner thread starts"),
-            watcher,
-            sources: Arc::clone(&sources) as _,
-            command_shell: command_shell().expect("the account's shell reads"),
-        });
+            reads,
+            Arc::new(WorktreeEventEmitter::new(Arc::clone(&log.service))),
+            Arc::clone(&sources) as _,
+        );
         Self {
             scratch,
             _database: database,

@@ -1,8 +1,6 @@
 use std::collections::{HashSet, VecDeque};
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -19,11 +17,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 use sidekicks_contracts::worktree::setup::{WorktreeSetupStage, WorktreeSetupStatus};
-use sidekicks_platforms::{Spawner, WallClockTimer, command_shell};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
@@ -44,10 +40,8 @@ use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::rows::AttachedMountRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
-use crate::git::worktree::setup::{
-    WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupRunnerDeps, WorktreeSetupSources,
-};
-use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
+use crate::git::worktree::setup::test_runner::test_setup_runner;
+use crate::git::worktree::setup::{WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupSources};
 use crate::test_rows::project_and_mount_rows;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
@@ -174,10 +168,6 @@ impl LiveRunFolderReader for ScriptedLiveRuns {
     clippy::unnecessary_wraps,
     reason = "it stands in for the machine's ceiling read, which can fail"
 )]
-fn no_ceiling() -> io::Result<Option<u64>> {
-    Ok(None)
-}
-
 /// A repository `app` on `main` with one commit, its attached mount, and a creator over them
 /// making trees under the scratch folder's `worktrees`.
 pub(super) struct CreationFixture {
@@ -266,29 +256,12 @@ impl CreationFixture {
             )
             .await
             .expect("the mount is attached");
-        let watcher = Arc::new(WorkingFolderWatcher::<NullWatcher>::new(
-            WorkingFolderWatcherDeps {
-                git: git.clone(),
-                reads: Arc::clone(&reads),
-                occupancy: MountOccupancyReader::new(Arc::clone(&reads)),
-                events: Arc::clone(&events),
-                scheduler: Arc::new(Scheduler::start(
-                    Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-                    None,
-                    tokio::sync::watch::channel(0).1,
-                )),
-                read_watch_ceiling: no_ceiling,
-                slow_tick_interval: Duration::from_secs(180),
-            },
+        let setup = Arc::new(test_setup_runner(
+            git.clone(),
+            Arc::clone(&reads),
+            Arc::clone(&events),
+            Arc::new(NoSetupSteps),
         ));
-        let setup = Arc::new(WorktreeSetupRunner::new(WorktreeSetupRunnerDeps {
-            git: git.clone(),
-            spawner: Spawner::new(tokio::runtime::Handle::current())
-                .expect("the spawner thread starts"),
-            watcher,
-            sources: Arc::new(NoSetupSteps),
-            command_shell: command_shell().expect("the account's shell reads"),
-        }));
         let live_runs = Arc::new(ScriptedLiveRuns::default());
         let creator = WorktreeCreator::new(WorktreeCreatorDeps {
             git: git.clone(),

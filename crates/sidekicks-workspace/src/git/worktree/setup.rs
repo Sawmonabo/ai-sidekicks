@@ -855,4 +855,6 @@ async fn end_all(
 }
 
 #[cfg(test)]
+pub(crate) mod test_runner;
+#[cfg(test)]
 mod tests;
