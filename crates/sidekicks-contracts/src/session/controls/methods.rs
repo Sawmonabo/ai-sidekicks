@@ -13,6 +13,7 @@ use strum::{IntoStaticStr, VariantArray};
 use crate::internal::branded::branded_uuid_id;
 use crate::jsonrpc::streaming::SubscribeAcknowledgmentResponse;
 use crate::mcp::server::{McpServerName, McpServerStatus};
+use crate::method::KeyedRequest;
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::commands::ProviderCommandEntry;
@@ -407,6 +408,8 @@ pub struct SessionCodeReviewStartRequest {
     /// What the review covers.
     pub target: SessionReviewTarget,
 }
+
+impl KeyedRequest for SessionCodeReviewStartRequest {}
 
 /// Sets or clears this session's own bound on how many steps one turn may take, from its next
 /// turn. `null` returns the session to the machine's own value; a bound below one is refused.
