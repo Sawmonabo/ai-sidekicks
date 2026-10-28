@@ -152,6 +152,7 @@ mod tests {
     use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
     use sidekicks_provider::driver::test_registry::test_driver_services;
     use sidekicks_provider::driver::{DriverServices, PROVIDERS, ProviderRegistration};
+    use sidekicks_provider::runtime_binding::store::mint_runtime_binding_id;
     use sidekicks_std::keyed_lock::KeyedLock;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::schema::schema_parts;
@@ -241,6 +242,7 @@ mod tests {
                 provider: ProviderId::new(PROVIDERS[0].id.to_owned()).expect("a table id"),
                 params: ResumeSessionParams {
                     session_id,
+                    binding_id: mint_runtime_binding_id(),
                     agent_id: AgentId::new(&mint_uuid_v7().to_string())
                         .expect("a minted UUID is an agent id"),
                     resume_handle: "conversation".to_owned(),
