@@ -154,9 +154,10 @@ impl ClaudeDriver {
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let level = params.execution_posture.permission_level();
+        let params = &params;
         self.move_session_setting(
             params.session_id,
-            async |live| {
+            |live| async move {
                 let legs = &live.spawn_bound_legs;
                 let (can_run_sandbox, session_rules) = tokio::join!(
                     read_claude_sandbox_support(
@@ -169,8 +170,8 @@ impl ClaudeDriver {
                 );
                 let session_rules = session_rules.map_err(DriverError::Internal)?;
                 move_claude_permission_level(
-                    live,
-                    &params,
+                    &live,
+                    params,
                     can_run_sandbox,
                     &session_rules,
                     PathRules::NATIVE,
@@ -178,7 +179,7 @@ impl ClaudeDriver {
                 .await?;
                 Ok(())
             },
-            async |ended| {
+            |ended| async move {
                 let legs = &ended.spawn_bound_legs;
                 let can_run_sandbox = read_claude_sandbox_support(
                     &self.sources.spawner,
@@ -196,7 +197,7 @@ impl ClaudeDriver {
                 if !is_runnable {
                     return Err(DriverError::Refused(permission_level_not_offered(level)));
                 }
-                Ok(parts.restarts.write_held_settings(ended, |settings| {
+                Ok(parts.restarts.write_held_settings(&ended, |settings| {
                     settings.execution_posture = Some(params.execution_posture.clone());
                 }))
             },
@@ -209,12 +210,16 @@ impl ClaudeDriver {
     // settings a restart composes its start from, answering `false` once it composed; a bring-up
     // in flight is waited out first. Refuses `NoLiveSession` when no process serves the session or
     // comes back.
-    async fn move_session_setting(
+    async fn move_session_setting<MoveLive, WriteHeld>(
         &self,
         session_id: SessionId,
-        move_live: impl AsyncFn(&Arc<LiveClaudeSession>) -> Result<(), DriverError>,
-        write_held: impl AsyncFn(&Arc<LiveClaudeSession>) -> Result<bool, DriverError>,
-    ) -> Result<(), DriverError> {
+        move_live: impl Fn(Arc<LiveClaudeSession>) -> MoveLive,
+        write_held: impl Fn(Arc<LiveClaudeSession>) -> WriteHeld,
+    ) -> Result<(), DriverError>
+    where
+        MoveLive: Future<Output = Result<(), DriverError>>,
+        WriteHeld: Future<Output = Result<bool, DriverError>>,
+    {
         let parts = self.parts()?;
         let mut moved: Option<Arc<LiveClaudeSession>> = None;
         loop {
@@ -223,15 +228,17 @@ impl ClaudeDriver {
                     if moved.as_ref().is_some_and(|done| Arc::ptr_eq(done, &live)) {
                         return Ok(());
                     }
-                    move_live(&live).await?;
+                    move_live(Arc::clone(&live)).await?;
                     moved = Some(live);
                 }
                 ClaudeSessionStanding::Held(ended) => {
-                    if write_held(&ended).await? {
+                    if write_held(ended).await? {
                         return Ok(());
                     }
                 }
-                ClaudeSessionStanding::Settling(settled) => settled.wait().await,
+                ClaudeSessionStanding::Settling(settled) => {
+                    settled.wait().await;
+                }
                 // A process moved before it went down took the move with it.
                 ClaudeSessionStanding::Down if moved.is_some() => return Ok(()),
                 ClaudeSessionStanding::Down => {
@@ -440,17 +447,18 @@ impl ClaudeDriver {
         params: UpdateSessionModeParams,
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
+        let mode = params.mode;
         self.move_session_setting(
             params.session_id,
-            async |live| {
+            |live| async move {
                 parts
                     .session_controls
-                    .update_session_mode(live, params.mode)
+                    .update_session_mode(&live, mode)
                     .await
             },
-            async |ended| {
-                Ok(parts.restarts.write_held_settings(ended, |settings| {
-                    settings.session_mode = params.mode;
+            |ended| async move {
+                Ok(parts.restarts.write_held_settings(&ended, |settings| {
+                    settings.session_mode = mode;
                 }))
             },
         )
