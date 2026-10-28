@@ -17,8 +17,9 @@ use std::ops::ControlFlow;
 use std::sync::LazyLock;
 
 use rusqlite::types::Value;
-use rusqlite::{Connection, Row, named_params};
+use rusqlite::{Connection, OptionalExtension, Row, named_params};
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_search::index::{IndexRowKind, IndexRowTag, find_page_end};
 use sidekicks_store::database::sql_list::sql_list_of;
 use sidekicks_store::database::stored_column::{
@@ -29,7 +30,9 @@ use sidekicks_store::events::content::codec::{
 };
 use sidekicks_store::events::session::skipped_ranges::outside_skipped_ranges_sql;
 
-use crate::search::index::columns::{index_key_sql, index_row_kind_of, source_rowid_of};
+use crate::search::index::columns::{
+    index_key_of, index_key_sql, index_row_kind_of, source_rowid_of,
+};
 
 // The log rows the index holds: a person's message, an agent's message and a tool call, each
 // stored once settled. A thinking update is narration a later event supersedes, so it is never
@@ -230,6 +233,14 @@ static EVENT_BODY_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+// The rowid of the session's newest log row before a position: one entry of the session's
+// sequence index. A deleted row's rowid can come back on a later row, but a new row is appended at
+// its session's next sequence with a rowid above every rowid then held, so within a session the
+// rows held keep rowid order and log order alike, and that row's rowid is the highest before it.
+const LAST_ROWID_BEFORE_SQL: &str = "
+  SELECT rowid FROM session_events WHERE session_id = ? AND sequence < ?
+   ORDER BY sequence DESC LIMIT 1";
+
 // The columns a row other than a tag holds none of.
 const NO_TAG_SQL: &str = "NULL AS tag_fold, NULL AS session_last_activity_at";
 
@@ -338,6 +349,24 @@ impl<'connection> IndexRowReader<'connection> {
             .prepare_cached(last_rowid_sql(kind))?
             .query_row([], |row| row.get(0))?;
         Ok(highest.unwrap_or(0))
+    }
+
+    /// The highest key a log row of the session before `before_sequence` can have, so a log row's
+    /// key above it sits at or past that position; `None` when the session has no row before it.
+    /// Fails as SQLite refuses the read.
+    pub(crate) fn highest_key_before(
+        &self,
+        session_id: &SessionId,
+        before_sequence: i64,
+    ) -> rusqlite::Result<Option<u64>> {
+        let rowid = self
+            .reader
+            .prepare_cached(LAST_ROWID_BEFORE_SQL)?
+            .query_row((session_id.text().as_str(), before_sequence), |row| {
+                rowid_column(row, 0)
+            })
+            .optional()?;
+        Ok(rowid.map(|rowid| index_key_of(rowid, IndexRowKind::Event)))
     }
 
     /// The rows at these keys as the database holds them now, each whole or damaged, by key. A key

@@ -9,4 +9,5 @@ pub(crate) mod read;
 pub(crate) mod recovery;
 pub(crate) mod restart;
 pub(crate) mod review_note;
+pub(crate) mod search;
 pub(crate) mod tags;

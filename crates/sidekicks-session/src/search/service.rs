@@ -10,7 +10,10 @@
 //! carry that tag or one nested under it, which the index finds without scoring: with words, the
 //! index ranks only those sessions' rows; with no word, the sessions come most recently active
 //! first and their hits are the tags that matched. Names, groups and lines are read only for a
-//! page's own sessions. The search box names no session, so no relation rank takes part.
+//! page's own sessions. The search box names no session, so no relation rank takes part. A
+//! session whose history is damaged shows no hit in its log at or past its damaged point, where
+//! every read of it stops; its title, group and tag hits stay. Those hits are left out before the
+//! page counts its room, so the page still fills from the sessions after it.
 
 use std::collections::{HashMap, VecDeque};
 use std::num::NonZeroUsize;
@@ -36,13 +39,14 @@ use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_search::index::{HeldSearch, IndexRowKind, SearchIndex, SearchIndexError};
 use sidekicks_store::database::stored_column::{optional_text_column, rowid_column, text_column};
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 
 use crate::search::cursor::{
     SearchCursorPosition, SearchPagePosition, decode_search_cursor, encode_search_cursor,
     search_cursor_unresolvable,
 };
 use crate::search::hits::{HitLine, HitLineReader};
-use crate::search::index::columns::index_key_of;
+use crate::search::index::columns::{index_key_of, index_row_kind_of};
 use crate::search::index::rows::IndexRowReader;
 use crate::search::page::{PageCandidate, PageHit, SearchPage, assemble_search_page};
 use crate::search::query::{ParsedSearchQuery, parse_session_search_query};
@@ -70,7 +74,7 @@ const FIRST_RANKED_SESSIONS: usize = SESSION_SEARCH_PAGE_LIMIT_MAX + 1;
 
 /// Why a `session.search` call failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum SessionSearchError {
+pub enum SessionSearchError {
     /// The cursor continues no search held for this query.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -110,16 +114,18 @@ impl SessionSearchService {
 
     /// One page of the query's hits, grouped by session, read on `reader` and `index`, from
     /// `after_cursor` when it is given; a query that names nothing answers an empty last page.
-    /// `applied_floor_position` is where the rowid floor log stood when the index last matched the
-    /// database, read before the call, and `now` the wall time held searches expire by. A page
-    /// reads the database in one read transaction, and every page after the first reads the view
-    /// the first one held. Fails with `session.search.cursorUnresolvable` for a cursor that
-    /// continues no search held for this query, and as a database or index read fails.
+    /// A session `read_damaged_from_sequence` names a damaged point for shows no log hit at or
+    /// past it. `applied_floor_position` is where the rowid floor log stood when the index last
+    /// matched the database, read before the call, and `now` the wall time held searches expire
+    /// by. A page reads the database in one read transaction, and every page after the first reads
+    /// the view the first one held. Fails with `session.search.cursorUnresolvable` for a cursor
+    /// that continues no search held for this query, and as a database or index read fails.
     pub(crate) fn search(
         &self,
         reader: &Connection,
         index: &SearchIndex,
         request: &SessionSearchRequest,
+        read_damaged_from_sequence: &DamagedFromSequenceReader,
         applied_floor_position: i64,
         now: SystemTime,
     ) -> Result<SessionSearchResponse, SessionSearchError> {
@@ -129,6 +135,7 @@ impl SessionSearchService {
             index,
             &self.snapshots,
             request,
+            read_damaged_from_sequence,
             applied_floor_position,
             now,
         )?;
@@ -164,6 +171,7 @@ fn answer(
     index: &SearchIndex,
     snapshots: &SearchSnapshots,
     request: &SessionSearchRequest,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
     applied_floor_position: i64,
     now: SystemTime,
 ) -> Result<SessionSearchResponse, SessionSearchError> {
@@ -187,7 +195,13 @@ fn answer(
             cursor: after_cursor,
             position,
         };
-        let page = read_held_page(reader, &snapshot, limit, Some(resume))?;
+        let page = read_held_page(
+            reader,
+            &snapshot,
+            read_damaged_from_sequence,
+            limit,
+            Some(resume),
+        )?;
         return Ok(response_of(page, || snapshot_id));
     }
     let Some(snapshot) = open_search(index, query, applied_floor_position)? else {
@@ -198,7 +212,7 @@ fn answer(
     };
     // A failed first page drops the search here, letting go of its view, since no cursor names it.
     let snapshot = Arc::new(snapshot);
-    let page = read_held_page(reader, &snapshot, limit, None)?;
+    let page = read_held_page(reader, &snapshot, read_damaged_from_sequence, limit, None)?;
     // A search answered whole on its first page has no later page to hold it for: the last page
     // never calls the hold, so the search drops with it and lets go of its view.
     Ok(response_of(page, move || snapshots.hold(snapshot, now)))
@@ -231,6 +245,7 @@ fn open_search(
 fn read_held_page(
     reader: &Connection,
     snapshot: &SearchSnapshot,
+    read_damaged_from_sequence: &DamagedFromSequenceReader,
     limit: NonZeroUsize,
     resume: Option<PageResume<'_>>,
 ) -> Result<SearchPage, SessionSearchError> {
@@ -245,6 +260,7 @@ fn read_held_page(
         query: &snapshot.query,
         view: &mut view,
         held_row_check,
+        read_damaged_from_sequence,
         resume,
         limit: limit.get(),
         first_index,
@@ -286,14 +302,16 @@ struct ReadBatch {
 // together, each session's one past what a page holds so a session with more splits across pages;
 // the first with only those after the last hit an earlier page showed. A session since purged, or
 // one whose rowid a later session took, is passed over, and so is a hit whose row is gone or was
-// taken. Fails with `session.search.cursorUnresolvable` when the cursor's hit is none of its
-// session's hits; after a failure it offers nothing more.
+// taken, and so is a damaged session's log hit at or past its damaged point. Fails with
+// `session.search.cursorUnresolvable` when the cursor's hit is none of its session's hits; after
+// a failure it offers nothing more.
 struct SessionCandidates<'read> {
     reader: &'read Connection,
     hit_lines: HitLineReader<'read>,
     query: &'read ParsedSearchQuery,
     view: &'read mut HeldSearch,
     held_row_check: Option<HeldRowCheck>,
+    read_damaged_from_sequence: &'read DamagedFromSequenceReader,
     resume: Option<PageResume<'read>>,
     limit: usize,
     first_index: usize,
@@ -411,6 +429,16 @@ impl SessionCandidates<'_> {
             }
             if let Some(check) = held_row_check {
                 hit_keys.retain(|&hit_key| check.is_held(hit_key));
+            }
+            // After the resume drain, so a cursor whose hit is now past the damaged point still
+            // finds where it stood.
+            if let Some(damaged_from) = (self.read_damaged_from_sequence)(&session.session_id) {
+                let highest_key = IndexRowReader::new(self.reader)
+                    .highest_key_before(&session.session_id, damaged_from)?;
+                hit_keys.retain(|&hit_key| {
+                    index_row_kind_of(hit_key) != IndexRowKind::Event
+                        || highest_key.is_some_and(|highest_key| hit_key <= highest_key)
+                });
             }
             unread.push_back(ShownSession {
                 session,
@@ -578,13 +606,18 @@ mod tests {
     use std::thread;
     use std::time::{Duration, Instant, SystemTime};
 
+    use rstest::rstest;
     use rusqlite::Connection;
+    use serde_json::json;
+    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::{
         SessionSearchCursor, SessionSearchLimit, SessionSearchRequest, SessionSearchResponse,
     };
     use sidekicks_contracts::wire::text::FreeFormText;
     use sidekicks_search::index::SearchIndex;
     use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+    use sidekicks_store::database::writer::test_file::insert_test_event;
+    use sidekicks_store::events::session::read::DamagedFromSequenceReader;
     use tempfile::TempDir;
 
     use super::{SessionSearchError, SessionSearchService};
@@ -601,12 +634,29 @@ mod tests {
     // How long a page the test expects is waited for before the test fails.
     const PAGE_BOUND: Duration = Duration::from_secs(30);
 
-    // Titled sessions in a database file, their index, and the service paging them; each page
+    // When the test's log rows occurred.
+    const OCCURRED_AT: &str = "2026-10-14T09:00:00.000Z";
+
+    // A history damaged nowhere.
+    fn undamaged(_session_id: &SessionId) -> Option<i64> {
+        None
+    }
+
+    // Where a session's log starts, and where its first `invoice` message sits.
+    struct LoggedSession {
+        session_id: SessionId,
+        first_sequence: i64,
+        first_hit_sequence: i64,
+    }
+
+    // Titled sessions in a database file, the first two each logging a message no query here
+    // matches and then two `invoice` messages, their index, and the service paging them; each page
     // reads on a connection of its own, as the read pool lends one to each search.
     struct HeldSearches {
         folder: TempDir,
         index: SearchIndex,
         service: SessionSearchService,
+        logged: Vec<LoggedSession>,
     }
 
     impl HeldSearches {
@@ -617,11 +667,20 @@ mod tests {
             connection
                 .execute_batch(schema_parts().into_schema().sql())
                 .expect("the session's schema runs");
+            let mut logged = Vec::new();
             for number in 1..=3 {
-                add_titled_session(
-                    &connection,
-                    &format!("0190a5a0-0000-7000-8000-00000000000{number}"),
-                );
+                let session_id = format!("0190a5a0-0000-7000-8000-00000000000{number}");
+                add_titled_session(&connection, &session_id);
+                if number < 3 {
+                    let session_id = SessionId::new(&session_id).expect("a session id");
+                    let sequences = ["hello", "invoice paid", "invoice sent"]
+                        .map(|message| log_message(&connection, session_id, message));
+                    logged.push(LoggedSession {
+                        session_id,
+                        first_sequence: sequences[0],
+                        first_hit_sequence: sequences[1],
+                    });
+                }
             }
             let highest_id_given = OutboxReader::new(&connection)
                 .highest_id_given()
@@ -644,6 +703,7 @@ mod tests {
                 folder,
                 index: *index,
                 service: SessionSearchService::new(),
+                logged,
             })
         }
 
@@ -656,6 +716,7 @@ mod tests {
             &self,
             query: &str,
             after_cursor: Option<SessionSearchCursor>,
+            read_damaged_from_sequence: &DamagedFromSequenceReader,
         ) -> Result<SessionSearchResponse, SessionSearchError> {
             let reader = Connection::open(self.database_path()).expect("the database opens");
             let request = SessionSearchRequest {
@@ -663,13 +724,19 @@ mod tests {
                 after_cursor,
                 limit: Some(SessionSearchLimit::new(1).expect("a limit")),
             };
-            self.service
-                .search(&reader, &self.index, &request, 0, SystemTime::now())
+            self.service.search(
+                &reader,
+                &self.index,
+                &request,
+                read_damaged_from_sequence,
+                0,
+                SystemTime::now(),
+            )
         }
 
         // A first page of `query`, whose search is held, and the cursor that continues it.
         fn held_search(&self, query: &str) -> (Arc<SearchSnapshot>, SessionSearchCursor) {
-            let page = match self.page(query, None) {
+            let page = match self.page(query, None, &undamaged) {
                 Ok(SessionSearchResponse::Continuing(page)) => page,
                 other => panic!("a hit a page over three sessions continues: {other:?}"),
             };
@@ -694,10 +761,69 @@ mod tests {
             let searches = Arc::clone(self);
             thread::spawn(move || {
                 answers
-                    .send(searches.page(query, Some(cursor)))
+                    .send(searches.page(query, Some(cursor), &undamaged))
                     .expect("the test waits for the answer");
             });
         }
+    }
+
+    // Writes a person's message to the session's log, answering its sequence.
+    fn log_message(connection: &Connection, session_id: SessionId, message: &str) -> i64 {
+        let event = json!({
+            "type": "user.message.sent",
+            "payload": { "sessionId": session_id, "actor": "person", "message": message },
+        });
+        insert_test_event(connection, session_id, event, None, OCCURRED_AT).0
+    }
+
+    // Killed by dropping the damaged-point retain (the damaged session's next hit shows) and by
+    // putting it before the resume drain (the cursor's hit is gone, so the page is refused).
+    #[rstest]
+    #[case::from_its_first_row(true)]
+    #[case::after_a_row_before_its_hits(false)]
+    #[tokio::test]
+    async fn a_session_damaged_between_pages_shows_no_hit_past_its_damaged_point(
+        #[case] is_damaged_from_its_first_row: bool,
+    ) {
+        let searches = HeldSearches::open().await;
+        let first = match searches.page("invoice", None, &undamaged) {
+            Ok(SessionSearchResponse::Continuing(page)) => page,
+            other => panic!("a hit a page over four hits continues: {other:?}"),
+        };
+        let shown = first.groups.as_slice()[0].session_id;
+        let damaged = searches
+            .logged
+            .iter()
+            .find(|logged| logged.session_id == shown)
+            .expect("the page shows a logged session");
+        let other = searches
+            .logged
+            .iter()
+            .find(|logged| logged.session_id != shown)
+            .expect("two sessions are logged")
+            .session_id;
+        let damaged_from = if is_damaged_from_its_first_row {
+            damaged.first_sequence
+        } else {
+            damaged.first_hit_sequence
+        };
+        let read_damaged_from_sequence =
+            |session_id: &SessionId| (*session_id == shown).then_some(damaged_from);
+
+        let second = searches
+            .page(
+                "invoice",
+                Some(first.next_cursor),
+                &read_damaged_from_sequence,
+            )
+            .expect("the held search continues past the damaged session");
+
+        let groups = match &second {
+            SessionSearchResponse::Continuing(page) => page.groups.as_slice(),
+            SessionSearchResponse::Terminal(page) => page.groups.as_slice(),
+        };
+        let sessions: Vec<SessionId> = groups.iter().map(|group| group.session_id).collect();
+        assert_eq!(sessions, [other]);
     }
 
     #[tokio::test]
