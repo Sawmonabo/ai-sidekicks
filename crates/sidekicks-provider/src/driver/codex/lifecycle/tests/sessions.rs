@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
@@ -436,10 +437,26 @@ impl ProcessGoneListener for HeardGone {
     }
 }
 
-// Killed by a failed in-place resume that keeps the session's record, or tells the queue nothing:
-// the session reads live on a conversation its service never loaded, and the queue keeps it.
+/// Why a recovery's resume in place fails.
+#[derive(Clone, Copy, Debug)]
+enum ResumeFailure {
+    /// The live service refuses it.
+    Refused,
+    /// The service went down after it came back, before the resume reached it.
+    ServiceLost,
+}
+
+// Killed by a resume the live service refused that keeps the session's record, or tells the queue
+// nothing: the session reads live on a conversation its service never loaded, and the queue keeps
+// it. Killed too by letting the record go when the service went down under the resume: the
+// person's restart after the crash loop would find no conversation to resume.
+#[rstest]
+#[case::refused(ResumeFailure::Refused)]
+#[case::service_lost(ResumeFailure::ServiceLost)]
 #[tokio::test]
-async fn a_conversation_not_resumed_in_place_leaves_the_session_down_and_tells_the_queue() {
+async fn a_conversation_not_resumed_in_place_reads_down_and_tells_the_queue(
+    #[case] failure: ResumeFailure,
+) {
     let LiveCodexSession {
         driver,
         session_id,
@@ -463,6 +480,9 @@ async fn a_conversation_not_resumed_in_place_leaves_the_session_down_and_tells_t
     let recovering = parts
         .recovery
         .recover(&service, CodexServiceRecoveryCause::Crash, generation);
+    if let ResumeFailure::ServiceLost = failure {
+        scripted.publish_crash_loop();
+    }
     let mut recovering = std::pin::pin!(recovering);
     tokio::time::timeout(CLOSE_BOUND, async {
         loop {
@@ -490,7 +510,20 @@ async fn a_conversation_not_resumed_in_place_leaves_the_session_down_and_tells_t
     .await
     .expect("the recovery ends");
 
-    assert_eq!(*lock(&heard.holders), [None]);
+    let is_attached = service
+        .attached_sessions()
+        .iter()
+        .any(|inbound| inbound.session_id() == session_id);
+    match failure {
+        ResumeFailure::Refused => {
+            assert_eq!(*lock(&heard.holders), [None]);
+            assert!(!is_attached, "a refused resume lets the record go");
+        }
+        ResumeFailure::ServiceLost => {
+            assert_eq!(*lock(&heard.holders), [Some(CodexSessionSlotState::Live)]);
+            assert!(is_attached, "the record stays for the person's restart");
+        }
+    }
     assert_eq!(
         driver.session_process_state(session_id),
         SessionProcessState::Down

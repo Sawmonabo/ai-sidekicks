@@ -74,10 +74,21 @@ impl ScriptedCodexService {
     /// Publishes the service reconnecting, its connection set aside until [`Self::publish_up`]
     /// hands it back.
     pub(crate) fn publish_reconnecting(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.publish_disconnected(CodexServiceAvailability::Reconnecting)
+    }
+
+    /// Publishes the service down after a crash loop, its connection gone.
+    pub(crate) fn publish_crash_loop(&self) {
+        self.publish_disconnected(CodexServiceAvailability::CrashLoop);
+    }
+
+    // Publishes the service as `availability`, one it is not up in, its connection set aside.
+    fn publish_disconnected(
+        &self,
+        availability: CodexServiceAvailability,
+    ) -> Option<Arc<CodexAppServerConnection>> {
         let connection = self.service.lock_live().connection.take();
-        self.service
-            .availability
-            .send_replace(CodexServiceAvailability::Reconnecting);
+        self.service.availability.send_replace(availability);
         connection
     }
 

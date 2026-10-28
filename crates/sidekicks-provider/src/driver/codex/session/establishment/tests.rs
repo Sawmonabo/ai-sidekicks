@@ -96,7 +96,7 @@ async fn resume_on_second_service(
         resumed = resume => resumed,
         () = service_side => unreachable!("the service answers until the resume ends"),
     };
-    (second, resumed.result)
+    (second, resumed.outcome.result)
 }
 
 // Killed by dropping the release of the registration the resume made, and by moving the record

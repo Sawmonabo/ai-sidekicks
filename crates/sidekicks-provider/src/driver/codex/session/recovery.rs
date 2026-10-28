@@ -40,7 +40,9 @@ use crate::driver::codex::session::calls::{
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::establishment::CodexSessionEstablishment;
+use crate::driver::codex::session::establishment::{
+    CodexInPlaceOutcome, CodexSessionEstablishment,
+};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::slots::{CodexRecoveryGeneration, CodexSessionSlots};
@@ -467,9 +469,10 @@ impl CodexServiceRecovery {
 
     // Resumes one session's conversation in place on `service` inside its slot, settling the resume
     // `generation` owed it, and reports the relaunch; `None` when the session closed or was
-    // established anew meanwhile. A conversation
-    // not resumed leaves the session with its record, so it reads down and the queue, told its
-    // process is gone, opens it again on its next run.
+    // established anew meanwhile. A conversation the live service refused to resume lets the
+    // session's record go, so it reads down; one the service went down under keeps its record for
+    // the service's next recovery or the person's restart. Either way the queue, told the
+    // session's process is gone, opens it again on its next run.
     async fn resume_session(
         &self,
         service: &Arc<CodexService>,
@@ -486,15 +489,19 @@ impl CodexServiceRecovery {
                 .settle_resume(session_id, generation);
         }
         let claim = claimed.ok()?;
-        let result = self.resume_claimed(service, inbound, writer_left).await;
-        let is_failed = matches!(result, Some(DriverResumeResult::Failed { .. }));
-        if is_failed {
+        let outcome = self.resume_claimed(service, inbound, writer_left).await;
+        let is_refused = outcome.as_ref().is_some_and(|outcome| {
+            matches!(outcome.result, DriverResumeResult::Failed { .. }) && !outcome.is_service_lost
+        });
+        if is_refused {
             let_go_codex_session_record(inbound, CodexRecordExit::SessionContinues).await;
             claim.vacate();
         }
         drop(claim);
-        let result = result?;
-        if is_failed && let Some(listener) = self.dependencies.process_gone.port() {
+        let result = outcome?.result;
+        if matches!(result, DriverResumeResult::Failed { .. })
+            && let Some(listener) = self.dependencies.process_gone.port()
+        {
             listener.process_gone(session_id);
         }
         self.report_relaunch(service, session_id, result.clone())
@@ -508,7 +515,7 @@ impl CodexServiceRecovery {
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
-    ) -> Option<DriverResumeResult> {
+    ) -> Option<CodexInPlaceOutcome> {
         let resume = CodexInPlaceResumeCall {
             establishment: Arc::clone(&self.dependencies.establishment),
             service: Arc::clone(service),
@@ -705,13 +712,13 @@ pub(crate) fn drop_codex_turns(
 
 /// Resumes the session's conversation in place on the session's task, then ends each turn the
 /// session still owed an end that the resume lists as over: its `turn/completed` was sent while
-/// the daemon was not connected, and Codex sends none again. Answers the resume's result and the
+/// the daemon was not connected, and Codex sends none again. Answers the resume's outcome and the
 /// frames its routing released.
 pub(crate) async fn resume_codex_session_in_place(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexSessionCallDependencies,
     resume: CodexInPlaceResumeCall,
-) -> (DriverResumeResult, CodexRoutedFrames) {
+) -> (CodexInPlaceOutcome, CodexRoutedFrames) {
     let CodexInPlaceResumeCall {
         establishment,
         service,
@@ -742,7 +749,7 @@ pub(crate) async fn resume_codex_session_in_place(
             .await;
         routed.extend(ended);
     }
-    (resumed.result, routed)
+    (resumed.outcome, routed)
 }
 
 // Whether a listed turn still runs.

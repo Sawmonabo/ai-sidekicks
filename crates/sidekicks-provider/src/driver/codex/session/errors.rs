@@ -244,6 +244,17 @@ impl CodexError {
         self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
     }
 
+    /// Whether the connection closed before this request's answer came.
+    pub(crate) fn is_connection_closed(&self) -> bool {
+        matches!(
+            self,
+            Self::Unanswered {
+                cause: CodexUnansweredCause::ConnectionClosed { .. },
+                ..
+            }
+        )
+    }
+
     /// Whether this is Codex's refusal of a catalog read that asks for the service to restart
     /// before it answers.
     pub(crate) fn asks_for_restart(&self) -> bool {
