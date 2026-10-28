@@ -1,6 +1,9 @@
-//! Ending shells: a pane's close of one shell and a session's deletion of all of them. Each ends
-//! the shell's subscriptions and releases the holds they carried before the shell leaves its
-//! session, then has the terminal let it go and forgets its child in the orphan registry.
+//! Ending shells: a pane's close of one shell, a session's deletion of all of them, and the close
+//! of what the shells run in a folder about to be moved or deleted. Each ends the shell's
+//! subscriptions and releases the holds they carried before the shell leaves its session, then has
+//! the terminal let it go and forgets its child in the orphan registry.
+
+mod folder;
 
 use std::sync::{Arc, Weak};
 

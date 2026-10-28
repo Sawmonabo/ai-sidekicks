@@ -37,15 +37,17 @@ use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
 use crate::git::worktree::naming::is_named_worktree_folder;
 use crate::git::worktree::occupancy::OccupancyReadError;
 use crate::git::worktree::reads::{LinkedTreeRecordError, read_linked_tree_record};
-use crate::git::worktree::removal::FolderProcessOwner;
+use crate::git::worktree::removal::{
+    FolderProcessOwner, FolderProcessesEndError, end_processes_in_folder,
+};
 use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
 };
 use crate::git::worktree::rows::{WorktreeRow, live_worktree_state_predicate};
 
-/// The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
-/// daemon holds its caller no longer than that.
-pub(crate) const FILE_WATCH_STOP_TIMEOUT: Duration = Duration::from_secs(35);
+// The stop's own bound, just past the 30 s git's stop waits for the daemon to exit, so a wedged
+// daemon holds its caller no longer than that.
+const FILE_WATCH_STOP_TIMEOUT: Duration = Duration::from_secs(35);
 // git's exit when its stop finds no file-watch daemon to stop.
 const FILE_WATCH_STOP_NOTHING_EXIT_CODE: i32 = 128;
 // git's line when no file-watch daemon runs for the tree.
@@ -114,7 +116,7 @@ const MARK_CLEANUP_STARTED_SQL: &str = "UPDATE worktrees
   WHERE id = @worktree_id AND cleaned_at IS NULL AND cleanup_started_at IS NULL";
 
 /// Keeps a retired tree whose folder holds what the person could lose, for them to decide on.
-pub(crate) trait RetiredWorktreeKeeper: Send + Sync {
+pub trait RetiredWorktreeKeeper: Send + Sync {
     /// Moves the retired tree aside whole as a kept copy the removed list shows, its row stamped
     /// cleaned in the write that lists the copy. Fails with the move's or the write's failure.
     fn keep_retired_aside<'a>(
@@ -125,18 +127,18 @@ pub(crate) trait RetiredWorktreeKeeper: Send + Sync {
 
 /// What one cleanup pass did, in the order it did it.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct WorktreeCleanupReport {
+pub struct WorktreeCleanupReport {
     /// Trees retired because their mount is no longer attached, their folders left on disk.
-    pub(crate) retired: Vec<WorktreeId>,
+    pub retired: Vec<WorktreeId>,
     /// Trees whose folder was removed and whose `cleaned_at` was stamped.
-    pub(crate) cleaned: Vec<WorktreeId>,
+    pub cleaned: Vec<WorktreeId>,
     /// Retired trees whose folder held something new, kept aside or left where they are.
-    pub(crate) kept: Vec<WorktreeId>,
+    pub kept: Vec<WorktreeId>,
 }
 
 /// Why cleaning one retired tree failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeCleanupError {
+pub enum WorktreeCleanupError {
     /// A row read or write, a retirement or a folder's resolve failed.
     #[error(transparent)]
     Service(#[from] WorktreeServiceError),
@@ -154,8 +156,8 @@ pub(crate) enum WorktreeCleanupError {
     #[error(transparent)]
     RiskRead(#[from] RemovalRiskReadError),
     /// A process the daemon started in the tree could not be ended.
-    #[error("a process started in the tree could not be ended")]
-    EndProcesses(#[source] Box<dyn Error + Send + Sync>),
+    #[error(transparent)]
+    EndProcesses(#[from] FolderProcessesEndError),
     /// The tree's git file-watch daemon could not be stopped.
     #[error("the tree's git file-watch daemon could not be stopped")]
     FileWatchStop(#[source] GitError),
@@ -169,7 +171,7 @@ pub(crate) enum WorktreeCleanupError {
 
 /// One failure of a cleanup pass: the rows it would sweep could not be read, or one row failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeCleanupFailure {
+pub enum WorktreeCleanupFailure {
     /// The rows to sweep could not be read.
     #[error("the worktrees to clean up could not be read")]
     Rows(#[source] WorktreeServiceError),
@@ -206,16 +208,13 @@ impl WorktreeService {
     /// folders stay on disk, then empties each retired folder with no `cleaned_at` while no agent
     /// runs in it and no session stands in it. A folder whose risk read shows nothing to lose, or
     /// the same as its retirement recorded, is deleted: the processes `owners` started in it ended,
-    /// then git's record, then the folder, then the stamp. One holding anything more goes to `keeper`, or on a mount no longer attached is
-    /// left where it is, since a detach touches nothing on disk. A row that fails does not stop
+    /// then git's record, then the folder, then the stamp. One holding anything more has those
+    /// processes ended and goes to `keeper`, or on a mount no longer attached is left where it is,
+    /// since a detach touches nothing on disk. A row that fails does not stop
     /// the others; once every row has been tried, every failure is returned together. The pass is
     /// idempotent and re-entrant, and once `cancel` is canceled it stops between rows, leaving the
     /// rest to the next pass.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's scheduled worktree cleanup")
-    )]
-    pub(crate) async fn cleanup_pass(
+    pub async fn cleanup_pass(
         &self,
         keeper: &dyn RetiredWorktreeKeeper,
         owners: &[Arc<dyn FolderProcessOwner>],
@@ -313,6 +312,8 @@ impl WorktreeService {
         if !retired.is_cleanup_started || record_folder.is_some() {
             if is_folder_present && self.holds_something_new(retired).await? {
                 if retired.is_mount_attached {
+                    // Held until the tree is kept aside.
+                    let _process_holds = end_processes_in_folder(owners, folder).await?;
                     keeper
                         .keep_retired_aside(row)
                         .await
@@ -326,14 +327,12 @@ impl WorktreeService {
                 self.mark_cleanup_started(&row.id).await?;
             }
         }
-        if is_folder_present {
-            for owner in owners {
-                owner
-                    .end_processes_in_folder(folder)
-                    .await
-                    .map_err(WorktreeCleanupError::EndProcesses)?;
-            }
-        }
+        // Held until the folder is deleted.
+        let _process_holds = if is_folder_present {
+            end_processes_in_folder(owners, folder).await?
+        } else {
+            Vec::new()
+        };
         if record_folder.is_some() {
             stop_file_watch(&self.deps.git, place, folder)
                 .await
@@ -401,7 +400,7 @@ impl WorktreeService {
 /// one, whatever the repository sets today, since a daemon started under an earlier setting or by
 /// another tool outlives its folder; git answering that none runs is nothing to stop. A remote
 /// volume is let through, so a daemon git started there is reached. Fails with git's failure,
-/// a stop past [`FILE_WATCH_STOP_TIMEOUT`] among them.
+/// a stop past its own time bound among them.
 pub(crate) async fn stop_file_watch(
     git: &GitRunner,
     place: Option<&Place>,

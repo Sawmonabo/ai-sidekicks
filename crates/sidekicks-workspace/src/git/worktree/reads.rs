@@ -1,9 +1,9 @@
 //! The git reads behind the switcher's rows, the branch list, the working-folder watch, creation
 //! and Put back: the trees git lists for a repository, each branch's distance from its upstream,
 //! refs' commits and a branch's holding tree, every branch's name, the paths a tree has
-//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record and the
-//! record a `.git` file names. Every answer but the last is git's own; the last reads the `.git`
-//! file itself, so it answers even when the record it names is gone.
+//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record, the record a
+//! `.git` file names and the `.git` a record names. Every answer but the last two is git's own;
+//! those read git's files themselves, so they answer even when what the file names is gone.
 //!
 //! Each git read runs in the background with no optional lock, so it never rewrites the index
 //! under a run working in the same tree. Output stays bytes, and a path git prints is read back as
@@ -23,12 +23,13 @@ use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
-use sidekicks_platforms::path_from_program_output;
+use sidekicks_platforms::{path_from_program_output, resolve_path_against};
 use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{
-    GitCall, GitError, GitRunner, background_read, strip_carriage_return, strip_line_end,
+    GitCall, GitError, GitRunner, NOT_A_REPOSITORY_EXIT_CODE, background_read,
+    strip_carriage_return, strip_line_end,
 };
 
 /// The prefix of every local branch's full ref name.
@@ -36,6 +37,15 @@ pub(crate) const BRANCH_REF_PREFIX: &str = "refs/heads/";
 
 /// The folder in a repository's git common folder that holds a record per linked tree.
 pub(crate) const LINKED_RECORDS_FOLDER_NAME: &str = "worktrees";
+/// The file in a linked tree's record that names the tree's `.git` file.
+pub(crate) const RECORD_GITDIR_FILE_NAME: &str = "gitdir";
+/// The file in a linked tree's record that names the repository's git common folder.
+pub(crate) const RECORD_COMMONDIR_FILE_NAME: &str = "commondir";
+/// The file in a linked tree's record that keeps the tree locked; `worktree add` writes it first
+/// and removes it once the tree is made, before the checkout hook runs.
+pub(crate) const RECORD_LOCK_FILE_NAME: &str = "locked";
+/// A linked tree's own `.git` file, which names its record.
+pub(crate) const GIT_FILE_NAME: &str = ".git";
 
 const REMOTE_REF_PREFIX: &[u8] = b"refs/remotes/";
 const REMOTE_HEAD_SUFFIX: &[u8] = b"/HEAD";
@@ -45,8 +55,6 @@ const CLONE_REMOTE_NAME: &[u8] = b"origin";
 // git's exit when it refuses an option it does not know, as a git older than 2.36 refuses `-z`
 // on `worktree list`.
 const UNKNOWN_OPTION_EXIT_CODE: i32 = 129;
-// git's exit when the folder it was asked from is in no repository.
-const NOT_A_REPOSITORY_EXIT_CODE: i32 = 128;
 // `symbolic-ref --quiet`'s exit for a HEAD that names no branch.
 const DETACHED_HEAD_EXIT_CODE: i32 = 1;
 
@@ -124,7 +132,7 @@ pub(crate) struct RefHead {
 
 /// Why the record of a linked tree could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LinkedTreeRecordError {
+pub enum LinkedTreeRecordError {
     /// git's read failed, or printed something other than three folders.
     #[error(transparent)]
     Git(#[from] GitError),
@@ -416,7 +424,6 @@ fn parse_upstream_track(track: &[u8]) -> Result<Option<(u64, u64)>, GitError> {
 /// exists in the repository at `repository_folder`, by full name; a ref that does not exist has
 /// no entry. Fails as [`GitRunner::run`] does, with `PathText` for a holding tree this system
 /// cannot name.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn read_ref_heads(
     git: &GitRunner,
     place: Option<&Place>,
@@ -456,7 +463,6 @@ pub(crate) async fn read_ref_heads(
 
 /// Whether the repository at `repository_folder` has a local branch named `branch`. Fails as
 /// [`read_ref_heads`] does.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn has_branch(
     git: &GitRunner,
     place: Option<&Place>,
@@ -473,7 +479,6 @@ pub(crate) async fn has_branch(
 
 /// Every local branch's name in the repository at `repository_folder`, in git's order, each read
 /// as UTF-8 with any other byte replaced. Fails as [`GitRunner::run`] does.
-#[expect(dead_code, reason = "worktree creation")]
 pub(crate) async fn read_branch_names(
     git: &GitRunner,
     place: Option<&Place>,
@@ -657,7 +662,6 @@ pub(crate) async fn read_tree_git_folder(
 
 /// The git common folder that holds `record_folder`, a linked tree's `<common>/worktrees/<name>`;
 /// `None` for a path too short to be one.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
     record_folder.parent().and_then(Path::parent)
 }
@@ -669,7 +673,6 @@ pub(crate) fn common_folder_of_record(record_folder: &Path) -> Option<&Path> {
 /// checkout's own `.git`), so a caller removing the record can never reach anything else. Fails
 /// with git's failure, a `Read` failure when git prints other than three folders, or the
 /// resolve's failure when a folder cannot be compared.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_linked_tree_record(
     git: &GitRunner,
     place: Option<&Place>,
@@ -733,7 +736,6 @@ pub(crate) async fn read_linked_tree_record(
 /// comparing it. `None` for a missing `.git`, a checkout's own `.git` folder, or a file that names
 /// none. Fails with the read's error, or on Windows with `InvalidData` for a record that is not
 /// UTF-8.
-#[expect(dead_code, reason = "the worktree service's reads")]
 pub(crate) async fn read_record_named_by(git_file: &Path) -> io::Result<Option<PathBuf>> {
     // A folder is checked first, since reading one fails differently from system to system.
     let contents = match tokio::fs::metadata(git_file).await {
@@ -763,6 +765,33 @@ pub(crate) async fn read_record_named_by(git_file: &Path) -> io::Result<Option<P
         Some(folder) => folder.join(named),
         None => named,
     }))
+}
+
+/// The `.git` file a linked tree's record names in its `gitdir`, with surrounding whitespace
+/// trimmed and a relative path resolved from the record's folder by the system's path rules.
+/// `None` for a record with no `gitdir` or an empty one. Fails with the read's error, or with
+/// `InvalidData` for a relative `gitdir` or a record folder that is not UTF-8.
+pub(crate) async fn read_record_git_file(record_folder: &Path) -> io::Result<Option<PathBuf>> {
+    let contents = match tokio::fs::read(record_folder.join(RECORD_GITDIR_FILE_NAME)).await {
+        Ok(contents) => contents,
+        Err(failure) if is_missing_entry(&failure) => return Ok(None),
+        Err(failure) => return Err(failure),
+    };
+    let gitdir = contents.trim_ascii();
+    if gitdir.is_empty() {
+        return Ok(None);
+    }
+    let named = path_from_program_output(gitdir.to_vec())?;
+    if named.is_absolute() {
+        return Ok(Some(named));
+    }
+    let (Some(base), Some(named)) = (record_folder.to_str(), named.to_str()) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "a relative record path that is not UTF-8 cannot be resolved",
+        ));
+    };
+    resolve_path_against(base, named).map(|resolved| Some(PathBuf::from(resolved)))
 }
 
 // The records of a `for-each-ref` listing whose format ends each record's last field with a NUL:

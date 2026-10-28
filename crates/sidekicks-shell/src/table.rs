@@ -21,6 +21,8 @@ mod tests;
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures::FutureExt as _;
@@ -121,11 +123,26 @@ struct SessionShells {
     close_holds: usize,
 }
 
+/// A folder whose shells were closed before its move, holding back the opens begun after it of the
+/// sessions working in it until the hold drops.
+struct FolderHold {
+    /// Where the hold falls among the opens, from the table's one count.
+    sequence: u64,
+    /// The folder's key, resolved.
+    folder_key: PathBuf,
+    /// Answers its change once the hold drops.
+    released: watch::Receiver<()>,
+}
+
 /// The table's state and what it calls out to, shared with every shell's output task.
 struct TableShared {
     deps: ShellTableDeps,
     record_deps: Arc<ShellRecordDeps>,
     sessions: Mutex<HashMap<SessionId, SessionShells>>,
+    /// The folder holds in force, each taken under the sessions' lock.
+    folder_holds: Mutex<Vec<FolderHold>>,
+    /// The one count that orders the opens and the folder holds, taken under the sessions' lock.
+    sequence: AtomicU64,
 }
 
 /// Every session's shells in this daemon.
@@ -149,6 +166,8 @@ impl ShellTable {
                 deps,
                 record_deps,
                 sessions: Mutex::new(HashMap::new()),
+                folder_holds: Mutex::new(Vec::new()),
+                sequence: AtomicU64::new(0),
             }),
         }
     }
@@ -406,6 +425,17 @@ impl TableShared {
         self.sessions
             .lock()
             .expect("no panic holds the shell table, since a panic ends the daemon")
+    }
+
+    fn lock_folder_holds(&self) -> MutexGuard<'_, Vec<FolderHold>> {
+        self.folder_holds
+            .lock()
+            .expect("no panic holds the folder holds, since a panic ends the daemon")
+    }
+
+    /// The next place in the order of opens and folder holds; taken under the sessions' lock.
+    fn next_sequence(&self) -> u64 {
+        self.sequence.fetch_add(1, Ordering::Relaxed)
     }
 
     fn lock_console_colors(&self) -> MutexGuard<'_, Option<Arc<TerminalColors>>> {

@@ -61,7 +61,8 @@ pub enum WorktreeSetupState {
 }
 
 /// One step of the setup card, in run order. `error` and `output` are present on a failed step,
-/// and `elapsedMs` once the step has run.
+/// `output` also on a made tree's step whose checkout hook failed, and `elapsedMs` once the step
+/// has run.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WorktreeSetupStep {

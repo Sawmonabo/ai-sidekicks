@@ -562,3 +562,26 @@ fn an_untitled_session_takes_whole_words_up_to_forty_code_points(
 ) {
     assert_eq!(session_title_words(None, Some(message), None), expected);
 }
+
+// Killed by the session's own name ignored, and by the stand-in message preferred over the first
+// message the session recorded.
+#[rstest]
+#[case::the_name_first(Some("Login fix"), Some("fix the bug"), Some("draft"), "Login fix")]
+#[case::the_first_message_before_the_stand_in(
+    None,
+    Some("fix the bug"),
+    Some("draft"),
+    "fix the bug"
+)]
+#[case::the_stand_in_for_no_first_message(None, None, Some("draft the notes"), "draft the notes")]
+fn the_title_words_come_from_the_name_then_the_first_message_then_its_stand_in(
+    #[case] name: Option<&str>,
+    #[case] first_message_preview: Option<&str>,
+    #[case] fallback_message: Option<&str>,
+    #[case] expected: &str,
+) {
+    assert_eq!(
+        session_title_words(name, first_message_preview, fallback_message),
+        expected
+    );
+}

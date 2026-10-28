@@ -8898,6 +8898,7 @@ dependencies = [
  "sidekicks-std",
  "sidekicks-terminal",
  "sidekicks-workspace",
+ "sysinfo",
  "tempfile",
  "thiserror 2.0.21",
  "tokio",

@@ -332,10 +332,6 @@ impl RunningCommand {
     /// Asks the command to stop, its step failing with `reason`, and after `grace` ends every
     /// process it started; answers once it has exited. A command already asked keeps the first
     /// ask. Fails with the system's error from the ask or the end.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "worktree removal and the daemon's stop")
-    )]
     pub(super) async fn end(
         &self,
         reason: &'static str,
@@ -587,9 +583,20 @@ fn take_outcome(error: Option<String>, output: &Mutex<CommandOutput>) -> StepOut
     let printed = std::mem::take(&mut *lock(output));
     StepOutcome {
         error,
-        output: printed.has_printed.then(|| {
-            FreeFormText::new(printed.tail.into_text())
-                .expect("a tail is never blank, holds no NUL and keeps within its cap")
-        }),
+        output: printed.has_printed.then(|| tail_text(printed.tail)),
     }
+}
+
+/// The tail of `text` a step shows as its output, cut as a command's printed output is.
+pub(super) fn output_text(text: &str) -> FreeFormText<WORKTREE_SETUP_OUTPUT_MAX_LEN> {
+    let mut tail = OutputTail::new();
+    tail.push(text.as_bytes());
+    tail_text(tail)
+}
+
+fn tail_text(
+    tail: OutputTail<WORKTREE_SETUP_OUTPUT_MAX_LEN>,
+) -> FreeFormText<WORKTREE_SETUP_OUTPUT_MAX_LEN> {
+    FreeFormText::new(tail.into_text())
+        .expect("a tail is never blank, holds no NUL and keeps within its cap")
 }

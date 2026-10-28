@@ -24,7 +24,7 @@ use tokio::time::timeout;
 
 use super::{
     ReadWatchCeiling, WatchTarget, WorkingFolderWatcher, WorkingFolderWatcherDeps,
-    WorkingTreeChangeListener,
+    WorkingTreeChangeListener, no_ceiling,
 };
 use crate::file_watch::ChangeFeed;
 use crate::folder::canonical_path::canonical_folder_path;
@@ -48,14 +48,6 @@ pub(super) struct FolderFeeds {
     pub(super) tree: Option<ChangeFeed>,
     /// The git-folder watch's feed.
     pub(super) git_folder: Option<ChangeFeed>,
-}
-
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "it stands in for the machine's ceiling read, which can fail"
-)]
-fn no_ceiling() -> io::Result<Option<u64>> {
-    Ok(None)
 }
 
 struct Fixture {

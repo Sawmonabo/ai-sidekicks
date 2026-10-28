@@ -5,7 +5,6 @@ use std::sync::{Arc, Mutex};
 use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::{Connection, params};
-use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_std::settle_all::SettleFailures;
@@ -19,23 +18,30 @@ use super::{
     RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
     stop_file_watch,
 };
+use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
-    GitCall, GitError, GitRunner, find_git_executable, in_folder, test_git_runner,
-    test_git_runner_with_environment,
+    GitCall, GitError, GitRunner, StartedFileWatch, find_git_executable, in_folder,
+    test_git_runner, test_git_runner_with_environment,
 };
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::removal::FolderProcessOwner;
+use crate::git::worktree::removal::test_owner::{FolderSighting, RecordingOwner};
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
+use crate::git::worktree::test_rows::store_run_inside;
 use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
-// A keeper that records which trees it was asked to keep aside.
+// A keeper that records which trees it was asked to keep aside and, at each, what `owner` had
+// been asked and had released by then.
 #[derive(Default)]
 struct RecordingKeeper {
     kept: Mutex<Vec<WorktreeId>>,
+    owner: Arc<RecordingOwner>,
+    owner_at_keep: Mutex<Vec<(Vec<FolderSighting>, Vec<FolderSighting>)>>,
 }
 
 impl RetiredWorktreeKeeper for RecordingKeeper {
@@ -45,15 +51,13 @@ impl RetiredWorktreeKeeper for RecordingKeeper {
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
             self.kept.lock().expect("the keeper's list").push(row.id);
+            self.owner_at_keep
+                .lock()
+                .expect("the keeper's list")
+                .push((self.owner.asked(), self.owner.released()));
             Ok(())
         })
     }
-}
-
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
 }
 
 fn new_id() -> String {
@@ -80,60 +84,6 @@ fn store_retired_tree(connection: &Connection, mount: &str, folder: &Path) -> Wo
         )
         .expect("the worktree is stored");
     WorktreeId::new(&worktree_id).expect("a minted id is a worktree id")
-}
-
-// An unreleased run whose root is inside `tree` and names no tree, so only the resolved-path
-// comparison finds it there; its workspace stands at `repository`.
-fn store_run_inside(
-    connection: &Connection,
-    mount: &str,
-    repository: &Path,
-    tree: &Path,
-) -> String {
-    let workspace_id = new_id();
-    let branch_context_id = new_id();
-    let run_id = new_id();
-    connection
-        .execute(
-            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
-             state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
-            params![
-                workspace_id,
-                new_id(),
-                mount,
-                <&'static str>::from(ExecutionMode::BoundRoot),
-                repository.to_string_lossy(),
-                <&'static str>::from(WorkspaceState::Ready),
-                PARENT_ROWS_AT,
-            ],
-        )
-        .expect("the workspace is stored");
-    connection
-        .execute(
-            "INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
-             created_at, updated_at) VALUES (?1, ?2, 'main', 'main', ?3, ?3)",
-            params![branch_context_id, workspace_id, PARENT_ROWS_AT],
-        )
-        .expect("the branch context is stored");
-    connection
-        .execute(
-            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
-             execution_mode, execution_root, checkout_root, git_common_dir, \
-             branch_context_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![
-                run_id,
-                new_id(),
-                workspace_id,
-                <&'static str>::from(ExecutionMode::BoundRoot),
-                tree.join("nested").to_string_lossy(),
-                tree.to_string_lossy(),
-                repository.join(".git").to_string_lossy(),
-                branch_context_id,
-                PARENT_ROWS_AT,
-            ],
-        )
-        .expect("the run is stored");
-    run_id
 }
 
 fn cleaned_at(connection: &Connection, worktree_id: &WorktreeId) -> Option<String> {
@@ -164,34 +114,7 @@ impl CleanupFixture {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let repository = scratch.path().join("app");
-        git_in(
-            &git,
-            scratch.path(),
-            &["init", "--quiet", "--initial-branch=main", "app"],
-        )
-        .await;
-        git_in(&git, &repository, &["config", "user.name", "Test"]).await;
-        git_in(
-            &git,
-            &repository,
-            &["config", "user.email", "test@example.invalid"],
-        )
-        .await;
-        git_in(
-            &git,
-            &repository,
-            &[
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "start",
-            ],
-        )
-        .await;
+        let repository = make_test_repository(&git, scratch.path(), "app").await;
         git_in(
             &git,
             &repository,
@@ -358,6 +281,54 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     assert!(!tree_at("busy").exists());
 }
 
+// Kills ending a tree's processes after it is kept aside or deleted, and dropping their hold
+// before either lands, which lets a process start in the tree again first.
+#[tokio::test]
+async fn a_pass_ends_a_tree_s_processes_before_keeping_or_deleting_it() {
+    let fixture = CleanupFixture::new(test_git_runner()).await;
+    let clean = fixture.add_tree("clean").await;
+    let kept = fixture.add_tree("kept").await;
+    std::fs::write(kept.join("new.txt"), "new work\n").expect("the new work is written");
+    let connection = fixture.database.reader();
+    store_retired_tree(&connection, &fixture.mount, &clean);
+    store_retired_tree(&connection, &fixture.mount, &kept);
+    let keeper = RecordingKeeper::default();
+    let owners = [Arc::clone(&keeper.owner) as Arc<dyn FolderProcessOwner>];
+
+    fixture
+        .service
+        .cleanup_pass(&keeper, &owners, &CancellationToken::new())
+        .await
+        .expect("the pass succeeds");
+
+    let in_place = |folder: &Path| FolderSighting {
+        folder: folder.to_path_buf(),
+        was_present: true,
+    };
+    let [(asked, released)] = &keeper.owner_at_keep.lock().expect("the keeper's list")[..] else {
+        panic!("one tree is kept aside");
+    };
+    assert!(
+        asked.contains(&in_place(&kept)),
+        "the owner is asked for the kept tree before it is kept aside"
+    );
+    assert!(
+        released.iter().all(|sighting| sighting.folder != kept),
+        "the kept tree's hold stands while it is kept aside"
+    );
+    assert!(
+        keeper.owner.asked().contains(&in_place(&clean)),
+        "the owner is asked for the clean tree while it is in place"
+    );
+    assert!(
+        keeper.owner.released().contains(&FolderSighting {
+            folder: clean,
+            was_present: false,
+        }),
+        "the clean tree's hold drops only once its folder is deleted"
+    );
+}
+
 // Kills a refusal read by its prefix alone, a line that is not the last `fatal:` line read, any
 // other failure of the stop read as nothing to stop, and a failed check or a remote repository put
 // back among the refusals, since a daemon started before either can still be running.
@@ -424,31 +395,6 @@ async fn a_cut_short_removal_git_still_knows_keeps_new_work_aside() {
         fixture.repository.join(".git/worktrees/resumed").exists(),
         "git's record stays with the folder"
     );
-}
-
-// Stops the git file-watch daemon a test started in `folder` when dropped, so a failed assertion
-// leaves none running; where the test's own stop ended it, git answers that none runs.
-struct StartedFileWatch {
-    git: PathBuf,
-    folder: PathBuf,
-}
-
-impl Drop for StartedFileWatch {
-    fn drop(&mut self) {
-        // The test's body asserts its own stop, and a daemon already ended answers with a failed
-        // exit, which needs nothing; only a stop that could not run is logged.
-        if let Err(error) = std::process::Command::new(&self.git)
-            .arg("-C")
-            .arg(&self.folder)
-            .args(["fsmonitor--daemon", "stop"])
-            .output()
-        {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "the test's file-watch daemon could not be stopped"
-            );
-        }
-    }
 }
 
 // Kills the stop gated on the repository's `core.fsmonitor` setting, which a daemon started

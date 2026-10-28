@@ -21,8 +21,7 @@ const NEVER_RUN_PROGRAM: &str = "/bin/true";
 /// daemon's spawner thread. Fails with the system's error when the child cannot be started or
 /// waited for for any reason but a refused step.
 pub fn can_create_user_namespace() -> io::Result<bool> {
-    let user_map = format!("{0} {0} 1\n", getuid()).into_bytes();
-    let group_map = format!("{0} {0} 1\n", getgid()).into_bytes();
+    let (user_map, group_map) = own_id_maps();
     let mut command = Command::new(NEVER_RUN_PROGRAM);
     command
         .stdin(Stdio::null())
@@ -33,10 +32,7 @@ pub fn can_create_user_namespace() -> io::Result<bool> {
     // fork, so it allocates nothing.
     unsafe {
         command.pre_exec(move || {
-            check_step(libc::unshare(libc::CLONE_NEWUSER))?;
-            write_file(SET_GROUPS_FILE, b"deny")?;
-            write_file(USER_MAP_FILE, &user_map)?;
-            write_file(GROUP_MAP_FILE, &group_map)?;
+            enter_own_user_namespace(&user_map, &group_map)?;
             check_step(libc::unshare(libc::CLONE_NEWNS))?;
             libc::_exit(0)
         });
@@ -48,6 +44,26 @@ pub fn can_create_user_namespace() -> io::Result<bool> {
     }
 }
 
+/// The maps a new user namespace takes for this user and this group, `<id> <id> 1` each, made
+/// before a fork so the child writes them without allocating.
+pub(crate) fn own_id_maps() -> (Vec<u8>, Vec<u8>) {
+    (
+        format!("{0} {0} 1\n", getuid()).into_bytes(),
+        format!("{0} {0} 1\n", getgid()).into_bytes(),
+    )
+}
+
+/// Moves the calling process into a new user namespace and maps this user and group into it, as
+/// a forked child does before its exec, through async-signal-safe calls only. Fails with the
+/// refused step's system error.
+pub(crate) fn enter_own_user_namespace(user_map: &[u8], group_map: &[u8]) -> io::Result<()> {
+    // SAFETY: `unshare` takes flags only.
+    check_step(unsafe { libc::unshare(libc::CLONE_NEWUSER) })?;
+    write_file(SET_GROUPS_FILE, b"deny")?;
+    write_file(USER_MAP_FILE, user_map)?;
+    write_file(GROUP_MAP_FILE, group_map)
+}
+
 // Whether `error` is a step's refusal: no permission, no namespace support, or no room left.
 fn is_refused_step(error: &io::Error) -> bool {
     matches!(
@@ -56,8 +72,8 @@ fn is_refused_step(error: &io::Error) -> bool {
     )
 }
 
-// The step's error when `status` reports a failure.
-fn check_step(status: libc::c_int) -> io::Result<()> {
+/// The step's error when `status` reports a failure.
+pub(crate) fn check_step(status: libc::c_int) -> io::Result<()> {
     if status == 0 {
         Ok(())
     } else {

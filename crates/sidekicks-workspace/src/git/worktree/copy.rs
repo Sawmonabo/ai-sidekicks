@@ -12,7 +12,7 @@
     )
 )]
 
-pub(crate) mod progress;
+pub mod progress;
 
 use std::fs::{self, FileTimes, Metadata, Permissions};
 use std::io;

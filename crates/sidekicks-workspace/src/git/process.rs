@@ -82,6 +82,9 @@ const BUILT_IN_FILE_WATCH_BUILD_LINE: &[u8] = b"feature: fsmonitor--daemon";
 /// no setting matches.
 pub(crate) const CONFIG_UNSET_EXIT_CODE: i32 = 1;
 
+/// git's exit code when the folder it was run from is in no repository.
+pub const NOT_A_REPOSITORY_EXIT_CODE: i32 = 128;
+
 /// Why a git call did not answer.
 #[derive(Debug, thiserror::Error)]
 pub enum GitError {
@@ -652,9 +655,9 @@ pub fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> 
 
 /// The absolute git folder of the repository `folder` sits in, the common one a linked worktree
 /// shares with every worktree of its repository, held to `timeout` (the runner's bound when
-/// `None`). Fails as [`GitRunner::run`] does, with exit 128 when `folder` is in no repository, and
-/// with `PathText` for a path this system cannot name.
-pub(crate) async fn read_git_common_folder(
+/// `None`). Fails as [`GitRunner::run`] does, with [`NOT_A_REPOSITORY_EXIT_CODE`] when `folder`
+/// is in no repository, and with `PathText` for a path this system cannot name.
+pub async fn read_git_common_folder(
     git: &GitRunner,
     place: Option<&Place>,
     folder: &Path,
@@ -831,5 +834,36 @@ fn git_environment(
         .collect()
 }
 
+/// Stops the git file-watch daemon a test started in `folder` when dropped, so a failed assertion
+/// leaves none running; where the test's own stop ended it, git answers that none runs.
+#[cfg(test)]
+pub(crate) struct StartedFileWatch {
+    /// The git program the test started the daemon with.
+    pub(crate) git: PathBuf,
+    /// The tree the daemon watches.
+    pub(crate) folder: PathBuf,
+}
+
+#[cfg(test)]
+impl Drop for StartedFileWatch {
+    fn drop(&mut self) {
+        // The test's body asserts its own stop, and a daemon already ended answers with a failed
+        // exit, which needs nothing; only a stop that could not run is logged.
+        if let Err(error) = std::process::Command::new(&self.git)
+            .arg("-C")
+            .arg(&self.folder)
+            .args(["fsmonitor--daemon", "stop"])
+            .output()
+        {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "the test's file-watch daemon could not be stopped"
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_repository;
 #[cfg(test)]
 mod tests;

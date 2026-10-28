@@ -26,7 +26,7 @@ const COPY_PROGRESS_TICK: Duration = Duration::from_millis(250);
 /// The copies across volumes a removal or a put-back makes, while they run, and their followers.
 /// Cloning it shares the same list.
 #[derive(Clone)]
-pub(crate) struct WorktreeCopiesUnderWay {
+pub struct WorktreeCopiesUnderWay {
     state: Arc<CopiesState>,
 }
 

@@ -1,10 +1,11 @@
 //! How much processor and memory the daemon and every process under it use, read when asked: the
 //! daemon's own process, its terminals, its providers and whatever they started.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use sidekicks_platforms::{process_table, tree_under};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::processor_bound::processor_count;
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, System};
@@ -48,11 +49,9 @@ struct ProcessorReading {
 impl ProcessTreeUsageReader {
     /// A reader with an empty process table, which keeps no process file open between readings.
     pub(crate) fn new() -> Self {
-        // On Linux the process table would otherwise keep each process's `stat` file open.
-        sysinfo::set_open_files_limit(0);
         Self {
             state: Arc::new(Mutex::new(ReaderState {
-                system: System::new(),
+                system: process_table(),
                 last_readings: HashMap::new(),
             })),
         }
@@ -81,7 +80,7 @@ impl ReaderState {
             true,
             ProcessRefreshKind::nothing().without_tasks(),
         );
-        let tree = self.tree_under(root);
+        let tree = tree_under(&self.system, root);
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::Some(&tree),
             true,
@@ -120,28 +119,6 @@ impl ReaderState {
             processor_percent: (core_percent / core_count).min(100.0),
             resident_bytes,
         }
-    }
-
-    // `root` and every process whose parent chain reaches it.
-    fn tree_under(&self, root: Pid) -> Vec<Pid> {
-        let mut children: HashMap<Pid, Vec<Pid>> = HashMap::new();
-        for (pid, process) in self.system.processes() {
-            if let Some(parent) = process.parent() {
-                children.entry(parent).or_default().push(*pid);
-            }
-        }
-        let mut tree = vec![root];
-        let mut seen = HashSet::from([root]);
-        let mut next = 0;
-        while let Some(pid) = tree.get(next).copied() {
-            next += 1;
-            for child in children.get(&pid).into_iter().flatten() {
-                if seen.insert(*child) {
-                    tree.push(*child);
-                }
-            }
-        }
-        tree
     }
 }
 

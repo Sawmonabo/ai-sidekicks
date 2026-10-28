@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::error::Error;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, Weak};
 
@@ -130,6 +131,8 @@ pub(crate) struct ShellRecord {
     pub(crate) client_idempotency_key: ClientUuid,
     /// The base name of the program started, its title until it sets its own.
     pub(crate) program_name: String,
+    /// The folder the shell was told to start in: its session's working folder at the open.
+    pub(crate) start_folder: PathBuf,
     /// Who may write to it, size it and close it.
     pub(crate) lease: Arc<ShellControlLease>,
     /// Its input on its way to the terminal.
@@ -157,6 +160,7 @@ impl ShellRecord {
         terminal_id: TerminalId,
         client_idempotency_key: ClientUuid,
         program_name: String,
+        start_folder: PathBuf,
         deps: Arc<ShellRecordDeps>,
         list: ShellListFollowers,
     ) -> Arc<Self> {
@@ -181,6 +185,7 @@ impl ShellRecord {
                 terminal_id,
                 client_idempotency_key,
                 program_name,
+                start_folder,
                 lease,
                 input,
                 listener,
@@ -255,6 +260,11 @@ impl ShellRecord {
     /// The terminal while the shell runs.
     pub(crate) fn handle(&self) -> Option<TerminalHandle> {
         self.lock_state().handle
+    }
+
+    /// The nonce the orphan registry knows the shell's process by, while the shell runs.
+    pub(crate) fn spawn_nonce(&self) -> Option<String> {
+        self.lock_state().spawn_nonce.clone()
     }
 
     /// Whether the shell has left its session.
