@@ -288,6 +288,7 @@ WebAuthn-ceremony refusals (Plan-015 Phase 6). Both codes are served on **contro
 | Code | Description | Category | HTTP Status |
 | --- | --- | --- | --- |
 | `machine.permissionDenied` | Caller is not authorized for the machine the request names: the caller's verified principal does not own the machine the request's `machineId` names (`machines.user_id`). Another user's machine and an unknown machine collapse into this one refusal, so it never says whether the machine exists (this namespace's header). Domain authz code; deliberately never the router's 404, which on this namespace means only that the control plane has no such route. | `permissionDenied` | 403 |
+| `machine.keyChanged` | `machine.register` named a machine id the account holds under another identity key: the machine's database was restored from before its registration, so the machine is linked again | `alreadyExists` | 409 |
 | `machine.folder.topLevel.notOffered` | `machine.folder.list {top: true}` on macOS or Linux, which have no top level: only a Windows computer lists drives and distributions above its folders | `invalidArgument` | 422 |
 
 ### Terminal
