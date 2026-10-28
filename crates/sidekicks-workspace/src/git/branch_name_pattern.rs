@@ -163,10 +163,11 @@ async fn find_branch_pattern_refusal<'a>(
 }
 
 /// The line refusing `branch_name` under git's own branch-name rule, `None` when git takes it.
-/// The rule is the format check over the ref the branch would be, which opens no repository; a
-/// refused name's line is git's own `fatal:` line from the branch form of the check, and a name
-/// starting with `-`, which would reach git as an option, gets the daemon's line. Fails with the
-/// git failure when the check itself could not run.
+/// The format check over the ref the branch would be, which opens no repository, decides first; a
+/// name it takes is then checked in the branch form, which also refuses a name git keeps for
+/// itself, such as `HEAD`. A refused name's line is git's own `fatal:` line from the branch form,
+/// and a name starting with `-`, which would reach git as an option, gets the daemon's line. Fails
+/// with the git failure when a check itself could not run.
 pub(crate) async fn read_branch_name_refusal(
     git: &GitRunner,
     branch_name: &str,
@@ -184,34 +185,42 @@ pub(crate) async fn read_branch_name_refusal(
         )
         .await
     {
-        Ok(_) => Ok(None),
-        Err(refusal) if refusal.exit_code() == Some(GIT_FORMAT_REFUSED_EXIT_CODE) => {
-            read_git_branch_name_line(git, branch_name).await.map(Some)
-        }
+        Ok(_) => read_git_branch_name_line(git, branch_name).await,
+        Err(refusal) if refusal.exit_code() == Some(GIT_FORMAT_REFUSED_EXIT_CODE) => Ok(Some(
+            read_git_branch_name_line(git, branch_name)
+                .await?
+                .unwrap_or_else(|| INVALID_BRANCH_NAME_LINE.to_owned()),
+        )),
         Err(failure) => Err(failure),
     }
 }
 
-// Git's `fatal:` line for a name the format check refused, read from the branch form of the check,
-// which prints one; the daemon's own line when git printed none naming an invalid branch, as a
-// broken repository in the daemon's folder would make it print another.
-async fn read_git_branch_name_line(git: &GitRunner, branch_name: &str) -> Result<String, GitError> {
+// Git's `fatal:` line refusing `branch_name` in the branch form of the check, `None` when that form
+// takes it or refuses it without a line naming an invalid branch, as a broken repository in the
+// daemon's folder would make it. Fails when the check could not run.
+async fn read_git_branch_name_line(
+    git: &GitRunner,
+    branch_name: &str,
+) -> Result<Option<String>, GitError> {
     let refused = git
         .run(
             None,
             GitCall::read(["check-ref-format", "--branch", branch_name]),
         )
         .await;
-    let git_line = match &refused {
-        Err(GitError::Exited { stderr, .. }) => last_fatal_line(stderr)
-            .filter(|line| line.ends_with(GIT_INVALID_BRANCH_NAME_ENDING))
-            .map(str::to_owned),
-        Ok(_) | Err(_) => None,
+    let failure = match refused {
+        Ok(_) => return Ok(None),
+        Err(failure) => failure,
     };
-    match (git_line, refused) {
-        (Some(line), _) => Ok(line),
-        (None, Err(failure)) if failure.exit_code().is_none() => Err(failure),
-        (None, Ok(_) | Err(_)) => Ok(INVALID_BRANCH_NAME_LINE.to_owned()),
+    if let GitError::Exited { stderr, .. } = &failure
+        && let Some(line) =
+            last_fatal_line(stderr).filter(|line| line.ends_with(GIT_INVALID_BRANCH_NAME_ENDING))
+    {
+        return Ok(Some(line.to_owned()));
+    }
+    match failure.exit_code() {
+        Some(_) => Ok(None),
+        None => Err(failure),
     }
 }
 
@@ -325,8 +334,44 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::text::NonEmptyText;
 
-    use super::{BranchPatternProject, find_machine_branch_pattern_refusal, strip_clash_message};
+    use super::{
+        BranchPatternProject, GIT_INVALID_BRANCH_NAME_ENDING, OPTION_LIKE_BRANCH_NAME_LINE,
+        find_machine_branch_pattern_refusal, read_branch_name_refusal, strip_clash_message,
+    };
     use crate::git::process::{GitCall, GitRunner, strip_line_end, test_git_runner};
+
+    // Kills a refusal's line that is not git's own, and a name git takes refused.
+    #[rstest]
+    #[case::refused_by_the_format("a..b", Some("'a..b'"))]
+    #[case::taken("feature/login", None)]
+    #[tokio::test]
+    async fn a_branch_name_git_refuses_carries_git_s_own_line(
+        #[case] branch_name: &str,
+        #[case] quoted_in_line: Option<&str>,
+    ) {
+        let refusal = read_branch_name_refusal(&test_git_runner(), branch_name)
+            .await
+            .expect("git runs");
+
+        match (refusal, quoted_in_line) {
+            (None, None) => {}
+            (Some(line), Some(quoted)) => {
+                assert!(line.starts_with("fatal: "), "git's line as printed: {line}");
+                assert!(line.contains(quoted), "{line}");
+                assert!(line.ends_with(GIT_INVALID_BRANCH_NAME_ENDING), "{line}");
+            }
+            (refusal, _) => panic!("{branch_name}: unexpected refusal {refusal:?}"),
+        }
+    }
+
+    // Kills a leading `-` handed to git, which would read it as an option.
+    #[tokio::test]
+    async fn a_branch_name_starting_with_a_dash_gets_the_daemon_s_line() {
+        let refusal = read_branch_name_refusal(&test_git_runner(), "-x")
+            .await
+            .expect("no git runs");
+        assert_eq!(refusal.as_deref(), Some(OPTION_LIKE_BRANCH_NAME_LINE));
+    }
 
     // Fails when a clash line, with or without the files backend's lock clause, keeps git's
     // prefixes or loses its own words.

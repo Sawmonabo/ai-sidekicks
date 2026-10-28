@@ -579,3 +579,29 @@ async fn a_creation_a_stop_cut_off_is_settled_at_start_and_frees_its_branch(
             .expect("the freed name makes a tree again");
     }
 }
+
+// `HEAD` passes the format check alone, so `worktree add -b` would refuse it as a failed git call.
+// Kills the branch form of git's rule left out of the name's check.
+#[tokio::test]
+async fn a_supplied_head_is_refused_as_an_invalid_branch_name_with_git_s_line() {
+    let fixture = CreationFixture::new().await;
+
+    let failure = fixture
+        .creator
+        .create(fixture.input("HEAD", NameCollision::Refuse))
+        .await
+        .expect_err("the name is refused");
+
+    let WorktreeCreationError::Refused(WorktreeRefusal::CreateFailed {
+        reason: WorktreeCreateFailureReason::BranchNameInvalid { line },
+        ..
+    }) = &failure
+    else {
+        panic!("expected branchNameInvalid, got {failure:?}");
+    };
+    assert!(
+        line.starts_with("fatal: ") && line.contains("'HEAD'"),
+        "git's line as printed: {line}"
+    );
+    assert!(fixture.worktree_states().is_empty());
+}
