@@ -65,7 +65,7 @@ use crate::git::worktree::rows::{
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceError, remove_folder};
 use crate::git::worktree::setup::{MadeWorktree, WorktreeSetupError, WorktreeSetupRunner};
 use crate::git::worktree::status::NewWorktreeSuggestionSource;
-use crate::git::worktree::tree_records::remove_records_naming;
+use crate::git::worktree::tree_records::{has_record_naming, remove_records_naming};
 use crate::trust_envelope::is_contained_within;
 
 // `creating -> failed`, for a recorded tree that could not reach `ready`. It appends no event: the
@@ -708,7 +708,9 @@ impl<W: Watcher + Send + 'static> NewWorktreeSuggestionSource for WorktreeCreato
 /// Undoes a tree git made that no row records: its folder and record, then the branch this call
 /// made, which nothing else names. Each step runs only while what it removes is there, and the
 /// branch only when `is_branch_new`; a record git left locked is removed too, since the tree is
-/// this call's own. Answers each step's failure for the caller to carry.
+/// this call's own. A folder `worktree remove` refuses goes only while a record of the repository
+/// names it, so a folder that appeared at the name after git refused the add stays. Answers each
+/// step's failure for the caller to carry.
 async fn undo_unrecorded_tree(
     git: &GitRunner,
     mount: &AttachedMountRow,
@@ -727,12 +729,15 @@ async fn undo_unrecorded_tree(
             arguments.push(OsString::from(name.folder_path.as_os_str()));
             if let Err(remove_failure) = git.run(place, GitCall::write(arguments)).await {
                 // A tree git left without its `.git` names no record git can find, so its folder
-                // goes and the records naming it are found by their `gitdir`.
-                let fallback_failures =
-                    remove_tree_without_git(git, place, repository, &name.folder_path).await;
-                if !fallback_failures.is_empty() {
-                    failures.push(remove_failure.into());
-                    failures.extend(fallback_failures);
+                // goes and the records naming it are found by their `gitdir`. git writes the record
+                // before the folder, so a folder no record names is not this call's.
+                match remove_tree_without_git(git, place, repository, &name.folder_path).await {
+                    Ok(true) => {}
+                    Ok(false) => failures.push(remove_failure.into()),
+                    Err(fallback_failures) => {
+                        failures.push(remove_failure.into());
+                        failures.extend(fallback_failures);
+                    }
                 }
             }
         }
@@ -755,24 +760,32 @@ async fn undo_unrecorded_tree(
     failures
 }
 
-// Removes the tree at `folder`, then every record of the repository at `repository` naming it.
-// Answers each step's failure.
+// Removes the tree at `folder`, then every record of the repository at `repository` naming it,
+// while one does: answers `false`, removing nothing, when none names it. Fails with each step's
+// failure.
 async fn remove_tree_without_git(
     git: &GitRunner,
     place: Option<&Place>,
     repository: &Path,
     folder: &Path,
-) -> Vec<Box<dyn Error + Send + Sync>> {
-    if let Err(folder_failure) = remove_folder(folder).await {
-        return vec![folder_failure.into()];
+) -> Result<bool, Vec<Box<dyn Error + Send + Sync>>> {
+    let common_folder = read_git_common_folder(git, place, repository, None)
+        .await
+        .map_err(|read_failure| vec![read_failure.into()])?;
+    if !has_record_naming(&common_folder, folder)
+        .await
+        .map_err(|read_failure| vec![read_failure.into()])?
+    {
+        return Ok(false);
     }
-    match read_git_common_folder(git, place, repository, None).await {
-        Ok(common_folder) => remove_records_naming(&common_folder, folder)
-            .await
-            .into_iter()
-            .map(Into::into)
-            .collect(),
-        Err(read_failure) => vec![read_failure.into()],
+    remove_folder(folder)
+        .await
+        .map_err(|folder_failure| vec![folder_failure.into()])?;
+    let record_failures = remove_records_naming(&common_folder, folder).await;
+    if record_failures.is_empty() {
+        Ok(true)
+    } else {
+        Err(record_failures.into_iter().map(Into::into).collect())
     }
 }
 

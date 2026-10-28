@@ -659,3 +659,26 @@ async fn an_undo_removes_a_tree_git_left_without_its_git_file() {
         "the new branch is left"
     );
 }
+
+// A folder made at the name between the walk's free check and `worktree add` makes git refuse the
+// add, and `worktree remove` refuses it as no tree. Kills an undo that deletes such a folder, which
+// no record names and so no add of the creation made.
+#[tokio::test]
+async fn an_undo_leaves_a_folder_that_appeared_at_the_name_after_the_free_check() {
+    let fixture = CreationFixture::new().await;
+    let name = plan_for(&fixture, "fix").name_at(1);
+    std::fs::create_dir_all(&name.folder_path).expect("the folder appears at the name");
+    std::fs::write(name.folder_path.join("notes.txt"), "kept").expect("its file is written");
+
+    let failures = undo_unrecorded_tree(&fixture.git, &fixture.mount, &name, false).await;
+
+    assert_eq!(
+        failures.len(),
+        1,
+        "the remove's failure is reported: {failures:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(name.folder_path.join("notes.txt")).expect("the file is left"),
+        "kept"
+    );
+}
