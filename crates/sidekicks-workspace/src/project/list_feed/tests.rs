@@ -16,7 +16,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::stream::feed::{Feed as _, SendGate, SubscriptionClosed};
+use sidekicks_ipc::stream::feed::Feed as _;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -31,6 +31,7 @@ use crate::project::list_feed::ProjectListFeed;
 use crate::project::records::{
     PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
 };
+use crate::project::test_doubles::OpenGate;
 use crate::test_rows::PARENT_ROWS_AT;
 
 // Long enough that a read the feed was going to make has made it.
@@ -74,15 +75,6 @@ impl CountedActivity {
             session_id,
             activity,
         }];
-    }
-}
-
-// A gate always open, so the feed sends what it holds.
-struct OpenGate;
-
-impl SendGate for OpenGate {
-    fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>> {
-        async { Ok(()) }.boxed()
     }
 }
 

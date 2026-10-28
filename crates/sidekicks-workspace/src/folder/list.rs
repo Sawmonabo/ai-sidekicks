@@ -37,6 +37,7 @@ use sidekicks_contracts::repo::folders::{
 };
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::TextError;
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{
     LocaleCategory, PathRules, is_hidden_entry, path_from_program_output, resolve_path,
     system_locale,
@@ -66,6 +67,19 @@ pub enum FolderListError {
     /// cannot be read.
     #[error(transparent)]
     RepositoryCheck(#[from] SettleFailures<RepositoryCheckError>),
+}
+
+impl From<FolderListError> for HandlerError {
+    /// A refusal is answered with its code; a path the wire cannot carry or a failed repository
+    /// check is a fault.
+    fn from(error: FolderListError) -> Self {
+        match error {
+            FolderListError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (FolderListError::PathNotSendable(_) | FolderListError::RepositoryCheck(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
+    }
 }
 
 /// Why one folder's repository check failed.

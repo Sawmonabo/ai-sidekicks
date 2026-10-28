@@ -35,7 +35,7 @@ const LARGE_FILES_ATTRIBUTE: &[u8] = b"filter=lfs";
 
 /// Why the clone's repositories, or a repository's large-file attributes, could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum LargeFilesReadError {
+pub enum LargeFilesReadError {
     /// git could not list a repository's index, or printed a path this system cannot name.
     #[error("git could not list a cloned repository's submodules")]
     Git(#[from] GitError),

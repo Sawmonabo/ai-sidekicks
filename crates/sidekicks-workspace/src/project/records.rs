@@ -190,8 +190,6 @@ pub(crate) struct DetachSubjects {
 pub(crate) struct RunningClone {
     /// The cloning project.
     pub(crate) project_id: ProjectId,
-    /// The clone's destination.
-    pub(crate) folder_path: PathBuf,
     /// The folder the daemon made for the clone's git with its identity, `None` before it made
     /// one.
     pub(crate) staged: Option<(PathBuf, EntryIdentity)>,
@@ -299,7 +297,7 @@ static ATTACHED_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
 // short.
 static RUNNING_CLONES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, folder_path, clone_staging_folder, clone_staging_identity
+        "SELECT id, clone_staging_folder, clone_staging_identity
   FROM projects
  WHERE state = '{}' AND clone_outcome = '{}'",
         <&'static str>::from(ProjectState::Cloning),
@@ -551,12 +549,11 @@ impl ProjectRecords {
                 Ok(connection
                     .prepare_cached(&RUNNING_CLONES_SQL)?
                     .query_map([], |row| {
-                        let staged_folder = row.get::<_, Option<String>>(2)?.map(PathBuf::from);
+                        let staged_folder = row.get::<_, Option<String>>(1)?.map(PathBuf::from);
                         let staged_identity =
-                            optional_text_column(row, 3, |text| text.parse::<EntryIdentity>())?;
+                            optional_text_column(row, 2, |text| text.parse::<EntryIdentity>())?;
                         Ok(RunningClone {
                             project_id: text_column(row, 0, |text| ProjectId::new(&text))?,
-                            folder_path: PathBuf::from(row.get::<_, String>(1)?),
                             // The row's check sets both or neither.
                             staged: staged_folder.zip(staged_identity),
                         })

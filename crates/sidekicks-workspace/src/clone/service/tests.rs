@@ -11,19 +11,16 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use rusqlite::Connection;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::id::MachineId;
-use sidekicks_contracts::machine::settings::MachineSettings;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::{
     ProjectCloneFailedStep, ProjectCloneStartRequest, ProjectCloneStatus,
 };
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::stream::feed::{Feed as _, SendGate, SubscriptionClosed};
+use sidekicks_ipc::stream::feed::Feed as _;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
 use sidekicks_platforms::real_path;
 use sidekicks_std::file::atomic_write::write_file_atomically;
@@ -42,12 +39,10 @@ use crate::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner_with_environment};
 use crate::git::worktree::schema::schema_parts;
-use crate::machine_settings::MachineSettingsReader;
 use crate::project::list_feed::ProjectListFeed;
-use crate::project::records::{
-    PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
-};
-use crate::project::service::{ForgottenProjectSessions, ProjectService, ProjectServiceDeps};
+use crate::project::records::{PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords};
+use crate::project::service::{ProjectService, ProjectServiceDeps};
+use crate::project::test_doubles::{NoSessions, OpenGate, Unreached};
 use crate::repo::errors::RepoRefusal;
 use crate::repo::mount::service::{REPO_MOUNT_SERVICE_STATEMENT_CAPACITY, RepoMountService};
 use crate::repo::root_resolver::RepoRootResolver;
@@ -60,39 +55,6 @@ const WAIT: Duration = Duration::from_secs(60);
 const GIT_CONFIG: &str = "[user]\n\tname = Test\n\temail = test@example.invalid\n\
                           [commit]\n\tgpgSign = false\n[protocol \"file\"]\n\tallow = always\n";
 
-// No session counts in any project: these tests read only the project rows.
-struct NoSessions;
-
-impl ProjectSessionActivity for NoSessions {
-    fn read_session_facts(
-        &self,
-        _reader: &Connection,
-        _project_ids: Option<&[ProjectId]>,
-    ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
-        Ok(Vec::new())
-    }
-}
-
-// A port no test here reaches: every start names its parent folder and nothing is detached.
-struct Unreached;
-
-impl ForgottenProjectSessions for Unreached {
-    fn archive_of_forgotten_project(
-        &self,
-        _session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("no test archives a session".into()) }.boxed()
-    }
-}
-
-impl MachineSettingsReader for Unreached {
-    fn read_machine_settings(
-        &self,
-    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-        async { Err("no test reads the machine's settings".into()) }.boxed()
-    }
-}
-
 // The projects whose clone attached, as the sessions that waited hear of them.
 #[derive(Default)]
 struct AttachedClones(Mutex<Vec<ProjectId>>);
@@ -103,15 +65,6 @@ impl CloneAttachedListener for AttachedClones {
         project_id: ProjectId,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         lock(&self.0).push(project_id);
-        async { Ok(()) }.boxed()
-    }
-}
-
-// A gate always open, so the card's feed sends what it holds.
-struct OpenGate;
-
-impl SendGate for OpenGate {
-    fn ready(&self) -> BoxFuture<'_, Result<(), SubscriptionClosed>> {
         async { Ok(()) }.boxed()
     }
 }

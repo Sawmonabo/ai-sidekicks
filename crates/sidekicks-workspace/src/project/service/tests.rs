@@ -2,22 +2,17 @@
 //! project holding a repository with nothing written, a chat's own workspace is no project, and an
 //! edit refused or aimed at no project writes nothing.
 
-use std::error::Error;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use rstest::rstest;
-use rusqlite::Connection;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::id::MachineId;
-use sidekicks_contracts::machine::settings::{EnvironmentRow, MachineSettings};
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::project::{ProjectId, ProjectName, ProjectState};
 use sidekicks_contracts::repo::folders::RepoMountAttachRequest;
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::real_path;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -26,54 +21,19 @@ use sidekicks_store::events::log_service::EVENT_LOG_STATEMENT_CAPACITY;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use tempfile::TempDir;
 
-use super::{ForgottenProjectSessions, ProjectService, ProjectServiceDeps, ProjectServiceError};
+use super::{ProjectService, ProjectServiceDeps, ProjectServiceError};
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::{GitCall, test_git_runner};
 use crate::git::worktree::schema::schema_parts;
-use crate::machine_settings::MachineSettingsReader;
 use crate::project::list_feed::ProjectListFeed;
-use crate::project::records::{
-    PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
-};
+use crate::project::records::{PROJECT_RECORDS_STATEMENT_CAPACITY, ProjectRecords};
+use crate::project::test_doubles::{NoSessions, Unreached};
 use crate::repo::errors::RepoRefusal;
 use crate::repo::mount::service::{
     REPO_MOUNT_SERVICE_STATEMENT_CAPACITY, RepoMountService, RepoMountServiceError,
 };
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::test_rows::PARENT_ROWS_AT;
-
-// No session counts in any project: these tests read only the project rows.
-struct NoSessions;
-
-impl ProjectSessionActivity for NoSessions {
-    fn read_session_facts(
-        &self,
-        _reader: &Connection,
-        _project_ids: Option<&[ProjectId]>,
-    ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
-        Ok(Vec::new())
-    }
-}
-
-// A port no test here reaches: no test detaches or clears a pattern.
-struct Unreached;
-
-impl ForgottenProjectSessions for Unreached {
-    fn archive_of_forgotten_project(
-        &self,
-        _session_id: SessionId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
-        async { Err("no test archives a session".into()) }.boxed()
-    }
-}
-
-impl MachineSettingsReader for Unreached {
-    fn read_machine_settings(
-        &self,
-    ) -> BoxFuture<'_, Result<MachineSettings, Box<dyn Error + Send + Sync>>> {
-        async { Err("no test reads the machine's settings".into()) }.boxed()
-    }
-}
 
 struct Writer {
     service: ProjectService,

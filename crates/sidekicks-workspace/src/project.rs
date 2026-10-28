@@ -7,3 +7,5 @@ pub mod records;
 pub mod refusals;
 pub mod service;
 pub(crate) mod slug;
+#[cfg(test)]
+pub(crate) mod test_doubles;
