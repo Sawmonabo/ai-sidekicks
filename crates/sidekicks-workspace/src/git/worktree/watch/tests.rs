@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -24,11 +23,12 @@ use tokio::time::timeout;
 
 use super::{
     ReadWatchCeiling, WatchTarget, WorkingFolderWatcher, WorkingFolderWatcherDeps,
-    WorkingTreeChangeListener,
+    WorkingTreeChangeListener, no_ceiling,
 };
 use crate::file_watch::ChangeFeed;
 use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
+use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
 use crate::git::worktree::schema::schema_parts;
@@ -48,14 +48,6 @@ pub(super) struct FolderFeeds {
     pub(super) tree: Option<ChangeFeed>,
     /// The git-folder watch's feed.
     pub(super) git_folder: Option<ChangeFeed>,
-}
-
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "it stands in for the machine's ceiling read, which can fail"
-)]
-fn no_ceiling() -> io::Result<Option<u64>> {
-    Ok(None)
 }
 
 struct Fixture {
@@ -104,46 +96,14 @@ impl Fixture {
         }
     }
 
-    async fn git_in(&self, folder: &Path, arguments: &[&str]) {
-        self.git
-            .run(None, GitCall::read(in_folder(folder, arguments)))
-            .await
-            .expect("git runs in the test repository");
-    }
-
-    // A repository on `main` with one commit holding `src/lib.rs` and a `.gitignore` of `build/`.
+    // A repository on `main` whose second commit holds `src/lib.rs` and a `.gitignore` of `build/`.
     async fn repository(&self, name: &str) -> PathBuf {
-        let folder = self.scratch.path().join(name);
+        let folder = make_test_repository(&self.git, self.scratch.path(), name).await;
         std::fs::create_dir_all(folder.join("src")).expect("the folders are made");
         std::fs::write(folder.join("src").join("lib.rs"), "fn main() {}\n").expect("written");
         std::fs::write(folder.join(".gitignore"), "build/\n").expect("written");
-        self.git
-            .run(
-                None,
-                GitCall::read([
-                    OsString::from("init"),
-                    OsString::from("--initial-branch=main"),
-                    folder.clone().into_os_string(),
-                ]),
-            )
-            .await
-            .expect("the repository is made");
-        self.git_in(&folder, &["add", "."]).await;
-        self.git_in(
-            &folder,
-            &[
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.invalid",
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "-m",
-                "first",
-            ],
-        )
-        .await;
+        git_in(&self.git, &folder, &["add", "."]).await;
+        commit_empty(&self.git, &folder, "first").await;
         folder
     }
 
@@ -461,9 +421,7 @@ async fn a_moved_head_writes_the_branch_back_to_each_session_not_on_it() {
     fixture.record_branch(&behind, "old");
     fixture.record_branch(&already_on_it, "feature");
 
-    fixture
-        .git_in(&folder, &["switch", "--create", "feature"])
-        .await;
+    git_in(&fixture.git, &folder, &["switch", "--create", "feature"]).await;
     let git_folder = canonical_folder_path(&folder.join(".git"))
         .await
         .expect("the git folder resolves");
@@ -507,12 +465,12 @@ async fn a_linked_tree_is_marked_stale_by_a_shared_ref_not_by_the_main_checkout_
     let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
     let repository = fixture.repository("one").await;
     let tree = fixture.scratch.path().join("linked");
-    fixture
-        .git_in(
-            &repository,
-            &["worktree", "add", "-b", "linked", &tree.to_string_lossy()],
-        )
-        .await;
+    git_in(
+        &fixture.git,
+        &repository,
+        &["worktree", "add", "-b", "linked", &tree.to_string_lossy()],
+    )
+    .await;
     let session_id = fixture.session(Some(&tree), "linked");
     let (on_change, mut changes) = listener();
     let _subscription = fixture
@@ -530,18 +488,8 @@ async fn a_linked_tree_is_marked_stale_by_a_shared_ref_not_by_the_main_checkout_
         .expect("the git folders are watched");
 
     std::fs::write(repository.join("added.txt"), "added").expect("written");
-    fixture.git_in(&repository, &["add", "added.txt"]).await;
-    let added_object = fixture
-        .git
-        .run(
-            None,
-            GitCall::read(in_folder(&repository, &["hash-object", "added.txt"])),
-        )
-        .await
-        .expect("git hashes the added file");
-    let added_object = String::from_utf8_lossy(&added_object.stdout)
-        .trim()
-        .to_owned();
+    git_in(&fixture.git, &repository, &["add", "added.txt"]).await;
+    let added_object = git_in(&fixture.git, &repository, &["hash-object", "added.txt"]).await;
     let (object_folder, object_file) = added_object.split_at(2);
     git_folders.handle_event(Ok(written([
         common_folder.join("index"),
@@ -558,9 +506,12 @@ async fn a_linked_tree_is_marked_stale_by_a_shared_ref_not_by_the_main_checkout_
         "the main checkout's HEAD, index and objects raise no change for the linked tree"
     );
 
-    fixture
-        .git_in(&tree, &["update-ref", "refs/heads/linked", "HEAD"])
-        .await;
+    git_in(
+        &fixture.git,
+        &tree,
+        &["update-ref", "refs/heads/linked", "HEAD"],
+    )
+    .await;
     git_folders.handle_event(Ok(written([common_folder
         .join("refs")
         .join("heads")
@@ -577,12 +528,12 @@ async fn a_rescan_of_the_common_folder_walks_the_linked_tree_s_own_git_folder() 
     let fixture = Fixture::new(no_ceiling, Duration::from_secs(180)).await;
     let repository = fixture.repository("one").await;
     let tree = fixture.scratch.path().join("linked");
-    fixture
-        .git_in(
-            &repository,
-            &["worktree", "add", "-b", "linked", &tree.to_string_lossy()],
-        )
-        .await;
+    git_in(
+        &fixture.git,
+        &repository,
+        &["worktree", "add", "-b", "linked", &tree.to_string_lossy()],
+    )
+    .await;
     let session_id = fixture.session(Some(&tree), "linked");
     let (on_change, mut changes) = listener();
     let _subscription = fixture
@@ -599,9 +550,7 @@ async fn a_rescan_of_the_common_folder_walks_the_linked_tree_s_own_git_folder() 
         .git_folder
         .expect("the git folders are watched");
 
-    fixture
-        .git_in(&tree, &["checkout", "--quiet", "-b", "moved"])
-        .await;
+    git_in(&fixture.git, &tree, &["checkout", "--quiet", "-b", "moved"]).await;
     git_folders.handle_event(Ok(Event::new(EventKind::Other)
         .set_flag(Flag::Rescan)
         .add_path(common_folder)));

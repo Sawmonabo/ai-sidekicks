@@ -115,6 +115,14 @@ pub fn make_folder_link(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(any(test, feature = "test-support"))]
 pub const CAN_OPEN_INSIDE_UNREADABLE_FOLDER: bool = false;
 
+/// Whether a folder holding a file another handle keeps open, as [`create_held_file`] holds one,
+/// refuses a rename until the file is closed: never on macOS and Linux, which rename a folder
+/// whatever is open inside it.
+///
+/// [`create_held_file`]: crate::create_held_file
+#[cfg(any(test, feature = "test-support"))]
+pub const DOES_HELD_FILE_REFUSE_RENAME: bool = false;
+
 /// A file or folder no one but root may read, or list, until this is dropped, when it gets its
 /// mode back.
 #[cfg(any(test, feature = "test-support"))]

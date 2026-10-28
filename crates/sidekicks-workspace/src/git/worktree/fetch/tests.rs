@@ -18,6 +18,7 @@ use tokio::time::timeout;
 use super::{
     BackgroundFetch, BackgroundFetchDeps, FetchCounts, FetchedRepository, read_counts_as_of,
 };
+use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
     GitCall, GitRunner, find_git_executable, in_folder, test_git_runner,
     test_git_runner_with_environment,
@@ -50,31 +51,7 @@ impl Fixture {
     async fn with_git(git: GitRunner, scratch: TempDir) -> Self {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
-        let repository = scratch.path().join("repository");
-        git_in(
-            &git,
-            scratch.path(),
-            &["init", "--quiet", "--initial-branch=main", "repository"],
-        )
-        .await;
-        git_in(
-            &git,
-            &repository,
-            &[
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.invalid",
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "first",
-            ],
-        )
-        .await;
+        let repository = make_test_repository(&git, scratch.path(), "repository").await;
         let mount_id = mint_uuid_v7().to_string();
         let connection = database.reader();
         for row in project_and_mount_rows(&mount_id, None) {
@@ -138,12 +115,6 @@ impl Fixture {
             .expect("the fetch reaches the count in time")
             .expect("the fetch is alive");
     }
-}
-
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
 }
 
 // Kills: recording the wrong instant or column, keeping the failure past a success, writing

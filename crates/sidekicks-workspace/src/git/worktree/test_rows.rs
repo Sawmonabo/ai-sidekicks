@@ -2,7 +2,16 @@
 //! rows, a live worktree on their mount and that worktree's branch context, and a run's execution
 //! context on it.
 
+#[cfg(test)]
+use std::path::Path;
+
+#[cfg(test)]
+use rusqlite::params;
 use rusqlite::{Connection, named_params};
+#[cfg(test)]
+use sidekicks_contracts::repo::mount::{ExecutionMode, WorkspaceState};
+#[cfg(test)]
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::WorktreeState;
 
 #[cfg(test)]
@@ -105,4 +114,60 @@ impl RunContextRow<'_> {
             )
             .map(drop)
     }
+}
+
+/// Stores an unreleased run whose root is inside `tree` and names no tree, so only the
+/// resolved-path comparison finds it there, its workspace standing at `repository`; answers the
+/// run's id. Panics when a row cannot be stored.
+#[cfg(test)]
+pub(crate) fn store_run_inside(
+    connection: &Connection,
+    mount: &str,
+    repository: &Path,
+    tree: &Path,
+) -> String {
+    let workspace_id = mint_uuid_v7().to_string();
+    let branch_context_id = mint_uuid_v7().to_string();
+    let run_id = mint_uuid_v7().to_string();
+    connection
+        .execute(
+            "INSERT INTO workspaces (id, session_id, repo_mount_id, execution_mode, fs_root, \
+             state, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![
+                workspace_id,
+                mint_uuid_v7().to_string(),
+                mount,
+                <&'static str>::from(ExecutionMode::BoundRoot),
+                repository.to_string_lossy(),
+                <&'static str>::from(WorkspaceState::Ready),
+                PARENT_ROWS_AT,
+            ],
+        )
+        .expect("the workspace is stored");
+    connection
+        .execute(
+            "INSERT INTO branch_contexts (id, workspace_id, base_branch, head_branch, \
+             created_at, updated_at) VALUES (?1, ?2, 'main', 'main', ?3, ?3)",
+            params![branch_context_id, workspace_id, PARENT_ROWS_AT],
+        )
+        .expect("the branch context is stored");
+    connection
+        .execute(
+            "INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, \
+             execution_mode, execution_root, checkout_root, git_common_dir, \
+             branch_context_id, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                run_id,
+                mint_uuid_v7().to_string(),
+                workspace_id,
+                <&'static str>::from(ExecutionMode::BoundRoot),
+                tree.join("nested").to_string_lossy(),
+                tree.to_string_lossy(),
+                repository.join(".git").to_string_lossy(),
+                branch_context_id,
+                PARENT_ROWS_AT,
+            ],
+        )
+        .expect("the run is stored");
+    run_id
 }

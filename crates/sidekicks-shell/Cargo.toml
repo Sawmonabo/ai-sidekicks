@@ -25,6 +25,7 @@ sidekicks-provider.workspace = true
 sidekicks-std.workspace = true
 sidekicks-terminal.workspace = true
 sidekicks-workspace.workspace = true
+sysinfo.workspace = true
 # The folder of the shell table other crates' tests open.
 tempfile = { workspace = true, optional = true }
 thiserror.workspace = true

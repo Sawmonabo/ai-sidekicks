@@ -29,6 +29,8 @@ pub(crate) const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
 pub struct TableFixture {
     /// The table.
     pub table: Arc<ShellTable>,
+    /// The folder its session works in.
+    pub working_folder: PathBuf,
     /// The terminals its shells start in.
     #[cfg(test)]
     pub(crate) terminals: Arc<Terminals>,
@@ -85,7 +87,7 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
         machine_device_id: DeviceId::new("device-machine".to_owned()).expect("a device id"),
         terminal_version: "test".to_owned(),
         append_control_change: Arc::new(|_change| async { Ok(()) }.boxed()),
-        read_working_folder: working_folder_read(working_folder, gate),
+        read_working_folder: working_folder_read(working_folder.clone(), gate),
         read_shell_settings: Arc::new(|_session| {
             async {
                 Ok(ShellSettings {
@@ -116,6 +118,7 @@ pub async fn table_fixture(gate: watch::Receiver<bool>) -> TableFixture {
     });
     TableFixture {
         table: Arc::new(table),
+        working_folder,
         #[cfg(test)]
         terminals,
         _scratch: scratch,

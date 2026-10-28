@@ -1,6 +1,9 @@
-//! Ending shells: a pane's close of one shell and a session's deletion of all of them. Each ends
-//! the shell's subscriptions and releases the holds they carried before the shell leaves its
-//! session, then has the terminal let it go and forgets its child in the orphan registry.
+//! Ending shells: a pane's close of one shell, a session's deletion of all of them, and the close
+//! of what the shells run in a folder about to be moved or deleted. Each ends the shell's
+//! subscriptions and releases the holds they carried before the shell leaves its session, then has
+//! the terminal let it go and forgets its child in the orphan registry.
+
+mod folder;
 
 use std::sync::{Arc, Weak};
 
@@ -75,6 +78,7 @@ impl ShellTable {
             let mut sessions = self.shared.lock_sessions();
             let session = self.shared.session_of(&mut sessions, session_id);
             session.close_holds += 1;
+            session.close_begun.send_replace(());
             session.opening.values().cloned().collect::<Vec<_>>()
         };
         let hold = SessionShellsClosed {
@@ -123,19 +127,21 @@ impl TableShared {
             session.order.retain(|id| *id != shell.terminal_id);
             session.list.mark_changed();
         }
-        let (handle, mark_nonce, spawn_nonce) = shell.record_end(ShellOutputEnd::Closed, true);
+        let (handle, mark_nonce, spawn_nonce) =
+            self.record_shell_end(shell, ShellOutputEnd::Closed, true);
         self.release_streams(shell);
         let table = Arc::clone(self);
         Some(
             async move {
-                let_shell_go(
+                let let_go = let_shell_go(
                     &table.deps.orphan_guard,
                     close_terminal(&table.deps.terminals, handle),
                     mark_nonce,
-                    spawn_nonce,
+                    spawn_nonce.clone(),
                 )
-                .await
-                .map_err(|error| HandlerError::Internal(Box::new(error)))
+                .await;
+                table.forget_uncarried_nonce(spawn_nonce).await;
+                let_go.map_err(|error| HandlerError::Internal(Box::new(error)))
             }
             .boxed(),
         )

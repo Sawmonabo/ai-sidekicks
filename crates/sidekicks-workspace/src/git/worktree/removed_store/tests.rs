@@ -1,0 +1,464 @@
+//! The store's tests: a refused put-back keeps the copy, `Delete now` deletes it while no cleanup
+//! pass does, and what a put-back or a discard a crash cut short left is undone or removed.
+
+use std::error::Error;
+use std::fs;
+use std::path::Path;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use futures::future::BoxFuture;
+use rstest::rstest;
+use rusqlite::params;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::repo::git_reads::GitObjectId;
+use sidekicks_contracts::repo::mount::RepoMountState;
+use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
+use sidekicks_contracts::worktree::removed::{
+    WorktreeRemovedListRequest, WorktreeRestoreRefusal, WorktreeRestoreResponse,
+};
+use tokio_util::sync::CancellationToken;
+
+use super::RemovedWorktreeStoreError;
+use super::put_back_copy;
+use super::restore::KeptCopyPutBackMarks;
+use super::test_fixture::KeptCopyFixture;
+use crate::git::worktree::kept_copy::pins::KeptPin;
+use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
+use crate::git::worktree::put_back::branch::BranchChoiceError;
+use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
+use crate::git::worktree::put_back::{
+    PutBackAtFreeNameInput, PutBackBranchChoice, PutBackMark, PutBackMarks,
+    put_worktree_back_at_free_name,
+};
+use crate::git::worktree::removal::FolderProcessHold;
+use crate::git::worktree::removal::tests::RemovalFixture;
+use crate::git::worktree::rows::WorktreeRow;
+use crate::git::worktree::service::cleanup::RetiredWorktreeKeeper;
+use crate::git::worktree::stale_record::StaleRecordTools;
+use crate::git::worktree::tree_records::hold_records;
+
+// A keeper that records each tree a cleanup pass asks it to keep aside.
+#[derive(Default)]
+struct RecordingKeeper {
+    kept: Mutex<Vec<WorktreeId>>,
+}
+
+impl RetiredWorktreeKeeper for RecordingKeeper {
+    fn keep_retired_aside<'a>(
+        &'a self,
+        row: &'a WorktreeRow,
+        _process_holds: Vec<FolderProcessHold>,
+    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
+        Box::pin(async move {
+            self.kept.lock().expect("the keeper's list").push(row.id);
+            Ok(())
+        })
+    }
+}
+
+// The kept copies the list shows.
+async fn listed_ids(fixture: &KeptCopyFixture) -> Vec<RemovedWorktreeId> {
+    fixture
+        .store
+        .list(&WorktreeRemovedListRequest { project_id: None })
+        .await
+        .expect("the kept worktrees are listed")
+        .removed_worktrees
+        .into_iter()
+        .map(|listed| listed.removed_worktree_id)
+        .collect()
+}
+
+#[derive(Clone, Copy, Debug)]
+enum RefusalCase {
+    ProjectNotAttached,
+    RepositoryMissing,
+    KeptTreeMissing,
+}
+
+// Kills a refusal that deletes the row or the kept folder, and a put-back that runs past one.
+#[rstest]
+#[case::project_not_attached(RefusalCase::ProjectNotAttached)]
+#[case::repository_missing(RefusalCase::RepositoryMissing)]
+#[case::kept_tree_missing(RefusalCase::KeptTreeMissing)]
+#[tokio::test]
+async fn a_refused_put_back_keeps_the_row_and_the_kept_folder(#[case] case: RefusalCase) {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let kept_folder = fixture.kept_folder(&removed_worktree_id);
+    let refusal = match case {
+        RefusalCase::ProjectNotAttached => {
+            fixture
+                .database
+                .reader()
+                .execute(
+                    "UPDATE repo_mounts SET state = ?1 WHERE id = ?2",
+                    params![
+                        <&'static str>::from(RepoMountState::Detached),
+                        fixture.mount
+                    ],
+                )
+                .expect("the mount is detached");
+            WorktreeRestoreRefusal::ProjectNotAttached {}
+        }
+        RefusalCase::RepositoryMissing => {
+            fs::rename(
+                &fixture.repository,
+                fixture.repository.with_file_name("moved"),
+            )
+            .expect("the repository is moved away");
+            WorktreeRestoreRefusal::RepositoryMissing {
+                path: FilesystemPath::new(fixture.repository.to_string_lossy().into_owned())
+                    .expect("the repository's folder"),
+            }
+        }
+        RefusalCase::KeptTreeMissing => {
+            fs::remove_dir_all(kept_folder.join(KEPT_TREE_ENTRY))
+                .expect("the kept tree is removed");
+            WorktreeRestoreRefusal::KeptTreeMissing {}
+        }
+    };
+
+    let response = fixture
+        .store
+        .restore(removed_worktree_id)
+        .await
+        .expect("the put-back answers");
+
+    assert_eq!(response, WorktreeRestoreResponse::Refused { refusal });
+    assert_eq!(listed_ids(&fixture).await, vec![removed_worktree_id]);
+    assert!(kept_folder.is_dir());
+}
+
+// Kills a cleanup pass that removes a listed kept copy, and a `Delete now` that leaves its
+// folder, a pin or its row.
+#[tokio::test]
+async fn delete_now_removes_the_kept_copy_no_cleanup_pass_touches() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    fixture.commit(&fixture.tree_at("fix"), "work").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let kept_folder = fixture.kept_folder(&removed_worktree_id);
+    let pin_prefix = format!("refs/sidekicks/removed/{removed_worktree_id}/");
+    let pin_arguments = ["for-each-ref", "--format=%(refname)", pin_prefix.as_str()];
+    let read_pins = || fixture.git(&fixture.repository, &pin_arguments);
+    let keeper = RecordingKeeper::default();
+    fixture
+        .worktrees
+        .cleanup_pass(&keeper, &[], &CancellationToken::new())
+        .await
+        .expect("the cleanup pass runs");
+    assert!(kept_folder.is_dir());
+    assert!(!read_pins().await.is_empty());
+    assert!(keeper.kept.lock().expect("the keeper's list").is_empty());
+
+    fixture
+        .store
+        .delete(removed_worktree_id)
+        .await
+        .expect("Delete now runs");
+
+    assert!(!kept_folder.exists());
+    assert_eq!(read_pins().await, "");
+    assert_eq!(listed_ids(&fixture).await, Vec::new());
+}
+
+// Kills a put-back a crash cut short left in place: its tree unrecorded where it went, its
+// record and new branch in the repository and its kept copy short of the tree, each left by the
+// cleanup's pass.
+#[tokio::test]
+async fn an_interrupted_put_back_is_undone_at_the_next_pass() {
+    let removal = RemovalFixture::new().await;
+    let fixture = &removal.kept;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let head = fixture
+        .git(Path::new(tree.fs_root.as_str()), &["rev-parse", "HEAD"])
+        .await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let kept = fixture
+        .store
+        .find_row(removed_worktree_id)
+        .await
+        .expect("the kept copy's row is read")
+        .expect("the kept copy is listed");
+    let kept_folder = Path::new(kept.kept_path.as_str());
+    let common_folder = fixture.common_folder();
+    let placed = put_worktree_back_at_free_name(
+        fixture.store.put_back_tools(None),
+        PutBackAtFreeNameInput {
+            kept_folder,
+            original_path: Path::new(kept.original_path.as_str()),
+            branch: kept.branch.as_str(),
+            canonical_root: &fixture.repository,
+            common_folder: &common_folder,
+            choice: &PutBackBranchChoice::NewBranchAt(
+                GitObjectId::new(head).expect("git names a commit by its id"),
+            ),
+            copy: &put_back_copy(&kept),
+        },
+        &KeptCopyPutBackMarks {
+            store: &fixture.store,
+            kept: &kept,
+        },
+    )
+    .await
+    .expect("the tree is put back");
+    // As a crash leaves it: the tree in its folder, its branch made and the row marked, nothing
+    // recording it.
+    let target_folder = placed.target_folder.clone();
+    let new_branch = format!(
+        "refs/heads/{}",
+        placed
+            .new_branch
+            .as_ref()
+            .expect("a new branch is made")
+            .name
+    );
+    drop(placed);
+    assert!(target_folder.join(".git").is_file());
+    let listing = ["for-each-ref", new_branch.as_str()];
+    let branch_listing = || fixture.git(&fixture.repository, &listing);
+    assert!(!branch_listing().await.is_empty(), "the new branch is made");
+
+    let repair = removal
+        .removal
+        .finish_interrupted_kept_copies(&CancellationToken::new())
+        .await;
+
+    assert!(repair.failures.is_empty(), "{:?}", repair.failures);
+    assert_eq!(repair.repaired_removed_worktree_ids, [removed_worktree_id]);
+    assert!(!target_folder.exists());
+    assert!(kept_folder.join(KEPT_TREE_ENTRY).is_dir());
+    assert!(!common_folder.join("worktrees").join("fix").exists());
+    assert_eq!(branch_listing().await, "", "the new branch is deleted");
+    assert_eq!(
+        fixture
+            .store
+            .list_interrupted_put_backs()
+            .await
+            .expect("the interrupted put-backs are read"),
+        Vec::new()
+    );
+}
+
+// A crash between the discard's retirement write and its record removal leaves git's record and
+// the tree's refs in the repository's refs payload. Kills a cleanup that removes the record but
+// leaves the refs, whose name every later put-back's counter would skip.
+#[tokio::test]
+async fn a_cleanup_removes_a_crash_left_record_with_its_refs_in_a_refs_payload() {
+    let fixture = KeptCopyFixture::new().await;
+    // The repository's refs move to the payload, as a repository made with one would hold them.
+    let payload = fixture.repository.join("payload");
+    fs::create_dir_all(payload.join("refs/heads")).expect("the payload's refs are made");
+    fs::create_dir_all(payload.join("worktrees")).expect("the payload's tree refs are made");
+    let main = fixture
+        .git(&fixture.repository, &["rev-parse", "main"])
+        .await;
+    fs::write(payload.join("refs/heads/main"), format!("{main}\n")).expect("main is written");
+    fs::write(payload.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD is written");
+    for setting in [
+        ["config", "core.repositoryformatversion", "1"],
+        ["config", "extensions.refStorage", "files://../payload"],
+    ] {
+        fixture.git(&fixture.repository, &setting).await;
+    }
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let refs_folder = payload.join("worktrees/fix");
+    assert!(refs_folder.exists(), "the crash left the tree's refs");
+    let record = fixture.common_folder().join("worktrees/fix");
+    fs::create_dir_all(&record).expect("the crash left the record");
+    fs::write(
+        record.join("gitdir"),
+        format!(
+            "{}\n",
+            Path::new(tree.fs_root.as_str()).join(".git").display()
+        ),
+    )
+    .expect("the record names the tree");
+
+    fixture
+        .store
+        .remove_stale_record_of(removed_worktree_id)
+        .await
+        .expect("the cleanup removes what the crash left");
+
+    assert!(!record.exists(), "the record is left");
+    assert!(!refs_folder.exists(), "the tree's refs are left");
+}
+
+// A crash after a put-back took its names and before its mark leaves an empty folder at the
+// copy's original path and a record holding only git's `initializing` lock. Kills a cleanup that
+// leaves either, and one that takes them while a put-back under way holds them.
+#[tokio::test]
+async fn a_cleanup_removes_the_names_a_put_back_cut_short_before_its_mark_left() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let original_path = Path::new(tree.fs_root.as_str());
+    let records_folder = fixture.common_folder().join("worktrees");
+    let record = records_folder.join("fix");
+    fs::create_dir(original_path).expect("the crash left the empty folder");
+    fs::create_dir(&record).expect("the crash left the record");
+    fs::write(record.join("locked"), "initializing\n").expect("the record is locked");
+    let tools = StaleRecordTools {
+        claims: &fixture.store.claims,
+        names_in_use: &fixture.store.deps.names_in_use,
+    };
+
+    let holds = [
+        tools.names_in_use.hold(original_path),
+        tools.names_in_use.hold(&record),
+    ];
+    let records_hold = hold_records(&fixture.common_folder())
+        .await
+        .expect("the records are held");
+    remove_unmarked_names(tools, original_path, &records_folder, &records_hold)
+        .await
+        .expect("the names a put-back holds are skipped");
+    drop(records_hold);
+    assert!(
+        original_path.is_dir() && record.join("locked").is_file(),
+        "a put-back under way keeps its names"
+    );
+    drop(holds);
+
+    fixture
+        .store
+        .remove_stale_record_of(removed_worktree_id)
+        .await
+        .expect("the cleanup removes what the crash left");
+
+    assert!(!original_path.exists(), "the empty folder is left");
+    assert!(!record.exists(), "the locked record is left");
+}
+
+// A put-back that reads the folder's name before it takes it, where its own read said free.
+struct FreeAtFirstRead<'a> {
+    marks: KeptCopyPutBackMarks<'a>,
+    is_read: AtomicBool,
+}
+
+impl PutBackMarks for FreeAtFirstRead<'_> {
+    async fn is_folder_taken(&self, folder: &Path) -> Result<bool, Box<dyn Error + Send + Sync>> {
+        if !self.is_read.swap(true, Ordering::SeqCst) {
+            return Ok(false);
+        }
+        self.marks.is_folder_taken(folder).await
+    }
+
+    async fn write(&self, mark: &PutBackMark) -> Result<(), RowWriteError> {
+        self.marks.write(mark).await
+    }
+
+    async fn clear(&self) -> Result<(), RowWriteError> {
+        self.marks.clear().await
+    }
+}
+
+// Two put-backs of copies of one tree take its folder's name at once: the first has made the empty
+// folder and holds it, and the second, whose read found it free, finds it taken and moves on.
+// Kills names held as a set, where the second's hold, dropped as it moves on, lets go of the
+// first's, so the cleanup removes the first's folder before its mark.
+#[tokio::test]
+async fn a_put_back_that_finds_its_name_taken_leaves_the_other_put_back_s_hold() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let original_path = Path::new(tree.fs_root.as_str());
+    let tools = StaleRecordTools {
+        claims: &fixture.store.claims,
+        names_in_use: &fixture.store.deps.names_in_use,
+    };
+    let first_hold = tools.names_in_use.hold(original_path);
+    fs::create_dir(original_path).expect("the first put-back's folder is made");
+    let kept = fixture
+        .store
+        .find_row(removed_worktree_id)
+        .await
+        .expect("the kept copy's row is read")
+        .expect("the kept copy is listed");
+    let common_folder = fixture.common_folder();
+
+    let placed = put_worktree_back_at_free_name(
+        fixture.store.put_back_tools(None),
+        PutBackAtFreeNameInput {
+            kept_folder: Path::new(kept.kept_path.as_str()),
+            original_path,
+            branch: kept.branch.as_str(),
+            canonical_root: &fixture.repository,
+            common_folder: &common_folder,
+            choice: &PutBackBranchChoice::OwnBranch,
+            copy: &put_back_copy(&kept),
+        },
+        &FreeAtFirstRead {
+            marks: KeptCopyPutBackMarks {
+                store: &fixture.store,
+                kept: &kept,
+            },
+            is_read: AtomicBool::new(false),
+        },
+    )
+    .await
+    .expect("the second put-back takes the next name");
+
+    assert_eq!(placed.target_folder, fixture.tree_at("fix-restored"));
+    let records_hold = hold_records(&common_folder)
+        .await
+        .expect("the records are held");
+    remove_unmarked_names(
+        tools,
+        original_path,
+        &common_folder.join("worktrees"),
+        &records_hold,
+    )
+    .await
+    .expect("the cleanup's pass runs");
+    assert!(
+        original_path.is_dir(),
+        "the first put-back's folder stays while it holds the name"
+    );
+    drop(first_hold);
+    assert!(!tools.names_in_use.is_held(original_path));
+}
+
+// Kills a put-back that reads the commit the tree stood on from its pin alone, which anything
+// outside the daemon can move off the commit the kept index was made on.
+#[tokio::test]
+async fn a_put_back_refuses_a_head_pin_moved_off_the_recorded_commit() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let kept_folder = fixture.kept_folder(&removed_worktree_id);
+    fixture.commit(&fixture.repository, "elsewhere").await;
+    let elsewhere = fixture
+        .git(&fixture.repository, &["rev-parse", "HEAD"])
+        .await;
+    fixture
+        .git(
+            &fixture.repository,
+            &[
+                "update-ref",
+                &KeptPin::Head.ref_name(&removed_worktree_id),
+                &elsewhere,
+            ],
+        )
+        .await;
+
+    let answer = fixture.store.restore(removed_worktree_id).await;
+
+    let Err(RemovedWorktreeStoreError::Failed(failure)) = answer else {
+        panic!("the put-back fails, got {answer:?}");
+    };
+    assert!(
+        matches!(
+            failure.downcast_ref::<BranchChoiceError>(),
+            Some(BranchChoiceError::MovedPin { pinned, .. }) if pinned.as_str() == elsewhere
+        ),
+        "the moved pin is named, got {failure:?}"
+    );
+    assert_eq!(listed_ids(&fixture).await, vec![removed_worktree_id]);
+    assert!(kept_folder.join(KEPT_TREE_ENTRY).is_dir());
+}

@@ -4,39 +4,20 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::worktree::lifecycle::WorktreeId;
 
 use super::{carry_uncommitted_work, drop_carried_stash};
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
+use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
-
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) -> String {
-    let output = git
-        .run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
-    String::from_utf8_lossy(&output.stdout).into_owned()
-}
 
 // A repository at `<scratch>/app` with `a.txt` and `b.txt` committed on `main`, and a linked tree
 // at `<scratch>/tree` on a new branch `feature` cut from it.
 async fn repository_with_tree(git: &GitRunner, scratch: &Path) {
-    git_in(
-        git,
-        scratch,
-        &["init", "--quiet", "--initial-branch=main", "app"],
-    )
-    .await;
-    let repository = scratch.join("app");
-    git_in(git, &repository, &["config", "user.name", "Test"]).await;
-    git_in(
-        git,
-        &repository,
-        &["config", "user.email", "test@example.invalid"],
-    )
-    .await;
+    let repository = make_test_repository(git, scratch, "app").await;
+    // The stashes the carry makes are commits too, so none is signed whatever the person's config.
     git_in(git, &repository, &["config", "commit.gpgSign", "false"]).await;
     std::fs::write(repository.join("a.txt"), "a\n").expect("a.txt is written");
     std::fs::write(repository.join("b.txt"), "b\n").expect("b.txt is written");
     git_in(git, &repository, &["add", "a.txt", "b.txt"]).await;
-    git_in(git, &repository, &["commit", "--quiet", "-m", "start"]).await;
+    commit_empty(git, &repository, "files").await;
     let tree = scratch.join("tree");
     git_in(
         git,
@@ -110,12 +91,9 @@ async fn work_arrives_with_its_staged_set_and_its_stash_is_kept_until_dropped() 
         .expect("there was work to carry");
     assert_eq!(
         git_in(&git, &tree, &["diff", "--cached", "--name-only"]).await,
-        "a.txt\n"
+        "a.txt"
     );
-    assert_eq!(
-        git_in(&git, &tree, &["diff", "--name-only"]).await,
-        "b.txt\n"
-    );
+    assert_eq!(git_in(&git, &tree, &["diff", "--name-only"]).await, "b.txt");
     assert_eq!(
         std::fs::read_to_string(tree.join("c.txt")).expect("the untracked file arrived"),
         "c untracked\n"

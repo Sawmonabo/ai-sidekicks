@@ -23,6 +23,8 @@ pub(crate) mod power_source;
 pub(crate) mod process_start;
 pub(crate) mod processes;
 pub(crate) mod responsibility;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod scratch_volume;
 pub(crate) mod session_child;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod system_locale;

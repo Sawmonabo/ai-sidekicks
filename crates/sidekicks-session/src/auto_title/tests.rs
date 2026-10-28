@@ -30,7 +30,7 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
-use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, first_words_of};
+use super::{SESSION_AUTO_TITLE_STATEMENT_CAPACITY, SessionAutoTitle, session_title_words};
 use crate::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use crate::directory::row::{DirectoryEvent, directory_statements_for};
 use crate::questions::schema::schema_parts;
@@ -537,8 +537,9 @@ async fn auto_title_names_a_cleared_session_through_the_pass_under_way() {
     );
 }
 
-// Killed by splitting at Unicode whitespace instead of ECMAScript's, by counting bytes instead
-// of code points, by passing the bound, and by dropping a first word longer than it.
+// Killed by an untitled session's first message skipped, by splitting at Unicode whitespace
+// instead of ECMAScript's, by counting bytes instead of code points, by passing the bound, and by
+// dropping a first word longer than it.
 #[rstest]
 #[case::no_words(" \t\n", "")]
 #[case::words_joined_by_one_space("  fix   the\tlogin\nbug  ", "fix the login bug")]
@@ -555,9 +556,32 @@ async fn auto_title_names_a_cleared_session_through_the_pass_under_way() {
     "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz rest",
     "abcdefghijklmnopqrstuvwxyzabcdefghijklmn"
 )]
-fn first_words_of_takes_whole_words_up_to_forty_code_points(
+fn an_untitled_session_takes_whole_words_up_to_forty_code_points(
     #[case] message: &str,
     #[case] expected: &str,
 ) {
-    assert_eq!(first_words_of(message), expected);
+    assert_eq!(session_title_words(None, Some(message), None), expected);
+}
+
+// Killed by the session's own name ignored, and by the stand-in message preferred over the first
+// message the session recorded.
+#[rstest]
+#[case::the_name_first(Some("Login fix"), Some("fix the bug"), Some("draft"), "Login fix")]
+#[case::the_first_message_before_the_stand_in(
+    None,
+    Some("fix the bug"),
+    Some("draft"),
+    "fix the bug"
+)]
+#[case::the_stand_in_for_no_first_message(None, None, Some("draft the notes"), "draft the notes")]
+fn the_title_words_come_from_the_name_then_the_first_message_then_its_stand_in(
+    #[case] name: Option<&str>,
+    #[case] first_message_preview: Option<&str>,
+    #[case] fallback_message: Option<&str>,
+    #[case] expected: &str,
+) {
+    assert_eq!(
+        session_title_words(name, first_message_preview, fallback_message),
+        expected
+    );
 }

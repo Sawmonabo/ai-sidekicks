@@ -36,7 +36,7 @@ pub(crate) const BOUND_ROOT_METADATA_PATH: &str = "$.boundRoot";
 
 /// The JSON path in `workspaces.metadata` of the top level of the working tree the workspace works
 /// in now: the bound checkout's, or its worktree's once one is its execution root.
-pub(crate) const CHECKOUT_ROOT_METADATA_PATH: &str = "$.checkoutRoot";
+pub const CHECKOUT_ROOT_METADATA_PATH: &str = "$.checkoutRoot";
 
 // The member name under the path's `$.`, so the key and its path are one fact.
 const LAST_ERROR_METADATA_KEY: &str = LAST_ERROR_METADATA_PATH.split_at(2).1;

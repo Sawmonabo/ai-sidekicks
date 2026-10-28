@@ -19,8 +19,10 @@ mod output;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
 use futures::FutureExt as _;
@@ -40,7 +42,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{HandlerError, TransportId};
 use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_terminal::{CommandLine, Terminals};
+use sidekicks_terminal::{CommandLine, TerminalHandle, Terminals};
 use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -49,10 +51,12 @@ use crate::control_lease::{
     LeaseBroadcast, LeaseReading, ShellConnection, ShellControlLease, ShellLeaseCaller,
 };
 use crate::input_lookup::ShellInputLookup;
-use crate::integration::injection::ShellStartupFolders;
+use crate::integration::injection::{ShellMarkNonce, ShellStartupFolders};
 use crate::list::ShellListFollowers;
 use crate::orphan::guard::OrphanGuard;
+use crate::orphan::nonce_search::find_processes_carrying_nonces;
 use crate::output::screen::{ShellScreenAppearance, cut_title};
+use crate::output::stream::ShellOutputEnd;
 use crate::record::{ShellRecord, ShellRecordDeps};
 use crate::refusals::terminal_not_found;
 use crate::resize::{ShellResizeError, ShellSize};
@@ -119,6 +123,19 @@ struct SessionShells {
     list: ShellListFollowers,
     /// The deletions of the session under way, each refusing its opens until it settles.
     close_holds: usize,
+    /// Changes as each deletion of the session begins, waking the opens a folder hold keeps.
+    close_begun: watch::Sender<()>,
+}
+
+/// A folder whose shells were closed before its move, holding back the opens begun after it of the
+/// sessions working in it until the hold drops.
+struct FolderHold {
+    /// Where the hold falls among the opens, from the table's one count.
+    sequence: u64,
+    /// The folder's key, resolved.
+    folder_key: PathBuf,
+    /// Answers its change once the hold drops.
+    released: watch::Receiver<()>,
 }
 
 /// The table's state and what it calls out to, shared with every shell's output task.
@@ -126,6 +143,14 @@ struct TableShared {
     deps: ShellTableDeps,
     record_deps: Arc<ShellRecordDeps>,
     sessions: Mutex<HashMap<SessionId, SessionShells>>,
+    /// The folder holds in force, each taken under the sessions' lock.
+    folder_holds: Mutex<Vec<FolderHold>>,
+    /// The spawn nonces of ended shells while a process carries one: each is dropped once the scan
+    /// at its shell's end or a later folder close finds no carrier, so a process an ended shell
+    /// left behind is still ended with its folder.
+    ended_nonces: Mutex<HashSet<String>>,
+    /// The one count that orders the opens and the folder holds, taken under the sessions' lock.
+    sequence: AtomicU64,
 }
 
 /// Every session's shells in this daemon.
@@ -149,6 +174,9 @@ impl ShellTable {
                 deps,
                 record_deps,
                 sessions: Mutex::new(HashMap::new()),
+                folder_holds: Mutex::new(Vec::new()),
+                ended_nonces: Mutex::new(HashSet::new()),
+                sequence: AtomicU64::new(0),
             }),
         }
     }
@@ -408,6 +436,66 @@ impl TableShared {
             .expect("no panic holds the shell table, since a panic ends the daemon")
     }
 
+    fn lock_folder_holds(&self) -> MutexGuard<'_, Vec<FolderHold>> {
+        self.folder_holds
+            .lock()
+            .expect("no panic holds the folder holds, since a panic ends the daemon")
+    }
+
+    fn lock_ended_nonces(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.ended_nonces
+            .lock()
+            .expect("no panic holds the ended shells' nonces, since a panic ends the daemon")
+    }
+
+    /// Records `shell`'s end as [`ShellRecord::record_end`] does, keeping its spawn nonce among the
+    /// ended shells' for the folder closes to search. The nonce joins them before the record lets
+    /// it go, so a close that reads the live shells' nonces before the ended ones misses none.
+    fn record_shell_end(
+        &self,
+        shell: &ShellRecord,
+        end: ShellOutputEnd,
+        is_removed: bool,
+    ) -> (
+        Option<TerminalHandle>,
+        Option<ShellMarkNonce>,
+        Option<String>,
+    ) {
+        if let Some(spawn_nonce) = shell.spawn_nonce() {
+            self.lock_ended_nonces().insert(spawn_nonce);
+        }
+        shell.record_end(end, is_removed)
+    }
+
+    /// Drops an ended shell's `spawn_nonce` when no process carries it, by one scan of this user's
+    /// processes; run once the shell's terminal was let go, so the shell itself carries it no more.
+    async fn forget_uncarried_nonce(&self, spawn_nonce: Option<String>) {
+        let Some(spawn_nonce) = spawn_nonce else {
+            return;
+        };
+        let searched = spawn_nonce.clone();
+        let carried = tokio::task::spawn_blocking(move || {
+            !find_processes_carrying_nonces(&HashSet::from([searched.as_str()])).is_empty()
+        })
+        .await;
+        match carried {
+            Ok(true) => {}
+            Ok(false) => {
+                self.lock_ended_nonces().remove(&spawn_nonce);
+            }
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "The search for an ended shell's processes ended before it finished, so its \
+                 nonce waits for the next folder close."
+            ),
+        }
+    }
+
+    /// The next place in the order of opens and folder holds; taken under the sessions' lock.
+    fn next_sequence(&self) -> u64 {
+        self.sequence.fetch_add(1, Ordering::Relaxed)
+    }
+
     fn lock_console_colors(&self) -> MutexGuard<'_, Option<Arc<TerminalColors>>> {
         self.record_deps
             .console_colors
@@ -432,6 +520,7 @@ impl TableShared {
                     read_list(table.clone(), session).boxed()
                 })),
                 close_holds: 0,
+                close_begun: watch::channel(()).0,
             }
         })
     }

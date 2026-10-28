@@ -16,6 +16,11 @@ use crate::windows::shell_start::start_failure_words;
 /// the only entry the mode's own environment needs.
 pub const SHELL_START_CONFIRMATION: &str = "SIDEKICKS_SHELL_START_CONFIRMATION";
 
+/// Whether the `shell` mode stays a process of its own in the folder it was spawned in, with the
+/// shell its child started in the shell's folder: on Windows; on macOS and Linux the mode enters
+/// the shell's folder and becomes the shell.
+pub const DOES_SHELL_MODE_KEEP_ITS_FOLDER: bool = cfg!(target_os = "windows");
+
 /// The most bytes one shell launch frame holds, so a reader never allocates past it: far above two
 /// launches with the largest environment a system lets a program start with.
 pub(crate) const SHELL_LAUNCH_MAX_BYTES: usize = 16 * 1024 * 1024;

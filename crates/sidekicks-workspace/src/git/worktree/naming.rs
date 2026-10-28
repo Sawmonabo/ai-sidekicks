@@ -2,13 +2,14 @@
 //! and its flat folder `<worktrees>/<project slug>/<session-short-id>-<tail>/`. The creator names
 //! the tree it makes and the create form's suggestion through the one plan built here, so the form
 //! never shows a name or a path the daemon would not make. Git's refusal of a taken branch name is
-//! read here too, for every caller that makes a branch.
+//! read here too, for every caller that makes a branch, and the folder shape a name plan makes is
+//! checked here for every caller that deletes a tree by its stored folder.
 //!
 //! Every tail is shaped to `a-z 0-9 . _ -` before it is cut, so its bytes and its characters
 //! count alike.
 
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use futures::future::BoxFuture;
@@ -19,18 +20,17 @@ use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_contracts::worktree::lifecycle::NewWorktreeSuggestion;
-use sidekicks_workspace::git::branch_name_pattern::{
-    BranchNamePatternValues, fill_branch_name_pattern, last_fatal_line, strip_lock_clause,
-};
-use sidekicks_workspace::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 
-use crate::auto_title::first_words_of;
+use crate::git::branch_name_pattern::{
+    BranchNamePatternValues, GIT_FATAL_PREFIX, fill_branch_name_pattern, last_fatal_line,
+    strip_lock_clause,
+};
+use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 
 const WORKTREES_FOLDER_NAME: &str = "worktrees";
 
 /// The folder in each project's worktrees folder that holds its kept worktrees. A slug never
 /// starts with a dot, so it cannot be a project's folder.
-#[expect(dead_code, reason = "the kept worktrees' store and their put-back")]
 pub(crate) const REMOVED_WORKTREES_FOLDER_NAME: &str = ".removed";
 
 const SHORT_ID_LENGTH: usize = 8;
@@ -39,12 +39,9 @@ const SHORT_ID_LENGTH: usize = 8;
 // (APFS, ext4), less the folder's `<8hex>-` prefix.
 const TAIL_MAX_BYTES: usize = 255 - (SHORT_ID_LENGTH + 1);
 
-// A tail derived from a title is cut at a word break within this many characters, the length of a
-// session's fallback name.
-const DERIVED_TAIL_MAX_LEN: usize = 40;
-
-// The prefix git writes before its fatal line, which a taken-branch line keeps.
-const GIT_FATAL_PREFIX: &str = "fatal: ";
+/// The most code points a name derived from a session's words holds: the session's fallback name
+/// from its first message, and a worktree tail cut from its title, which is shaped to ASCII first.
+pub const DERIVED_NAME_MAX_CODE_POINTS: usize = 40;
 
 /// The daemon's worktrees folder in the data folder inside `home_folder`, holding one folder per
 /// project.
@@ -55,7 +52,6 @@ pub fn worktrees_folder(home_folder: &Path) -> PathBuf {
 }
 
 /// The last 8 hex characters of an id, hyphens stripped and lowercased: a v7 id's random tail.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 pub(crate) fn short_id_of(identifier: &str) -> String {
     let hex: Vec<char> = identifier
         .chars()
@@ -71,7 +67,6 @@ pub(crate) fn short_id_of(identifier: &str) -> String {
 /// last `fatal: ` line whole when it says a branch of that name exists, or that one exists the new
 /// branch would hold or sit inside, with or without the files backend's lock clause. `None` for any
 /// other failure.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation"))]
 pub(crate) fn read_taken_branch_line(stderr: &str) -> Option<&str> {
     let line = last_fatal_line(stderr)?;
     let words = strip_lock_clause(line.strip_prefix(GIT_FATAL_PREFIX)?);
@@ -83,6 +78,15 @@ pub(crate) fn read_taken_branch_line(stderr: &str) -> Option<&str> {
             .is_some_and(|(_held, created)| created.ends_with('\''))
     });
     (is_named_branch || is_nested_branch).then_some(line)
+}
+
+/// Git's line refusing `worktree add` at `folder` because something already stands there, printed
+/// under `LC_ALL=C` with the folder quoted as given: its last `fatal: ` line whole. `None` for any
+/// other failure, a taken branch's `already exists` line among them.
+pub(crate) fn read_taken_folder_line<'a>(stderr: &'a str, folder: &Path) -> Option<&'a str> {
+    let line = last_fatal_line(stderr)?;
+    let taken_words = format!("'{}' already exists", folder.display());
+    (line.strip_prefix(GIT_FATAL_PREFIX)? == taken_words).then_some(line)
 }
 
 // A tail shaped as typed: lowercased, every character outside `a-z 0-9 . _ -` turned into a
@@ -151,43 +155,16 @@ fn collapse_repeats(tail: &str) -> String {
     collapsed
 }
 
-// The tail a title gives: shaped as typed, repeated `-` and `.` collapsed, a trailing `-`, `.` or
-// `.lock` trimmed, and cut at a word break within 40 characters. Empty when no usable words remain.
-fn derive_title_tail(title: &str) -> String {
-    let collapsed = collapse_repeats(&shape_typed_tail(title));
+/// The tail a session's title words suggest, as the naming sources read them: shaped as typed,
+/// repeated `-` and `.` collapsed, a trailing `-`, `.` or `.lock` trimmed, and cut at a word break
+/// within [`DERIVED_NAME_MAX_CODE_POINTS`]. Empty when no usable words remain.
+pub(crate) fn suggest_tail_for(title_words: &str) -> String {
+    let collapsed = collapse_repeats(&shape_typed_tail(title_words));
     trim_tail_end(cut_at_word_break(
         trim_tail_end(&collapsed),
-        DERIVED_TAIL_MAX_LEN,
+        DERIVED_NAME_MAX_CODE_POINTS,
     ))
     .to_owned()
-}
-
-/// Where a session's tail comes from: its title, else its provisional title.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct SessionTitleSource<'a> {
-    /// The session's title; `None` while untitled.
-    pub(crate) name: Option<&'a str>,
-    /// The first user message's opening, the provisional title's source; `None` before one.
-    pub(crate) first_message_preview: Option<&'a str>,
-}
-
-/// The tail a session's title suggests: its title, or before it has one the first words of its
-/// first message through the function the session's own naming uses. `fallback_message` stands in
-/// for a first message not yet recorded on the session. Empty when no usable words remain.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
-pub(crate) fn suggest_tail_for(
-    source: SessionTitleSource<'_>,
-    fallback_message: Option<&str>,
-) -> String {
-    if let Some(name) = source.name {
-        return derive_title_tail(name);
-    }
-    source
-        .first_message_preview
-        .or(fallback_message)
-        .map_or_else(String::new, |message| {
-            derive_title_tail(&first_words_of(message))
-        })
 }
 
 /// The tail a run's tree takes when no title gives one: `run-<run-short-id>`. Fails with
@@ -210,24 +187,22 @@ pub(crate) fn derive_run_tail(
 }
 
 /// A project's naming facts: its slug, fixed at attach, and its own branch pattern if set.
-#[expect(dead_code, reason = "worktree creation and status")]
 #[derive(Clone, Debug)]
-pub(crate) struct WorktreeProjectNaming {
+pub struct WorktreeProjectNaming {
     /// The project's slug, its worktrees folder's name.
-    pub(crate) slug: String,
+    pub slug: String,
     /// The project's own pattern; `None` follows the machine's.
-    pub(crate) branch_pattern: Option<BranchNamePattern>,
+    pub branch_pattern: Option<BranchNamePattern>,
 }
 
 /// Why a naming source could not answer; the implementation's own failure is kept as the cause.
-#[expect(dead_code, reason = "worktree creation and status")]
 #[derive(Debug, thiserror::Error)]
 #[error("the worktree's naming facts could not be read")]
-pub(crate) struct WorktreeNamingError(#[source] pub(crate) Box<dyn Error + Send + Sync>);
+pub struct WorktreeNamingError(#[source] pub Box<dyn Error + Send + Sync>);
 
-/// Where the naming reads what other owners keep: the project record and the machine's settings.
-#[expect(dead_code, reason = "worktree creation and status")]
-pub(crate) trait WorktreeNamingSources: Send + Sync {
+/// Where the naming reads what other owners keep: the project record, the machine's settings and
+/// the session's title.
+pub trait WorktreeNamingSources: Send + Sync {
     /// The naming facts of the project the attached mount `repo_mount_id` serves. Fails when the
     /// mount serves none or the read fails.
     fn read_project_naming<'a>(
@@ -239,10 +214,18 @@ pub(crate) trait WorktreeNamingSources: Send + Sync {
     fn read_machine_branch_pattern(
         &self,
     ) -> BoxFuture<'_, Result<BranchNamePattern, WorktreeNamingError>>;
+
+    /// The words `session_id`'s title gives: its name, else the first words of its first message,
+    /// else those of `fallback_message`, which stands in for a first message not yet recorded on
+    /// the session; empty when none gives any. Fails when the session is unknown or the read fails.
+    fn read_session_title_words<'a>(
+        &'a self,
+        session_id: &'a SessionId,
+        fallback_message: Option<&'a str>,
+    ) -> BoxFuture<'a, Result<String, WorktreeNamingError>>;
 }
 
 /// One candidate name: the whole branch, the tree's folder, and the tail both were made from.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct WorktreeName {
     /// The branch.
@@ -254,7 +237,6 @@ pub(crate) struct WorktreeName {
 }
 
 /// What every plan for one session's tree on one project shares.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 pub(crate) struct WorktreeNameBase {
     /// The project's or the machine's pattern.
@@ -266,7 +248,6 @@ pub(crate) struct WorktreeNameBase {
 }
 
 // Where a plan's branch name comes from.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 enum PlannedBranch {
     // A tail the pattern fills in.
@@ -278,7 +259,6 @@ enum PlannedBranch {
 /// The names one tree can take, in collision order: ordinal 1 is the name itself, and ordinal `n`
 /// puts `-n` on the tail, so the branch and the folder stay in step. A tail too long to take its
 /// suffix within the folder name's bound is cut first.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 #[derive(Clone, Debug)]
 pub(crate) struct WorktreeNamePlan {
     base: WorktreeNameBase,
@@ -286,7 +266,6 @@ pub(crate) struct WorktreeNamePlan {
     folder_tail: String,
 }
 
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 impl WorktreeNamePlan {
     /// The plan for a tail the pattern fills in.
     pub(crate) fn for_tail(base: WorktreeNameBase, tail: String) -> Self {
@@ -379,7 +358,6 @@ impl WorktreeNamePlan {
 }
 
 // The pattern's text before and after `{title}`, each with `{session}` filled in.
-#[cfg_attr(not(test), expect(dead_code, reason = "worktree creation and status"))]
 fn split_pattern(pattern: &BranchNamePattern, session_short_id: &str) -> (String, String) {
     let (before, after) = pattern
         .as_str()
@@ -397,37 +375,39 @@ fn split_pattern(pattern: &BranchNamePattern, session_short_id: &str) -> (String
     (fill(before), fill(after))
 }
 
+/// Whether `folder` is `<worktrees_folder>/<project slug>/<name>`, the only shape a name plan
+/// makes: a stored path comes from the database, and a recursive removal must not reach a
+/// project's kept copies under [`REMOVED_WORKTREES_FOLDER_NAME`], another project's folder or
+/// anything outside the worktrees folder.
+pub(crate) fn is_named_worktree_folder(worktrees_folder: &Path, folder: &Path) -> bool {
+    let Ok(inside) = folder.strip_prefix(worktrees_folder) else {
+        return false;
+    };
+    let parts: Vec<Component<'_>> = inside.components().collect();
+    parts.len() == 2
+        && parts.iter().all(|part| match part {
+            Component::Normal(name) => !name.to_string_lossy().starts_with('.'),
+            Component::Prefix(_)
+            | Component::RootDir
+            | Component::CurDir
+            | Component::ParentDir => false,
+        })
+}
+
 /// Builds name plans from the project's and the machine's patterns.
-#[expect(dead_code, reason = "worktree creation and status")]
 #[derive(Clone)]
-pub(crate) struct WorktreeNaming {
+pub struct WorktreeNaming {
     worktrees_folder: PathBuf,
     sources: Arc<dyn WorktreeNamingSources>,
 }
 
-#[expect(dead_code, reason = "worktree creation and status")]
 impl WorktreeNaming {
     /// Naming under the daemon's `worktrees_folder`, reading what other owners keep from `sources`.
-    pub(crate) fn new(worktrees_folder: PathBuf, sources: Arc<dyn WorktreeNamingSources>) -> Self {
+    pub fn new(worktrees_folder: PathBuf, sources: Arc<dyn WorktreeNamingSources>) -> Self {
         Self {
             worktrees_folder,
             sources,
         }
-    }
-
-    /// The daemon's worktrees folder, holding one folder per project.
-    pub(crate) fn worktrees_folder(&self) -> &Path {
-        &self.worktrees_folder
-    }
-
-    /// The folder the project of `repo_mount_id` keeps its worktrees in, and its kept ones under
-    /// [`REMOVED_WORKTREES_FOLDER_NAME`]. Fails when the project's naming cannot be read.
-    pub(crate) async fn project_folder_of(
-        &self,
-        repo_mount_id: &RepoMountId,
-    ) -> Result<PathBuf, WorktreeNamingError> {
-        let project = self.sources.read_project_naming(repo_mount_id).await?;
-        Ok(self.worktrees_folder.join(project.slug))
     }
 
     /// The base every plan for a tree of `session_id` on the project of `repo_mount_id` starts
@@ -448,6 +428,21 @@ impl WorktreeNaming {
             project_folder: self.worktrees_folder.join(project.slug),
         })
     }
+
+    /// The tail `session_id`'s title words suggest, shaped by [`suggest_tail_for`]; the words are
+    /// those of `fallback_message` when the session has neither a name nor a first message yet.
+    /// Empty when no usable words remain. Fails when the session is unknown or its read fails.
+    pub(crate) async fn read_suggested_tail(
+        &self,
+        session_id: &SessionId,
+        fallback_message: Option<&str>,
+    ) -> Result<String, WorktreeNamingError> {
+        let title_words = self
+            .sources
+            .read_session_title_words(session_id, fallback_message)
+            .await?;
+        Ok(suggest_tail_for(&title_words))
+    }
 }
 
 #[cfg(test)]
@@ -459,12 +454,12 @@ mod tests {
     use sidekicks_contracts::wire::text::FreeFormText;
 
     use super::{
-        SessionTitleSource, WorktreeNameBase, WorktreeNamePlan, derive_run_tail,
-        read_taken_branch_line, suggest_tail_for,
+        WorktreeNameBase, WorktreeNamePlan, derive_run_tail, read_taken_branch_line,
+        suggest_tail_for,
     };
 
-    // Kills the 246-byte cut on a derived tail, the collapse or the trailing trim left out, and the
-    // run fallback taken while a word remains.
+    // Kills the 246-byte cut on a derived tail, the collapse or the trailing trim left out, the
+    // run fallback taken while a word remains, and a tail derived with neither words nor a run.
     #[rstest]
     #[case::spaces("fix the login redirect", "fix-the-login-redirect")]
     #[case::shaped("Fix: Login_Redirect!!", "fix-login_redirect")]
@@ -486,11 +481,7 @@ mod tests {
     )]
     #[case::no_words("?!", "")]
     fn a_title_derives_its_tail(#[case] title: &str, #[case] expected: &str) {
-        let source = SessionTitleSource {
-            name: Some(title),
-            first_message_preview: None,
-        };
-        assert_eq!(suggest_tail_for(source, None), expected);
+        assert_eq!(suggest_tail_for(title), expected);
         let run_tail = derive_run_tail(expected, Some("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e"))
             .expect("a run gives a tail");
         let fallback = if expected.is_empty() {
@@ -499,21 +490,10 @@ mod tests {
             expected
         };
         assert_eq!(run_tail, fallback);
-    }
-
-    // Kills the provisional title skipped for an untitled session, and a tail derived with
-    // neither a title nor a run.
-    #[test]
-    fn an_untitled_session_takes_its_first_words_and_no_run_refuses() {
-        let source = SessionTitleSource {
-            name: None,
-            first_message_preview: Some("Fix the login redirect after sign in please"),
-        };
         assert_eq!(
-            suggest_tail_for(source, None),
-            "fix-the-login-redirect-after-sign-in"
+            derive_run_tail(expected, None).is_err(),
+            expected.is_empty()
         );
-        assert!(derive_run_tail("", None).is_err());
     }
 
     // Kills the reftable or packed-ref line left unread, the lock clause required, and any
@@ -565,14 +545,7 @@ mod tests {
         assert_eq!(typed.suggested_tail, None);
         assert_eq!(typed.fixed_part, "sidekicks/7b8c9d0e/");
 
-        let untitled_tail = suggest_tail_for(
-            SessionTitleSource {
-                name: None,
-                first_message_preview: None,
-            },
-            None,
-        );
-        let untitled = WorktreeNamePlan::for_tail(base.clone(), untitled_tail);
+        let untitled = WorktreeNamePlan::for_tail(base.clone(), suggest_tail_for(""));
         for ordinal in [1, 2] {
             let described = untitled
                 .describe_at(ordinal)

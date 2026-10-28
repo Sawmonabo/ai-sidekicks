@@ -205,6 +205,13 @@ impl PinnedProcess {
         self.send_checked_signal(Signal::SIGHUP)
     }
 
+    /// Kills the process alone with `SIGKILL`, naming it by its id version, so no process given its
+    /// id meanwhile is signaled; `false` when it has ended. Fails with the system's error, and with
+    /// `Unsupported` on a macOS without the checked read.
+    pub fn kill(&self) -> io::Result<bool> {
+        self.send_checked_signal(Signal::SIGKILL)
+    }
+
     /// Waits with no bound and no thread for the process's end, an end before the wait included:
     /// the runtime watches the descriptor of a `kqueue` holding the process's exit filter, which
     /// reads ready once the filter posts. Dropping the wait calls it off. Must be called within the

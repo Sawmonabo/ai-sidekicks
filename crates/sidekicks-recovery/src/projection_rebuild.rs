@@ -39,7 +39,6 @@ use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
 };
 use sidekicks_store::database::stored_column::{closed_word, text_column};
-use sidekicks_store::database::writer::messages::WriteJobFailure;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::projection::{
     ProjectionFailure, ProjectionFailureCause, SessionProjection, SessionProjectionFold,
@@ -610,13 +609,9 @@ fn page_write_failure(
 // The statement a guard refused or a constraint failed, which only a contradicting log makes; any
 // other SQLite failure is the store's own.
 fn contradicted_statement_index(error: &WriteError) -> Option<usize> {
-    if let WriteError::Failed(WriteJobFailure::Statement {
-        statement_index,
-        source,
-    }) = error
-    {
+    if let Some((statement_index, source)) = error.failed_statement() {
         return (source.sqlite_error_code() == Some(ErrorCode::ConstraintViolation))
-            .then_some(*statement_index);
+            .then_some(statement_index);
     }
     error.refused_statement_index()
 }

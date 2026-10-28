@@ -1,4 +1,3 @@
-use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
@@ -8,45 +7,19 @@ use sidekicks_platforms::{Spawner, real_path};
 use sidekicks_std::file::atomic_write::write_file_atomically;
 
 use super::{read_listed_worktrees, read_uncommitted_paths, unquote_git_text};
-use crate::git::process::{
-    GitCall, GitLimits, GitRunner, find_git_executable, in_folder, strip_line_end, test_git_runner,
+use crate::git::process::test_repository::{
+    commit_empty, git_in, git_in_with_input, make_test_repository,
 };
+use crate::git::process::{GitLimits, GitRunner, find_git_executable, test_git_runner};
 use crate::repo::errors::RepoRefusal;
 use crate::repo::root_resolver::RepoRootResolver;
-
-// Runs `arguments` in `folder` with a fixed identity and no signing or hook, whatever the
-// person's config, writing `input` to git; returns what git printed, its line end removed.
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str], input: Option<&str>) -> String {
-    let settings = [
-        "user.name=Test",
-        "user.email=test@example.invalid",
-        "commit.gpgSign=false",
-    ];
-    let mut call = settings
-        .into_iter()
-        .flat_map(|setting| [OsString::from("-c"), OsString::from(setting)])
-        .collect::<Vec<_>>();
-    call.extend(in_folder(folder, arguments));
-    let mut call = GitCall::read(call);
-    if let Some(input) = input {
-        call = call.with_input(input.as_bytes().to_vec());
-    }
-    let output = git
-        .run(None, call)
-        .await
-        .expect("the setup's git call succeeds");
-    String::from_utf8(strip_line_end(output.stdout)).expect("the setup's git prints UTF-8")
-}
 
 // A new repository with one commit, in a temporary folder resolved through its links, as git
 // records the folders it lists: the temporary folder, its resolved path and the repository's.
 async fn repository_with_a_commit(git: &GitRunner) -> (tempfile::TempDir, PathBuf, PathBuf) {
     let temporary = tempfile::tempdir().expect("the temporary folder is made");
     let root = real_path(temporary.path()).expect("the temporary folder resolves");
-    git_in(git, &root, &["init", "--quiet", "repository"], None).await;
-    let repository = root.join("repository");
-    let first_commit = ["commit", "--quiet", "--allow-empty", "-m", "first"];
-    git_in(git, &repository, &first_commit, None).await;
+    let repository = make_test_repository(git, &root, "repository").await;
     (temporary, root, repository)
 }
 
@@ -87,49 +60,26 @@ async fn uncommitted_paths_name_each_kind_by_its_whole_path() {
     let (_temporary, _root, repository) = repository_with_a_commit(&git).await;
     write_file(&repository, "kept file.txt", "one").await;
     write_file(&repository, "old name.txt", "moved").await;
-    git_in(&git, &repository, &["add", "--all"], None).await;
-    git_in(
-        &git,
-        &repository,
-        &["commit", "--quiet", "-m", "second"],
-        None,
-    )
-    .await;
+    git_in(&git, &repository, &["add", "--all"]).await;
+    commit_empty(&git, &repository, "second").await;
     // The person's own config may turn rename detection off.
-    git_in(
-        &git,
-        &repository,
-        &["config", "status.renames", "true"],
-        None,
-    )
-    .await;
+    git_in(&git, &repository, &["config", "status.renames", "true"]).await;
     write_file(&repository, "kept file.txt", "two").await;
-    git_in(
-        &git,
-        &repository,
-        &["mv", "old name.txt", "new name.txt"],
-        None,
-    )
-    .await;
+    git_in(&git, &repository, &["mv", "old name.txt", "new name.txt"]).await;
     write_file(&repository, "untracked file.txt", "new").await;
     // Three stages of one path, as a conflicted merge leaves them.
     write_file(&repository, "conflict file.txt", "side").await;
-    let blob = git_in(
-        &git,
-        &repository,
-        &["hash-object", "-w", "--stdin"],
-        Some("side"),
-    )
-    .await;
+    let blob =
+        git_in_with_input(&git, &repository, &["hash-object", "-w", "--stdin"], "side").await;
     let mut stages = String::new();
     for stage in 1..=3 {
         writeln!(stages, "100644 {blob} {stage}\tconflict file.txt").expect("a string takes text");
     }
-    git_in(
+    git_in_with_input(
         &git,
         &repository,
         &["update-index", "--index-info"],
-        Some(&stages),
+        &stages,
     )
     .await;
 
@@ -166,7 +116,7 @@ async fn listed_worktrees_keep_a_path_holding_a_space_or_a_newline() {
     for folder in &linked {
         let folder = folder.to_str().expect("the test's folders are UTF-8");
         let add = ["worktree", "add", "--quiet", "--detach", folder];
-        git_in(&git, &repository, &add, None).await;
+        git_in(&git, &repository, &add).await;
     }
 
     let listed = read_listed_worktrees(&git, None, &repository, None)

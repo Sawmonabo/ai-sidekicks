@@ -546,8 +546,8 @@ mod tests {
         )
     }
 
-    // Catches a wrong main checkout, a planted `.git` admitted, git asked first, a lost reason, or a
-    // read awaited past the ceiling.
+    // Catches a wrong main checkout, a planted `.git` admitted, git asked first, a lost reason, or
+    // a read awaited past the ceiling.
     #[rstest]
     #[case::a_linked_worktree(Pick::LinkedWorktree)]
     #[case::a_planted_git_file(Pick::PlantedGitFile)]

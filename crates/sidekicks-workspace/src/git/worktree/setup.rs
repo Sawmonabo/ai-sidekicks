@@ -11,8 +11,10 @@
 //!   after it, the project's steps read again and those that already succeeded kept.
 //! - A running command is kept on its card, so a removal ends it before its tree moves and the
 //!   daemon's stop ends every one; a card dropped once its tree is retired ends its command too,
-//!   and a dropped card runs no further step.
+//!   and a dropped card runs no further step. No step starts in a tree while its removal is under
+//!   way, and a retry there is refused as one of a retired tree.
 
+mod closing_folders;
 mod steps;
 
 use std::collections::{HashMap, HashSet};
@@ -39,20 +41,19 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 
-pub(crate) use self::steps::SetupCommandEndError;
+use self::closing_folders::tree_key_of;
+pub use self::steps::SetupCommandEndError;
 use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
-    keep_succeeded_steps, project_steps_of, run_command, step_error,
+    keep_succeeded_steps, output_text, project_steps_of, run_command, step_error,
 };
-use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
+use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
-use crate::trust_envelope::is_contained_within;
 
 /// How long a command ended because its tree is being removed has after it is asked to stop
 /// before every process it started is ended: the grace terminal programs give a process they close.
-#[cfg_attr(test, expect(dead_code, reason = "worktree removal"))]
 const REMOVAL_END_GRACE: Duration = Duration::from_secs(5);
 
 /// What a command's step says when its tree was removed while it ran.
@@ -62,10 +63,6 @@ const REMOVED_END_REASON: &str = "Ended because its worktree was removed";
 const STOPPED_END_REASON: &str = "Ended because the background service stopped";
 
 /// Where a new tree is and the repository it was made from.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "worktree creation hands the setup its new tree")
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct MadeWorktree {
     /// The tree.
@@ -78,15 +75,14 @@ pub(crate) struct MadeWorktree {
     pub(crate) repo_mount_id: RepoMountId,
     /// Where the repository is, for its git calls; absent on macOS and Linux.
     pub(crate) place: Option<Place>,
+    /// What the tree's checkout hook printed when it failed, shown on the make-tree step; `None`
+    /// when it passed.
+    pub(crate) hook_output: Option<String>,
 }
 
 /// Why a setup call failed.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the setup card's subscribe and retry handlers")
-)]
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeSetupError {
+pub enum WorktreeSetupError {
     /// The tree is unknown, or has no card where one is needed (`worktree.notFound`).
     #[error(transparent)]
     Refused(#[from] WorktreeRefusal),
@@ -97,14 +93,9 @@ pub(crate) enum WorktreeSetupError {
     #[error("the setup's records could not be read")]
     Read(#[source] Box<dyn Error + Send + Sync>),
     /// The folder whose commands were to be ended could not be resolved.
-    #[cfg_attr(test, expect(dead_code, reason = "worktree removal"))]
     #[error("the folder whose setup commands were to be ended could not be resolved")]
     Folder(#[source] io::Error),
     /// Commands that were to be ended could not be.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "worktree removal and the daemon's stop")
-    )]
     #[error(transparent)]
     CommandsNotEnded(SettleFailures<SetupCommandEndError>),
     /// The run of the steps ended without finishing, the runtime stopping under it.
@@ -114,21 +105,15 @@ pub(crate) enum WorktreeSetupError {
 
 /// Where the setup reads what other owners keep: the worktree's rows, its project's setup steps
 /// and the environment its commands start with.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start gives the setup its sources")
-)]
-pub(crate) trait WorktreeSetupSources: Send + Sync {
+pub trait WorktreeSetupSources: Send + Sync {
     /// Answers once `worktree_id` names a worktree. Fails with `Refused` holding
     /// `WorktreeRefusal::NotFound` for one with no row, else with `Read`.
-    #[cfg_attr(test, expect(dead_code, reason = "the setup card's subscribe handler"))]
     fn require_worktree<'a>(
         &'a self,
         worktree_id: &'a WorktreeId,
     ) -> BoxFuture<'a, Result<(), WorktreeSetupError>>;
 
     /// Which of `worktree_ids` have their retirement recorded. Fails with `Read`.
-    #[cfg_attr(test, expect(dead_code, reason = "the paths that retire a tree"))]
     fn read_retired<'a>(
         &'a self,
         worktree_ids: &'a [WorktreeId],
@@ -150,40 +135,42 @@ pub(crate) trait WorktreeSetupSources: Send + Sync {
 }
 
 /// What the setup runner reads, runs and holds; `W` is the system's file watch.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start makes the setup runner")
-)]
-pub(crate) struct WorktreeSetupRunnerDeps<W = RecommendedWatcher> {
+pub struct WorktreeSetupRunnerDeps<W = RecommendedWatcher> {
     /// The daemon's git, running the warm step with the repository's own config.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The thread every command is started from.
-    pub(crate) spawner: Spawner,
+    pub spawner: Spawner,
     /// The working-folder watch the warm step holds the tree on.
-    pub(crate) watcher: Arc<WorkingFolderWatcher<W>>,
+    pub watcher: Arc<WorkingFolderWatcher<W>>,
     /// The worktree's rows, its project's steps and its commands' environment.
-    pub(crate) sources: Arc<dyn WorktreeSetupSources>,
+    pub sources: Arc<dyn WorktreeSetupSources>,
     /// The shell every command line runs through, read once at the daemon's start
     /// (`sidekicks_platforms::command_shell`).
-    pub(crate) command_shell: PathBuf,
+    pub command_shell: PathBuf,
 }
 
 /// Called with a tree's whole card each time it changes.
 pub(crate) type WorktreeSetupListener = Arc<dyn Fn(WorktreeSetupStatus) + Send + Sync>;
 
 /// The setup card of every tree being set up since the daemon started, its runs and its retries.
-pub(crate) struct WorktreeSetupRunner<W = RecommendedWatcher> {
+pub struct WorktreeSetupRunner<W = RecommendedWatcher> {
     shared: Arc<RunnerShared<W>>,
 }
 
 /// Sends each change of one tree's card to its listener until it drops.
-#[expect(dead_code, reason = "the setup card's subscribe handler")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the setup card's subscribe handler")
+)]
 pub(crate) struct WorktreeSetupSubscription {
     // `None` for a tree with no card, which nothing changes.
     attached: Option<AttachedListener>,
 }
 
-#[expect(dead_code, reason = "the setup card's subscribe handler")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the setup card's subscribe handler")
+)]
 struct AttachedListener {
     state: Weak<Mutex<RunnerState>>,
     worktree_id: WorktreeId,
@@ -200,20 +187,19 @@ struct RunnerShared<W> {
 struct RunnerState {
     cards: HashMap<WorktreeId, Card>,
     // The commands of dropped cards still being ended, so the stop reaches them too.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "worktree removal and the daemon's stop")
-    )]
     ending: HashMap<u64, Arc<RunningCommand>>,
+    // The folders being moved or deleted, in which no step starts, each held under this state's
+    // lock so a mark and the commands read with it agree.
+    closing_folders: Arc<PathHolds>,
     next_id: u64,
     is_stopped: bool,
 }
 
-// How a retry starts: the failed warm step run again at once, or the project's steps read again
-// first.
-enum RetryStart {
-    Run(JoinHandle<WorktreeSetupStatus>),
-    ReadAgain { card_id: u64, made: MadeWorktree },
+// What a retry runs: the failed warm step, at its index, alone, or the project's steps read again
+// first, as that read answered once it ran.
+enum RetryStart<Read> {
+    Warm { failed: usize },
+    ReadAgain(Read),
 }
 
 // One tree's card. Its id tells it from a later card of the same tree, so a run of a dropped card
@@ -230,6 +216,9 @@ struct Card {
     listeners: HashMap<u64, WorktreeSetupListener>,
     is_running: bool,
     running_command: Option<Arc<RunningCommand>>,
+    // The step running now, which closes once it ends, so a folder close waits for a copy or a
+    // warm step already in flight.
+    step_in_flight: Option<tokio::sync::watch::Receiver<()>>,
     watch_hold: Option<WatchHold>,
 }
 
@@ -251,6 +240,12 @@ impl Card {
 }
 
 impl RunnerState {
+    // Whether the tree whose key is `tree_key` lies in a folder being moved or deleted; `false`
+    // for a card whose tree was never made.
+    fn is_closing(&self, tree_key: Option<&Path>) -> bool {
+        tree_key.is_some_and(|tree_key| self.closing_folders.is_held_within(tree_key))
+    }
+
     fn next_id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
@@ -272,11 +267,7 @@ impl RunnerState {
 
 impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// A runner with no card.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start makes the setup runner")
-    )]
-    pub(crate) fn new(deps: WorktreeSetupRunnerDeps<W>) -> Self {
+    pub fn new(deps: WorktreeSetupRunnerDeps<W>) -> Self {
         Self {
             shared: Arc::new(RunnerShared {
                 deps,
@@ -287,7 +278,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
     /// Opens the card of a tree about to be made, its first step running; a card the tree had is
     /// replaced.
-    #[cfg_attr(not(test), expect(dead_code, reason = "worktree creation"))]
     pub(crate) fn begin(&self, worktree_id: WorktreeId) {
         let mut state = self.shared.lock();
         let id = state.next_id();
@@ -303,6 +293,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                 listeners: HashMap::new(),
                 is_running: false,
                 running_command: None,
+                step_in_flight: None,
                 watch_hold: None,
             },
         );
@@ -310,7 +301,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
 
     /// Marks the tree's making failed with git's `error`; the card stands failed. Fails with
     /// `worktree.notFound` when no card was begun for the tree.
-    #[expect(dead_code, reason = "worktree creation")]
     pub(crate) fn tree_failed(
         &self,
         worktree_id: WorktreeId,
@@ -333,10 +323,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// ends, succeeded or stopped at its failed step, a failed read of the project's steps among
     /// them, which a retry reads again. Fails with `worktree.notFound` when no card was begun for
     /// the tree.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "worktree creation hands the setup its new tree")
-    )]
     pub(crate) async fn tree_made(
         &self,
         made: MadeWorktree,
@@ -349,6 +335,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             if let Some(make_tree) = card.steps.first_mut() {
                 make_tree.step.state = WorktreeSetupStepState::Succeeded;
                 make_tree.step.elapsed_ms = Some(elapsed_ms);
+                make_tree.step.output = made.hook_output.as_deref().map(output_text);
             }
             card.made = Some(made.clone());
             card.emit(worktree_id);
@@ -382,7 +369,10 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// A tree with no card, whose setup did not run since the daemon started, is called back once
     /// with `notRun` and no steps. Fails with `worktree.notFound` for a tree with no row, and with
     /// `Read` when its row cannot be read.
-    #[expect(dead_code, reason = "the setup card's subscribe handler")]
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the setup card's subscribe handler")
+    )]
     pub(crate) async fn subscribe(
         &self,
         worktree_id: WorktreeId,
@@ -433,7 +423,18 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         &self,
         worktree_id: WorktreeId,
     ) -> Result<WorktreeSetupStatus, WorktreeSetupError> {
-        let retry = {
+        let tree_path = self
+            .shared
+            .lock()
+            .require_card(&worktree_id)?
+            .made
+            .as_ref()
+            .map(|made| made.tree_path.clone());
+        let tree_key = match tree_path {
+            Some(tree_path) => Some(tree_key_of(&tree_path).await),
+            None => None,
+        };
+        let (retry, card_id, made) = {
             let mut state = self.shared.lock();
             let card = state.require_card(&worktree_id)?;
             let failed = card
@@ -448,37 +449,43 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             let Some(made) = card.made.clone() else {
                 return Err(WorktreeSetupError::TreeNeverMade);
             };
-            match card.steps[failed].action {
+            let retry = match card.steps[failed].action {
                 StepAction::MakeTree => return Err(WorktreeSetupError::TreeNeverMade),
                 // The project's steps all succeeded, so they are not read again.
-                StepAction::Warm => {
-                    RetryStart::Run(self.shared.start_run(&mut state, worktree_id, made, failed))
-                }
+                StepAction::Warm => RetryStart::Warm { failed },
                 StepAction::ReadProjectSteps
                 | StepAction::Copy { .. }
-                | StepAction::Command { .. } => RetryStart::ReadAgain {
-                    card_id: card.id,
-                    made,
-                },
-            }
-        };
-        let (card_id, made) = match retry {
-            RetryStart::Run(run) => return run.await.map_err(WorktreeSetupError::RunEnded),
-            RetryStart::ReadAgain { card_id, made } => (card_id, made),
+                | StepAction::Command { .. } => RetryStart::ReadAgain(()),
+            };
+            (retry, card.id, made)
         };
         // The person may have fixed the step since, so the project's steps are read again.
-        let read_again = self.read_project_steps(&worktree_id).await;
-        let run = {
+        let retry = match retry {
+            RetryStart::Warm { failed } => RetryStart::Warm { failed },
+            RetryStart::ReadAgain(()) => {
+                RetryStart::ReadAgain(self.read_project_steps(&worktree_id).await)
+            }
+        };
+        let run = 'run: {
             let mut state = self.shared.lock();
+            let is_closing = state.is_closing(tree_key.as_deref());
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return Err(not_found(worktree_id));
             };
+            // A tree whose removal is under way is as good as retired; every retry's run starts
+            // only past this check.
+            if is_closing {
+                return Err(not_found(worktree_id));
+            }
             if card.is_running || card.state != WorktreeSetupState::Failed {
                 return Ok(card.status(worktree_id));
             }
-            let read_again = match read_again {
-                Ok(read_again) => read_again,
-                Err(error) => {
+            let read_again = match retry {
+                RetryStart::Warm { failed } => {
+                    break 'run self.shared.start_run(&mut state, worktree_id, made, failed);
+                }
+                RetryStart::ReadAgain(Ok(read_again)) => read_again,
+                RetryStart::ReadAgain(Err(error)) => {
                     // The card stands failed at its read, as when the first read fails; the steps
                     // that succeeded wait off the card for the next read.
                     let succeeded = card.steps.drain(1..).filter(|entry| {
@@ -509,42 +516,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         run.await.map_err(WorktreeSetupError::RunEnded)
     }
 
-    /// Ends every running setup command whose tree is `folder` or inside it: each is asked to
-    /// stop and ended after a grace, its step failing as removed; answers once each has exited.
-    /// Run before the folder is moved or deleted. Fails with `Folder` when `folder` cannot be
-    /// resolved, and with `CommandsNotEnded` naming each command that could not be ended.
-    #[expect(dead_code, reason = "worktree removal")]
-    pub(crate) async fn end_processes_in_folder(
-        &self,
-        folder: &Path,
-    ) -> Result<(), WorktreeSetupError> {
-        let folder_key = canonical_folder_path(folder)
-            .await
-            .map_err(WorktreeSetupError::Folder)?;
-        let running: Vec<(PathBuf, Arc<RunningCommand>)> = self
-            .shared
-            .lock()
-            .cards
-            .values()
-            .filter_map(|card| {
-                Some((
-                    card.made.as_ref()?.tree_path.clone(),
-                    Arc::clone(card.running_command.as_ref()?),
-                ))
-            })
-            .collect();
-        let mut in_folder = Vec::new();
-        for (tree_path, command) in running {
-            let tree_key = canonical_folder_path(&tree_path)
-                .await
-                .map_err(WorktreeSetupError::Folder)?;
-            if is_contained_within(&tree_key, &folder_key) {
-                in_folder.push(command);
-            }
-        }
-        end_all(&in_folder, REMOVED_END_REASON, REMOVAL_END_GRACE).await
-    }
-
     /// Ends every running setup command, each asked to stop and ended within the daemon's stop
     /// window, and starts no step after; run when the daemon stops. Fails with `CommandsNotEnded`
     /// naming each command that could not be ended.
@@ -566,7 +537,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// Drops the tree's card, lets go of the watches its warm step holds and ends its running
     /// command with the removal's grace; run when the tree is removed or was never recorded. A
     /// command that cannot be ended is logged.
-    #[expect(dead_code, reason = "worktree removal")]
     pub(crate) fn forget(&self, worktree_id: &WorktreeId) {
         let mut state = self.shared.lock();
         let Some(card) = state.cards.remove(worktree_id) else {
@@ -675,11 +645,13 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         made: &MadeWorktree,
         first_index: usize,
     ) -> WorktreeSetupStatus {
+        let tree_key = tree_key_of(&made.tree_path).await;
         let mut index = first_index;
         loop {
-            let action = {
+            let (action, step_done) = {
                 let mut state = self.lock();
                 let is_stopped = state.is_stopped;
+                let is_closing = state.closing_folders.is_held_within(&tree_key);
                 let Some(card) = state.held_card(&worktree_id, card_id) else {
                     // A dropped card runs no further step, so nothing starts in a tree being
                     // removed.
@@ -693,17 +665,32 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
                 entry.step.state = WorktreeSetupStepState::Running;
                 let action = entry.action.clone();
                 card.emit(worktree_id);
-                (!is_stopped).then_some(action)
+                if is_stopped {
+                    (Err(STOPPED_END_REASON), None)
+                } else if is_closing {
+                    (Err(REMOVED_END_REASON), None)
+                } else {
+                    // Kept on the card under the lock the closing mark is read under, so a close
+                    // either is seen here or sees the step.
+                    let (step_done, step_running) = tokio::sync::watch::channel(());
+                    card.step_in_flight = Some(step_running);
+                    (Ok(action), Some(step_done))
+                }
             };
             let started_at = Instant::now();
             let outcome = match action {
-                Some(action) => self.run_step(worktree_id, card_id, made, action).await,
-                None => StepOutcome::failed(STOPPED_END_REASON),
+                Ok(action) => {
+                    self.run_step(worktree_id, card_id, made, &tree_key, action)
+                        .await
+                }
+                Err(reason) => StepOutcome::failed(reason),
             };
+            drop(step_done);
             let mut state = self.lock();
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return dropped_status(worktree_id);
             };
+            card.step_in_flight = None;
             let entry = &mut card.steps[index];
             entry.step.elapsed_ms = Some(elapsed_ms_since(started_at));
             if let Some(error) = outcome.error {
@@ -725,6 +712,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         worktree_id: WorktreeId,
         card_id: u64,
         made: &MadeWorktree,
+        tree_key: &Path,
         action: StepAction,
     ) -> StepOutcome {
         match action {
@@ -735,8 +723,15 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
                 copy_setup_file(&made.repository_root, &made.tree_path, &path).await
             }
             StepAction::Command { line, time_limit } => {
-                self.run_command_step(worktree_id, card_id, made, line.as_str(), time_limit)
-                    .await
+                self.run_command_step(
+                    worktree_id,
+                    card_id,
+                    made,
+                    line.as_str(),
+                    time_limit,
+                    tree_key,
+                )
+                .await
             }
             StepAction::Warm => self.warm(worktree_id, card_id, made).await,
         }
@@ -749,6 +744,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         made: &MadeWorktree,
         line: &str,
         time_limit: Option<Duration>,
+        tree_key: &Path,
     ) -> StepOutcome {
         let environment = match self
             .deps
@@ -764,6 +760,9 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
             let mut state = self.lock();
             if state.is_stopped {
                 return StepOutcome::failed(STOPPED_END_REASON);
+            }
+            if state.closing_folders.is_held_within(tree_key) {
+                return StepOutcome::failed(REMOVED_END_REASON);
             }
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return StepOutcome::failed(REMOVED_END_REASON);
@@ -858,10 +857,6 @@ fn dropped_status(worktree_id: WorktreeId) -> WorktreeSetupStatus {
 }
 
 // Ends each of `commands` with `reason` and `grace` at once; fails naming each that could not be.
-#[cfg_attr(
-    test,
-    expect(dead_code, reason = "worktree removal and the daemon's stop")
-)]
 async fn end_all(
     commands: &[Arc<RunningCommand>],
     reason: &'static str,
@@ -873,5 +868,7 @@ async fn end_all(
         .map_err(WorktreeSetupError::CommandsNotEnded)
 }
 
+#[cfg(test)]
+pub(crate) mod test_runner;
 #[cfg(test)]
 mod tests;

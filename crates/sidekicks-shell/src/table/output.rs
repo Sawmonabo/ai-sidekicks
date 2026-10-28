@@ -85,15 +85,21 @@ impl TableShared {
             exit_code,
             cursor: record.output_offset(),
         };
-        let (handle, mark_nonce, spawn_nonce) = record.record_end(end, false);
+        let (handle, mark_nonce, spawn_nonce) = self.record_shell_end(record, end, false);
         self.release_streams(record);
         self.refresh_list(&record.session_id);
         let closing = close_terminal(&self.deps.terminals, handle);
-        if let Err(error) =
-            let_shell_go(&self.deps.orphan_guard, closing, mark_nonce, spawn_nonce).await
+        if let Err(error) = let_shell_go(
+            &self.deps.orphan_guard,
+            closing,
+            mark_nonce,
+            spawn_nonce.clone(),
+        )
+        .await
         {
             log_failure(record, "could not let its exited terminal go", &error);
         }
+        self.forget_uncarried_nonce(spawn_nonce).await;
     }
 
     /// Releases the hold bindings every open output subscription of the shell carried, as closed
