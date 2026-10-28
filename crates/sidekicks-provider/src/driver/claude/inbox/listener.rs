@@ -23,7 +23,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::io::{AsyncBufReadExt as _, AsyncWriteExt as _, BufReader};
 use tokio::task::{JoinHandle, JoinSet};
 
-use crate::driver::claude::inbox::address::fresh_socket_name;
+use crate::driver::claude::inbox::address::{fresh_socket_name, is_inbox_socket_name};
 use crate::driver::claude::inbox::forward::ClaudeInboxForwarding;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
@@ -164,7 +164,13 @@ impl ClaudeSessionInboxes {
             return Ok(());
         }
         let address = self.addresser.daemon_inbox_address(None);
-        let listener = bind_inbox(Path::new(address.as_str())).await?;
+        let path = Path::new(address.as_str());
+        if let Some(folder) = path.parent()
+            && let Err(error) = remove_left_sockets(folder).await
+        {
+            record_inbox_failure(None, "removing the sockets a stopped run left", &error);
+        }
+        let listener = bind_inbox(path).await?;
         let forwarding = Arc::clone(
             self.forwarding
                 .get_or_init(|| Arc::new(ClaudeInboxForwarding::new(address.as_str().to_owned()))),
@@ -252,6 +258,38 @@ impl ClaudeSessionInboxes {
         tokio::try_join!(inbound, outbound)?;
         Ok(())
     }
+}
+
+// Removes each socket named as the daemon names one in `folder` that no process listens on, as a
+// stopped run leaves it; one a live process answers stays, and that connection is closed at once.
+// A socket that cannot be reached otherwise, or removed, is logged and kept. A missing folder
+// holds nothing; one that cannot be listed fails the sweep.
+async fn remove_left_sockets(folder: &Path) -> io::Result<()> {
+    let mut entries = match tokio::fs::read_dir(folder).await {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(error),
+    };
+    while let Some(entry) = entries.next_entry().await? {
+        if !entry.file_name().to_str().is_some_and(is_inbox_socket_name) {
+            continue;
+        }
+        let socket = entry.path();
+        match connect_unix_domain_socket(&socket).await {
+            Ok(connection) => drop(connection),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionRefused => {
+                // One already removed is no failure.
+                match tokio::fs::remove_file(&socket).await {
+                    Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                        record_inbox_failure(None, "removing a socket a run left", &error);
+                    }
+                    Ok(()) | Err(_) => {}
+                }
+            }
+            Err(error) => record_inbox_failure(None, "reaching a socket a run left", &error),
+        }
+    }
+    Ok(())
 }
 
 // Binds an inbox at `path`, making its folder private where it is missing; a socket file no

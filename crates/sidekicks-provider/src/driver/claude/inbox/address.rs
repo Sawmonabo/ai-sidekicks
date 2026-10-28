@@ -120,6 +120,18 @@ pub(crate) fn fresh_socket_name() -> Result<String, getrandom::Error> {
     Ok(socket_name(&seed))
 }
 
+/// Whether `name` is shaped as the daemon names an inbox or a process's socket: a letter `a`–`f`,
+/// fifteen lowercase hex digits and `.sock`.
+pub(crate) fn is_inbox_socket_name(name: &str) -> bool {
+    name.strip_suffix(".sock").is_some_and(|stem| {
+        stem.len() == 16
+            && stem.starts_with(NAME_FIRST_LETTERS)
+            && stem
+                .bytes()
+                .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+    })
+}
+
 /// `<16 lowercase hex>.sock` from `digest`: a letter `a`–`f` from its first byte, then the hex of
 /// the next eight bytes less its last digit.
 fn socket_name(digest: &[u8]) -> String {

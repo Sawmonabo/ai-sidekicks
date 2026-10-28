@@ -211,3 +211,30 @@ fn each_process_socket_is_fresh_beside_the_session_s_inbox() {
     assert_eq!(second.parent(), Some(folder.as_path()));
     assert!(folder.is_dir());
 }
+
+// A socket named as the daemon names one that no process listens on goes; one a live process
+// answers stays, and so does a socket of any other name. Killed by a sweep that removes every
+// socket it lists, and by one that reaches past the daemon's own names.
+#[tokio::test]
+async fn the_sweep_removes_only_the_daemons_sockets_no_process_answers() {
+    if !CAN_BIND_A_SOCKET_LISTENER {
+        return;
+    }
+    let scratch = short_socket_folder().expect("a scratch folder is made");
+    let folder = scratch.path();
+    let live = folder.join("a000000000000000.sock");
+    let _listening = bind_socket_listener(&live).expect("the live process listens");
+    let left = folder.join("b000000000000000.sock");
+    let other = folder.join("4242-claude.sock");
+    for socket in [&left, &other] {
+        drop(std::os::unix::net::UnixListener::bind(socket).expect("a socket is made"));
+    }
+
+    super::remove_left_sockets(folder)
+        .await
+        .expect("the folder is swept");
+
+    assert!(live.exists(), "the live process's socket stays");
+    assert!(!left.exists(), "the left socket goes");
+    assert!(other.exists(), "a socket the daemon did not name stays");
+}
