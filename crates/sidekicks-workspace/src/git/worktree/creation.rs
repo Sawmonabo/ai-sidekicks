@@ -360,7 +360,8 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
                 place: mount.place.clone(),
                 hook_output: tree.hook_output,
             })
-            .await?;
+            .await
+            .map_err(|failure| keep_stash_named(carried.as_ref(), failure.into()))?;
         Ok(CreatedWorktree {
             worktree_id,
             branch_name: branch_ref_name(&tree.name),
