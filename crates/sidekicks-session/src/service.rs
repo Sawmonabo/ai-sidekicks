@@ -330,28 +330,13 @@ impl SessionService {
         .await
     }
 
-    /// Every event of the session's log in sequence order; none for a session with no events.
-    /// Fails with [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
-    pub(crate) async fn read_events(
-        &self,
-        session_id: SessionId,
-    ) -> Result<Vec<EventEnvelope>, SessionServiceError> {
-        self.run_read(
-            ReadLength::Long,
-            move |reader, read_damaged_from_sequence| {
-                Ok(read_events(
-                    reader,
-                    read_damaged_from_sequence,
-                    &session_id,
-                )?)
-            },
-        )
-        .await
-    }
-
     /// Rebuilds the session's record from its whole log, `None` when it has no events. Fails with
-    /// [`SessionServiceError::Rebuild`] for a log that does not open at `session.created`, and as
-    /// [`SessionService::read_events`] does.
+    /// [`SessionServiceError::Rebuild`] for a log that does not open at `session.created`, and
+    /// with [`SessionServiceError::Log`] when a stored row is not a well-formed envelope.
+    #[expect(
+        dead_code,
+        reason = "the session's rebuild from its log, which no daemon path calls yet"
+    )]
     pub(crate) async fn rebuild_session(
         &self,
         session_id: SessionId,
