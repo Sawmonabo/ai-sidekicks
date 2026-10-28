@@ -48,9 +48,11 @@ fn two_rounds_sum_the_last_message_delta_of_each_message() {
 }
 
 // Fails when a task-list call's opening, a failed update or a read of one task changes the list,
-// when a list read does not replace it whole, or when another tool is read as a task-list call.
-// Mutations: in `read_claude_task_list_change`, the `is_success` check dropped; `TaskList` read as
-// `Nothing`; the tool-name check answering `Some` for every tool.
+// when a list read or a `TodoWrite` does not replace it whole, when a created task loses the id
+// its result names, or when another tool is read as a task-list call. Mutations: in
+// `read_claude_task_list_change`, the `is_success` check dropped; `TaskList` or `TodoWrite` read as
+// `Nothing`; `TaskCreate` reading its id from the input; the tool-name check answering `Some` for
+// every tool.
 #[rstest]
 #[case::an_opening_row(
     "TaskUpdate",
@@ -89,6 +91,26 @@ fn two_rounds_sum_the_last_message_delta_of_each_message() {
         task("1", "Write the parser", TurnTaskState::Done),
         task("2", "Test it", TurnTaskState::NotStarted),
     ]))
+)]
+#[case::a_todo_write(
+    "TodoWrite",
+    json!({"todos": [{"content": "Write the parser", "status": "in_progress"}]}),
+    Some(json!({})),
+    true,
+    Some(TaskListChange::Reseeded(vec![ListedTask {
+        task_id: None,
+        task: TurnTask {
+            text: NonEmptyText::new("Write the parser".to_owned()).expect("a task's words"),
+            state: TurnTaskState::InProgress,
+        },
+    }]))
+)]
+#[case::a_create(
+    "TaskCreate",
+    json!({"subject": "Test it"}),
+    Some(json!({"task": {"id": "7", "subject": "Test it"}})),
+    true,
+    Some(TaskListChange::Created(task("7", "Test it", TurnTaskState::NotStarted)))
 )]
 #[case::a_read_of_one_task(
     "TaskGet",

@@ -1,10 +1,9 @@
 //! Claude Code's review of the staged set alone, as the session's own run apart from its process:
 //! a one-turn process in a worktree holding only the staged changes, on the session's account and
-//! model, its commands reaching a command channel of its own and landing as rows under its run. Its
-//! report lands as the run's reply
-//! and the run completes; a refusal fails it refused, a stop ends it interrupted unless the daemon
-//! writes that end itself, and the worktree and channel go and the review finishes however the
-//! turn ends.
+//! model, its commands reaching a command channel of its own and landing as rows under its run.
+//! Its report lands as the run's reply and the run completes; a refusal fails it refused, a stop
+//! ends it interrupted unless the daemon writes that end itself, and the worktree and channel go
+//! and the review finishes however the turn ends.
 
 use std::io;
 use std::path::PathBuf;
