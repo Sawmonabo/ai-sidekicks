@@ -472,8 +472,10 @@ impl CodexExecRelay {
             .collect::<std::io::Result<Vec<_>>>()?;
         let watch = channel.watch().await?;
         channel.bind(process_id);
+        // The relay's channel serves the session's own service, never a run's process apart.
         let followed = crate::command::channel::records::follow_channel_records(
             session_id,
+            None,
             Arc::clone(&channel),
             watch,
             sets,
