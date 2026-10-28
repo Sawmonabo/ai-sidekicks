@@ -75,14 +75,15 @@ use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::usage_delta_accountant::{MeteredUsageDelta, WindowTelemetry};
 
-/// How many batches of metered spend a session's recorder holds while its sink is busy.
-const USAGE_RECORDER_QUEUE: usize = 256;
+/// How many batches of metered spend a session's recorder holds while its sink is busy; past
+/// that the session's task waits for room.
+pub(super) const USAGE_RECORDER_QUEUE: usize = 256;
 
-/// The usage sink fell so far behind that a session's recorder dropped a batch of metered spend.
+/// A session's usage recorder ended while its session still metered spend.
 #[derive(Debug, thiserror::Error)]
-#[error("the usage record fell behind, so {dropped} metered deltas were not recorded")]
-struct UsageRecorderBehind {
-    dropped: usize,
+#[error("the usage recorder ended, so {lost} metered deltas were not recorded")]
+struct UsageRecorderEnded {
+    lost: usize,
 }
 
 /// Codex's signal that the skills it lists for a conversation changed.
@@ -170,14 +171,14 @@ impl CodexSessionIntake {
             routed,
         )
         .await;
-        self.record_usage(usage);
+        self.record_usage(usage).await;
     }
 
     // Hands `usage` to the session's recorder, which records each delta in metering order on the
-    // driver's tasks. It is never awaited here: a run's token-limit stop reaches its session
-    // through this same queue. A recorder whose bounded queue is full, a sink stalled that long,
-    // drops the batch and reports it.
-    fn record_usage(&mut self, usage: Vec<MeteredUsage>) {
+    // driver's tasks; a full queue holds the session's task until it has room, so nothing is
+    // dropped. The sink stops a run past its limit on a task of its own, so it never waits on
+    // this one.
+    async fn record_usage(&mut self, usage: Vec<MeteredUsage>) {
         let Some(record) = &self.record else {
             return;
         };
@@ -216,9 +217,9 @@ impl CodexSessionIntake {
         let Some(recorder) = &self.usage_recorder else {
             return;
         };
-        if let Err(refused) = recorder.try_send(usage) {
-            report(Box::new(UsageRecorderBehind {
-                dropped: refused.into_inner().len(),
+        if let Err(refused) = recorder.send(usage).await {
+            report(Box::new(UsageRecorderEnded {
+                lost: refused.0.len(),
             }));
         }
     }
@@ -237,7 +238,7 @@ impl CodexSessionIntake {
         let parts = Arc::clone(&self.parts);
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
             if let Some(usage) = diverted.usage {
-                self.record_usage(vec![usage]);
+                self.record_usage(vec![usage]).await;
             }
             return;
         }

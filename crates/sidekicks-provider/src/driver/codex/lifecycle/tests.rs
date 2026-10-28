@@ -8,6 +8,7 @@ mod commands;
 mod intake;
 mod sessions;
 mod terminal_reach;
+mod usage;
 
 use std::path::Path;
 use std::sync::Arc;
