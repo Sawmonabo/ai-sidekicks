@@ -290,8 +290,8 @@ Plan-022 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T22.2.9 — The live status notice with the path-free audit ref.**
   - Files: `crates/sidekicks-mcp/src/status/notices.rs` (CREATE)
-  - Send on transition only (an unchanged re-observation sends nothing). Notices never carry raw `scopeRef`. `origin: 'sessionFeed'` notices carry the leg's `bindingId` and that leg's own statuses; `origin: 'sessionEnded'` notices carry the leg's `bindingId` and the aggregate before and after the leg left; `origin: 'machineProbe'` notices omit the `bindingId` and carry the probe's own readings. Each goes to `mcp.subscribe` and is appended to no log; the inventory keeps each leg's latest reading, so a page that opens later reads it from `mcp.server.list`.
-  - **Tests:** a transition reaches a live subscriber and adds no row to any session's log; an unchanged re-observation sends nothing.
+  - Send on transition only: a leg's first report on a binding and its first after a switch-off are read from `unknown`, an unchanged re-observation sends nothing, and `sessionEnded` goes out whenever a leg leaves the aggregate. Notices never carry raw `scopeRef`. `origin: 'sessionFeed'` notices carry the leg's `bindingId` and that leg's own statuses; `origin: 'sessionEnded'` notices carry the leg's `bindingId` and the aggregate before and after the leg left; `origin: 'machineProbe'` notices omit the `bindingId` and carry the probe's own readings. Each goes to `mcp.subscribe` and is appended to no log; the inventory keeps each leg's latest reading, so a page that opens later reads it from `mcp.server.list`.
+  - **Tests:** a transition reaches a live subscriber and adds no row to any session's log; an unchanged re-observation sends nothing; a leg's first report after a switch-off sends `sessionFeed` from `unknown`, even at the status it had; a leg leaving the aggregate sends `sessionEnded`.
   - **Spec coverage:** Spec-024 §Status Observation and Events
   - **Verifies invariant:** I-022-1
   - **Consumes:** the subscription ← T22.2.10; per-leg statuses ← T22.2.7 (same phase).
