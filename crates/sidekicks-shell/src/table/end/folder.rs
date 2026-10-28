@@ -53,13 +53,14 @@ impl Drop for FolderShellsClosed {
 /// Why what the shells run in a folder was not all ended.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum FolderShellsCloseError {
-    /// The folder, or a process's working folder, could not be resolved.
-    #[error("a working folder could not be resolved")]
+    /// The folder could not be resolved.
+    #[error("the folder could not be resolved")]
     Folder(#[source] io::Error),
     /// The read of the shells' processes ended before it finished.
     #[error("the read of the shells' processes ended before it finished")]
     Interrupted(#[source] JoinError),
-    /// A process working in the folder under a shell outside it could not be ended.
+    /// A process working in the folder, with those under it, could not be ended, so the shells
+    /// working inside were left open.
     #[error("a process working in the folder could not be ended")]
     ProcessesNotEnded(#[source] io::Error),
     /// A shell working in the folder could not be ended.
@@ -73,8 +74,9 @@ impl ShellTable {
     /// shell outside each process working inside is ended with every process under it, the shell
     /// living. The opens of the sessions working in the folder begun from here on wait until the
     /// answered hold drops, and those already under way are waited for first. Answers once each
-    /// ended program has exited; fails with what will not end, everything else still ended, the
-    /// opens no longer held back.
+    /// ended program has exited. Fails with what will not end, the opens no longer held back: a
+    /// shell that will not close leaves the other shells closed, and a process that will not end
+    /// leaves the shells working inside open.
     async fn close_shells_in_folder(
         &self,
         folder: &Path,
@@ -264,7 +266,7 @@ async fn end_processes_inside(
                 .parent
                 .is_some_and(|parent| ending.contains(&parent));
             if !is_parent_ending
-                && !is_working_inside(process, folder_key, &mut folders_inside).await?
+                && !is_working_inside(process, folder_key, &mut folders_inside).await
             {
                 continue;
             }
@@ -282,25 +284,37 @@ async fn end_processes_inside(
     Ok(roots_inside)
 }
 
-// Whether `process` works in the folder whose key is `folder_key` or inside it, each working
-// folder resolved once into `folders_inside`.
+// Whether `process` works in the folder whose key is `folder_key` or inside it: a working folder
+// whose own path lies inside is, and any other is resolved once into `folders_inside`. A folder
+// that cannot be resolved, behind a refused permission or an unresponsive mount, counts as outside,
+// so one such process elsewhere never holds back every close.
 async fn is_working_inside(
     process: &TreeProcess,
     folder_key: &Path,
     folders_inside: &mut HashMap<PathBuf, bool>,
-) -> Result<bool, FolderShellsCloseError> {
+) -> bool {
     let Some(working_folder) = &process.working_folder else {
-        return Ok(false);
+        return false;
     };
-    if let Some(is_inside) = folders_inside.get(working_folder) {
-        return Ok(*is_inside);
+    if is_contained_within(working_folder, folder_key) {
+        return true;
     }
-    let key = canonical_folder_path(working_folder)
-        .await
-        .map_err(FolderShellsCloseError::Folder)?;
-    let is_inside = is_contained_within(&key, folder_key);
+    if let Some(is_inside) = folders_inside.get(working_folder) {
+        return *is_inside;
+    }
+    let is_inside = match canonical_folder_path(working_folder).await {
+        Ok(key) => is_contained_within(&key, folder_key),
+        Err(error) => {
+            tracing::debug!(
+                process_id = process.id.as_u32(),
+                error = &error as &(dyn Error + 'static),
+                "a process's working folder could not be resolved, so it counts as outside"
+            );
+            false
+        }
+    };
     folders_inside.insert(working_folder.clone(), is_inside);
-    Ok(is_inside)
+    is_inside
 }
 
 // Every process in each tree under the shells `roots`, in their order, then under each topmost
