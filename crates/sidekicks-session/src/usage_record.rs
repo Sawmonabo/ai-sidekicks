@@ -5,7 +5,8 @@
 //! write. A row the provider attributes to one of its turns is stamped with the turn that opened,
 //! so it ranks there wherever it arrives. Each run's reports are taken one at a time against a
 //! tally the engine keeps from the run's first report, seeded once from the log, so a restart
-//! never counts a run from zero and no report reads the run's rows again.
+//! never counts a run from zero and no report reads the run's rows again. A run past its token
+//! limit is stopped on a task of its own, so a report never waits on a driver.
 
 mod reads;
 #[cfg(test)]
@@ -42,9 +43,11 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use tokio_util::task::TaskTracker;
+use tracing::Instrument as _;
 
-use crate::run::engine::usage_tallies::RunUsageTally;
-use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::RunEngine;
+use crate::run::engine::usage_tallies::{RunUsageTally, RunUsageTallySlot, TokenLimitStop};
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::transcript::turn_attribution::TurnAttributionError;
 use crate::usage_record::reads::{
@@ -58,8 +61,7 @@ use crate::usage_record::reads::{
 /// thread's prior counts.
 pub const USAGE_RECORD_STATEMENT_CAPACITY: usize = 10;
 
-/// Why a usage reading or a quota window was not recorded, or the run it passed the limit of was
-/// not stopped.
+/// Why a usage reading or a quota window was not recorded.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum UsageRecordError {
     /// The reading came on a binding the daemon has no row for.
@@ -92,9 +94,6 @@ pub(crate) enum UsageRecordError {
     /// The row's event was neither written nor absorbed.
     #[error(transparent)]
     Dispatch(#[from] InboundDispatchError),
-    /// The run past its token limit was not stopped.
-    #[error(transparent)]
-    Stop(#[from] RunEngineError),
     /// SQLite refused a read, or a stored column does not read as its type.
     #[error("the usage record could not be read")]
     Read(#[from] rusqlite::Error),
@@ -112,6 +111,8 @@ pub struct UsageRecord {
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     dispatch: Arc<RunInboundDispatch>,
     engine: Arc<RunEngine>,
+    // The token-limit stops under way, each on a task of its own.
+    stops: TaskTracker,
 }
 
 impl UsageRecord {
@@ -129,6 +130,7 @@ impl UsageRecord {
             read_damaged_from_sequence,
             dispatch,
             engine,
+            stops: TaskTracker::new(),
         }
     }
 
@@ -142,14 +144,37 @@ impl UsageRecord {
         } = metered;
         let read_binding_id = binding_id.clone();
         let read_owner = owner.clone();
+        let kept_helper_run = match &owner {
+            MeteredUsageOwner::Helper(subagent_id) => {
+                self.engine.helper_run(&binding_id, subagent_id)
+            }
+            MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
+        };
         let target = self
             .pool
             .read(ReadLength::Short, move |reader| {
-                read_metered_target(reader, session_id, &read_binding_id, &read_owner)
+                read_metered_target(
+                    reader,
+                    session_id,
+                    &read_binding_id,
+                    &read_owner,
+                    kept_helper_run,
+                )
             })
             .await?;
         let helper = match owner {
-            MeteredUsageOwner::Helper(subagent_id) => Some(subagent_id),
+            MeteredUsageOwner::Helper(subagent_id) => {
+                if kept_helper_run.is_none()
+                    && let Some(helper_run_id) = target.run_id
+                {
+                    self.engine.keep_helper_run(
+                        binding_id.clone(),
+                        subagent_id.clone(),
+                        helper_run_id,
+                    );
+                }
+                Some(subagent_id)
+            }
             MeteredUsageOwner::Run | MeteredUsageOwner::SideQuestion => None,
         };
         let mut payload = usage_row(session_id, &target, helper.clone(), &delta)?;
@@ -200,8 +225,8 @@ impl UsageRecord {
             return Ok(());
         };
         tally.token_count = tally.token_count.saturating_add(row_tokens);
-        self.hold_to_token_limit(tally, session_id, run_id, helper)
-            .await
+        self.hold_to_token_limit(tally, &slot, session_id, run_id, helper);
+        Ok(())
     }
 
     // The turn `provider_turn_id` opened on `run_id`, kept on the run's tally for the reports of
@@ -241,39 +266,58 @@ impl UsageRecord {
         Ok(opening)
     }
 
-    // Stops the reading's run once its count is past the token limit admitted with it, once: the
-    // run itself through the engine's stop, a helper's alone through its driver. A stop that
-    // failed is asked again at the run's next report.
-    async fn hold_to_token_limit(
+    // Starts the stop of the reading's run once its count is past the token limit admitted with
+    // it, once, on a task of its own, so the report never waits on a driver or a session's task:
+    // the run itself through the engine's stop, a helper's alone through its driver. The task marks
+    // the tally in `slot` stopped once the stop goes through; one that failed is logged and asked
+    // again at the run's next report.
+    fn hold_to_token_limit(
         &self,
         tally: &mut RunUsageTally,
+        slot: &RunUsageTallySlot,
         session_id: SessionId,
         run_id: RunId,
         helper: Option<SubagentId>,
-    ) -> Result<(), UsageRecordError> {
+    ) {
         let Some(token_limit) = tally.token_limit else {
-            return Ok(());
+            return;
         };
-        if tally.is_stopped || tally.token_count <= token_limit.0.get() {
-            return Ok(());
+        if tally.limit_stop != TokenLimitStop::Unasked || tally.token_count <= token_limit.0.get() {
+            return;
         }
-        match helper {
-            None => {
-                self.engine.stop_at_token_limit(run_id, token_limit).await?;
-            }
-            Some(subagent_id) => {
-                let params = HelperTokenLimitParams {
-                    session_id,
-                    run_id,
-                    subagent_id,
+        tally.limit_stop = TokenLimitStop::InFlight;
+        let engine = Arc::clone(&self.engine);
+        let slot = Arc::clone(slot);
+        self.stops.spawn(
+            async move {
+                let stopped = match helper {
+                    None => engine.stop_at_token_limit(run_id, token_limit).await,
+                    Some(subagent_id) => {
+                        let params = HelperTokenLimitParams {
+                            session_id,
+                            run_id,
+                            subagent_id,
+                        };
+                        engine.stop_helper_at_token_limit(params, token_limit).await
+                    }
                 };
-                self.engine
-                    .stop_helper_at_token_limit(params, token_limit)
-                    .await?;
+                if let Err(error) = &stopped {
+                    tracing::warn!(
+                        run_id = %run_id,
+                        error = error as &(dyn Error + 'static),
+                        "a run past its token limit was not stopped; its next report asks again"
+                    );
+                }
+                // A run that ended meanwhile dropped its tally, and no report reads this one.
+                if let Some(tally) = slot.lock().await.as_mut() {
+                    tally.limit_stop = match stopped {
+                        Ok(()) => TokenLimitStop::Stopped,
+                        Err(_) => TokenLimitStop::Unasked,
+                    };
+                }
             }
-        }
-        tally.is_stopped = true;
-        Ok(())
+            .instrument(tracing::Span::current()),
+        );
     }
 
     // Files each window as one row under the machine's sentinel session, stamped with the

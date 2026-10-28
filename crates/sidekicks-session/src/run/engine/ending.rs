@@ -98,6 +98,8 @@ impl RunEngine {
         live.carried_output_speeds.remove(run_id);
         live.step_counts.remove(run_id);
         live.usage_tallies.remove(run_id);
+        live.helper_runs
+            .retain(|_, helper_run_id| helper_run_id != run_id);
         live.reached_limits
             .retain(|(reached_run_id, _)| reached_run_id != run_id);
         live.mark_starting_run_ended(run_id);

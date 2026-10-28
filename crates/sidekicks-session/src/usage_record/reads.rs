@@ -24,7 +24,7 @@ use sidekicks_store::events::session::read::{
     DamagedFromSequenceReader, readable_event_sql, session_read_bound,
 };
 
-use crate::run::engine::usage_tallies::RunUsageTally;
+use crate::run::engine::usage_tallies::{RunUsageTally, TokenLimitStop};
 use crate::run::read::RunStateReader;
 use crate::transcript::turn_attribution::RunTurnReads;
 use crate::usage_record::UsageRecordError;
@@ -147,13 +147,15 @@ pub(super) struct MeteredTarget {
     pub(super) credential_generation: CredentialGeneration,
 }
 
-/// The target of a reading on `binding_id` that is `owner`'s. Fails as the binding, the helper's
-/// start or the account is missing, or a read fails.
+/// The target of a reading on `binding_id` that is `owner`'s, a helper's own run read from the log
+/// only where `kept_helper_run` does not already name it. Fails as the binding, the helper's start
+/// or the account is missing, or a read fails.
 pub(super) fn read_metered_target(
     reader: &Connection,
     session_id: SessionId,
     binding_id: &RuntimeBindingId,
     owner: &MeteredUsageOwner,
+    kept_helper_run: Option<RunId>,
 ) -> Result<MeteredTarget, UsageRecordError> {
     let binding =
         read_binding(reader, binding_id)?.ok_or_else(|| UsageRecordError::BindingNotFound {
@@ -162,12 +164,15 @@ pub(super) fn read_metered_target(
     let provider_account_id = binding.spawn_config.provider_account_id;
     let run_id = match owner {
         MeteredUsageOwner::Run => Some(binding.run_id),
-        MeteredUsageOwner::Helper(subagent_id) => Some(read_helper_run(
-            reader,
-            session_id,
-            &binding.provider_name,
-            subagent_id,
-        )?),
+        MeteredUsageOwner::Helper(subagent_id) => match kept_helper_run {
+            Some(helper_run_id) => Some(helper_run_id),
+            None => Some(read_helper_run(
+                reader,
+                session_id,
+                &binding.provider_name,
+                subagent_id,
+            )?),
+        },
         MeteredUsageOwner::SideQuestion => None,
     };
     let credential_generation = read_credential_generation(reader, provider_account_id.clone())?;
@@ -274,7 +279,7 @@ pub(super) fn read_tally_seed(
     Ok(Some(RunUsageTally {
         token_limit,
         token_count,
-        is_stopped: false,
+        limit_stop: TokenLimitStop::Unasked,
         turn_opening: None,
     }))
 }

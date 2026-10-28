@@ -41,8 +41,9 @@ use tempfile::TempDir;
 
 use super::{USAGE_RECORD_STATEMENT_CAPACITY, UsageRecord, UsageRecordError};
 use crate::questions::schema::schema_parts;
+use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{append, insert_running_run, test_choices, test_engine};
-use crate::run::engine::{RunEngine, RunEngineError};
+use crate::run::engine::usage_tallies::TokenLimitStop;
 use crate::run::epochs::{EpochBinding, ExecutionEpochs};
 use crate::run::inbound::tests::UnreadRunStates;
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
@@ -50,10 +51,12 @@ use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInter
 
 const ACCOUNT: &str = "account-1";
 
-// An interventions service that takes every limit's interrupt and counts them.
+// An interventions service that takes every limit's interrupt and counts them, each answering
+// once the test lets `answers` go.
 #[derive(Default)]
 struct CountedInterrupts {
     calls: AtomicUsize,
+    answers: tokio::sync::Mutex<()>,
 }
 
 impl LimitInterrupter for CountedInterrupts {
@@ -64,7 +67,11 @@ impl LimitInterrupter for CountedInterrupts {
         _cut: Option<HandedCut>,
     ) -> BoxFuture<'_, Result<(), LimitInterruptFailure>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        async { Ok(()) }.boxed()
+        async {
+            drop(self.answers.lock().await);
+            Ok(())
+        }
+        .boxed()
     }
 }
 
@@ -252,6 +259,20 @@ impl Harness {
             .await
     }
 
+    // Waits for every token-limit stop the record started to answer.
+    async fn settle_stops(&self) {
+        self.record.stops.close();
+        self.record.stops.wait().await;
+        self.record.stops.reopen();
+    }
+
+    // Where `run_id`'s stop at its token limit stands; `None` once the run keeps no tally.
+    async fn limit_stop(&self, run_id: RunId) -> Option<TokenLimitStop> {
+        let slot = self.engine.run_usage_tally(run_id);
+        let stop = slot.lock().await.as_ref().map(|tally| tally.limit_stop);
+        stop
+    }
+
     // Each stored event of `event_type`, its run and its payload member `member` as text.
     fn stored(&self, event_type: &str, member: &str) -> Vec<(Option<String>, Option<String>)> {
         self.database
@@ -306,6 +327,8 @@ fn queued(
 }
 
 const THREAD: &str = "thread-1";
+// How long a report is given to return while its stop is held.
+const STOP_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
 const RECORDED: &str = "usage.tokenCount.recorded";
 const REACHED: &str = "agent.run.tokenLimit.reached";
 
@@ -360,8 +383,9 @@ async fn a_row_the_dispatch_does_not_write_fails_the_record() {
 // Killed by counting a side question's usage toward the lead (it would pass the limit at once), by
 // counting cache reads (the lead's first reading would pass its limit), by recording or counting a
 // helper's rows on its lead (the rows' runs, and the lead stopping at the helper's reading), by a
-// second reached event or interrupt on a run past its limit, and by interrupting a helper (an
-// interrupt would be handed for it).
+// second reached event or interrupt on a run past its limit, by interrupting a helper (an
+// interrupt would be handed for it), and by marking a failed stop as gone through (it would never
+// be asked again).
 #[tokio::test]
 async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
     let harness = Harness::new(Some(100), true).await;
@@ -408,8 +432,8 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
     assert_eq!(harness.interrupts.calls.load(Ordering::SeqCst), 0);
 
     // The helper's 120 passes its limit: its reached event, no interrupt, and its driver asked,
-    // which the test's registry does not hold.
-    let failure = harness
+    // which the test's registry does not hold, so the stop fails and stays to be asked again.
+    harness
         .record(
             MeteredUsageOwner::Helper(subagent_id.clone()),
             None,
@@ -418,16 +442,17 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
             0,
         )
         .await
-        .expect_err("the test's registry holds no driver to stop the helper");
-    assert!(matches!(
-        failure.downcast_ref::<UsageRecordError>(),
-        Some(UsageRecordError::Stop(RunEngineError::Provider(_)))
-    ));
+        .expect("the helper's reading is recorded whatever its stop answers");
+    harness.settle_stops().await;
     assert_eq!(
         harness.stored(REACHED, "runId"),
         vec![(helper.clone(), helper.clone())]
     );
     assert_eq!(harness.interrupts.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        harness.limit_stop(helper_run_id).await,
+        Some(TokenLimitStop::Unasked)
+    );
 
     // The lead's 130 passes its own limit, twice: one reached event, its interrupt handed.
     for _ in 0..2 {
@@ -435,6 +460,7 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
             .record(MeteredUsageOwner::Run, None, 50, 20, 0)
             .await
             .expect("the lead's reading is recorded and its run stopped");
+        harness.settle_stops().await;
     }
     assert_eq!(
         harness.stored(REACHED, "runId"),
@@ -516,4 +542,37 @@ async fn a_turn_4_usage_row_delivered_during_turn_8_stays_current_after_a_cut_to
             .superseded
             .is_none()
     );
+}
+
+// A report past the limit returns while the stop's interrupt is still unanswered, a second report
+// then asks for no second stop, and the stop marks the run stopped once it goes through. Killed by
+// a stop awaited inline (the report would wait on the held interrupt), and by a stop asked again
+// while one is under way (a second interrupt).
+#[tokio::test]
+async fn a_report_past_the_limit_returns_before_its_stop_answers() {
+    let harness = Harness::new(Some(100), true).await;
+    let held_answers = harness.interrupts.answers.lock().await;
+
+    for _ in 0..2 {
+        tokio::time::timeout(
+            STOP_WAIT,
+            harness.record(MeteredUsageOwner::Run, None, 90, 20, 0),
+        )
+        .await
+        .expect("the report never waits on the stop's interrupt")
+        .expect("the lead's reading is recorded");
+    }
+    assert_eq!(
+        harness.limit_stop(harness.lead_run_id).await,
+        Some(TokenLimitStop::InFlight)
+    );
+    drop(held_answers);
+    harness.settle_stops().await;
+
+    assert_eq!(harness.interrupts.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        harness.limit_stop(harness.lead_run_id).await,
+        Some(TokenLimitStop::Stopped)
+    );
+    assert_eq!(harness.stored(RECORDED, "inputTokens").len(), 2);
 }
