@@ -61,7 +61,9 @@ use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     CodexSessionInboundSender, drain_codex_session_inbound,
 };
-use crate::driver::codex::session::lifecycle_call::{CodexCompactionReading, CodexLifecycleCall};
+use crate::driver::codex::session::lifecycle_call::{
+    CodexCompactionReading, CodexLifecycleCall, CodexRunningCommandReading,
+};
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::permission_profiles;
@@ -70,7 +72,7 @@ use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTrans
 use crate::driver::contract::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::port::run_host::RunHost;
-use crate::port::usage_sink::MeteredUsage;
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::usage_delta_accountant::{MeteredUsageDelta, WindowTelemetry};
@@ -304,6 +306,18 @@ impl CodexSessionIntake {
                     thread_id: record.thread_id.clone(),
                     wait_key: codex_compaction_wait_key(record, &record.thread_id),
                 });
+            }
+            CodexLifecycleCall::ReadRunningCommand { item_id, reply } => {
+                let reading = record
+                    .delivery
+                    .running_command_by_item_id
+                    .get(&item_id)
+                    .map(|command| CodexRunningCommandReading {
+                        connection: record.service.connection(),
+                        thread_id: command.thread_id.clone(),
+                        terminal_process_id: command.terminal_process_id.clone(),
+                    });
+                let _unheard = reply.send(reading);
             }
         }
     }
@@ -581,7 +595,7 @@ fn attribute_codex_usage(
         return Some(MeteredUsage {
             session_id: record.session_id,
             binding_id: child.binding_id.clone(),
-            subagent_id: Some(child.subagent_id.clone()),
+            owner: MeteredUsageOwner::Helper(child.subagent_id.clone()),
             delta,
         });
     }
@@ -594,7 +608,7 @@ fn attribute_codex_usage(
     Some(MeteredUsage {
         session_id: record.session_id,
         binding_id,
-        subagent_id: None,
+        owner: MeteredUsageOwner::Run,
         delta,
     })
 }

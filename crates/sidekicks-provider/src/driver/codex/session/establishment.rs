@@ -50,7 +50,7 @@ use crate::driver::codex::thread::settings::{
     compose_codex_thread_start_params,
 };
 use crate::driver::codex::thread::view::{
-    assert_codex_thread_profile, read_thread, read_thread_reasoning_effort,
+    THREAD_START_METHOD, assert_codex_thread_profile, read_thread, read_thread_reasoning_effort,
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::contract::{DriverError, bound_failure_detail};
@@ -72,7 +72,6 @@ use crate::driver::codex::session::establishment::settings::{
     CodexSettingsRequest, compose_resume_settings_request, require_execution_posture,
 };
 
-const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";
 
 /// What the establishment reads and composes through, shared by every session of the driver.

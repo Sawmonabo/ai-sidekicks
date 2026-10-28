@@ -592,6 +592,13 @@ impl CodexService {
         }
     }
 
+    /// Records a side question's read-only copy as the session's, marked so its commands are
+    /// given no way to ask the person anything.
+    pub(crate) fn register_side_question_thread(&self, thread_id: String, session_id: SessionId) {
+        self.lock_threads().mark_side_question(thread_id.clone());
+        self.register_thread(thread_id, session_id);
+    }
+
     /// Forgets one conversation.
     pub(crate) fn release_thread(&self, thread_id: &str) {
         self.lock_threads().release(thread_id);

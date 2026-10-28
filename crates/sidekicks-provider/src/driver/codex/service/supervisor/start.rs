@@ -21,7 +21,7 @@ use tokio_util::sync::CancellationToken;
 use crate::driver::ReportedVersionReading;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::ThreadLoadedListParams;
-use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay};
+use crate::driver::codex::exec_relay::{CODEX_EXECUTOR_ARGUMENTS, CodexExecRelay, RelayedThread};
 use crate::driver::codex::native_program::resolve_codex_native_program;
 use crate::driver::codex::service::command_line::{
     CodexServiceCommandLineInput, compose_codex_service_arguments,
@@ -215,11 +215,12 @@ fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
     CodexExecRelay::new(
         Arc::clone(&service.dependencies().exec_relay),
         Arc::new(move |thread_id: &str| {
-            threads
-                .upgrade()?
-                .lock_threads()
-                .session_for(thread_id)
-                .copied()
+            let service = threads.upgrade()?;
+            let threads = service.lock_threads();
+            Some(RelayedThread {
+                session_id: *threads.session_for(thread_id)?,
+                is_side_question: threads.is_side_question(thread_id),
+            })
         }),
         Arc::new(move || {
             if let Some(service) = restarts.upgrade() {

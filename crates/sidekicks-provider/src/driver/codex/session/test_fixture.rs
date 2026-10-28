@@ -207,6 +207,7 @@ impl TestCodexSession {
                 release: Arc::clone(&scripted.dependencies.release),
                 bindings: Arc::clone(&bindings) as Arc<dyn RuntimeBindingRebinder>,
                 tool_server_route: Arc::new(PortRegistration::new("tool server route")),
+                reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
                 pending_compactions,
             },
             runs: CodexRunCallDependencies {

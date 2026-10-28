@@ -1,6 +1,7 @@
 //! The daemon's own Codex executor and its one connection: newline-delimited JSON-RPC both ways,
 //! the relay's own requests answered by their ids, every other message handed to the client the
-//! relay serves, and each process's end watched so a held terminate or a stop can wait on it.
+//! relay serves, each process's end watched so a held terminate or a stop can wait on it, and the
+//! answer to a client's request watched where the relay keeps something for it.
 
 use std::collections::HashMap;
 use std::process::Stdio;
@@ -20,6 +21,7 @@ use tokio::process::Command;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 
+use crate::driver::codex::exec_relay::{INITIALIZE_METHOD, INITIALIZED_METHOD};
 use crate::driver::codex::session::errors::CodexError;
 
 /// What opens the id of every request the relay sends itself, so its answer is told apart from an
@@ -38,8 +40,6 @@ const LINE_QUEUE_CAPACITY: usize = 256;
 /// The name the relay gives the executor at its `initialize`.
 const RELAY_CLIENT_NAME: &str = "sidekicks-relay";
 
-const INITIALIZE_METHOD: &str = "initialize";
-const INITIALIZED_METHOD: &str = "initialized";
 const PROCESS_EXITED_METHOD: &str = "process/exited";
 const PROCESS_CLOSED_METHOD: &str = "process/closed";
 
@@ -71,6 +71,15 @@ struct RefusedRequest {
 #[serde(rename_all = "camelCase")]
 struct ProcessNamed {
     process_id: String,
+    exit_code: Option<i32>,
+}
+
+/// How one of the executor's processes ended: the exit code its `process/exited` reported, `None`
+/// for one that closed or whose connection ended with no code.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ProcessEnd {
+    /// The process's exit code.
+    pub(super) exit_code: Option<i32>,
 }
 
 /// One executor and the daemon's connection to it.
@@ -79,7 +88,8 @@ pub(super) struct CodexExecutor {
     pending: Mutex<HashMap<String, oneshot::Sender<RelayAnswer>>>,
     next_request: AtomicU64,
     client: Mutex<Option<mpsc::Sender<String>>>,
-    exits: Mutex<HashMap<String, watch::Sender<bool>>>,
+    exits: Mutex<HashMap<String, watch::Sender<Option<ProcessEnd>>>>,
+    client_replies: Mutex<HashMap<String, oneshot::Sender<bool>>>,
     ended: watch::Sender<bool>,
     process_id: Option<u32>,
     initialize_result: Mutex<Option<Box<RawValue>>>,
@@ -140,6 +150,7 @@ impl CodexExecutor {
             next_request: AtomicU64::new(1),
             client: Mutex::new(None),
             exits: Mutex::new(HashMap::new()),
+            client_replies: Mutex::new(HashMap::new()),
             ended: watch::Sender::new(false),
             process_id,
             initialize_result: Mutex::new(None),
@@ -219,13 +230,30 @@ impl CodexExecutor {
         self.lines.send(message).await.map_err(|_closed| ended())
     }
 
-    /// Watches the end of the executor's process `process_id`; the watch turns true at its
-    /// `process/exited` or `process/closed`, or when the connection ends.
-    pub(super) fn watch_exit(&self, process_id: &str) -> watch::Receiver<bool> {
+    /// Watches the end of the executor's process `process_id`; the watch holds its end from its
+    /// `process/exited` or `process/closed`, or once the connection ends.
+    pub(super) fn watch_exit(&self, process_id: &str) -> watch::Receiver<Option<ProcessEnd>> {
+        let is_ended = *self.ended.borrow();
         lock(&self.exits)
             .entry(process_id.to_owned())
-            .or_insert_with(|| watch::Sender::new(*self.ended.borrow()))
+            .or_insert_with(|| {
+                watch::Sender::new(is_ended.then_some(ProcessEnd { exit_code: None }))
+            })
             .subscribe()
+    }
+
+    /// Stops watching `process_id`, whose start the executor refused, so it never ends.
+    pub(super) fn forget_exit(&self, process_id: &str) {
+        lock(&self.exits).remove(process_id);
+    }
+
+    /// Watches the executor's answer to the client's request whose id is `id` as compact JSON,
+    /// still handed to the client: true for a refusal, false for a result; the sender drops when
+    /// the connection ends first.
+    pub(super) fn watch_client_answer(&self, id: String) -> oneshot::Receiver<bool> {
+        let (answer, answered) = oneshot::channel();
+        lock(&self.client_replies).insert(id, answer);
+        answered
     }
 
     /// Sends the relay's own request and answers its result, `None` when `timeout` passed first.
@@ -289,6 +317,13 @@ impl CodexExecutor {
             }
             return;
         }
+        if message.method.is_none()
+            && let Some(id) = message.id
+            && let Some(watching) = lock(&self.client_replies).remove(id.get())
+        {
+            // The relay's watch of an answer may have stopped waiting; the client still gets it.
+            let _unheard = watching.send(message.error.is_some());
+        }
         if let Some(method) = message.method.as_deref()
             && message.id.is_none()
             && (method == PROCESS_EXITED_METHOD || method == PROCESS_CLOSED_METHOD)
@@ -298,7 +333,7 @@ impl CodexExecutor {
         {
             let mut exits = lock(&self.exits);
             if let Some(exit) = exits.get(&named.process_id) {
-                exit.send_replace(true);
+                record_end(exit, named.exit_code);
             }
             if method == PROCESS_CLOSED_METHOD {
                 exits.remove(&named.process_id);
@@ -311,11 +346,24 @@ impl CodexExecutor {
     fn end(&self) {
         self.ended.send_replace(true);
         lock(&self.pending).clear();
+        lock(&self.client_replies).clear();
         for exit in lock(&self.exits).values() {
-            exit.send_replace(true);
+            record_end(exit, None);
         }
         *lock(&self.client) = None;
     }
+}
+
+// Records a process's end with `exit_code` where none was recorded yet: a `process/closed` after
+// its `process/exited` keeps the code.
+fn record_end(exit: &watch::Sender<Option<ProcessEnd>>, exit_code: Option<i32>) {
+    exit.send_if_modified(|end| {
+        let is_first = end.is_none();
+        if is_first {
+            *end = Some(ProcessEnd { exit_code });
+        }
+        is_first
+    });
 }
 
 fn ended() -> CodexError {

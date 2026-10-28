@@ -83,7 +83,9 @@ impl CodexDriver {
         let Some(established) = forked.established else {
             return Ok(forked.result);
         };
-        let prior_emitted = self.read_prior_emitted(session_id, &params.resume_handle);
+        let prior_emitted = self
+            .read_prior_emitted(session_id, &params.resume_handle)
+            .await;
         let opened = parts.establishment.open(established, prior_emitted).await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
@@ -300,13 +302,16 @@ impl CodexDriver {
 
     // The spend the session's conversation emitted before its resume, which its usage is based
     // on; with no usage sink yet, or an unreadable record, the base starts at zero, logged.
-    fn read_prior_emitted(
+    async fn read_prior_emitted(
         &self,
         session_id: SessionId,
         thread_id: &str,
     ) -> Option<UsageAxisCounts> {
         let sink = self.ports.usage.port()?;
-        match sink.read_prior_emitted(session_id, thread_id) {
+        match sink
+            .read_prior_emitted(session_id, thread_id.to_owned())
+            .await
+        {
             Ok(prior) => Some(prior),
             Err(error) => {
                 tracing::warn!(

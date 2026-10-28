@@ -6,49 +6,46 @@ use tokio::runtime::Handle;
 
 use super::ShellSnapshots;
 use super::wrap::wrap_with_snapshot;
+use crate::driver::test_registry::new_session_id;
 
 fn words(argv: &[&str]) -> Vec<String> {
     argv.iter().map(|word| (*word).to_owned()).collect()
 }
 
-// A relayed `-lc` start runs Codex's local snapshot form: the snapshot sourced in a plain shell,
-// the command's runtime variables put back over it, then the command's shell run on its line.
-#[test]
-fn wraps_a_login_start_in_the_local_snapshot_form() {
+// A relayed `-lc` start runs Codex's local snapshot form on the capture's own output: the
+// profile's exports reach the command through the snapshot, a variable Codex never lets a command
+// inherit and the start's own runtime variable do not come from it, and the command's shell runs
+// its line with the start's words.
+#[tokio::test]
+async fn runs_a_login_start_with_the_profiles_exports_from_its_capture() {
     let folder = tempfile::tempdir().expect("a test folder");
-    let snapshot = folder.path().join("snapshot.sh");
+    let home = folder.path().join("home");
+    std::fs::create_dir(&home).expect("the home is made");
     std::fs::write(
-        &snapshot,
-        "export SNAPSHOT_SEEN=from-snapshot\nexport CODEX_THREAD_ID=stale\n",
+        home.join(".bashrc"),
+        "export SNAPSHOT_EXPORTED=from-profile\nexport NODE_REPL_AUTH_TOKEN=from-profile\n\
+         export CODEX_THREAD_ID=stale\n",
     )
-    .expect("the snapshot is written");
+    .expect("the rc is written");
+    let spawner = Spawner::new(Handle::current()).expect("a spawner");
+    let snapshots = ShellSnapshots::new(spawner, folder.path());
+    snapshots.set_environment(vec![
+        ("HOME".to_owned(), home.to_string_lossy().into_owned()),
+        ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
+    ]);
+    let snapshot = snapshots
+        .snapshot_for(new_session_id(), "thread-1", "/bin/bash", folder.path())
+        .await
+        .expect("the snapshot is taken");
     let mut environment = Map::new();
     environment.insert("CODEX_THREAD_ID".to_owned(), json!("thread-1"));
-    environment.insert("PATH".to_owned(), json!("/usr/bin:/bin"));
-    let line = r#"echo "${SNAPSHOT_SEEN-unset}:$CODEX_THREAD_ID:$0:$1""#;
-    let argv = words(&["/bin/sh", "-lc", line, "first", "second"]);
+    let line =
+        r#"echo "${SNAPSHOT_EXPORTED-unset}:${NODE_REPL_AUTH_TOKEN-unset}:$CODEX_THREAD_ID:$0:$1""#;
+    let argv = words(&["/bin/bash", "-lc", line, "first", "second"]);
 
     let wrapped = wrap_with_snapshot(&argv, &snapshot, &environment).expect("a login start");
 
-    assert_eq!(wrapped[..2], words(&["/bin/sh", "-c"]));
-    let script = &wrapped[2];
-    let source = format!(
-        "\n\nif . '{}' >/dev/null 2>&1; then :; fi\n\n",
-        snapshot.display()
-    );
-    let (captures, after) = script.split_once(&source).expect("the snapshot is sourced");
-    assert!(
-        captures.starts_with(
-            "__CODEX_SNAPSHOT_OVERRIDE_SET_0=\"${CODEX_APPLY_PATCH_PRESERVE_LINE_ENDINGS+x}\""
-        ),
-        "{captures}"
-    );
-    assert!(captures.contains("=\"${CODEX_THREAD_ID+x}\""), "{captures}");
-    assert!(!captures.contains("${PATH+x}"), "{captures}");
-    assert!(after.ends_with(
-        "\n\nexec '/bin/sh' -c 'echo \"${SNAPSHOT_SEEN-unset}:$CODEX_THREAD_ID:$0:$1\"' 'first' 'second'"
-    ));
-
+    assert_eq!(wrapped[..2], words(&["/bin/bash", "-c"]));
     let output = Command::new(&wrapped[0])
         .args(&wrapped[1..])
         .env_clear()
@@ -59,7 +56,7 @@ fn wraps_a_login_start_in_the_local_snapshot_form() {
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "from-snapshot:thread-1:first:second\n"
+        "from-profile:unset:thread-1:first:second\n"
     );
 }
 
@@ -90,13 +87,14 @@ async fn captures_a_login_shells_functions_once() {
         ("HOME".to_owned(), home.to_string_lossy().into_owned()),
         ("PATH".to_owned(), "/usr/bin:/bin".to_owned()),
     ]);
+    let session_id = new_session_id();
 
     let first = snapshots
-        .snapshot_for("thread-1", "/bin/bash", folder.path())
+        .snapshot_for(session_id, "thread-1", "/bin/bash", folder.path())
         .await
         .expect("the snapshot is taken");
     let second = snapshots
-        .snapshot_for("thread-1", "/bin/bash", folder.path())
+        .snapshot_for(session_id, "thread-1", "/bin/bash", folder.path())
         .await
         .expect("the snapshot is kept");
 

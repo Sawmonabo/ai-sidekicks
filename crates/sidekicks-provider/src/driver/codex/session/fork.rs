@@ -41,6 +41,7 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;
+use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
@@ -67,6 +68,8 @@ pub(crate) struct CodexForkDependencies {
     pub(crate) bindings: Arc<dyn RuntimeBindingRebinder>,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
+    /// The reviewer's denials, whose held presses on a binding the fork retires are released.
+    pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
 }
@@ -360,7 +363,13 @@ async fn move_record_to_fork(
     .await?;
     let record = &mut *task.record;
     let session_id = record.session_id;
-    record.binding_id = binding_id;
+    let retired = std::mem::replace(&mut record.binding_id, binding_id);
+    // An `Allow once` held on the retired binding's blocks can be pressed again.
+    if let (Some(retired), Some(denials)) = (retired, dependencies.reviewer_denials.port())
+        && record.binding_id.as_ref() != Some(&retired)
+    {
+        denials.release_held_presses(&retired);
+    }
     record.thread_id.clone_from(&forked.thread_id);
     record.permission_profiles =
         CodexThreadPermissionProfiles::established(&record.thread_settings);

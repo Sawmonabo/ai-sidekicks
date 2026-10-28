@@ -4,6 +4,7 @@
 
 mod caller_check;
 mod capability_read;
+mod commands;
 mod intake;
 mod sessions;
 mod terminal_reach;

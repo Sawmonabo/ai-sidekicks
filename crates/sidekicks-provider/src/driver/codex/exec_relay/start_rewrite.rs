@@ -1,17 +1,16 @@
-//! A command's start as the relay passes it on. Every start's environment turns git's terminal
-//! prompt off. Where the command wrapper runs, its git and ssh prompts also go to the askpass, and
-//! a start a conversation's call made runs under the wrapper, which tells the session's channel of
-//! it: its own name moved to the wrapper's `--arg0`, and a login shell's line run after the
-//! conversation's snapshot, as Codex's own path runs it.
+//! A command's start as the relay passes it on. A start a session's call made runs under the
+//! command wrapper, which tells the session's channel of it: its own name moved to the wrapper's
+//! `--arg0`, a login shell's line run after the conversation's snapshot as Codex's own path runs
+//! it, and its git and ssh prompts sent to the askpass. Every other start, a side question's copy's
+//! among them, runs with the environment that keeps git and ssh from asking anyone.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
-use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::process::NO_PROMPT_ENVIRONMENT;
 
 use crate::command::askpass::{GIT_TERMINAL_PROMPT_OFF, command_prompt_environment};
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
@@ -34,7 +33,10 @@ struct StartRead {
     #[serde(default)]
     argv: Vec<String>,
     cwd: Option<String>,
-    shell_snapshot: Option<Value>,
+    #[serde(default)]
+    tty: bool,
+    #[serde(default)]
+    pipe_stdin: bool,
 }
 
 #[derive(Deserialize)]
@@ -44,43 +46,41 @@ struct StartMetadata {
     tool_call_id: Option<String>,
 }
 
-/// What a relayed start runs under: the wrapper, the session's channel and the snapshot.
+/// What a relayed start runs under: the wrapper, the session's channel, the askpass and the
+/// snapshot.
 pub(super) struct WrappedStart<'start> {
     /// The command wrapper's link.
     pub(super) wrapper_program: &'start Path,
+    /// The command askpass's link, which the command's git and ssh prompts run.
+    pub(super) askpass_program: &'start Path,
     /// The session's channel folder.
     pub(super) channel_folder: &'start Path,
     /// The variables that reach the channel.
     pub(super) channel_environment: &'start [(String, String)],
-    /// Codex's own id for the command's process, which the wrapper pairs its row by.
-    pub(super) terminal_process_id: &'start str,
+    /// The executor's id for the command's process, unique on the executor, which the wrapper
+    /// pairs its row by.
+    pub(super) executor_process_id: &'start str,
     /// The conversation's snapshot, where one was taken.
     pub(super) snapshot: Option<&'start Path>,
 }
 
-/// Adds the prompt variables to the start `params`: git's terminal prompt off always, and where
-/// the wrapper runs, the askpass's at `askpass_program`.
-pub(super) fn add_prompt_environment(params: &mut Map<String, Value>, askpass_program: &Path) {
+/// Adds to the start `params` the environment that keeps git and ssh from asking anyone, for a
+/// start no wrapper runs.
+pub(super) fn add_no_prompt_environment(params: &mut Map<String, Value>) {
     let environment = params
         .entry("env")
         .or_insert_with(|| Value::Object(Map::new()));
     if let Value::Object(environment) = environment {
-        let (prompt_variable, prompt_off) = GIT_TERMINAL_PROMPT_OFF;
-        environment.insert(
-            prompt_variable.to_owned(),
-            Value::String(prompt_off.to_owned()),
-        );
-        if RUNS_COMMAND_WRAPPER {
-            for (name, value) in command_prompt_environment(askpass_program) {
-                environment.insert(name.to_owned(), Value::String(value));
-            }
+        for (name, value) in NO_PROMPT_ENVIRONMENT {
+            environment.insert(name.to_owned(), Value::String(value.to_owned()));
         }
     }
 }
 
-/// Rewrites the start `params` to run under the wrapper as `wrapped` says: the channel's
-/// variables join its environment, a login shell's line is wrapped with the snapshot, and its own
-/// name and terminal move to the wrapper's flags.
+/// Rewrites the start `params` to run under the wrapper as `wrapped` says: the channel's and the
+/// askpass's variables join its environment with git's terminal prompt off, a login shell's line
+/// is wrapped with the relay's snapshot in place of any the start asks the executor for, and its
+/// own name and terminal move to the wrapper's flags.
 pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart<'_>) {
     let mut environment = match params.remove("env") {
         Some(Value::Object(environment)) => environment,
@@ -89,6 +89,17 @@ pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart
     for (name, value) in wrapped.channel_environment {
         environment.insert(name.clone(), Value::String(value.clone()));
     }
+    let (prompt_variable, prompt_off) = GIT_TERMINAL_PROMPT_OFF;
+    environment.insert(
+        prompt_variable.to_owned(),
+        Value::String(prompt_off.to_owned()),
+    );
+    for (name, value) in command_prompt_environment(wrapped.askpass_program) {
+        environment.insert(name.to_owned(), Value::String(value));
+    }
+    // The executor restores its own snapshot only for a login shell's words, which the wrapper's
+    // now stand ahead of.
+    params.remove("shellSnapshot");
     let argv: Vec<String> = params
         .get("argv")
         .and_then(Value::as_array)
@@ -108,7 +119,7 @@ pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart
         CONVERSATION_FLAG.to_owned(),
         wrapped.channel_folder.to_string_lossy().into_owned(),
         PROCESS_FLAG.to_owned(),
-        wrapped.terminal_process_id.to_owned(),
+        wrapped.executor_process_id.to_owned(),
     ];
     if let Some(arg0) = params.get("arg0").and_then(Value::as_str) {
         rewritten.extend([ARG0_FLAG.to_owned(), arg0.to_owned()]);
@@ -135,9 +146,9 @@ pub(super) fn terminal_process_id(executor_process_id: &str) -> &str {
 }
 
 impl CodexExecRelay {
-    /// Passes the start in `line` on to `executor`, rewritten as this module says, recording the
-    /// command under its call so the person's acts reach it; a start that cannot be read passes
-    /// as it came.
+    /// Passes the start in `line` on to `executor`, rewritten as this module says, keeping the
+    /// command under its call so the person's acts reach it until its start is refused or its
+    /// process ends; a start that cannot be read passes as it came.
     pub(super) async fn forward_process_start(
         self: Arc<Self>,
         executor: Arc<CodexExecutor>,
@@ -156,65 +167,84 @@ impl CodexExecRelay {
         };
         let started = self.relayed_start(&read);
         if let Some(Value::Object(params)) = message.get_mut("params") {
-            add_prompt_environment(params, &self.dependencies.askpass_program);
-            if let Some((command, session_id)) = &started
-                && RUNS_COMMAND_WRAPPER
-                && read.shell_snapshot.is_none()
-            {
-                self.wrap_relayed_start(params, &executor, &read, command, *session_id)
-                    .await;
+            let is_wrapped = match &started {
+                Some((command, false)) if RUNS_COMMAND_WRAPPER => {
+                    self.wrap_relayed_start(params, &executor, &read, command)
+                        .await
+                }
+                _ => false,
+            };
+            if !is_wrapped {
+                add_no_prompt_environment(params);
             }
         }
         let call = read.metadata.and_then(|metadata| metadata.tool_call_id);
-        let Some(((command, _session_id), call)) = started.zip(call) else {
+        let id = message.get("id").map(Value::to_string);
+        let Some((((command, _is_side_question), call), id)) = started.zip(call).zip(id) else {
             forward(&executor, Value::Object(message).to_string()).await;
             return;
         };
+        let process_id = command.executor_process_id.clone();
         // Watched before the start goes out, so an end that comes first is kept.
-        let mut exited = executor.watch_exit(&command.executor_process_id);
-        lock(&self.commands).insert(call.clone(), command);
+        let mut exited = executor.watch_exit(&process_id);
+        let answered = executor.watch_client_answer(id);
+        self.record_command(call.clone(), command);
         forward(&executor, Value::Object(message).to_string()).await;
-        // A command is forgotten once it ends, so the record holds only running ones.
         let relay = Arc::downgrade(&self);
-        drop((self, executor));
-        if exited.wait_for(|is_exited| *is_exited).await.is_ok()
-            && let Some(relay) = relay.upgrade()
-        {
-            lock(&relay.commands).remove(&call);
+        drop(self);
+        if answered.await.unwrap_or(false) {
+            // A refused start runs nothing, so nothing of it is kept.
+            executor.forget_exit(&process_id);
+            if let Some(relay) = relay.upgrade() {
+                relay.forget_command(&call);
+            }
+            return;
+        }
+        drop(executor);
+        let end = exited
+            .wait_for(Option::is_some)
+            .await
+            .ok()
+            .and_then(|end| *end);
+        if let Some(relay) = relay.upgrade() {
+            relay.command_exited(&call, end);
         }
     }
 
-    // The command a start a session's call made runs, and its session; `None` for a start no
-    // call of a session's conversation made.
-    fn relayed_start(&self, read: &StartRead) -> Option<(RelayedCommand, SessionId)> {
+    // The command a start a session's call made runs, and whether it is a side question's copy's;
+    // `None` for a start no call of a session's conversation made.
+    fn relayed_start(&self, read: &StartRead) -> Option<(RelayedCommand, bool)> {
         let metadata = read.metadata.as_ref()?;
         metadata.tool_call_id.as_ref()?;
         let thread_id = metadata.thread_id.clone()?;
-        let session_id = (self.thread_sessions)(&thread_id)?;
+        let thread = (self.thread_sessions)(&thread_id)?;
         Some((
             RelayedCommand {
-                session_id,
+                session_id: thread.session_id,
                 thread_id,
                 executor_process_id: read.process_id.clone(),
                 terminal_process_id: terminal_process_id(&read.process_id).to_owned(),
+                accepts_input: read.tty || read.pipe_stdin,
+                service_start: self.current_service_start(),
             },
-            session_id,
+            thread.is_side_question,
         ))
     }
 
-    // Wraps the start in `params` for `session_id`'s channel; left as it is, logged, where the
-    // channel cannot be opened, and as it is while no running commands are registered.
+    // Wraps the start in `params` for its session's channel, answering whether it did: left as it
+    // is, logged, where the channel cannot be opened, and as it is while no running commands are
+    // registered.
     async fn wrap_relayed_start(
         &self,
         params: &mut Map<String, Value>,
         executor: &CodexExecutor,
         read: &StartRead,
         command: &RelayedCommand,
-        session_id: SessionId,
-    ) {
+    ) -> bool {
+        let session_id = command.session_id;
         let channel = match self.session_channel(session_id, executor).await {
             Ok(Some(channel)) => channel,
-            Ok(None) => return,
+            Ok(None) => return false,
             Err(error) => {
                 tracing::warn!(
                     %session_id,
@@ -222,7 +252,7 @@ impl CodexExecRelay {
                     "a Codex session's command channel could not be opened; its command runs \
                      unwrapped"
                 );
-                return;
+                return false;
             }
         };
         let working_folder = read.cwd.as_deref().and_then(read_working_folder);
@@ -231,7 +261,7 @@ impl CodexExecRelay {
                 if read.argv.get(1).is_some_and(|flag| flag == "-lc") =>
             {
                 self.snapshots
-                    .snapshot_for(&command.thread_id, shell, &working_folder)
+                    .snapshot_for(session_id, &command.thread_id, shell, &working_folder)
                     .await
             }
             _ => None,
@@ -240,12 +270,14 @@ impl CodexExecRelay {
             params,
             &WrappedStart {
                 wrapper_program: &self.dependencies.wrapper_program,
+                askpass_program: &self.dependencies.askpass_program,
                 channel_folder: channel.channel.folder(),
                 channel_environment: &channel.environment,
-                terminal_process_id: &command.terminal_process_id,
+                executor_process_id: &command.executor_process_id,
                 snapshot: snapshot.as_deref(),
             },
         );
+        true
     }
 }
 

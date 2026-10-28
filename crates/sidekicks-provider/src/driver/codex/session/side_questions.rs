@@ -57,7 +57,7 @@ use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::session_control::{AskSideQuestionParams, ResumeSessionParams};
 use crate::port::inbound_dispatch::InboundDispatch;
-use crate::port::usage_sink::{MeteredUsage, UsageSink};
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::run::delivery::{InboundDelivery, SessionScopedRow};
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageDeltaAccountant};
 use sidekicks_std::port_registration::PortRegistration;
@@ -179,7 +179,7 @@ impl CodexSideQuestion {
                     .map(|delta| MeteredUsage {
                         session_id: self.session_id,
                         binding_id: self.binding_id.clone(),
-                        subagent_id: None,
+                        owner: MeteredUsageOwner::SideQuestion,
                         delta,
                     }),
             ),
@@ -279,7 +279,7 @@ impl CodexSideQuestions {
             let_go_codex_thread(&service, &copy_thread_id).await;
             return Ok(());
         }
-        service.register_thread(copy_thread_id.clone(), params.session_id);
+        service.register_side_question_thread(copy_thread_id.clone(), params.session_id);
         drop(claim);
         let started = match assert_active_permission_profile(
             &reply,

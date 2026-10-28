@@ -64,6 +64,8 @@ impl CodexFrameDelivery {
                         thread_id: thread_id.clone(),
                         row: run.row.clone(),
                         started_at_ms,
+                        terminal_process_id: read_non_empty_string(&item, "processId")
+                            .map(str::to_owned),
                     },
                 );
             }

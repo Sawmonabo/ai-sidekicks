@@ -1,10 +1,12 @@
 //! The loopback WebSocket the Codex service reaches the relay on: one listener for the relay's
 //! life, each connection admitted by the current token and then made the one the executor answers,
-//! its messages handed to the relay one by one.
+//! its messages handed to the relay one by one while the executor's messages are written to it
+//! apart, so neither side's full queue holds up the other's.
 
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, Weak};
+use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
 use sidekicks_std::mutex_lock::lock;
@@ -21,6 +23,10 @@ use crate::driver::codex::exec_relay::bearer_token::RelayBearerToken;
 
 /// How many of the executor's messages wait for one client before the executor's reader waits.
 const CLIENT_QUEUE_CAPACITY: usize = 256;
+
+/// The first wait after a failed accept, doubled at each failure in a row up to the longest.
+const ACCEPT_RETRY_FIRST: Duration = Duration::from_millis(10);
+const ACCEPT_RETRY_LONGEST: Duration = Duration::from_secs(1);
 
 /// The relay's listener and the token a connection must present now.
 pub(super) struct RelayEndpoint {
@@ -69,17 +75,25 @@ impl Drop for RelayEndpoint {
     }
 }
 
-// Accepts connections until the relay is gone, serving each on a task of its own.
+// Accepts connections until the relay is gone, serving each on a task of its own; a failed
+// accept, such as one past the open-file limit, is retried after a wait that grows while they
+// keep failing.
 async fn accept_connections(
     listener: TcpListener,
     token: Arc<Mutex<Arc<RelayBearerToken>>>,
     relay: Weak<CodexExecRelay>,
 ) {
+    let mut retry_wait = ACCEPT_RETRY_FIRST;
     loop {
         let stream = match listener.accept().await {
-            Ok((stream, _peer)) => stream,
+            Ok((stream, _peer)) => {
+                retry_wait = ACCEPT_RETRY_FIRST;
+                stream
+            }
             Err(error) => {
                 tracing::warn!(%error, "the Codex relay could not accept a connection");
+                tokio::time::sleep(retry_wait).await;
+                retry_wait = (retry_wait * 2).min(ACCEPT_RETRY_LONGEST);
                 continue;
             }
         };
@@ -126,36 +140,39 @@ async fn serve_connection(
     };
     drop(attached);
     let (mut sink, mut source) = socket.split();
-    loop {
-        tokio::select! {
-            outgoing = for_client.recv() => {
-                let Some(outgoing) = outgoing else { break };
-                if let Err(error) = sink.send(Message::text(outgoing)).await {
-                    tracing::warn!(%error, "the Codex relay's client could not be written");
-                    break;
-                }
-            }
-            incoming = source.next() => {
-                let text = match incoming {
-                    Some(Ok(Message::Text(text))) => text.as_str().to_owned(),
-                    Some(Ok(Message::Binary(bytes))) => match String::from_utf8(bytes.to_vec()) {
-                        Ok(text) => text,
-                        Err(error) => {
-                            tracing::warn!(%error, "the Codex relay's client sent no text");
-                            continue;
-                        }
-                    },
-                    Some(Ok(Message::Close(_))) | None => break,
-                    Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
-                    Some(Err(error)) => {
-                        tracing::warn!(%error, "the Codex relay's client could not be read");
-                        break;
-                    }
-                };
-                let Some(relay) = relay.upgrade() else { break };
-                relay.take_client_message(&executor, text).await;
+    let mut writing = tokio::spawn(async move {
+        while let Some(outgoing) = for_client.recv().await {
+            if let Err(error) = sink.send(Message::text(outgoing)).await {
+                tracing::warn!(%error, "the Codex relay's client could not be written");
+                return;
             }
         }
+    });
+    loop {
+        let incoming = tokio::select! {
+            incoming = source.next() => incoming,
+            // The client can no longer be written, so the connection ends.
+            _written = &mut writing => break,
+        };
+        let text = match incoming {
+            Some(Ok(Message::Text(text))) => text.as_str().to_owned(),
+            Some(Ok(Message::Binary(bytes))) => match String::from_utf8(bytes.to_vec()) {
+                Ok(text) => text,
+                Err(error) => {
+                    tracing::warn!(%error, "the Codex relay's client sent no text");
+                    continue;
+                }
+            },
+            Some(Ok(Message::Close(_))) | None => break,
+            Some(Ok(Message::Ping(_) | Message::Pong(_) | Message::Frame(_))) => continue,
+            Some(Err(error)) => {
+                tracing::warn!(%error, "the Codex relay's client could not be read");
+                break;
+            }
+        };
+        let Some(relay) = relay.upgrade() else { break };
+        relay.take_client_message(&executor, text).await;
     }
     executor.detach_client(&to_client);
+    writing.abort();
 }

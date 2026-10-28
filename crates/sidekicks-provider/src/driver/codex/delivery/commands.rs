@@ -1,6 +1,8 @@
 //! A Codex command's row in the session's running commands: added at its item's start, fed its
-//! output as it prints, and ended by its own item's end alone, so a command outlives its turn's end
-//! and its service's exit until Codex reports it done.
+//! output as it prints, and ended by its own item's end, so a command outlives its turn's end and
+//! its service's exit until Codex reports it done; a relayed command whose service was restarted
+//! is ended by the relay at its process's end instead. A relayed command's row is keyed by the
+//! executor's own process id, which its wrapper pairs by, and takes input as its start says.
 
 use jiff::Timestamp;
 use serde_json::{Map, Value};
@@ -37,6 +39,11 @@ impl CodexFrameDelivery {
         let Some((command_id, name)) = command_id.zip(name) else {
             return;
         };
+        // The relay holds a command it started before Codex reports the command's item.
+        let relayed = record
+            .service
+            .exec_relay()
+            .and_then(|relay| relay.relayed_command(record.session_id, &command_id));
         publisher.command_started(CommandStart {
             session_id: record.session_id,
             command_id,
@@ -44,12 +51,14 @@ impl CodexFrameDelivery {
             name,
             started_at: instant_at(started_at_ms),
             line: None,
-            process_id: read_non_empty_string(item, "processId").map(str::to_owned),
+            process_id: relayed
+                .as_ref()
+                .map(|command| command.executor_process_id.clone()),
             // Codex runs every command in the foreground and moves none while it runs.
             is_backgrounded: false,
             can_move_to_background: false,
-            // Every turn runs its commands through the executor relay, which writes to them.
-            accepts_input: true,
+            // Only the relay writes to a command, one whose start keeps its input.
+            accepts_input: relayed.is_some_and(|command| command.accepts_input),
         });
     }
 
@@ -60,10 +69,13 @@ impl CodexFrameDelivery {
         item: &Map<String, Value>,
         item_id: &str,
     ) {
-        let Some(publisher) = self.dependencies.command_output.port() else {
+        let Some(command_id) = CommandId::new(item_id.to_owned()) else {
             return;
         };
-        let Some(command_id) = CommandId::new(item_id.to_owned()) else {
+        if let Some(relay) = record.service.exec_relay() {
+            relay.command_completed(&command_id);
+        }
+        let Some(publisher) = self.dependencies.command_output.port() else {
             return;
         };
         let exit_code = item

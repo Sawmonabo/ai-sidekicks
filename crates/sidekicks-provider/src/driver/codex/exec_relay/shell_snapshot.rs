@@ -1,6 +1,7 @@
 //! A conversation's shell snapshot, as Codex's local path takes it and the executor's path does
 //! not: the person's login shell started once per conversation, shell and folder, its functions,
-//! options and aliases written to a file every relayed command of that shell sources first.
+//! options, aliases and the exports Codex's default environment policy admits written to a file
+//! every relayed command of that shell sources first.
 
 mod capture_scripts;
 pub(super) mod wrap;
@@ -12,6 +13,7 @@ use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::{Spawner, create_private_folder, wrap_group_child_command};
 use sidekicks_std::mutex_lock::lock;
@@ -19,6 +21,7 @@ use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::sync::OnceCell;
 
 use self::capture_scripts::capture_script;
+use self::wrap::is_non_inheritable;
 
 /// The folder under the daemon's data folder that holds every relay's snapshots.
 const SNAPSHOTS_FOLDER: &str = "codex-shell-snapshots";
@@ -35,10 +38,13 @@ const ERROR_TAIL_MAX_BYTES: u64 = 4 << 10;
 /// The variable naming a command's call, which a capture never carries.
 const TOOL_CALL_ID_VARIABLE: &str = "CODEX_TOOL_CALL_ID";
 
+/// The exports each command's start supplies itself, which a snapshot never keeps.
+const START_SUPPLIED_EXPORTS: [&str; 2] = ["CODEX_THREAD_ID", TOOL_CALL_ID_VARIABLE];
+
 /// The line that opens a capture's state.
 const SNAPSHOT_MARKER: &[u8] = b"# Snapshot file";
 
-/// The line a snapshot ends with, where Codex lists the exports it keeps; it keeps none here.
+/// The line ahead of the exports a snapshot keeps.
 const EXPORTS_HEADING: &str = "# exports (native declarations)\n";
 
 /// A shell whose state a snapshot captures.
@@ -61,15 +67,17 @@ impl SnapshotShell {
     }
 }
 
-/// Which snapshot a command sources: its conversation, its shell and its folder.
+/// Which snapshot a command sources: its session's conversation, its shell and its folder.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct SnapshotKey {
+    session_id: SessionId,
     thread_id: String,
     shell: String,
     working_folder: PathBuf,
 }
 
-/// One relay's snapshots: each taken once, at its first command, and kept until the relay ends.
+/// One relay's snapshots: each taken once, at its first command, and kept until its session closes
+/// or the relay ends.
 pub(super) struct ShellSnapshots {
     spawner: Spawner,
     folder: PathBuf,
@@ -96,17 +104,19 @@ impl ShellSnapshots {
         *lock(&self.environment) = environment;
     }
 
-    /// The snapshot a `shell` command of `thread_id` in `working_folder` sources, captured at
-    /// its first ask; `None` where the shell is none a snapshot captures or its capture failed,
-    /// which is logged once.
+    /// The snapshot a `shell` command of `session_id`'s conversation `thread_id` in
+    /// `working_folder` sources, captured at its first ask; `None` where the shell is none a
+    /// snapshot captures or its capture failed, which is logged once.
     pub(super) async fn snapshot_for(
         &self,
+        session_id: SessionId,
         thread_id: &str,
         shell: &str,
         working_folder: &Path,
     ) -> Option<PathBuf> {
         let snapshot_shell = SnapshotShell::of(shell)?;
         let key = SnapshotKey {
+            session_id,
             thread_id: thread_id.to_owned(),
             shell: shell.to_owned(),
             working_folder: working_folder.to_owned(),
@@ -130,6 +140,30 @@ impl ShellSnapshots {
         .clone()
     }
 
+    /// Forgets `session_id`'s snapshots and removes their files, once the session closed; a file
+    /// that cannot be removed is logged.
+    pub(super) async fn forget_session(&self, session_id: SessionId) {
+        let cells: Vec<_> = {
+            let mut taken = lock(&self.taken);
+            let keys: Vec<SnapshotKey> = taken
+                .keys()
+                .filter(|key| key.session_id == session_id)
+                .cloned()
+                .collect();
+            keys.iter().filter_map(|key| taken.remove(key)).collect()
+        };
+        for path in cells
+            .iter()
+            .filter_map(|cell| cell.get().cloned().flatten())
+        {
+            if let Err(error) = tokio::fs::remove_file(&path).await
+                && error.kind() != ErrorKind::NotFound
+            {
+                tracing::warn!(%error, "a closed session's shell snapshot could not be removed");
+            }
+        }
+    }
+
     // Captures `shell`'s state as a login shell in `working_folder`, writes it and checks that it
     // sources cleanly.
     async fn take(
@@ -146,7 +180,7 @@ impl ShellSnapshots {
                 working_folder,
             )
             .await?;
-        let snapshot = render_snapshot(&captured).ok_or_else(|| {
+        let snapshot = render_snapshot(snapshot_shell, &captured).ok_or_else(|| {
             io::Error::new(ErrorKind::InvalidData, "the shell's capture is no snapshot")
         })?;
         let folder = self.folder.clone();
@@ -254,19 +288,62 @@ async fn read_bounded(stream: impl AsyncRead + Unpin, limit: u64) -> io::Result<
     Ok(read)
 }
 
-/// The snapshot a capture's output holds: its state from the marker, then its aliases, then the
-/// exports heading; `None` for output that is no capture.
-pub(super) fn render_snapshot(captured: &[u8]) -> Option<String> {
+/// The snapshot a `shell` capture's output holds: its state from the marker, its aliases, then the
+/// exports heading and every export Codex's default environment policy admits, those each start
+/// supplies itself left out; `None` for output that is no whole capture.
+pub(super) fn render_snapshot(shell: SnapshotShell, captured: &[u8]) -> Option<String> {
     let mut records = captured.split(|byte| *byte == 0);
     let state = records.next()?;
     let start = state
         .windows(SNAPSHOT_MARKER.len())
         .position(|window| window == SNAPSHOT_MARKER)?;
     let state = std::str::from_utf8(&state[start..]).ok()?;
-    // The aliases end at their NUL, which a whole capture always prints.
     let aliases = std::str::from_utf8(records.next()?).ok()?;
-    records.next()?;
-    Some(format!("{state}{aliases}{EXPORTS_HEADING}"))
+    let mut exports = String::new();
+    let mut keep = |name: &str, declaration: &str| {
+        if !START_SUPPLIED_EXPORTS.contains(&name) && !is_non_inheritable(name) {
+            exports.push_str(declaration);
+        }
+    };
+    loop {
+        let name = records.next()?;
+        if name.is_empty() {
+            break;
+        }
+        let name = std::str::from_utf8(name).ok()?;
+        let declaration = String::from_utf8_lossy(records.next()?);
+        keep(name, &declaration);
+    }
+    if shell == SnapshotShell::Sh {
+        loop {
+            let entry = records.next()?;
+            if entry.is_empty() {
+                break;
+            }
+            let Some(equals) = entry.iter().position(|byte| *byte == b'=') else {
+                continue;
+            };
+            let Ok(name) = std::str::from_utf8(&entry[..equals]) else {
+                continue;
+            };
+            if !is_exportable_name(name) {
+                continue;
+            }
+            let value = String::from_utf8_lossy(&entry[equals + 1..]);
+            let declaration = format!("export {name}={}\n", shlex::try_quote(&value).ok()?);
+            keep(name, &declaration);
+        }
+    }
+    Some(format!("{state}{aliases}{EXPORTS_HEADING}{exports}"))
+}
+
+// Whether `name` is a variable a snapshot keeps: a shell identifier, and no working folder.
+fn is_exportable_name(name: &str) -> bool {
+    !name.is_empty()
+        && !matches!(name, "PWD" | "OLDPWD")
+        && name.bytes().enumerate().all(|(index, byte)| {
+            byte == b'_' || byte.is_ascii_alphabetic() || index > 0 && byte.is_ascii_digit()
+        })
 }
 
 #[cfg(test)]

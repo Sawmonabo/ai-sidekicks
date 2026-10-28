@@ -1,5 +1,6 @@
 //! The person's acts on a Codex command. A stop of a command the wrapper runs takes the wrapper's
-//! end ladder; any other is Codex's own background terminal, stopped through the service and
+//! end ladder; any other is Codex's own background terminal, read from the relay's record or, for
+//! a command the relay does not hold, from the session's open row, stopped through the service and
 //! answered done only when Codex says it terminated. Typed input goes to the executor, sent again
 //! under the same write id when its answer is late, which the executor takes once.
 
@@ -21,9 +22,11 @@ use crate::driver::codex::exec_relay::executor::CodexExecutor;
 use crate::driver::codex::exec_relay::terminate_hold::WrapperStop;
 use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand};
 use crate::driver::codex::lifecycle::CodexDriver;
+use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::background_terminals::terminate_codex_running_command;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::contract::DriverError;
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 
@@ -56,14 +59,15 @@ struct WriteAnswer {
 impl CodexDriver {
     /// Stops the command `params` names: through its wrapper where one runs it, answered once it
     /// ended; otherwise as Codex's background terminal, answered done only on Codex's
-    /// `terminated: true`. A command the relay no longer holds has ended, and is answered done.
-    /// Refused `agent.command.notStopped` when it still runs, and as the service's request fails.
+    /// `terminated: true`. A command whose item already ended is answered done. Refused
+    /// `agent.command.notStopped` when it still runs or names no process to stop, as the session's
+    /// live record is missing, and as the service's request fails.
     pub(crate) async fn stop_command(
         &self,
         params: RunningCommandParams,
     ) -> Result<(), DriverError> {
         let Some((service, relay, command)) = self.find_relayed_command(&params) else {
-            return Ok(());
+            return self.stop_background_terminal(&params).await;
         };
         if let Some(executor) = relay.executor() {
             match relay
@@ -82,6 +86,34 @@ impl CodexDriver {
             &command.terminal_process_id,
         )
         .await?;
+        if is_terminated {
+            Ok(())
+        } else {
+            Err(not_stopped(&params.command_id).into())
+        }
+    }
+
+    // Stops the command `params` names, which the relay does not hold, as Codex's background
+    // terminal, reading where it runs from the session's open row.
+    async fn stop_background_terminal(
+        &self,
+        params: &RunningCommandParams,
+    ) -> Result<(), DriverError> {
+        let inbound = self.slots.require_live(params.session_id)?;
+        let item_id = params.command_id.as_str().to_owned();
+        let reading = call_codex_lifecycle(&inbound, |reply| {
+            CodexLifecycleCall::ReadRunningCommand { item_id, reply }
+        })
+        .await?;
+        let Some(reading) = reading else {
+            return Ok(());
+        };
+        let Some(process_id) = reading.terminal_process_id else {
+            return Err(not_stopped(&params.command_id).into());
+        };
+        let connection = reading.connection?;
+        let is_terminated =
+            terminate_codex_running_command(&connection, &reading.thread_id, &process_id).await?;
         if is_terminated {
             Ok(())
         } else {

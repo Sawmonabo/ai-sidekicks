@@ -110,7 +110,7 @@ pub(crate) struct CodexDriver {
     log_expiry: AccountHomeLogExpiry,
     pub(super) registry: Arc<CodexServiceRegistry>,
     release: Arc<CodexConversationRelease>,
-    slots: Arc<CodexSessionSlots>,
+    pub(super) slots: Arc<CodexSessionSlots>,
     run_routes: Arc<CodexRunRoutes>,
     config_forks: Arc<CodexConfigForks>,
     provider_commands: Arc<CodexProviderCommandCache>,
@@ -399,6 +399,7 @@ impl CodexDriver {
                     release: Arc::clone(&self.release),
                     bindings: Arc::clone(&self.runtime_bindings),
                     tool_server_route: Arc::clone(&ports.tool_server_route),
+                    reviewer_denials: Arc::clone(&ports.reviewer_denials),
                     pending_compactions: self.pending_compactions.clone(),
                 },
                 runs: CodexRunCallDependencies {

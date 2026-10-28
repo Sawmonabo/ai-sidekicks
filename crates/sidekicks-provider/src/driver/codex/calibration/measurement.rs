@@ -29,6 +29,7 @@ use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::start::compose_codex_native_launch;
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::thread::view::{THREAD_START_METHOD, TURN_START_METHOD};
 use crate::driver::codex::transport::connection::{
     CodexConnectionHandlers, open_codex_connection, read_codex_object,
 };
@@ -368,7 +369,7 @@ async fn ask_one_turn(
     .await?;
     let started = connection
         .request(
-            "thread/start",
+            THREAD_START_METHOD,
             &json!({
                 "model": model_id,
                 "cwd": folder,
@@ -378,12 +379,12 @@ async fn ask_one_turn(
         )
         .await?;
     let thread_id = read_codex_object::<StartedThread>(started.get())
-        .ok_or_else(|| unreadable_reply("thread/start"))?
+        .ok_or_else(|| unreadable_reply(THREAD_START_METHOD))?
         .thread
         .id;
     let turn = connection
         .request(
-            "turn/start",
+            TURN_START_METHOD,
             &json!({
                 "threadId": thread_id,
                 "input": [{ "type": "text", "text": CALIBRATION_PROMPT }],
@@ -391,7 +392,7 @@ async fn ask_one_turn(
         )
         .await?;
     Ok(read_codex_object::<StartedTurn>(turn.get())
-        .ok_or_else(|| unreadable_reply("turn/start"))?
+        .ok_or_else(|| unreadable_reply(TURN_START_METHOD))?
         .turn
         .id)
 }

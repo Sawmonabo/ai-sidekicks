@@ -83,18 +83,20 @@ impl CodexExecRelay {
             );
             return WrapperStop::NoWrapper;
         }
-        match tokio::time::timeout(wait, exited.wait_for(|is_exited| *is_exited)).await {
+        match tokio::time::timeout(wait, exited.wait_for(Option::is_some)).await {
             Ok(_ended) => WrapperStop::Ended,
             Err(_elapsed) => WrapperStop::StillRunning,
         }
     }
 
-    // The call and command the executor names `executor_process_id`.
+    // The call and running command the executor names `executor_process_id`.
     fn command_on(&self, executor_process_id: &str) -> Option<(String, RelayedCommand)> {
         lock(&self.commands)
             .iter()
-            .find(|(_call, command)| command.executor_process_id == executor_process_id)
-            .map(|(call, command)| (call.clone(), command.clone()))
+            .find(|(_call, record)| {
+                record.end.is_none() && record.command.executor_process_id == executor_process_id
+            })
+            .map(|(call, record)| (call.clone(), record.command.clone()))
     }
 
     // The channel and the wrapper party that run `command`, the call `call`, once it paired.
@@ -106,7 +108,7 @@ impl CodexExecRelay {
         let sets = self.dependencies.command_output.port()?;
         let command_id = CommandId::new(call.to_owned())?;
         let party = sets.paired_wrapper(command.session_id, &command_id)?;
-        let channel = Arc::clone(lock(&self.channels).get(&command.session_id)?);
+        let channel = Arc::clone(lock(&self.channels).get(&command.session_id)?.get()?);
         Some((channel, party))
     }
 }

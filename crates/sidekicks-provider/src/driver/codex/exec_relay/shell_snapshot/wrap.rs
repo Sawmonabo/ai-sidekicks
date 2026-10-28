@@ -123,6 +123,13 @@ elif [ -n \"$__CODEX_SNAPSHOT_PROXY_GIT_SSH_COMMAND_AFTER_MARKED\" ]; then
   fi
 fi";
 
+/// Whether a command's shell never inherits `name`, matched without case.
+pub(in crate::driver::codex::exec_relay) fn is_non_inheritable(name: &str) -> bool {
+    NON_INHERITABLE
+        .iter()
+        .any(|denied| denied.eq_ignore_ascii_case(name))
+}
+
 /// `argv`, a `[shell, "-lc", line, ...]` start whose environment is `environment`, rewritten to
 /// source `snapshot` first; `None` for any other start, which runs as it is.
 pub(in crate::driver::codex::exec_relay) fn wrap_with_snapshot(
@@ -140,11 +147,7 @@ pub(in crate::driver::codex::exec_relay) fn wrap_with_snapshot(
         .into_iter()
         .filter(|key| environment.contains_key(*key))
         .chain(RESTORED_EVEN_WHEN_ABSENT)
-        .filter(|key| {
-            !NON_INHERITABLE
-                .iter()
-                .any(|denied| denied.eq_ignore_ascii_case(key))
-        })
+        .filter(|key| !is_non_inheritable(key))
         .collect();
     override_keys.sort_unstable();
     override_keys.dedup();

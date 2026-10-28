@@ -50,6 +50,7 @@ pub(crate) struct CodexServiceThreads {
     max_held_frames: usize,
     report_unclaimed: UnclaimedThreadFrameReport,
     session_by_thread: BTreeMap<String, SessionId>,
+    side_question_threads: BTreeSet<String>,
     held_frames: VecDeque<CodexHeldThreadFrame>,
     claims_in_flight: usize,
 }
@@ -65,6 +66,7 @@ impl CodexServiceThreads {
             max_held_frames,
             report_unclaimed,
             session_by_thread: BTreeMap::new(),
+            side_question_threads: BTreeSet::new(),
             held_frames: VecDeque::new(),
             claims_in_flight: 0,
         }
@@ -73,6 +75,16 @@ impl CodexServiceThreads {
     /// The session a thread belongs to, or `None` for one no session on this service holds.
     pub(crate) fn session_for(&self, thread_id: &str) -> Option<&SessionId> {
         self.session_by_thread.get(thread_id)
+    }
+
+    /// Whether `thread_id` is a side question's read-only copy, which asks the person nothing.
+    pub(crate) fn is_side_question(&self, thread_id: &str) -> bool {
+        self.side_question_threads.contains(thread_id)
+    }
+
+    /// Marks the registered `thread_id` as a side question's copy until it is released.
+    pub(crate) fn mark_side_question(&mut self, thread_id: String) {
+        self.side_question_threads.insert(thread_id);
     }
 
     /// Every session holding a conversation on this service, each once.
@@ -116,6 +128,7 @@ impl CodexServiceThreads {
     /// Forgets one thread.
     pub(crate) fn release(&mut self, thread_id: &str) {
         self.session_by_thread.remove(thread_id);
+        self.side_question_threads.remove(thread_id);
     }
 
     /// Opens a claim for a start or fork whose thread is not known yet. The claim closes when it

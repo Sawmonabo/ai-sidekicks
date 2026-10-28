@@ -101,6 +101,8 @@ pub(crate) struct CodexRunningCommand {
     pub(crate) row: CodexRowRun,
     /// When it started, in Unix milliseconds.
     pub(crate) started_at_ms: u64,
+    /// Codex's own id for its process, which a stop of its background terminal names.
+    pub(crate) terminal_process_id: Option<String>,
 }
 
 /// An item whose prose is being streamed: the run its pieces go on and the row each is written as.
