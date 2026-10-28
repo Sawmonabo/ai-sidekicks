@@ -2,10 +2,11 @@
 //! its branch under the active-branch index and no sweep reads it. A tree still on disk is undone
 //! as a failed creation is: the row marked `failed`, the folder and its own record removed and the
 //! branch its creation made deleted. A row whose tree is gone, or whose mount is no longer
-//! attached, is retired, so the sweep settles it.
+//! attached, is retired, so the sweep settles it; for a tree gone from an attached mount, git's
+//! records naming its folder are removed too, since no sweep reads a record of a missing folder.
 
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 
 use notify::Watcher;
@@ -13,7 +14,7 @@ use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::stored_column::text_column;
 
-use super::{WorktreeCreationError, WorktreeCreator};
+use super::{WorktreeCreationError, WorktreeCreator, remove_tree_without_git};
 use crate::git::worktree::service::{RecordRetirementOptions, WorktreeServiceError};
 
 static SELECT_CREATING_WORKTREES_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -91,7 +92,8 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
     }
 
     // Undoes the tree of one `creating` row while it stands on an attached mount, and otherwise
-    // retires the row; answers each step's failure.
+    // retires the row, removing the records of a tree gone from an attached mount; answers each
+    // step's failure.
     async fn settle_interrupted_creation(
         &self,
         worktree_id: &WorktreeId,
@@ -102,27 +104,36 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
             Err(failure) => return vec![failure.into()],
         };
         let folder = PathBuf::from(row.fs_root.as_str());
-        let mount = match tokio::fs::try_exists(&folder).await {
-            Ok(true) => match worktrees.require_attached_mount(&row.repo_mount_id).await {
-                Ok(mount) => Some(mount),
-                Err(WorktreeServiceError::MountRefused(_)) => None,
-                Err(failure) => return vec![failure.into()],
-            },
-            Ok(false) => None,
+        let is_present = match tokio::fs::try_exists(&folder).await {
+            Ok(is_present) => is_present,
             Err(failure) => return vec![failure.into()],
         };
-        match mount {
-            Some(mount) => {
-                self.record_create_failure(&mount, &folder, row.branch_name.as_str(), worktree_id)
-                    .await
-            }
-            None => worktrees
-                .record_retirement(&row, RecordRetirementOptions::default())
-                .await
-                .err()
-                .into_iter()
-                .map(Into::into)
-                .collect(),
+        let mount = match worktrees.require_attached_mount(&row.repo_mount_id).await {
+            Ok(mount) => Some(mount),
+            Err(WorktreeServiceError::MountRefused(_)) => None,
+            Err(failure) => return vec![failure.into()],
+        };
+        if is_present && let Some(mount) = &mount {
+            return self
+                .record_create_failure(mount, &folder, row.branch_name.as_str(), worktree_id)
+                .await;
         }
+        let mut failures: Vec<Box<dyn Error + Send + Sync>> = worktrees
+            .record_retirement(&row, RecordRetirementOptions::default())
+            .await
+            .err()
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        if let Some(mount) = &mount {
+            let repository = Path::new(mount.canonical_root.as_str());
+            if let Err(record_failures) =
+                remove_tree_without_git(&self.deps.git, mount.place.as_ref(), repository, &folder)
+                    .await
+            {
+                failures.extend(record_failures);
+            }
+        }
+        failures
     }
 }
