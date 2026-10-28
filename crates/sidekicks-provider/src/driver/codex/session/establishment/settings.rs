@@ -182,7 +182,7 @@ fn report_withheld_definition_fields(
     for definition in definitions {
         for field in read_codex_role_file_withheld_fields(definition) {
             CodexTransportDiagnostic::SubagentDefinitionFieldWithheld {
-                provider_account_id: provider_account_id.clone(),
+                provider_account_id: Some(provider_account_id.clone()),
                 definition_name: definition.name.clone(),
                 field,
             }

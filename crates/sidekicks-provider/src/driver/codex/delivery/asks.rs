@@ -470,7 +470,7 @@ impl CodexAskHandOff {
             tasks.spawn(async move {
                 if let Err(error) = port.take_ask(ask).await {
                     report_owner_failure(
-                        provider_account_id,
+                        Some(provider_account_id),
                         CodexDeliveryPort::PermissionAsk,
                         session_id,
                         error,
@@ -561,7 +561,7 @@ impl CodexAskHandOff {
                 let is_still_held =
                     matches!(error, QuestionTurnError::Take { .. }) && !let_go.is_cancelled();
                 report_owner_failure(
-                    provider_account_id.clone(),
+                    Some(provider_account_id.clone()),
                     CodexDeliveryPort::Question,
                     session_id,
                     Box::new(error),
@@ -581,7 +581,7 @@ impl CodexAskHandOff {
                     };
                     if let Err(error) = refused {
                         report_owner_failure(
-                            provider_account_id,
+                            Some(provider_account_id),
                             CodexDeliveryPort::Question,
                             session_id,
                             Box::new(error),
@@ -669,7 +669,7 @@ impl CodexAskHandOff {
             };
             if let Err(error) = port.withdraw_ask(withdrawal).await {
                 report_owner_failure(
-                    provider_account_id,
+                    Some(provider_account_id),
                     CodexDeliveryPort::PermissionAsk,
                     session_id,
                     error,
@@ -694,7 +694,7 @@ impl CodexAskHandOff {
             };
             if let Err(error) = port.withdraw_question(withdrawal).await {
                 report_owner_failure(
-                    provider_account_id,
+                    Some(provider_account_id),
                     CodexDeliveryPort::Question,
                     session_id,
                     error,
@@ -797,13 +797,13 @@ fn codex_approval_tool(method: CodexRoutedMethod) -> Option<&'static str> {
 }
 
 fn report_owner_failure(
-    provider_account_id: ProviderAccountId,
+    provider_account_id: Option<ProviderAccountId>,
     port: CodexDeliveryPort,
     session_id: SessionId,
     error: Box<dyn std::error::Error + Send + Sync>,
 ) {
     CodexTransportDiagnostic::PortDeliveryFailed {
-        provider_account_id: Some(provider_account_id),
+        provider_account_id,
         port,
         session_id: Some(session_id),
         error,

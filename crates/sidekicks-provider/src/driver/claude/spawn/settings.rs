@@ -273,7 +273,7 @@ fn path_rule(tool: &str, path: &str, glob: Option<&str>, path_rules: PathRules) 
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;

@@ -525,6 +525,7 @@ impl ProjectionRebuildService {
             | SessionServiceError::Refused(_)
             | SessionServiceError::Database(_)
             | SessionServiceError::RunNamesNoAgent { .. }
+            | SessionServiceError::RunNamesNoAccount { .. }
             | SessionServiceError::Rebuild(_)
             | SessionServiceError::Pool(_)) => {
                 FoldFailure::Rebuild(ProjectionRebuildError::Read(error))

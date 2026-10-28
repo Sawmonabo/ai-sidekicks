@@ -119,6 +119,7 @@ impl CodexDriver {
                 .read_skill_files(
                     session_id,
                     &source.service,
+                    provider_account_id,
                     Path::new(&source.working_directory),
                 )
                 .await?
@@ -135,7 +136,12 @@ impl CodexDriver {
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;
             self.provider_commands
-                .read_skill_files(session_id, &service, &context.working_directory)
+                .read_skill_files(
+                    session_id,
+                    &service,
+                    provider_account_id,
+                    &context.working_directory,
+                )
                 .await?
         };
         picks

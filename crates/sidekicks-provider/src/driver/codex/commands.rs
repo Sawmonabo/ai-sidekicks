@@ -139,11 +139,13 @@ impl CodexProviderCommandCache {
     }
 
     /// Each skill Codex lists for the session, by its name and the file it loads it from: the
-    /// live session's held listing, else a read from `service` over `working_directory`.
+    /// live session's held listing, else a read from `service`, the service of
+    /// `provider_account_id`, over `working_directory`.
     pub(crate) async fn read_skill_files(
         &self,
         session_id: SessionId,
         service: &CodexService,
+        provider_account_id: ProviderAccountId,
         working_directory: &Path,
     ) -> Result<Vec<PickedSkill>, CodexError> {
         if let Some(source) = (self.source_for)(session_id) {
@@ -151,7 +153,9 @@ impl CodexProviderCommandCache {
         }
         let reply =
             request_skills(service, working_directory.to_string_lossy().into_owned()).await?;
-        Ok(self.read_reply(session_id, &reply, None)?.skill_files)
+        Ok(self
+            .read_reply(session_id, &reply, provider_account_id)?
+            .skill_files)
     }
 
     /// Follows a session's live list: `listener` gets the current list now and each new one after

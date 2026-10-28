@@ -310,8 +310,9 @@ async fn resends_a_late_write_under_its_write_id() {
         (first, second)
     };
 
+    let command_id = command_id();
     let (written, (first, second)) = tokio::join!(
-        write_input(&executor, &command, "yes\n", &command_id()),
+        write_input(&executor, &command, "yes\n", &command_id),
         answering
     );
 

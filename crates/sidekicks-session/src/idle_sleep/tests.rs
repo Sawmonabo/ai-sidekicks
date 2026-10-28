@@ -376,7 +376,11 @@ async fn the_start_wakes_only_a_session_with_a_job_ahead_on_its_schedule() {
     let fixture = fixture(counting_driver(IdleSleepHolds::default(), &calls)).await;
     let past_fire = fixture.add_session();
     let with_job = fixture.add_session();
-    let next_run = Timestamp::now() + SignedDuration::from_hours(3);
+    // Whole milliseconds, as a stored instant keeps it.
+    let next_run = Timestamp::from_millisecond(
+        (Timestamp::now() + SignedDuration::from_hours(3)).as_millisecond(),
+    )
+    .expect("a test instant is in range");
     let stored = |session_id: SessionId, fires_at: Option<Timestamp>, next: Option<Timestamp>| {
         let instant = |at: Timestamp| {
             WireInstant::from_timestamp(at)

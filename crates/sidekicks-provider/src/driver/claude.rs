@@ -69,7 +69,7 @@ mod frame_routing;
 mod goals;
 mod handshake_register;
 mod hooks;
-mod inbox;
+pub(crate) mod inbox;
 mod intervention;
 mod lifecycle;
 mod output_speed;

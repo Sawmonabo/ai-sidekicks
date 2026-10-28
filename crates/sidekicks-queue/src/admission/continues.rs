@@ -31,7 +31,7 @@ impl QueueAdmission {
         if !self
             .admit_continue(
                 &provider,
-                provider_account_id,
+                provider_account_id.clone(),
                 driver.as_ref(),
                 session_id,
                 run_id,
@@ -43,7 +43,7 @@ impl QueueAdmission {
         let execution_posture = self
             .deps
             .provider_sessions
-            .read_execution_posture(session_id)
+            .read_execution_posture(session_id, provider_account_id)
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let opening = {

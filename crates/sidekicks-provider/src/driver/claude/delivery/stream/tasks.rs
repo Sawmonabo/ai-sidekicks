@@ -64,7 +64,7 @@ impl ClaudeDeliveryStream {
             run.map(|run| run.run_id),
         );
         if let (Some(fact), Some(sets)) = (fact, self.dependencies.command_output.port()) {
-            fact.publish(&*sets);
+            fact.publish(&**sets);
         }
     }
 
@@ -86,7 +86,9 @@ impl ClaudeDeliveryStream {
                     Some(agent_id) => routes.child_run_for(session.session_id, agent_id).and_then(
                         |child_run_id| match routes.route_of(child_run_id) {
                             Some(ClaudeRunRoute::Child(route)) => Some(route.binding_id),
-                            Some(ClaudeRunRoute::Lead { .. }) | None => None,
+                            Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => {
+                                None
+                            }
                         },
                     ),
                     None => lead
@@ -132,7 +134,7 @@ impl ClaudeDeliveryStream {
                     run_id: child_run_id,
                     binding_id: route.binding_id,
                 }),
-                Some(ClaudeRunRoute::Lead { .. }) | None => None,
+                Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => None,
             });
         helper_run
             .or(lead)

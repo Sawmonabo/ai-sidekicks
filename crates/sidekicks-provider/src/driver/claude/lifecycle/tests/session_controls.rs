@@ -298,11 +298,11 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         .usage
         .metered()
         .into_iter()
-        .map(|(session_id, delta)| {
+        .map(|metered| {
             (
-                session_id,
-                delta.axis_deltas.input,
-                delta.axis_deltas.output,
+                metered.session_id,
+                metered.delta.axis_deltas.input,
+                metered.delta.axis_deltas.output,
             )
         })
         .collect();

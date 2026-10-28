@@ -363,6 +363,8 @@ async fn draw_title_until_stopped(
         effort: effort.map(|effort| effort.parse().expect("the title effort is an effort")),
         service_tier: None,
         service_tier_for_turn: None,
+        // The title thread started with no environment, which the turn keeps.
+        environments: None,
     };
     let start = connection.request(TURN_START_METHOD, &turn);
     tokio::pin!(start);

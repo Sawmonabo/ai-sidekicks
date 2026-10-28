@@ -324,9 +324,9 @@ pub(crate) struct ClaudeSessionListener {
     routing: Arc<ClaudeFrameRouting>,
     stream: Arc<ClaudeSessionStream>,
     arrivals: ClaudeArrivalSender,
-    // The reader's verdict on the lead `result` it is reading, so the queued frame carries the
-    // same verdict the turn's hold was released on.
-    turn_ending: Mutex<Option<bool>>,
+    // The reader's verdict on the lead `result` it is reading and the run that held the turn
+    // before the reader released it, so the queued frame carries the same verdict and run.
+    turn_ending: Mutex<Option<(bool, Option<ClaudeBoundRun>)>>,
 }
 
 impl ClaudeSessionListener {
@@ -365,9 +365,16 @@ impl ClaudeProcessListener for ClaudeSessionListener {
         let is_lead_result = frame.observation.subagent_id.is_none()
             && is_claude_result_frame_kind(&frame.observation.frame_kind);
         let decided = lock(&self.turn_ending).take();
-        let is_turn_ending =
-            is_lead_result && decided.unwrap_or_else(|| self.stream.is_turn_ending(&frame.text));
-        let turn_at_read = self.stream.turn_at_read();
+        let is_turn_ending = is_lead_result
+            && decided.as_ref().map_or_else(
+                || self.stream.is_turn_ending(&frame.text),
+                |(is_ending, _)| *is_ending,
+            );
+        let mut turn_at_read = self.stream.turn_at_read();
+        // A turn the reader released for this `result` was the lead's when the frame was read.
+        if let Some((_, lead_before_release)) = decided {
+            turn_at_read.lead = turn_at_read.lead.or(lead_before_release);
+        }
         self.arrivals
             .push(ClaudeSessionArrival::Frame(Box::new(ClaudeRoutedFrame {
                 frame,
@@ -389,8 +396,9 @@ impl ClaudeProcessListener for ClaudeSessionListener {
     }
 
     fn is_turn_ending(&self, frame: &ClaudeStreamFrame) -> bool {
+        let lead = self.stream.turn_at_read().lead;
         let is_turn_ending = self.stream.is_turn_ending(&frame.text);
-        *lock(&self.turn_ending) = Some(is_turn_ending);
+        *lock(&self.turn_ending) = Some((is_turn_ending, lead));
         is_turn_ending
     }
 }

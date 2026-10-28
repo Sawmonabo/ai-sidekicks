@@ -380,7 +380,7 @@ fn report_rejected_entry(
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: binding.provider_account_id.clone(),
+        provider_account_id: Some(binding.provider_account_id.clone()),
         kind: DriverDiagnosticKind::ProviderCommandEntryRejected,
         raw_wire_type: None,
         disposition_reason: "the provider published a command or skill entry the contract's own \

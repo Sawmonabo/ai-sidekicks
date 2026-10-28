@@ -15,17 +15,13 @@ mod session;
 mod taken_messages;
 mod tasks;
 
-use std::collections::HashMap;
 use std::error::Error;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
-
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::events::{
@@ -34,7 +30,6 @@ use sidekicks_contracts::session::controls::events::{
 use sidekicks_contracts::session::events::SessionProviderStatusReportedPayload;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::turn::{ProviderTurnId, TurnTasksUpdate};
-use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
@@ -50,28 +45,21 @@ use crate::driver::claude::delivery::messages::{
     read_claude_user_rows,
 };
 use crate::driver::claude::delivery::reviewer::ClaudeReviewerCapture;
-use crate::driver::claude::delivery::run_readings::{
-    ClaudeMessageKey, ClaudeRowDelivery, ClaudeStreamSession,
-};
+use crate::driver::claude::delivery::run_readings::{ClaudeMessageKey, ClaudeRowDelivery};
 use crate::driver::claude::delivery::streamed_blocks::ClaudeStreamedRun;
 use crate::driver::claude::delivery::system::{
     read_claude_api_retry, read_claude_assistant_refusal, read_claude_model_reroute,
     read_claude_provider_status, read_claude_refusal_without_fallback, read_claude_warning,
     read_claude_worker_shutdown_reason,
 };
-use crate::driver::claude::delivery::turn_end::{
-    ClaudeTerminalReason, read_claude_result_message_uuids,
-};
+use crate::driver::claude::delivery::turn_end::ClaudeTerminalReason;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::rate_limit_windows::{
     ClaudeUsageProbeModels, read_claude_quota_windows,
 };
-use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
-use crate::driver::claude::session::arrivals::{
-    ClaudeArrivalSender, ClaudeRoutedFrame, ClaudeTurnAtRead,
-};
+use crate::driver::claude::session::arrivals::ClaudeRoutedFrame;
 use crate::driver::claude::session::context_reading::{
     ClaudeContextReadings, claude_exceeded_window_row,
 };
@@ -83,6 +71,7 @@ use crate::driver::diagnostics::{
 use crate::lenient_json::{Lenient, lenient_object, read_lenient};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
+use crate::port::running_command_publisher::RunningCommandPublisher as _;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 use crate::record_readers::read_non_empty_string;

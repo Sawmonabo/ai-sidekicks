@@ -336,8 +336,7 @@ pub(crate) fn compose_claude_context_read(
     let window = count(reply.max_tokens.as_deref()).or(count(reply.raw_max_tokens.as_deref()))?;
     let window_tokens = SafeInt::<1>::new(window)?;
     // With no compaction point Claude Code does not compact, so the slider reaches the window.
-    let top_stop = reply
-        .auto_compact_threshold
+    let top_stop = count(reply.auto_compact_threshold.as_deref())
         .map_or(100.0, |threshold| share_percent(threshold, window));
     let top_stop_percent = Percent::new(top_stop)?;
     let rows = reply

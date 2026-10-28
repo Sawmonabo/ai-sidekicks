@@ -69,10 +69,8 @@ use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_co
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::contract::DriverError;
 use crate::driver::ports::DriverPorts;
-use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::run_host::RunHost;
-use crate::port::turn_reading_publisher::TurnReadingPublisher;
-use crate::port::usage_sink::{MeteredUsage, UsageSink};
+use crate::port::usage_sink::MeteredUsage;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::turn_end::ProviderTurnEnd;
 use crate::usage_delta_accountant::{MeteredUsageDelta, WindowTelemetry};

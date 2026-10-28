@@ -282,16 +282,21 @@ impl ProviderSessions {
     }
 
     /// The posture the session's process runs at, which each of its runs is requested at: the open
-    /// one's, else the one it opens at. Fails with [`ProviderSessionError::NoPosture`] for a
-    /// session whose lead runs at none, and as the opening's composition fails.
+    /// one's, else the one it opens at on `provider_account_id`. Fails with
+    /// [`ProviderSessionError::NoPosture`] for a session whose lead runs at none, and as the
+    /// opening's composition fails.
     pub(crate) async fn read_execution_posture(
         &self,
         session_id: SessionId,
+        provider_account_id: ProviderAccountId,
     ) -> Result<ExecutionPosture, ProviderSessionError> {
         if let Some(opened) = self.lock_opened().get(&session_id) {
             return Ok(opened.execution_posture.clone());
         }
-        posture_of(session_id, &self.compose(session_id).await?)
+        posture_of(
+            session_id,
+            &self.compose(session_id, provider_account_id).await?,
+        )
     }
 
     /// Moves the session to `level` and stores it, unless it stands there already. An open process

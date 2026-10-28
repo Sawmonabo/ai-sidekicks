@@ -495,7 +495,7 @@ pub trait ProviderDriver: Send + Sync {
 
     /// What `call`, one of the provider's tool calls, does to the agent's task list; `None` for a
     /// call that is not a task-list call, which the transcript shows as a row.
-    fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange>;
+    fn task_list_change<'call>(&self, call: &ToolCallRecord<'call>) -> Option<TaskListChange>;
 
     /// Stops a helper whose own run passed its token limit, alone, while its lead goes on: the
     /// provider refuses the helper's next tool use with [`HELPER_TOKEN_LIMIT_REASON`], or ends

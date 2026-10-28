@@ -122,7 +122,9 @@ impl Harness {
                     binding_id.as_str(),
                     lead_run_id.text().as_str(),
                     test_provider().as_str(),
-                    format!(r#"{{"providerAccountId":"{ACCOUNT}"}}"#),
+                    format!(
+                        r#"{{"providerAccountId":"{ACCOUNT}","resolvedExecutablePath":"/opt/provider/bin"}}"#
+                    ),
                 ],
             )
             .expect("the test binds the lead run");
