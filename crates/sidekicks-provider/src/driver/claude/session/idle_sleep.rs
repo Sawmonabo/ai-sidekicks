@@ -203,7 +203,8 @@ impl ClaudeIdleSleep {
 
     /// Takes the schedules the daemon stored for a session it found asleep after its own restart,
     /// as of `now`: each recurring job, and each single fire still ahead as a one-shot job, since
-    /// the resume restores jobs and no wake-up. A later list from Claude Code replaces them.
+    /// the resume restores jobs and no wake-up. A session already holding jobs keeps its own, and a
+    /// later list from Claude Code replaces them.
     pub(crate) fn seed_schedules(
         &self,
         session_id: SessionId,
@@ -212,6 +213,9 @@ impl ClaudeIdleSleep {
     ) {
         let mut sessions = lock(&self.sessions);
         let session = sessions.entry(session_id).or_default();
+        if !session.jobs.is_empty() {
+            return;
+        }
         for (index, schedule) in schedules.into_iter().enumerate() {
             let job = match schedule {
                 KeptSchedule::Recurring { cron, next_fire_at } => KeptJob {
@@ -435,8 +439,7 @@ impl ClaudeDriver {
                 let Some(stored) = stored else {
                     return Ok(SessionSleepState::Awake);
                 };
-                idle_sleep.seed_schedules(session_id, stored.schedules, Timestamp::now());
-                stored.params
+                stored
             }
         };
         parts.restarts.wake(resume).await?;
@@ -561,8 +564,8 @@ mod tests {
     }
 
     // Killed by a wake from the stored schedules that answers no job, which lets the idle sleep
-    // stop a session whose recurring job Claude Code restored, and by one that keeps a fire
-    // already past.
+    // stop a session whose recurring job Claude Code restored, by one that keeps a fire already
+    // past, and by a second seed that adds to the jobs the session already holds.
     #[test]
     fn the_stored_recurring_job_is_answered_after_a_wake_from_the_daemon_s_record() {
         let sleep = ClaudeIdleSleep::default();
@@ -580,6 +583,12 @@ mod tests {
             vec![recurring.clone(), KeptSchedule::Once { fires_at: past }],
             now,
         );
+
+        let other = KeptSchedule::Recurring {
+            cron: "0 18 * * *".to_owned(),
+            next_fire_at: None,
+        };
+        sleep.seed_schedules(session_id, vec![recurring.clone(), other], now);
 
         assert_eq!(sleep.holds(session_id, 0, now).schedules, vec![recurring]);
     }

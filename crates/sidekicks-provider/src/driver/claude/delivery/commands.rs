@@ -705,6 +705,7 @@ impl ClaudeCommandChannel {
         let session_id = self.session_id;
         let followed = follow_channel_records(
             session_id,
+            self.apart_run().map(ClaudeApartRunCommands::run_id),
             Arc::clone(&self.channel),
             watch,
             Arc::clone(&self.sets),

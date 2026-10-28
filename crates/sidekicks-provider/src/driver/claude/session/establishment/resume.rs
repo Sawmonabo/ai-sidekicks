@@ -6,6 +6,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use jiff::Timestamp;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -36,7 +37,14 @@ impl ClaudeSessionEstablishment {
     /// process when it runs that conversation at the settings `params` asks for, on the binding
     /// the resume that brought it up answered; every failure answers the `Failed` arm, nothing
     /// left running.
-    pub(crate) async fn resume(&self, params: ResumeSessionParams) -> ClaudeResumeAnswer {
+    pub(crate) async fn resume(&self, mut params: ResumeSessionParams) -> ClaudeResumeAnswer {
+        // The timed fires stored for the session, which a fresh process does not keep.
+        let schedules = std::mem::take(&mut params.kept_schedules);
+        self.task_services.idle_sleep.seed_schedules(
+            params.session_id,
+            schedules,
+            Timestamp::now(),
+        );
         match self.try_resume(params).await {
             Ok(answer) => answer,
             Err(error) => ClaudeResumeAnswer {

@@ -57,6 +57,11 @@ impl ClaudeApartRunCommands {
         }
     }
 
+    /// The one run the process runs.
+    pub(super) fn run_id(&self) -> RunId {
+        self.run_id
+    }
+
     /// The process is up: its commands' stops and moves go to it until it ends.
     pub(crate) fn serve(&self, process: Arc<dyn ClaudeProcessChannel>) {
         *lock(&self.process) = Some(process);
