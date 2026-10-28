@@ -7,10 +7,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use rusqlite::{Connection, OptionalExtension};
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::terminal::control::TerminalControlChangedPayload;
 use sidekicks_contracts::trust_statement::DeviceId;
@@ -27,13 +25,13 @@ use sidekicks_shell::table::{
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::working_folder::{
-    SessionWorkingFolder, WorkingFolderReadError, read_working_folder,
+    ProjectEnvironmentReadError, WorkingFolderReadError, read_project_environment_rows,
+    read_working_folder,
 };
 use tokio::runtime::Handle;
 
@@ -41,12 +39,6 @@ use crate::daemon::machine_settings::file::MachineSettingsFile;
 
 /// The folder of the run folder every shell's start writes its scripts and nonce files in.
 const SHELL_STARTUP_FOLDER_NAME: &str = "shell-startup";
-
-/// The project's own environment rows of the repository a working folder belongs to.
-const PROJECT_ENVIRONMENT_ROWS_SQL: &str = "SELECT project.environment_rows
-    FROM repo_mounts AS mount
-    JOIN projects AS project ON project.id = mount.project_id
-   WHERE mount.id = ?";
 
 /// What the shell table is built from.
 #[expect(
@@ -208,8 +200,8 @@ enum ShellSessionReadError {
     Folder(#[from] WorkingFolderReadError),
     #[error("the read pool did not run the read")]
     Pool(#[from] DatabaseReadError),
-    #[error("the project's environment rows could not be read")]
-    ProjectRows(#[source] rusqlite::Error),
+    #[error(transparent)]
+    ProjectRows(#[from] ProjectEnvironmentReadError),
 }
 
 impl From<ShellSessionReadError> for HandlerError {
@@ -254,7 +246,9 @@ fn read_shell_settings(
             let project_rows = reads
                 .read(ReadLength::Short, move |connection| {
                     let folder = read_working_folder(connection, &session_id)?;
-                    project_rows_of(connection, &folder)
+                    Ok::<_, ShellSessionReadError>(read_project_environment_rows(
+                        connection, &folder,
+                    )?)
                 })
                 .await
                 .map_err(HandlerError::from)?;
@@ -267,30 +261,4 @@ fn read_shell_settings(
         }
         .boxed()
     })
-}
-
-fn project_rows_of(
-    connection: &Connection,
-    folder: &SessionWorkingFolder,
-) -> Result<Vec<EnvironmentRow>, ShellSessionReadError> {
-    let Some(repository) = folder
-        .repository
-        .as_ref()
-        .filter(|repository| repository.is_project)
-    else {
-        return Ok(Vec::new());
-    };
-    let rows = connection
-        .prepare_cached(PROJECT_ENVIRONMENT_ROWS_SQL)
-        .and_then(|mut statement| {
-            statement
-                .query_row([repository.repo_mount_id.text().as_str()], |row| {
-                    text_column(row, 0, |text| {
-                        serde_json::from_str::<Vec<EnvironmentRow>>(&text)
-                    })
-                })
-                .optional()
-        })
-        .map_err(ShellSessionReadError::ProjectRows)?;
-    Ok(rows.unwrap_or_default())
 }

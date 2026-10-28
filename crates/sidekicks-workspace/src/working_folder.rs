@@ -1,11 +1,13 @@
 //! A session's working folder: the root of its newest workspace in a state that carries a live
 //! root, and the repository it belongs to while its mount is attached. The `@` file search lists
-//! it, every shell of the session starts in it, and the worktree watch watches it.
+//! it, every shell of the session starts in it, taking its project's own environment rows, and the
+//! worktree watch watches it.
 
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension};
+use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, WorkspaceState};
 use sidekicks_contracts::session::id::SessionId;
@@ -18,6 +20,12 @@ use strum::VariantArray;
 
 use crate::projector::is_probe_bearing;
 use crate::schema::MountOrigin;
+
+/// The project's own environment rows of the repository a working folder belongs to.
+const PROJECT_ENVIRONMENT_ROWS_SQL: &str = "SELECT project.environment_rows
+    FROM repo_mounts AS mount
+    JOIN projects AS project ON project.id = mount.project_id
+   WHERE mount.id = ?";
 
 // The session's shape, the root of its newest workspace whose state carries a live root, the
 // session's place, and that workspace's mount while it is attached.
@@ -112,4 +120,41 @@ pub fn read_working_folder(
         })
         .optional()?
         .ok_or_else(|| session_not_found(session_id).into())
+}
+
+/// Why a project's environment rows could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectEnvironmentReadError {
+    /// The attached project folder's mount, or the project it serves, has no row.
+    #[error("the project of an attached mount has no row")]
+    ProjectMissing,
+    /// The read failed, or the stored rows do not read as environment rows.
+    #[error("the project's environment rows could not be read")]
+    Database(#[from] rusqlite::Error),
+}
+
+/// The environment rows of the project `folder`'s repository belongs to, read on `reader`; none
+/// for a folder outside a project. Fails with [`ProjectEnvironmentReadError::ProjectMissing`] when
+/// the project folder's mount or its project has no row, and with
+/// [`ProjectEnvironmentReadError::Database`] when the read fails.
+pub fn read_project_environment_rows(
+    reader: &Connection,
+    folder: &SessionWorkingFolder,
+) -> Result<Vec<EnvironmentRow>, ProjectEnvironmentReadError> {
+    let Some(repository) = folder
+        .repository
+        .as_ref()
+        .filter(|repository| repository.is_project)
+    else {
+        return Ok(Vec::new());
+    };
+    reader
+        .prepare_cached(PROJECT_ENVIRONMENT_ROWS_SQL)?
+        .query_row([repository.repo_mount_id.text().as_str()], |row| {
+            text_column(row, 0, |text| {
+                serde_json::from_str::<Vec<EnvironmentRow>>(&text)
+            })
+        })
+        .optional()?
+        .ok_or(ProjectEnvironmentReadError::ProjectMissing)
 }
