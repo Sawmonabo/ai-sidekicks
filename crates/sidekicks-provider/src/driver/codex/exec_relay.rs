@@ -448,13 +448,30 @@ impl CodexExecRelay {
         };
         let cell = Arc::clone(lock(&self.channels).entry(session_id).or_default());
         let channel = cell
-            .get_or_try_init(|| self.open_session_channel(session_id, sets, process_id))
+            .get_or_try_init(|| async {
+                let opened = self
+                    .open_session_channel(session_id, sets, process_id)
+                    .await?;
+                // A session forgotten while its channel opened keeps none, so nothing would close
+                // it.
+                let is_kept = lock(&self.channels)
+                    .get(&session_id)
+                    .is_some_and(|kept| Arc::ptr_eq(kept, &cell));
+                if is_kept {
+                    return Ok(opened);
+                }
+                opened.channel.close().await?;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "the session closed while its command channel opened",
+                ))
+            })
             .await?;
         Ok(Some(Arc::clone(channel)))
     }
 
     // Opens `session_id`'s channel for the executor `process_id` and follows its records into
-    // `sets`.
+    // `sets`; a channel that cannot be followed takes its folder with it.
     async fn open_session_channel(
         &self,
         session_id: SessionId,
@@ -471,6 +488,32 @@ impl CodexExecRelay {
                 .await
                 .map_err(std::io::Error::other)??;
         let channel = Arc::new(channel);
+        match self
+            .follow_session_channel(session_id, &channel, sets, process_id)
+            .await
+        {
+            Ok(followed) => Ok(followed),
+            Err(error) => {
+                if let Err(close_error) = channel.close().await {
+                    tracing::warn!(
+                        %session_id,
+                        error = &close_error as &(dyn std::error::Error + 'static),
+                        "a command channel that could not be followed left its folder behind"
+                    );
+                }
+                Err(error)
+            }
+        }
+    }
+
+    // The opened `channel` bound to the executor `process_id` and followed into `sets`.
+    async fn follow_session_channel(
+        &self,
+        session_id: SessionId,
+        channel: &Arc<CommandChannel>,
+        sets: Arc<RunningCommandSets>,
+        process_id: u32,
+    ) -> std::io::Result<Arc<SessionChannel>> {
         let environment = channel
             .environment()
             .into_iter()
@@ -478,8 +521,11 @@ impl CodexExecRelay {
                 value
                     .into_string()
                     .map(|value| (name.to_owned(), value))
-                    .map_err(|_| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidData, "a path is no text")
+                    .map_err(|value| {
+                        std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            format!("the path {} is no text", value.to_string_lossy()),
+                        )
                     })
             })
             .collect::<std::io::Result<Vec<_>>>()?;
@@ -489,7 +535,7 @@ impl CodexExecRelay {
         let followed = crate::command::channel::records::follow_channel_records(
             session_id,
             None,
-            Arc::clone(&channel),
+            Arc::clone(channel),
             watch,
             sets,
             Arc::clone(&self.dependencies.input_waits),
@@ -505,7 +551,7 @@ impl CodexExecRelay {
             }
         });
         Ok(Arc::new(SessionChannel {
-            channel,
+            channel: Arc::clone(channel),
             environment,
             follower,
         }))
