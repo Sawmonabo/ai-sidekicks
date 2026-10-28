@@ -31,7 +31,6 @@ use sidekicks_contracts::transcript::operations::{
     TranscriptReadResponse, TranscriptReasoningReadRequest, TranscriptReasoningReadResponse,
 };
 use sidekicks_contracts::transcript::run_facts::{FoldedThroughSequence, TranscriptRunFacts};
-use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::list::UniqueList;
@@ -633,7 +632,6 @@ fn live_run_of(
     Ok(SessionLiveRun {
         run_id: row.run_id,
         parent_run_id: row.parent_run_id,
-        is_apart: row.is_apart.then(True::default),
         state: row.state,
         run_version: row.run_version,
         agent_id,

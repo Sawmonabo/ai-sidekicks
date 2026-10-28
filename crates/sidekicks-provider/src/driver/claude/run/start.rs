@@ -204,7 +204,6 @@ impl ClaudeRunStart {
             admitted_provider_account_id: live.admitted_provider_account_id.clone(),
             execution_posture,
             is_provider_started,
-            is_apart: false,
             start_turn: Box::new(move |run_id| {
                 let start = start.clone();
                 let opening = lock(&opening).take();

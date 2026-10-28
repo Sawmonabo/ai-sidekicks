@@ -166,7 +166,6 @@ impl ApprovalFixture {
             resolved_agent: None,
             parent_run_id: None,
             reached_by: None,
-            is_apart: None,
             effective_run_config: None,
             admitted_model_family: None,
             admitted_provider_account_id: None,

@@ -219,14 +219,6 @@ pub struct SessionLiveRun {
     )]
     #[schemars(with = "RunId")]
     pub parent_run_id: Option<RunId>,
-    /// Present on a run whose turn runs in a process of its own, which is never the lead run.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "True")]
-    pub is_apart: Option<True>,
     /// Its state now.
     pub state: RunState,
     /// Its record's version.

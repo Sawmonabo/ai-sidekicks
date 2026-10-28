@@ -311,7 +311,6 @@ impl RunEngine {
                     resolved_agent: None,
                     parent_run_id: Some(parent_run_id),
                     reached_by: Some(ChildRunProvenance::ProviderSubagent),
-                    is_apart: None,
                     effective_run_config: None,
                     admitted_model_family: None,
                     admitted_provider_account_id: None,

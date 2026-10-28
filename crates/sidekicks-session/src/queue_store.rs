@@ -299,10 +299,9 @@ static SESSION_TAKES_MESSAGES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// The condition that the run `alias` names is a lead run: no run started it, and its turn runs in
-// the session's own process, so a run apart from it, such as a review of the staged set, is none.
+// The condition that the run `alias` names is a lead run: no run started it.
 fn compose_lead_run_predicate(alias: &str) -> String {
-    format!("{alias}.parent_run_id IS NULL AND {alias}.is_apart = 0")
+    format!("{alias}.parent_run_id IS NULL")
 }
 
 // Matches the session's lead runs that have not ended; a send that starts one expects none.
