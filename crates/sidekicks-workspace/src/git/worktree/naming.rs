@@ -392,7 +392,6 @@ pub struct WorktreeNaming {
     sources: Arc<dyn WorktreeNamingSources>,
 }
 
-#[expect(dead_code, reason = "worktree creation and status")]
 impl WorktreeNaming {
     /// Naming under the daemon's `worktrees_folder`, reading what other owners keep from `sources`.
     pub fn new(worktrees_folder: PathBuf, sources: Arc<dyn WorktreeNamingSources>) -> Self {
@@ -400,21 +399,6 @@ impl WorktreeNaming {
             worktrees_folder,
             sources,
         }
-    }
-
-    /// The daemon's worktrees folder, holding one folder per project.
-    pub(crate) fn worktrees_folder(&self) -> &Path {
-        &self.worktrees_folder
-    }
-
-    /// The folder the project of `repo_mount_id` keeps its worktrees in, and its kept ones under
-    /// [`REMOVED_WORKTREES_FOLDER_NAME`]. Fails when the project's naming cannot be read.
-    pub(crate) async fn project_folder_of(
-        &self,
-        repo_mount_id: &RepoMountId,
-    ) -> Result<PathBuf, WorktreeNamingError> {
-        let project = self.sources.read_project_naming(repo_mount_id).await?;
-        Ok(self.worktrees_folder.join(project.slug))
     }
 
     /// The base every plan for a tree of `session_id` on the project of `repo_mount_id` starts
