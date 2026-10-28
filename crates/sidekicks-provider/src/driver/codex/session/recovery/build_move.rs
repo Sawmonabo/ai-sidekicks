@@ -141,10 +141,12 @@ impl CodexServiceRecovery {
         self.dependencies.release.forget_service(service.id());
         for (claim, inbound) in held {
             let resumed = self.resume_claimed(service, &inbound, never_left()).await;
+            if let Some(result) = &resumed {
+                self.report_relaunch(service, &claim, inbound.session_id(), result.clone())
+                    .await;
+            }
             drop(claim);
             if let Some(result) = resumed {
-                self.report_relaunch(service, inbound.session_id(), result.clone())
-                    .await;
                 self.report_moved(service, &inbound, result, change).await;
             }
         }
@@ -164,10 +166,12 @@ impl CodexServiceRecovery {
             match self.claim_idle(inbound).await {
                 ClaimedIdle::Idle(claim, thread_id) => {
                     let resumed = self.move_claimed(inbound, from, to, thread_id).await;
+                    if let Some(result) = &resumed {
+                        self.report_relaunch(to, &claim, inbound.session_id(), result.clone())
+                            .await;
+                    }
                     drop(claim);
                     if let Some(result) = resumed {
-                        self.report_relaunch(to, inbound.session_id(), result.clone())
-                            .await;
                         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
                         // The service the record runs on keeps the session; the other lets it go.
                         if is_resumed {

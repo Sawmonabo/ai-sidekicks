@@ -46,7 +46,7 @@ use crate::driver::codex::session::establishment::{
     CodexSessionEstablishment, compose_failed_resume,
 };
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
-use crate::driver::codex::session::slots::CodexSessionSlots;
+use crate::driver::codex::session::slots::{CodexSessionClaim, CodexSessionSlots};
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
@@ -400,10 +400,8 @@ impl CodexServiceRecovery {
             .claim_establishing(session_id)
             .await
             .ok()?;
-        let result = self.resume_claimed(service, inbound, writer_left).await;
-        drop(claim);
-        let result = result?;
-        self.report_relaunch(service, session_id, result.clone())
+        let result = self.resume_claimed(service, inbound, writer_left).await?;
+        self.report_relaunch(service, &claim, session_id, result.clone())
             .await;
         Some(result)
     }
@@ -464,11 +462,13 @@ impl CodexServiceRecovery {
 
     // Hands the relaunch to the session directory, which records its binding; a failed resume is
     // logged, as the person sees it on the session's next request. A resumed conversation whose
-    // binding was not recorded is let go, so none delivers under a binding with no row; the caller
-    // holds no claim on the session's slot.
+    // binding was not recorded is let go, so none delivers under a binding with no row. Run under
+    // the `claim` the resume ran under, so no other relaunch of the session opens before this one
+    // is recorded.
     async fn report_relaunch(
         &self,
         service: &CodexService,
+        claim: &CodexSessionClaim<'_>,
         session_id: SessionId,
         result: DriverResumeResult,
     ) {
@@ -485,7 +485,7 @@ impl CodexServiceRecovery {
             );
         }
         if !self.record_relaunch(service, session_id, result).await && is_resumed {
-            self.let_go_unrecorded(session_id).await;
+            self.let_go_unrecorded(claim, session_id).await;
         }
     }
 
@@ -514,18 +514,14 @@ impl CodexServiceRecovery {
         false
     }
 
-    // Lets a resumed conversation whose binding has no row go, as a resume lets a live record go,
-    // and tells the queue its process is gone, so the next admission resumes it again.
-    async fn let_go_unrecorded(&self, session_id: SessionId) {
-        // A session that closed meanwhile had its conversation let go by its close.
-        let Ok(claim) = self.dependencies.slots.claim_establishing(session_id).await else {
-            return;
-        };
+    // Lets a resumed conversation whose binding has no row go under the `claim` it resumed under,
+    // as a resume lets a live record go, and tells the queue its process is gone, so the next
+    // admission resumes it again.
+    async fn let_go_unrecorded(&self, claim: &CodexSessionClaim<'_>, session_id: SessionId) {
         if let Some(inbound) = claim.live() {
             let_go_codex_session_record(&inbound, CodexRecordExit::SessionContinues).await;
             claim.vacate();
         }
-        drop(claim);
         if let Some(listener) = self.dependencies.process_gone.port() {
             listener.process_gone(session_id);
         }
