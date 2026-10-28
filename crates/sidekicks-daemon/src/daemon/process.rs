@@ -577,7 +577,6 @@ impl DaemonProcess {
                 git: git.clone(),
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
-                daemon_program: daemon_program.to_path_buf(),
                 caller_processes: Arc::clone(&caller_process_reader),
             },
         );

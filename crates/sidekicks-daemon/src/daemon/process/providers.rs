@@ -93,8 +93,6 @@ pub(crate) struct ProviderStart {
     pub(crate) base_environment: Arc<[(String, String)]>,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
-    /// The daemon's own program, beside which the command wrapper's and askpass's links sit.
-    pub(crate) daemon_program: PathBuf,
     /// Reads where a command channel's party runs.
     pub(crate) caller_processes: Arc<dyn CallerProcessReader>,
 }
@@ -178,7 +176,6 @@ pub(crate) fn build_providers(
         shell_lines: start.shell_lines,
         background_work: Arc::clone(&background_work),
         dispatches_hook_mode: dispatches_hook_mode(),
-        daemon_program: start.daemon_program,
         caller_processes: start.caller_processes,
         input_waits: Arc::new(SystemInputWaitReader {
             spawner: start.spawner,
@@ -675,7 +672,6 @@ mod tests {
                     ),
                     base_environment,
                     shell_lines: Arc::new(ShellLineReadingBound::new(SHELL_LINE_LIMIT)),
-                    daemon_program: self.home.path().join("daemon-program"),
                     caller_processes: Arc::new(
                         ProcessTableReader::for_this_program()
                             .expect("this program's reader builds"),

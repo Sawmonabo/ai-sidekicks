@@ -185,7 +185,6 @@ pub fn test_driver_services() -> DriverServices {
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         dispatches_hook_mode: false,
-        daemon_program: folder.join("daemon-program"),
         caller_processes: Arc::new(
             ProcessTableReader::for_this_program().expect("this program's reader builds"),
         ),
