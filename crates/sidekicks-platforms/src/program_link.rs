@@ -1,12 +1,12 @@
 //! A link in a folder of the daemon's own that runs the daemon's program under another name: a hard
-//! link, a symbolic link where the folder's file system refuses a hard link or the program sits on
-//! another volume, and on Windows a copy where it refuses a symbolic link too.
+//! link, a symbolic link where the system refuses a hard link for any reason, and on Windows a copy
+//! where it refuses a symbolic link too.
 
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
 
-use crate::{is_hard_link_unsupported, open_file_identity};
+use crate::open_file_identity;
 
 /// Why a link could not be made to run the program.
 #[derive(Debug, thiserror::Error)]
@@ -14,7 +14,7 @@ pub enum ProgramLinkError {
     /// No link was there and none could be made, so its mode cannot run.
     #[error("the missing link could not be made")]
     Missing(#[source] io::Error),
-    /// A link that opens another build, or cannot be read, is there and could not be made again,
+    /// A link that opens another build, or cannot be opened, is there and could not be made again,
     /// as on Windows a copy a running command holds open; it stays as it is.
     #[error("the stale link could not be made again")]
     Stale(#[source] io::Error),
@@ -25,31 +25,39 @@ pub enum ProgramLinkError {
 enum LinkState {
     // A link that opens the program itself.
     Current,
-    // A file that opens another build, or one that cannot be read.
+    // A file that opens another build, or one that cannot be opened.
     Stale,
     // Nothing, or a dangling link.
     Missing,
 }
 
 /// Makes `link` run `program`, left alone where it already opens that same file and made again
-/// where it is missing, dangling or names another file, as an old build's link does after an
-/// update. Any half-made link an earlier start left is removed first; the new link is made beside
-/// it and renamed over it, so a command never finds the name missing. Fails with
-/// [`ProgramLinkError::Missing`] when no link was there to run, else [`ProgramLinkError::Stale`].
+/// where it is missing, dangling, cannot be opened or names another file, as an old build's link
+/// does after an update. Any half-made link an earlier start left is removed first, a removal that
+/// fails only logged; the new link is made beside it and renamed over it, so a command never finds
+/// the name missing. Fails with [`ProgramLinkError::Missing`] when no link was there to run, else
+/// [`ProgramLinkError::Stale`].
 pub fn link_program(program: &Path, link: &Path) -> Result<(), ProgramLinkError> {
     let program_identity = File::open(program)
         .and_then(|program| open_file_identity(&program))
         .map_err(ProgramLinkError::Missing)?;
     let state = match File::open(link).and_then(|linked| open_file_identity(&linked)) {
         Ok(identity) if identity == program_identity => LinkState::Current,
-        Ok(_) => LinkState::Stale,
         Err(error) if error.kind() == io::ErrorKind::NotFound => LinkState::Missing,
-        Err(error) => return Err(ProgramLinkError::Stale(error)),
+        Ok(_) | Err(_) => LinkState::Stale,
     };
-    let linked = remove_half_made_links(link).and_then(|()| match state {
+    // The make takes a name of its own, so a leftover that stays decides nothing.
+    if let Err(error) = remove_half_made_links(link) {
+        tracing::warn!(
+            link = %link.display(),
+            error = &error as &(dyn std::error::Error + 'static),
+            "a half-made program link a stopped start left could not be removed"
+        );
+    }
+    let linked = match state {
         LinkState::Current => Ok(()),
         LinkState::Stale | LinkState::Missing => replace_link(program, link),
-    });
+    };
     linked.map_err(|error| match state {
         LinkState::Missing => ProgramLinkError::Missing(error),
         LinkState::Current | LinkState::Stale => ProgramLinkError::Stale(error),
@@ -90,12 +98,19 @@ fn replace_link(program: &Path, link: &Path) -> io::Result<()> {
 
 // Makes `made` a hard link to `program`, else a symbolic link, else on Windows a copy.
 fn make_link(program: &Path, made: &Path) -> io::Result<()> {
-    match fs::hard_link(program, made) {
-        Err(error)
-            if is_hard_link_unsupported(&error)
-                || error.kind() == io::ErrorKind::CrossesDevices => {}
-        made_or_refused => return made_or_refused,
-    }
+    fall_back_from_hard_link(fs::hard_link(program, made), program, made)
+}
+
+// Falls back from any refused hard link: unsupported, across volumes, or denied, as Windows denies
+// one to a program the person cannot write. The last step's error is the one returned.
+fn fall_back_from_hard_link(
+    hard_linked: io::Result<()>,
+    program: &Path,
+    made: &Path,
+) -> io::Result<()> {
+    let Err(_refused) = hard_linked else {
+        return Ok(());
+    };
     #[cfg(unix)]
     return std::os::unix::fs::symlink(program, made);
     // A symbolic link needs a privilege or developer mode on Windows; a copy needs neither.
@@ -109,9 +124,10 @@ fn make_link(program: &Path, made: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod tests {
     use std::fs::{self, File};
+    use std::io;
     use std::path::Path;
 
-    use super::{ProgramLinkError, link_program};
+    use super::{ProgramLinkError, fall_back_from_hard_link, link_program};
     use crate::open_file_identity;
 
     fn opens_program(link: &Path, program: &Path) -> bool {
@@ -122,8 +138,9 @@ mod tests {
     }
 
     // Fails when a start remakes a link that already runs the program, leaves one that runs an
-    // older build, or keeps a half-made link a crashed start left. Mutations: the same-file check
-    // dropped; any link that opens kept as it is; the make skipped; the sweep skipped.
+    // older build or one that cannot be opened, or keeps a half-made link a crashed start left.
+    // Mutations: the same-file check dropped; any link that opens kept as it is; a link that cannot
+    // be opened kept; the make skipped; the sweep skipped.
     #[test]
     fn a_start_makes_a_missing_link_keeps_a_current_one_and_remakes_a_stale_one() {
         let scratch = tempfile::tempdir().expect("a scratch folder");
@@ -158,7 +175,33 @@ mod tests {
                 fs::read_link(&link).expect("the link stays symbolic"),
                 program
             );
+
+            // A link that loops on itself cannot be opened, and is made again.
+            fs::remove_file(&link).expect("the symbolic link goes");
+            std::os::unix::fs::symlink(&link, &link).expect("a looping link is made");
+            link_program(&program, &link).expect("the looping link is made again");
+            assert!(opens_program(&link, &program));
         }
+    }
+
+    // Fails when a hard link the system refuses for a reason other than an unsupported file system
+    // or another volume fails the make. Mutation: only an unsupported or cross-volume hard link
+    // falls back.
+    #[test]
+    fn a_denied_hard_link_falls_back_to_another_link() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let program = scratch.path().join("program");
+        let made = scratch.path().join("program-link.new-1");
+        fs::write(&program, b"this build").expect("the program is written");
+
+        fall_back_from_hard_link(
+            Err(io::Error::from(io::ErrorKind::PermissionDenied)),
+            &program,
+            &made,
+        )
+        .expect("the fallback makes the link");
+        // A Windows copy is another file, so the link is read for the program's bytes.
+        assert_eq!(fs::read(&made).expect("the link reads"), b"this build");
     }
 
     // Fails when a folder that takes no new link fails a start that still has a link to run, or
