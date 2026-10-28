@@ -6,10 +6,13 @@ use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::params;
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::event::envelope::{SourceEpoch, SourcePosition};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::event::usage::UsageContainment;
 use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::run::events::AgentTurnStartedPayload;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::run::queued::{
@@ -19,15 +22,19 @@ use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
+use sidekicks_contracts::transcript::turn_attribution::{
+    EpochPosition, RUN_START_POSITION, SupersededTurns, add_superseding_cut,
+    transcript_run_stamp_at,
+};
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
 use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
-use sidekicks_provider::port::usage_sink::{MeteredUsage, UsageSink};
+use sidekicks_provider::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use sidekicks_provider::usage_delta_accountant::{
-    MeteredUsageDelta, UsageAxisCounts, UsageContainment, UsageDiagnosticBand,
+    MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand,
 };
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -116,12 +123,13 @@ impl Harness {
         connection
             .execute(
                 "INSERT INTO runtime_bindings (id, run_id, provider_name, contract_version,
-                   cli_version_raw, spawn_config, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, '1.0.0', '1.0.0', ?4, '', '')",
+                   cli_version_raw, resume_handle, spawn_config, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, '1.0.0', '1.0.0', ?4, ?5, '', '')",
                 params![
                     binding_id.as_str(),
                     lead_run_id.text().as_str(),
                     test_provider().as_str(),
+                    THREAD,
                     format!(
                         r#"{{"providerAccountId":"{ACCOUNT}","resolvedExecutablePath":"/opt/provider/bin"}}"#
                     ),
@@ -158,7 +166,7 @@ impl Harness {
                 database.path(),
                 USAGE_RECORD_STATEMENT_CAPACITY,
             )),
-            database.path(),
+            Arc::new(|_: &SessionId| None),
             dispatch,
             Arc::clone(&engine),
         );
@@ -205,6 +213,7 @@ impl Harness {
                 run_id: self.lead_run_id,
                 provider: test_provider(),
                 subagent_id: subagent_id.clone(),
+                child_run_id: Some(helper_run_id),
                 parent_tool_call_id: None,
                 source_epoch: None,
                 source_position: None,
@@ -214,11 +223,12 @@ impl Harness {
         helper_run_id
     }
 
-    // Records a reading of `input`, `output` and `cache_read` tokens on the lead's binding,
-    // attributed to `subagent_id`'s helper where one is named.
+    // Records `owner`'s reading of `input`, `output` and `cache_read` tokens on the lead's
+    // binding, in the provider's turn `turn_id` where one is named.
     async fn record(
         &self,
-        subagent_id: Option<&SubagentId>,
+        owner: MeteredUsageOwner,
+        turn_id: Option<&str>,
         input: u64,
         output: u64,
         cache_read: u64,
@@ -227,11 +237,11 @@ impl Harness {
             .record_metered(MeteredUsage {
                 session_id: self.session_id,
                 binding_id: self.binding_id.clone(),
-                subagent_id: subagent_id.cloned(),
+                owner,
                 delta: MeteredUsageDelta {
                     provider: test_provider(),
-                    thread_id: "thread-1".to_owned(),
-                    attributed_turn_id: None,
+                    thread_id: THREAD.to_owned(),
+                    attributed_turn_id: turn_id.map(str::to_owned),
                     axis_deltas: UsageAxisCounts {
                         input: Some(input + cache_read),
                         cached_input: Some(cache_read),
@@ -303,6 +313,7 @@ fn queued(
     ))
 }
 
+const THREAD: &str = "thread-1";
 const RECORDED: &str = "usage.tokenCount.recorded";
 const REACHED: &str = "agent.run.tokenLimit.reached";
 
@@ -311,7 +322,7 @@ const REACHED: &str = "agent.run.tokenLimit.reached";
 async fn each_row_carries_the_generation_the_account_holds_at_its_write() {
     let harness = Harness::new(None, true).await;
     harness
-        .record(None, 10, 5, 0)
+        .record(MeteredUsageOwner::Run, None, 10, 5, 0)
         .await
         .expect("the first reading is recorded");
     harness
@@ -323,7 +334,7 @@ async fn each_row_carries_the_generation_the_account_holds_at_its_write() {
         )
         .expect("the test signs the account in again");
     harness
-        .record(None, 10, 5, 0)
+        .record(MeteredUsageOwner::Run, None, 10, 5, 0)
         .await
         .expect("the second reading is recorded");
 
@@ -343,7 +354,7 @@ async fn a_row_the_dispatch_does_not_write_fails_the_record() {
     let harness = Harness::new(None, false).await;
 
     let failure = harness
-        .record(None, 10, 5, 0)
+        .record(MeteredUsageOwner::Run, None, 10, 5, 0)
         .await
         .expect_err("a binding with no cursor open writes no row");
 
@@ -354,9 +365,10 @@ async fn a_row_the_dispatch_does_not_write_fails_the_record() {
     assert!(harness.stored(RECORDED, "inputTokens").is_empty());
 }
 
-// Killed by counting cache reads (the lead's first reading would pass its limit), by recording or
-// counting a helper's rows on its lead (the rows' runs, and the lead stopping at the helper's
-// reading), by a second reached event on a run past its limit, and by interrupting a helper (an
+// Killed by counting a side question's usage toward the lead (it would pass the limit at once), by
+// counting cache reads (the lead's first reading would pass its limit), by recording or counting a
+// helper's rows on its lead (the rows' runs, and the lead stopping at the helper's reading), by a
+// second reached event or interrupt on a run past its limit, and by interrupting a helper (an
 // interrupt would be handed for it).
 #[tokio::test]
 async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
@@ -366,19 +378,36 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
     let lead = Some(harness.lead_run_id.text().as_str().to_owned());
     let helper = Some(helper_run_id.text().as_str().to_owned());
 
+    // A side question's 5,000 is the session's, counted toward no run.
+    harness
+        .record(MeteredUsageOwner::SideQuestion, None, 4_000, 1_000, 0)
+        .await
+        .expect("the side question's reading is recorded");
+    assert_eq!(
+        harness.stored(RECORDED, "inputTokens"),
+        vec![(None, Some("4000".to_owned()))]
+    );
+
     // 60 input and output against the lead's 100; the cache read never counts.
     harness
-        .record(None, 40, 20, 5_000)
+        .record(MeteredUsageOwner::Run, None, 40, 20, 5_000)
         .await
         .expect("the lead's reading is recorded");
     // The helper's 90 is its own run's, under the 100 it shares with its lead's admission.
     harness
-        .record(Some(&subagent_id), 60, 30, 0)
+        .record(
+            MeteredUsageOwner::Helper(subagent_id.clone()),
+            None,
+            60,
+            30,
+            0,
+        )
         .await
         .expect("the helper's first reading is recorded");
     assert_eq!(
         harness.stored(RECORDED, "subagentId"),
         vec![
+            (None, None),
             (lead.clone(), None),
             (helper.clone(), Some(subagent_id.as_str().to_owned()))
         ]
@@ -389,7 +418,13 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
     // The helper's 120 passes its limit: its reached event, no interrupt, and its driver asked,
     // which the test's registry does not hold.
     let failure = harness
-        .record(Some(&subagent_id), 20, 10, 0)
+        .record(
+            MeteredUsageOwner::Helper(subagent_id.clone()),
+            None,
+            20,
+            10,
+            0,
+        )
         .await
         .expect_err("the test's registry holds no driver to stop the helper");
     assert!(matches!(
@@ -405,7 +440,7 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
     // The lead's 130 passes its own limit, twice: one reached event, its interrupt handed.
     for _ in 0..2 {
         harness
-            .record(None, 50, 20, 0)
+            .record(MeteredUsageOwner::Run, None, 50, 20, 0)
             .await
             .expect("the lead's reading is recorded and its run stopped");
     }
@@ -413,5 +448,80 @@ async fn a_run_stops_once_past_its_own_count_and_a_helper_stops_alone() {
         harness.stored(REACHED, "runId"),
         vec![(helper.clone(), helper), (lead.clone(), lead)]
     );
-    assert!(harness.interrupts.calls.load(Ordering::SeqCst) >= 1);
+    assert_eq!(harness.interrupts.calls.load(Ordering::SeqCst), 1);
+}
+
+// Killed by a base built from the rows' normalized input: the resumed thread's input base would be
+// 10, short by the 90 cache reads the row took out, and its next reading would charge them again.
+#[tokio::test]
+async fn a_resumed_thread_bases_its_input_on_the_providers_own_count() {
+    let harness = Harness::new(None, true).await;
+    harness
+        .record(MeteredUsageOwner::Run, None, 10, 5, 90)
+        .await
+        .expect("the reading is recorded");
+
+    let prior = harness
+        .record
+        .read_prior_emitted(harness.session_id, THREAD.to_owned())
+        .await
+        .expect("the thread's prior counts read");
+
+    assert_eq!(prior.input, Some(100));
+    assert_eq!(prior.cached_input, Some(90));
+    assert_eq!(prior.output, Some(5));
+}
+
+// Killed by ranking a usage row by its arrival: the turn-4 row delivered during turn 8 would stand
+// at turn 8, which a cut back to turn 5 supersedes.
+#[tokio::test]
+async fn a_turn_4_usage_row_delivered_during_turn_8_stays_current_after_a_cut_to_turn_5() {
+    let harness = Harness::new(None, true).await;
+    for turn in 1..=8_u64 {
+        append(
+            &harness.engine,
+            harness.session_id,
+            &SessionEvent::AgentTurnStarted(AgentTurnStartedPayload {
+                session_id: harness.session_id,
+                run_id: harness.lead_run_id,
+                run_version: SafeInt::ZERO,
+                turn_number: SafeInt::new(turn).expect("a turn number is positive"),
+                position: None,
+                provider_turn_id: Some(
+                    ProviderTurnId::new(format!("turn-{turn}")).expect("a provider turn id"),
+                ),
+            }),
+        )
+        .await;
+    }
+
+    harness
+        .record(MeteredUsageOwner::Run, Some("turn-4"), 10, 5, 0)
+        .await
+        .expect("the turn-4 reading is recorded");
+
+    let stored = harness.stored(RECORDED, "sourcePosition");
+    let [(_, Some(position))] = stored.as_slice() else {
+        panic!("the row carries the turn it opened in: {stored:?}");
+    };
+    let source = EpochPosition {
+        epoch: SourceEpoch(SafeInt::ZERO),
+        position: SourcePosition(
+            SafeInt::new(position.parse().expect("a position is a number"))
+                .expect("a position is a safe integer"),
+        ),
+    };
+    let cut_to_turn_5 = add_superseding_cut(
+        &SupersededTurns {
+            run_id: harness.lead_run_id,
+            cuts: Vec::new(),
+        },
+        SourcePosition(SafeInt::new(5).expect("5 is a position")),
+    );
+    assert_eq!(source.position.0.get(), 4);
+    assert!(
+        transcript_run_stamp_at(&cut_to_turn_5, source)
+            .superseded
+            .is_none()
+    );
 }

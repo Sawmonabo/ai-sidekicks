@@ -219,7 +219,6 @@ async fn fixture() -> Fixture {
             test_provider_account_id(),
         )),
         token_limits,
-        database_path: database.path(),
         scheduler,
     })
     .expect("the session services build");

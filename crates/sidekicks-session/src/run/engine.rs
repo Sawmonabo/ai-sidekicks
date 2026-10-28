@@ -19,6 +19,7 @@ pub mod test_fixture;
 pub(crate) mod tests;
 pub(crate) mod turns;
 mod unresolved_interventions;
+pub(crate) mod usage_tallies;
 
 use std::error::Error;
 use std::sync::atomic::Ordering;

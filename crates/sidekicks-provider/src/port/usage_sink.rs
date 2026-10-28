@@ -28,17 +28,29 @@ pub struct ProviderQuotaWindow {
     pub resets_at: Option<Timestamp>,
 }
 
+/// Whose usage a metered delta is: the binding's run's own, a helper's the provider attributes it
+/// to, which counts toward the helper's own run, or a side question's, which is charged to the
+/// session's account and counts toward no run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MeteredUsageOwner {
+    /// The binding's run.
+    Run,
+    /// The helper the provider attributes the reading to on the binding's run.
+    Helper(SubagentId),
+    /// A side question asked beside the session's runs.
+    SideQuestion,
+}
+
 /// One metered per-turn delta and where it came from: the session, the binding the reading came
-/// on, whose run and account the record looks up, and the helper the provider attributes it to.
+/// on, whose run and account the record looks up, and whose usage it is.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MeteredUsage {
     /// The session.
     pub session_id: SessionId,
     /// The binding the reading came on.
     pub binding_id: RuntimeBindingId,
-    /// The helper the provider attributes the reading to on the binding's run; `None` for the
-    /// run's own.
-    pub subagent_id: Option<SubagentId>,
+    /// Whose usage the reading is.
+    pub owner: MeteredUsageOwner,
     /// The delta.
     pub delta: MeteredUsageDelta,
 }
@@ -63,12 +75,12 @@ pub trait UsageSink: Send + Sync {
         windows: Vec<ProviderQuotaWindow>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
 
-    /// The sums the daemon already reported under `thread_id` on `session_id`, the base a resumed
-    /// thread meters from; empty counts when it reported none. Fails when the record is
-    /// unreadable.
+    /// The cumulative counts the daemon already reported under `thread_id` on `session_id`, each
+    /// axis as the provider counted it, the base a resumed thread meters from; empty counts when
+    /// it reported none. Fails when the record is unreadable.
     fn read_prior_emitted(
         &self,
         session_id: SessionId,
-        thread_id: &str,
-    ) -> Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>;
+        thread_id: String,
+    ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>>;
 }

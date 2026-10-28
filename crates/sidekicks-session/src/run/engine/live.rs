@@ -14,6 +14,7 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Notify, SetOnce, SetOnceError};
 
 use crate::run::engine::turns::StepCount;
+use crate::run::engine::usage_tallies::RunUsageTallySlot;
 use crate::run::restart::outranking_limit;
 
 /// A run no driver has yet, from `starting` until the driver has it or the run ends. It is
@@ -121,6 +122,8 @@ pub(super) struct LiveRuns {
     pub(super) step_interrupts_in_flight: HashSet<RunId>,
     /// The wake of each run someone waits on to read `running` again, while anyone waits.
     pub(super) running_waits: HashMap<RunId, Arc<Notify>>,
+    /// Each live run's usage tally, from its first usage report until it ends.
+    pub(super) usage_tallies: HashMap<RunId, RunUsageTallySlot>,
     /// The identity the next limit stop's cut takes.
     pub(super) next_stop_id: AtomicU64,
 }

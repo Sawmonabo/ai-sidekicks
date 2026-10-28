@@ -596,9 +596,9 @@ fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
             payload.advisor_model.as_ref().map(FreeFormText::as_str),
             payload.at.as_str(),
         )],
-        SessionScopedRow::SideQuestionAnswered(_) | SessionScopedRow::OutputStyleChanged(_) => {
-            Vec::new()
-        }
+        SessionScopedRow::SideQuestionAnswered(_)
+        | SessionScopedRow::UsageTokenCountRecorded(_)
+        | SessionScopedRow::OutputStyleChanged(_) => Vec::new(),
     }
 }
 

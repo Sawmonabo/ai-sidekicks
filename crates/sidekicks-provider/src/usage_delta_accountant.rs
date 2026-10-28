@@ -30,6 +30,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
+use sidekicks_contracts::event::usage::UsageContainment;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -118,15 +119,6 @@ pub(crate) struct CumulativeUsageReading {
     pub(crate) cumulative: UsageAxisCounts,
     /// The wire's per-turn figure, where it declares one.
     pub(crate) declared_per_turn: Option<UsageAxisCounts>,
-}
-
-/// Whether the cache's read and written input was subtracted from the normalized input.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UsageContainment {
-    /// The breakdown's sum identity showed the cache counts inside input, so they were subtracted.
-    ConfirmedSubtracted,
-    /// No identity held, so input is the raw figure: an overstatement, surfaced by a diagnostic.
-    UnconfirmedUnsubtracted,
 }
 
 /// The cache read and write deltas, kept beside the normalized figures for diagnostics.

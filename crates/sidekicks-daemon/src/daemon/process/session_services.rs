@@ -149,8 +149,6 @@ pub(crate) struct SessionServiceStart {
     pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// The daemon's `Tokens per run`, which run admission admits each new lead run with.
     pub(crate) token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
-    /// The database file, which the usage record reads a resumed conversation's sums from.
-    pub(crate) database_path: PathBuf,
     /// The program's scheduler, which runs the idle sleep's check and each scheduled wake.
     pub(crate) scheduler: Arc<Scheduler>,
 }
@@ -284,7 +282,6 @@ pub(crate) fn build_session_services(
         daemon_program,
         provider_accounts,
         token_limits,
-        database_path,
         scheduler,
     } = start;
     // The fallible steps first, so a failure leaves no follow or task begun.
@@ -408,7 +405,7 @@ pub(crate) fn build_session_services(
     ));
     let usage = Arc::new(UsageRecord::new(
         Arc::clone(&reads),
-        database_path,
+        Arc::clone(&read_damaged_from_sequence),
         Arc::clone(&inbound_dispatch),
         Arc::clone(&engine),
     ));
