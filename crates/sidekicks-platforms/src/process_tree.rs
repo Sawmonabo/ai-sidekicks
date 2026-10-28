@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::io;
 use std::sync::Once;
 
+use futures_util::future::join_all;
 use sysinfo::{Pid, System};
 
 use crate::pinned_process::KILL_WAIT_BOUND;
@@ -48,24 +49,25 @@ pub fn tree_under(system: &System, root: Pid) -> Vec<Pid> {
 /// Ends each of `process_ids` outright in the order given, so with parents listed before their
 /// children, as [`tree_under`] lists them, no ended parent starts another; a process already gone
 /// is skipped. Each is pinned before its kill, so no process its id passes to meanwhile is ended.
-/// Answers once each has exited, on macOS once it has begun its exit. Fails with the first error a
-/// pin, a kill or a wait met, every kill still sent, and with `TimedOut` past the kill's bound.
+/// Answers once each has exited, on macOS once it has begun its exit, waiting for them all together
+/// under one kill's bound. Fails with the first error a pin, a kill or a wait met, every kill still
+/// sent, and with `TimedOut` when one still runs past the bound.
 pub async fn end_processes(process_ids: Vec<u32>) -> io::Result<()> {
     let (killed, kill_result) = tokio::task::spawn_blocking(move || kill_processes(&process_ids))
         .await
         .map_err(io::Error::other)?;
-    let mut wait_result = Ok(());
-    for process in &killed {
-        let exit = tokio::time::timeout(KILL_WAIT_BOUND, process.wait_for_end())
-            .await
-            .unwrap_or_else(|_| {
-                Err(io::Error::new(
-                    io::ErrorKind::TimedOut,
-                    "a killed process still runs past the kill's bound",
-                ))
-            });
-        wait_result = wait_result.and(exit);
-    }
+    let wait_result = tokio::time::timeout(
+        KILL_WAIT_BOUND,
+        join_all(killed.iter().map(PinnedProcess::wait_for_end)),
+    )
+    .await
+    .map_err(|_elapsed| {
+        io::Error::new(
+            io::ErrorKind::TimedOut,
+            "a killed process still runs past the kill's bound",
+        )
+    })
+    .and_then(|exits| exits.into_iter().collect::<io::Result<()>>());
     kill_result.and(wait_result)
 }
 
