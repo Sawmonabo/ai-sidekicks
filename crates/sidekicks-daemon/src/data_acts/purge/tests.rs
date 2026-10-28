@@ -876,7 +876,7 @@ async fn the_logs_truncation_is_tried_until_no_reader_keeps_it_busy() {
     let mut log_path = fixture.database.path().into_os_string();
     log_path.push("-wal");
 
-    assert!(fixture.truncation.request());
+    fixture.truncation.request();
     tokio::time::sleep(Duration::from_millis(200)).await;
     let held_log = std::fs::metadata(&log_path)
         .expect("the log is there")

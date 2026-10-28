@@ -47,15 +47,15 @@ impl WriteAheadLogTruncation {
 
     /// Truncates the log, tried again until it succeeds: after a purge, and at the daemon's start
     /// once its check of the file has ended. A request while a truncation runs has it truncate once
-    /// more after. Answers whether a truncation runs, false once the stop has ended them.
-    pub fn request(&self) -> bool {
+    /// more after. A request after the stop runs nothing.
+    pub fn request(&self) {
         if self.stop.is_cancelled() {
-            return false;
+            return;
         }
         let mut state = lock(&self.state);
         if state.is_running {
             state.is_requested_again = true;
-            return true;
+            return;
         }
         state.is_running = true;
         drop(state);
@@ -64,7 +64,6 @@ impl WriteAheadLogTruncation {
             Arc::clone(&self.state),
             self.stop.clone(),
         ));
-        true
     }
 
     /// Ends the truncation for the daemon's stop and waits for its task; a log left untruncated is
