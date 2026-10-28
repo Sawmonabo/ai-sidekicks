@@ -1,7 +1,9 @@
-//! One calibration run: the installed Codex started on a throwaway home in a scratch folder of its
-//! own, pointed at a loopback stand-in for the model endpoint and at the catalog its own service
-//! printed, asked one turn on the model and window measured, and the compaction limit it logs for
-//! that turn read off its JSON trace. The scratch folder goes when the run ends, failed or not.
+//! One calibration run: the installed Codex started on a throwaway home in the one scratch folder
+//! runs take in turn, pointed at a loopback stand-in for the model endpoint and at the catalog its
+//! own service printed, asked one turn on the model and window measured, and the compaction limit
+//! it logs for that turn read off its JSON trace. The scratch folder goes when the run ends, failed
+//! or not; one a crash left goes before the next daemon run's first. One path keeps Codex's own
+//! socket and lock for the throwaway home to one pair.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -36,8 +38,11 @@ use crate::driver::codex::transport::connection::{
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
 use crate::driver::codex::version::CODEX_CLIENT_NAME;
 
-/// The folder under the daemon's data folder that holds each run's scratch folder.
+/// The folder under the daemon's data folder that holds the runs' scratch folder.
 const CALIBRATION_FOLDER_NAME: &str = "codex-calibration";
+
+/// The scratch folder every run takes in turn, inside the calibration folder.
+const SCRATCH_FOLDER_NAME: &str = "run";
 
 /// How long one run may take, from Codex's start to its limit line: a start, a handshake and one
 /// turn against a loopback endpoint.
@@ -169,8 +174,9 @@ pub(super) async fn read_codex_calibration_catalog(
 }
 
 /// Measures where `service`'s Codex build compacts `model_id` on `catalog`'s window: the limit it
-/// logs for one turn plus the fallback buffer the model's token budget adds. Fails as
-/// [`CodexCalibrationError`] says.
+/// logs for one turn plus the fallback buffer the model's token budget adds. The caller holds the
+/// runs' turn, since every run takes the one scratch folder. Fails as [`CodexCalibrationError`]
+/// says.
 pub(super) async fn measure_codex_compaction_limit(
     service: &CodexService,
     catalog: &CodexCalibrationCatalog,
@@ -180,7 +186,7 @@ pub(super) async fn measure_codex_compaction_limit(
         .dependencies()
         .data_folder
         .join(CALIBRATION_FOLDER_NAME)
-        .join(scratch_folder_name()?);
+        .join(SCRATCH_FOLDER_NAME);
     let limit = run_in_scratch_folder(scratch, async |folder| {
         tokio::time::timeout(
             CALIBRATION_RUN_DEADLINE,
@@ -417,10 +423,19 @@ fn read_fallback_buffer(dump: &str, model_id: &str) -> u64 {
 }
 
 // A scratch folder name no other run shares.
-fn scratch_folder_name() -> Result<String, CodexCalibrationError> {
-    let random =
-        getrandom::u32().map_err(|error| CodexCalibrationError::Folder(io::Error::other(error)))?;
-    Ok(format!("{random:08x}"))
+/// Removes the calibration folder under `data_folder` and whatever scratch a crashed run left in
+/// it; a folder that cannot be removed is logged and left, since the next daemon run tries again.
+pub(super) async fn remove_left_calibration_folder(data_folder: &Path) {
+    let folder = data_folder.join(CALIBRATION_FOLDER_NAME);
+    if let Err(error) = tokio::fs::remove_dir_all(&folder).await
+        && error.kind() != io::ErrorKind::NotFound
+    {
+        tracing::warn!(
+            error = &error as &(dyn std::error::Error + 'static),
+            folder = %folder.display(),
+            "the codex calibration folder a former run left could not be removed"
+        );
+    }
 }
 
 #[cfg(test)]

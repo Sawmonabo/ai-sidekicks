@@ -26,6 +26,16 @@ pub(super) struct CodexMeasuredWindow {
     pub(super) window_tokens: u64,
 }
 
+/// The statements the calibration keeps prepared on a read connection: the one select.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's read pool sums it once the drivers' statement count reaches it"
+    )
+)]
+pub(crate) const CODEX_CALIBRATION_STATEMENT_CAPACITY: usize = 1;
+
 const SELECT_LIMIT_SQL: &str = "
   SELECT compaction_limit_tokens
     FROM compaction_calibrations
@@ -126,11 +136,11 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
-    use super::{CodexMeasuredWindow, read_stored_codex_limit, store_codex_limit};
+    use super::{
+        CODEX_CALIBRATION_STATEMENT_CAPACITY, CodexMeasuredWindow, read_stored_codex_limit,
+        store_codex_limit,
+    };
     use crate::driver::schema::schema_parts;
-
-    /// The read pool's statement cache: the one select.
-    const STATEMENT_CAPACITY: usize = 1;
 
     fn measured(version: &str, model: &str, window_tokens: u64) -> CodexMeasuredWindow {
         CodexMeasuredWindow {
@@ -148,7 +158,10 @@ mod tests {
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");
-        let reads = Arc::new(DatabaseReadPool::new(database.path(), STATEMENT_CAPACITY));
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            CODEX_CALIBRATION_STATEMENT_CAPACITY,
+        ));
         let stored = measured("codex-cli 0.163.0", "gpt-5.5", 272_000);
         store_codex_limit(&writer, &stored, 244_800)
             .await

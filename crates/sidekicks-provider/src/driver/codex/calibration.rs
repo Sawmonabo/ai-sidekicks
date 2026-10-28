@@ -19,6 +19,7 @@ use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::calibration::measurement::{
     CodexCalibrationRequest, measure_codex_compaction_limit, read_codex_calibration_catalog,
+    remove_left_calibration_folder,
 };
 use crate::driver::codex::calibration::store::{
     CodexMeasuredWindow, read_stored_codex_limit, store_codex_limit,
@@ -50,6 +51,10 @@ pub(crate) struct CodexCompactionLimits {
     writer: Arc<PortRegistration<Arc<DatabaseWriter>>>,
     tasks: TaskTracker,
     limits: Mutex<HashMap<CodexLimitKey, CodexLimitState>>,
+    // The one removal, per daemon run, of the scratch a former run left, done before any run.
+    sweep: tokio::sync::OnceCell<()>,
+    // Held through each run, since every run takes the one scratch folder.
+    runs: tokio::sync::Mutex<()>,
 }
 
 impl CodexCompactionLimits {
@@ -65,6 +70,8 @@ impl CodexCompactionLimits {
             writer,
             tasks,
             limits: Mutex::default(),
+            sweep: tokio::sync::OnceCell::new(),
+            runs: tokio::sync::Mutex::default(),
         }
     }
 
@@ -97,6 +104,8 @@ impl CodexCompactionLimits {
         let compaction_limits = Arc::clone(self);
         let service = Arc::clone(service);
         self.tasks.spawn(async move {
+            // The first ask of a daemon run clears what a crashed run left.
+            compaction_limits.sweep_left_scratch(&service).await;
             let state = match compaction_limits.read_or_measure(&service, &key).await {
                 Ok(limit) => CodexLimitState::Known(limit),
                 Err(error) => {
@@ -129,10 +138,19 @@ impl CodexCompactionLimits {
         if let Some(limit) = read_stored_codex_limit(&self.reads, &measured).await? {
             return Ok(limit);
         }
+        self.sweep_left_scratch(service).await;
+        let run_turn = self.runs.lock().await;
         let limit =
             measure_codex_compaction_limit(service, &catalog, &key.request.model_id).await?;
+        drop(run_turn);
         let writer = self.writer.require_port()?;
         store_codex_limit(writer, &measured, limit).await?;
         Ok(limit)
+    }
+
+    async fn sweep_left_scratch(&self, service: &CodexService) {
+        self.sweep
+            .get_or_init(|| remove_left_calibration_folder(&service.dependencies().data_folder))
+            .await;
     }
 }
