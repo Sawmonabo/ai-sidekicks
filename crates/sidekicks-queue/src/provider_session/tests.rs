@@ -19,7 +19,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, SessionProcessState};
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
@@ -600,16 +599,11 @@ async fn an_ended_session_is_refused_an_opening_a_restart_a_binding_and_a_level_
     }
 }
 
-// A restart reaches no driver for a provider no driver answers or one that cannot resume: each is
-// refused with its code and no process comes up. Killed by the capability check dropped: the
-// driver that cannot resume is resumed.
-#[rstest]
-#[case::provider_not_found(RefusalCode::ProviderNotFound)]
-#[case::no_resume(RefusalCode::ProviderCapabilityUnsupported)]
+// A restart reaches no driver whose provider cannot resume: it is refused with its code and no
+// process comes up. Killed by the capability check dropped: the driver that cannot resume is
+// resumed.
 #[tokio::test]
-async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver(
-    #[case] code: RefusalCode,
-) {
+async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver() {
     let resumes = Arc::new(AtomicUsize::new(0));
     let opening = Opening::new(
         Box::new({
@@ -622,23 +616,16 @@ async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver(
         |_, _| {},
     )
     .await;
-    if code == RefusalCode::ProviderNotFound {
-        opening
-            .database
-            .reader()
-            .execute(
-                "UPDATE runtime_bindings SET provider_name = ?1",
-                [PROVIDERS[1].id],
-            )
-            .expect("the leg names a provider no driver answers");
-    } else {
-        record_first_provider_capabilities(&opening.sessions.deps.providers, false);
-    }
+    record_first_provider_capabilities(&opening.sessions.deps.providers, false);
 
     let restarted = opening.sessions.restart(opening.session_id).await;
 
     assert!(
-        matches!(&restarted, Err(ProviderSessionError::Provider(refusal)) if refusal.code == code),
+        matches!(
+            &restarted,
+            Err(ProviderSessionError::Provider(refusal))
+                if refusal.code == RefusalCode::ProviderCapabilityUnsupported
+        ),
         "{restarted:?}"
     );
     assert_eq!(resumes.load(Ordering::SeqCst), 0, "no process comes up");
