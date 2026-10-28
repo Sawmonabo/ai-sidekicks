@@ -70,15 +70,17 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
     })
 }
 
-/// Records the first provider's capabilities in `providers`, so its contract version reads and
-/// it resumes.
+/// Records the first provider's capabilities in `providers`, so its contract version reads and,
+/// where `is_resumable`, it resumes.
 #[cfg(test)]
-pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry) {
+pub(crate) fn record_first_provider_capabilities(providers: &ProviderRegistry, is_resumable: bool) {
     providers
         .record_capabilities(
             &first_provider(),
             DriverCapabilities {
-                flags: DriverCapabilityFlags::from_fn(|flag| flag == DriverCapabilityFlag::Resume),
+                flags: DriverCapabilityFlags::from_fn(|flag| {
+                    is_resumable && flag == DriverCapabilityFlag::Resume
+                }),
                 contract_version: FreeFormText::new("1.0.0".to_owned())
                     .expect("a contract version"),
             },

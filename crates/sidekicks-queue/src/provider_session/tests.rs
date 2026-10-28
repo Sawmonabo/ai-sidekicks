@@ -1,5 +1,7 @@
-//! A session's provider session resumed from a conversation an earlier daemon left, and the
-//! controls that act on its process.
+//! A session's provider session resumed from a conversation an earlier daemon left, restarted,
+//! and its process gone; the controls that act on the process are in `controls`.
+
+mod controls;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,14 +14,12 @@ use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionCodeReviewStartRequest, SessionMode, SessionReviewTarget,
-};
+use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, SessionProcessState};
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
@@ -31,7 +31,6 @@ use sidekicks_provider::runtime_binding::store::{
 };
 use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
 use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
-use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
@@ -218,7 +217,7 @@ impl Opening {
             },
         );
         let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-        record_first_provider_capabilities(&providers);
+        record_first_provider_capabilities(&providers, true);
         let changes = Arc::new(SessionChanges::new(
             Arc::new(DatabaseReadPool::new(
                 database.path(),
@@ -598,105 +597,48 @@ async fn an_ended_session_is_refused_an_opening_a_restart_a_binding_and_a_level_
     }
 }
 
-// A mode move on a session whose process is down only stores it, leaving the driver alone; on one
-// whose process runs or whose driver brings it back, the driver moves first, and its refusal
-// leaves the stored mode as it was. Killed by storing before the move, and by a restarting process
-// that skips the driver.
+// A restart reaches no driver for a provider no driver answers or one that cannot resume: each is
+// refused with its code and no process comes up. Killed by the capability check dropped: the
+// driver that cannot resume is resumed.
 #[rstest]
-#[case::live(SessionProcessState::Live)]
-#[case::restarting(SessionProcessState::Restarting)]
-#[case::down(SessionProcessState::Down)]
+#[case::provider_not_found(RefusalCode::ProviderNotFound)]
+#[case::no_resume(RefusalCode::ProviderCapabilityUnsupported)]
 #[tokio::test]
-async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
-    #[case] state: SessionProcessState,
+async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver(
+    #[case] code: RefusalCode,
 ) {
-    let is_down = state == SessionProcessState::Down;
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, _| {
-        driver.expect_session_process_state().return_const(state);
-        driver
-            .expect_update_session_mode()
-            .times(usize::from(!is_down))
-            .returning(|_params| {
-                async {
-                    Err(DriverError::Refused(DomainError::new(
-                        "The provider refused the mode.",
-                        RefusalCode::SessionModeNotOffered,
-                    )))
-                }
-                .boxed()
-            });
-    })
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let opening = Opening::new(
+        Box::new({
+            let resumes = Arc::clone(&resumes);
+            move || {
+                resumes.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+        Box::new(|| {}),
+        |_, _| {},
+    )
     .await;
-    opening
-        .sessions
-        .open(opening.session_id, opening.run_id)
-        .await
-        .expect("the conversation resumes");
-
-    let moved = opening
-        .sessions
-        .change_mode(opening.session_id, SessionMode::Plan)
-        .await;
-
-    let stored = read_session_mode(&opening.database.reader(), &opening.session_id)
-        .expect("the stored mode reads");
-    if is_down {
-        assert!(moved.is_ok(), "{moved:?}");
-        assert_eq!(stored, SessionMode::Plan);
+    if code == RefusalCode::ProviderNotFound {
+        opening
+            .database
+            .reader()
+            .execute(
+                "UPDATE runtime_bindings SET provider_name = ?1",
+                [PROVIDERS[1].id],
+            )
+            .expect("the leg names a provider no driver answers");
     } else {
-        assert!(
-            matches!(moved, Err(ProviderSessionError::Driver(_))),
-            "{moved:?}"
-        );
-        assert_eq!(stored, SessionMode::Build);
+        record_first_provider_capabilities(&opening.sessions.deps.providers, false);
     }
-}
 
-// A side question's copy is forked from the session's newest conversation whether or not a
-// process runs it, and a session that never ran has none to fork. Killed by resume material only
-// for a session this daemon has not opened, and by none at all.
-#[tokio::test]
-async fn a_side_question_forks_the_newest_conversation_whatever_the_process() {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, _| {
-        driver
-            .expect_session_process_state()
-            .return_const(SessionProcessState::Live);
-    })
-    .await;
-    let resume_handle =
-        |resume: Option<ResumeSessionParams>| resume.map(|params| params.resume_handle);
+    let restarted = opening.sessions.restart(opening.session_id).await;
 
-    let at_rest = opening
-        .sessions
-        .side_question_resume(opening.session_id)
-        .await
-        .expect("the resume material composes");
-    opening
-        .sessions
-        .open(opening.session_id, opening.run_id)
-        .await
-        .expect("the conversation resumes");
-    let running = opening
-        .sessions
-        .side_question_resume(opening.session_id)
-        .await
-        .expect("the resume material composes");
-    let never_ran = test_session_id();
-    insert_session_row(
-        &opening.database.reader(),
-        never_ran.text().as_str(),
-        None,
-        None,
+    assert!(
+        matches!(&restarted, Err(ProviderSessionError::Provider(refusal)) if refusal.code == code),
+        "{restarted:?}"
     );
-    let none = opening
-        .sessions
-        .side_question_resume(never_ran)
-        .await
-        .expect("a session with no conversation reads");
-
-    assert_eq!(resume_handle(at_rest).as_deref(), Some("conversation-1"));
-    assert_eq!(resume_handle(running).as_deref(), Some("conversation-1"));
-    assert!(none.is_none());
+    assert_eq!(resumes.load(Ordering::SeqCst), 0, "no process comes up");
 }
 
 // A process gone with no restart pending is forgotten, so the next admission resumes the session
@@ -742,56 +684,6 @@ async fn a_gone_process_is_forgotten_only_with_no_restart_pending(
         .expect("the session opens again");
 
     assert_eq!(resumes.load(Ordering::SeqCst), expected_resumes);
-}
-
-// On a session whose process runs, a review starts through the driver at once and nothing is
-// queued; on one whose process is down or being brought back, the review is queued as the
-// session's next item and the driver is not called. Killed by a direct driver call that skips the
-// queue, and by queueing a review a running process could start.
-#[rstest]
-#[case::live(SessionProcessState::Live)]
-#[case::restarting(SessionProcessState::Restarting)]
-#[case::down(SessionProcessState::Down)]
-#[tokio::test]
-async fn a_review_starts_at_once_only_on_a_running_process(#[case] state: SessionProcessState) {
-    let is_live = state == SessionProcessState::Live;
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, _| {
-        driver.expect_session_process_state().return_const(state);
-        driver
-            .expect_start_review()
-            .times(usize::from(is_live))
-            .returning(|_params| async { Ok(()) }.boxed());
-    })
-    .await;
-    opening
-        .sessions
-        .open(opening.session_id, opening.run_id)
-        .await
-        .expect("the conversation resumes");
-    let request = SessionCodeReviewStartRequest {
-        session_id: opening.session_id,
-        target: SessionReviewTarget::WorkingTree,
-    };
-    let queued = Mutex::new(Vec::new());
-
-    opening
-        .sessions
-        .start_review(request.clone(), |request| {
-            queued
-                .lock()
-                .expect("the queued reviews' lock holds")
-                .push(request);
-            std::future::ready(Ok(()))
-        })
-        .await
-        .expect("the review starts");
-
-    let queued = queued.into_inner().expect("the queued reviews' lock holds");
-    if is_live {
-        assert!(queued.is_empty(), "{queued:?}");
-    } else {
-        assert_eq!(queued, [request]);
-    }
 }
 
 // A resume a process already up answers on the leg's own binding records no row, keeps the leg's

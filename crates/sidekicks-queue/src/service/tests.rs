@@ -266,7 +266,7 @@ fn queue_over(
     ));
     let engine = test_engine(database, Arc::clone(&log.service), home.path());
     let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-    record_first_provider_capabilities(&providers);
+    record_first_provider_capabilities(&providers, true);
     let binding_cursors = Arc::new(RunBindingCursors::new(
         Arc::clone(&pool),
         Arc::new(RuntimeBindingStore::new(

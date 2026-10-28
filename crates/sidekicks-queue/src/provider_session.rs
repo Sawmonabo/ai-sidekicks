@@ -463,7 +463,6 @@ impl ProviderSessions {
         let leg = read_session_leg(&self.deps.pool, session_id)
             .await?
             .ok_or(ProviderSessionError::NoConversation { session_id })?;
-        self.deps.providers.lookup(&leg.provider_name)?;
         self.deps
             .providers
             .check_capability(&leg.provider_name, DriverCapabilityFlag::Resume)?;
