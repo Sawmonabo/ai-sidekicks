@@ -76,11 +76,13 @@ static URL_QUERY: LazyLock<Regex> = LazyLock::new(|| {
     .expect("the URL query pattern is a valid regex")
 });
 
-// A web address (`http`, `https`, `ws`, `wss`) up to whitespace: its host and path name a server,
-// not a file on this machine, so the path redaction passes over it.
+// A web address (`http`, `https`, `ws`, `wss`) up to whitespace or a character an address cannot
+// hold unescaped, such as the quote closing a JSON string: its host and path name a server, not a
+// file on this machine, so the path redaction passes over it.
 static WEB_ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
+    let space = ECMASCRIPT_WHITESPACE_CLASS;
     Regex::new(&format!(
-        r"(?-u:\b)(?:[Hh][Tt][Tt][Pp][Ss]?|[Ww][Ss][Ss]?)://[^{ECMASCRIPT_WHITESPACE_CLASS}]+"
+        r#"(?-u:\b)(?:[Hh][Tt][Tt][Pp][Ss]?|[Ww][Ss][Ss]?)://[^{space}"'<>`{{}}|\\^]+"#
     ))
     .expect("the web address pattern is a valid regex")
 });
@@ -134,7 +136,7 @@ pub fn scrub_credentials(raw_detail: &str) -> String {
 
 /// `text` with the query of every `scheme://` URL in it replaced by `?***`, keeping the scheme,
 /// host, path and fragment: a query's names and values are treated as credentials.
-pub fn strip_url_queries(text: &str) -> String {
+pub(crate) fn strip_url_queries(text: &str) -> String {
     URL_QUERY
         .replace_all(text, |captures: &Captures<'_>| {
             format!("{}?{CREDENTIAL_REDACTION}", &captures[1])
@@ -213,5 +215,15 @@ mod tests {
         );
         let plain = sanitize_failure_reason("https://host.example/mcp?token=abc123 refused", 512);
         assert_eq!(plain, "https://host.example/mcp?*** refused");
+        // An address ends at the quote closing its JSON string, so a path right after it is
+        // still redacted.
+        let json = sanitize_failure_reason(
+            r#"{"url":"https://host.example/mcp","cwd":"/Users/someone/project"}"#,
+            512,
+        );
+        assert_eq!(
+            json,
+            r#"{"url":"https://host.example/mcp","cwd":"<redacted-path>"}"#
+        );
     }
 }
