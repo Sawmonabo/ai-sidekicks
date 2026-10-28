@@ -1,5 +1,5 @@
 use std::collections::{HashSet, VecDeque};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
@@ -29,7 +29,8 @@ use super::{
     CreateWorktreeInput, LiveRunFolder, LiveRunFolderReadError, LiveRunFolderReader, NameCollision,
     WorktreeCreationError, WorktreeCreator, WorktreeCreatorDeps, WorktreeNameRequest,
 };
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::process::test_repository::{git_in, make_test_repository};
+use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::naming::{
@@ -37,6 +38,7 @@ use crate::git::worktree::naming::{
     WorktreeProjectNaming, short_id_of,
 };
 use crate::git::worktree::occupancy::MountOccupancyReader;
+use crate::git::worktree::reads::has_branch;
 use crate::git::worktree::rows::AttachedMountRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
@@ -48,13 +50,6 @@ const READ_STATEMENT_CAPACITY: usize = 16;
 
 // Every tree is named by the title alone, so a test reads its branch as the tail it gave.
 const PATTERN: &str = "{title}";
-
-/// Runs git in `folder`, failing the test when it fails.
-pub(super) async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
-}
 
 fn pattern() -> BranchNamePattern {
     BranchNamePattern::new(
@@ -164,10 +159,6 @@ impl LiveRunFolderReader for ScriptedLiveRuns {
     }
 }
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "it stands in for the machine's ceiling read, which can fail"
-)]
 /// A repository `app` on `main` with one commit, its attached mount, and a creator over them
 /// making trees under the scratch folder's `worktrees`.
 pub(super) struct CreationFixture {
@@ -195,34 +186,7 @@ impl CreationFixture {
         let log = open_log(&database, None).await;
         let git = test_git_runner();
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        git_in(
-            &git,
-            scratch.path(),
-            &["init", "--quiet", "--initial-branch=main", "app"],
-        )
-        .await;
-        let repository = scratch.path().join("app");
-        git_in(&git, &repository, &["config", "user.name", "Test"]).await;
-        git_in(
-            &git,
-            &repository,
-            &["config", "user.email", "test@example.invalid"],
-        )
-        .await;
-        git_in(
-            &git,
-            &repository,
-            &[
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "start",
-            ],
-        )
-        .await;
+        let repository = make_test_repository(&git, scratch.path(), "app").await;
         let mount_id = mint_uuid_v7().to_string();
         let connection = database.reader();
         for row in project_and_mount_rows(&mount_id, None) {
@@ -322,18 +286,6 @@ impl CreationFixture {
         }
     }
 
-    async fn has_branch(&self, branch: &str) -> bool {
-        let listed = self
-            .git
-            .run(
-                None,
-                GitCall::read(in_folder(&self.repository, &["branch", "--list", branch])),
-            )
-            .await
-            .expect("the branches are listed");
-        !listed.stdout.is_empty()
-    }
-
     fn worktree_states(&self) -> Vec<String> {
         let connection = self.database.reader();
         let mut statement = connection
@@ -406,7 +358,12 @@ async fn a_record_the_active_branch_index_refuses_is_a_collision_and_its_tree_is
         !fixture.folder_of("fix").exists(),
         "the tree's folder is left"
     );
-    assert!(!fixture.has_branch("fix").await, "the new branch is left");
+    assert!(
+        !has_branch(&fixture.git, None, &fixture.repository, "fix")
+            .await
+            .expect("the branches are read"),
+        "the new branch is left"
+    );
     assert!(fixture.worktree_states().is_empty());
 }
 
@@ -436,7 +393,9 @@ async fn a_failed_add_keeps_a_branch_the_person_already_had() {
         "{failure:?}"
     );
     assert!(
-        fixture.has_branch("feature").await,
+        has_branch(&fixture.git, None, &fixture.repository, "feature")
+            .await
+            .expect("the branches are read"),
         "the person's branch is deleted"
     );
     assert!(!fixture.folder_of("feature").exists());
@@ -488,7 +447,9 @@ async fn a_carry_while_another_session_runs_in_the_checkout_is_refused_and_leave
         "the tree's folder is left"
     );
     assert!(
-        !fixture.has_branch("carried").await,
+        !has_branch(&fixture.git, None, &fixture.repository, "carried")
+            .await
+            .expect("the branches are read"),
         "the new branch is left"
     );
     assert!(

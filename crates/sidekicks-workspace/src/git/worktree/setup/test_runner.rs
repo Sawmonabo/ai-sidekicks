@@ -1,7 +1,6 @@
 //! A setup runner for tests: no file watch behind its warm step, the account's shell, and the
 //! wall clock for the watch's slow ticks.
 
-use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +13,7 @@ use super::{WorktreeSetupRunner, WorktreeSetupRunnerDeps, WorktreeSetupSources};
 use crate::git::process::GitRunner;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps};
+use crate::git::worktree::watch::{WorkingFolderWatcher, WorkingFolderWatcherDeps, no_ceiling};
 
 // The watch's slow tick, far beyond any test.
 const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
@@ -50,8 +49,4 @@ pub(crate) fn test_setup_runner(
         sources,
         command_shell: command_shell().expect("the account's shell reads"),
     })
-}
-
-fn no_ceiling() -> io::Result<Option<u64>> {
-    Ok(None)
 }

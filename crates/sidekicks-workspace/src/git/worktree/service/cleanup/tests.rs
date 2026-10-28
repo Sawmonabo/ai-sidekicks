@@ -18,6 +18,7 @@ use super::{
     RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
     stop_file_watch,
 };
+use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{
     GitCall, GitError, GitRunner, StartedFileWatch, find_git_executable, in_folder,
     test_git_runner, test_git_runner_with_environment,
@@ -48,12 +49,6 @@ impl RetiredWorktreeKeeper for RecordingKeeper {
             Ok(())
         })
     }
-}
-
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
 }
 
 fn new_id() -> String {
@@ -110,34 +105,7 @@ impl CleanupFixture {
         let database = TestDatabase::new(schema_parts());
         let log = open_log(&database, None).await;
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        let repository = scratch.path().join("app");
-        git_in(
-            &git,
-            scratch.path(),
-            &["init", "--quiet", "--initial-branch=main", "app"],
-        )
-        .await;
-        git_in(&git, &repository, &["config", "user.name", "Test"]).await;
-        git_in(
-            &git,
-            &repository,
-            &["config", "user.email", "test@example.invalid"],
-        )
-        .await;
-        git_in(
-            &git,
-            &repository,
-            &[
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "start",
-            ],
-        )
-        .await;
+        let repository = make_test_repository(&git, scratch.path(), "app").await;
         git_in(
             &git,
             &repository,

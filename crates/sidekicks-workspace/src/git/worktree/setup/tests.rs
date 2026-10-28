@@ -30,16 +30,13 @@ use tempfile::TempDir;
 use super::steps::OUTPUT_LINGER;
 use super::test_runner::test_setup_runner;
 use super::{MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupSources};
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::process::test_git_runner;
+use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::schema::schema_parts;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
 
-#[expect(
-    clippy::unnecessary_wraps,
-    reason = "it stands in for the machine's ceiling read, which can fail"
-)]
 // The project's setup as the test saves it, read again at each read; a read refused while
 // `is_unreadable` is set, as a settings file that cannot be read refuses one.
 struct SavedSetup {
@@ -108,31 +105,7 @@ impl SetupFixture {
         ));
         let git = test_git_runner();
         let scratch = tempfile::tempdir().expect("a scratch folder");
-        git_in(
-            &git,
-            scratch.path(),
-            &["init", "--quiet", "--initial-branch=main", "app"],
-        )
-        .await;
-        let checkout = scratch.path().join("app");
-        git_in(
-            &git,
-            &checkout,
-            &[
-                "-c",
-                "user.name=Test",
-                "-c",
-                "user.email=test@example.invalid",
-                "-c",
-                "commit.gpgSign=false",
-                "commit",
-                "--quiet",
-                "--allow-empty",
-                "-m",
-                "first",
-            ],
-        )
-        .await;
+        let checkout = make_test_repository(&git, scratch.path(), "app").await;
         let tree = scratch.path().join("tree");
         git_in(
             &git,
@@ -193,12 +166,6 @@ impl SetupFixture {
             .expect("the setup runs");
         (worktree_id, status)
     }
-}
-
-async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) {
-    git.run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
 }
 
 fn setup_of(

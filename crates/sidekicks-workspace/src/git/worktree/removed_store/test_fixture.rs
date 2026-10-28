@@ -28,7 +28,8 @@ use super::{
     REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY, RemovedWorktreeStore, RemovedWorktreeStoreDeps,
     kept_folder_for,
 };
-use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner};
+use crate::git::process::test_repository::{commit_empty, git_in, make_test_repository};
+use crate::git::process::{GitRunner, test_git_runner};
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::kept_copy::folder_move::{FolderMoveTools, LeftoverNamesInUse};
@@ -84,21 +85,7 @@ impl KeptCopyFixture {
         // Resolved, since git writes every record from the resolved path.
         let scratch_path = real_path(root).expect("the scratch folder resolves");
         let git = test_git_runner();
-        let repository = scratch_path.join("app");
-        run_git(
-            &git,
-            &scratch_path,
-            &["init", "--quiet", "--initial-branch=main", "app"],
-        )
-        .await;
-        run_git(&git, &repository, &["config", "user.name", "Test"]).await;
-        run_git(
-            &git,
-            &repository,
-            &["config", "user.email", "test@example.invalid"],
-        )
-        .await;
-        commit_all(&git, &repository, "start").await;
+        let repository = make_test_repository(&git, &scratch_path, "app").await;
         let mount = mint_uuid_v7().to_string();
         let connection = database.reader();
         for row in project_and_mount_rows(&mount, None) {
@@ -169,12 +156,12 @@ impl KeptCopyFixture {
 
     /// Runs git in `folder` and answers its output, trimmed.
     pub(crate) async fn git(&self, folder: &Path, arguments: &[&str]) -> String {
-        run_git(&self.git, folder, arguments).await
+        git_in(&self.git, folder, arguments).await
     }
 
     /// Commits everything staged in `folder` as `message`.
     pub(crate) async fn commit(&self, folder: &Path, message: &str) {
-        commit_all(&self.git, folder, message).await;
+        commit_empty(&self.git, folder, message).await;
     }
 
     /// A linked tree on a new branch `branch` at the tree folder `name`, with its live row.
@@ -325,29 +312,4 @@ impl KeptCopyFixture {
             .map(PathBuf::from)
             .expect("the kept copy's row is read")
     }
-}
-
-async fn run_git(git: &GitRunner, folder: &Path, arguments: &[&str]) -> String {
-    let output = git
-        .run(None, GitCall::read(in_folder(folder, arguments)))
-        .await
-        .expect("git runs in the test repository");
-    String::from_utf8_lossy(&output.stdout).trim().to_owned()
-}
-
-async fn commit_all(git: &GitRunner, folder: &Path, message: &str) {
-    run_git(
-        git,
-        folder,
-        &[
-            "-c",
-            "commit.gpgSign=false",
-            "commit",
-            "--quiet",
-            "--allow-empty",
-            "-m",
-            message,
-        ],
-    )
-    .await;
 }

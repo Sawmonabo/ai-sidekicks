@@ -325,7 +325,8 @@ mod tests {
     use rstest::rstest;
 
     use super::{NameWalk, do_branches_conflict};
-    use crate::git::worktree::creation::tests::{CreationFixture, git_in, plan_for};
+    use crate::git::process::test_repository::git_in;
+    use crate::git::worktree::creation::tests::{CreationFixture, plan_for};
     use crate::git::worktree::creation::{NameCollision, WorktreeCreationError};
     use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 

@@ -861,4 +861,6 @@ impl Drop for StartedFileWatch {
 }
 
 #[cfg(test)]
+pub(crate) mod test_repository;
+#[cfg(test)]
 mod tests;

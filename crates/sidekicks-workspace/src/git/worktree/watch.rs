@@ -65,6 +65,16 @@ const REPOSITORY_CHANGE_CAPACITY: usize = 16;
 /// the machine watches a tree whole, so no folder is too large.
 pub(crate) type ReadWatchCeiling = fn() -> io::Result<Option<u64>>;
 
+/// A [`ReadWatchCeiling`] for tests, answering that no folder is too large to watch.
+#[cfg(test)]
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "it stands in for the machine's ceiling read, which can fail"
+)]
+pub(crate) fn no_ceiling() -> io::Result<Option<u64>> {
+    Ok(None)
+}
+
 /// What a subscriber is called with on each change of its session's folder.
 pub(crate) type WorkingTreeChangeListener = Arc<dyn Fn(WorkingTreeChange) + Send + Sync>;
 
