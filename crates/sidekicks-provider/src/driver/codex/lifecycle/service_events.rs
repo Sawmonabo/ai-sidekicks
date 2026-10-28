@@ -1,7 +1,8 @@
 //! What each Codex service's events do through the session pieces: a process's end ends the turns
 //! of the sessions on it, a service back resumes their conversations, a crash loop tells them it
-//! stays down, a rate-limit push is filed and a terminal service's planned restart moves them. Each
-//! event runs off the service's runner, on the driver's tasks.
+//! stays down, a failed start tells the queue their processes are gone, a rate-limit push is filed
+//! and a terminal service's planned restart moves them. Each event runs off the service's runner,
+//! on the driver's tasks.
 
 use std::sync::Arc;
 
@@ -74,6 +75,12 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
                 .recovery
                 .crash_loop(&service, start_failure.as_deref())
                 .await;
+        });
+    }
+
+    fn start_failed(&self, service: &Arc<CodexService>) {
+        self.spawn(service, "start failed", |parts, service| async move {
+            parts.recovery.start_failed(&service);
         });
     }
 

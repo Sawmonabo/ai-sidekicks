@@ -304,11 +304,12 @@ impl Supervision {
                 ));
                 (SupervisorState::Restarting { wait: ticket }, actions)
             }
+            // Published first, so a session's state reads down by the time the loop is reported.
             CrashOutcome::CrashLoop => {
-                actions.push(SupervisorAction::ReportCrashLoop(start_failure));
                 actions.push(SupervisorAction::Publish(
                     CodexServiceAvailability::CrashLoop,
                 ));
+                actions.push(SupervisorAction::ReportCrashLoop(start_failure));
                 (SupervisorState::CrashLoop, actions)
             }
         }
@@ -334,6 +335,7 @@ impl Supervision {
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
         ));
+        actions.push(SupervisorAction::ReportStoppedOnFailedStart);
         (SupervisorState::Stopped, actions)
     }
 

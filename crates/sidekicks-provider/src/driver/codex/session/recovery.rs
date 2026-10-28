@@ -239,17 +239,14 @@ impl CodexServiceRecovery {
     /// Tells every session on a service that stays down after its crash window filled, naming how
     /// its process last ended, the newest end recovery read, else, for a loop of failed restarts
     /// after an end the daemon could not read, `start_failure`, the failure of the restart that
-    /// filled the window. A loop with neither, whose ends no wait read, posts nothing.
+    /// filled the window. A loop with neither, whose ends no wait read, posts nothing. The queue
+    /// hears each session's process gone first, so its next run opens it again.
     pub(crate) async fn crash_loop(
         &self,
         service: &Arc<CodexService>,
         start_failure: Option<&CodexError>,
     ) {
-        let sessions: HashSet<SessionId> = service
-            .attached_sessions()
-            .iter()
-            .map(CodexSessionInboundSender::session_id)
-            .collect();
+        let sessions = self.report_sessions_gone(service);
         let exit = {
             let mut state = self.lock();
             state
@@ -290,6 +287,28 @@ impl CodexServiceRecovery {
             )
             .await;
         }
+    }
+
+    /// Tells the queue each session on a service that stays down, its start having failed, that
+    /// its process is gone, so its next run opens it again.
+    pub(crate) fn start_failed(&self, service: &CodexService) {
+        self.report_sessions_gone(service);
+    }
+
+    // Tells the queue the process of every session on `service`, which stays down, is gone, and
+    // answers those sessions.
+    fn report_sessions_gone(&self, service: &CodexService) -> HashSet<SessionId> {
+        let sessions: HashSet<SessionId> = service
+            .attached_sessions()
+            .iter()
+            .map(CodexSessionInboundSender::session_id)
+            .collect();
+        if let Some(listener) = self.dependencies.process_gone.port() {
+            for session_id in &sessions {
+                listener.process_gone(*session_id);
+            }
+        }
+        sessions
     }
 
     /// The person's restart of `session_id`'s service: one its crash loop left down starts again

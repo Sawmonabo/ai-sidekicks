@@ -208,9 +208,7 @@ impl ClaudeSessionRestarts {
             }
         }
         live.release_served_presses(&self.ports.reviewer_denials);
-        if let Some(process_gone) = self.ports.process_gone.port() {
-            process_gone.process_gone(session_id);
-        }
+        self.report_gone(session_id);
         match outcome {
             None => {}
             Some(CrashOutcome::CrashLoop) => self.report_crash_loop(session_id, &exit).await,
@@ -292,6 +290,7 @@ impl ClaudeSessionRestarts {
         else {
             return Ok(());
         };
+        self.report_gone(session_id);
         let failure = DriverError::Internal(provider_failure_detail.as_str().into());
         if let Err(error) = self.report_relaunch(session_id, result).await {
             record_unheard_claude_failure(
@@ -439,6 +438,9 @@ impl ClaudeSessionRestarts {
             return Ok(());
         };
         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
+        if !is_resumed {
+            self.report_gone(session_id);
+        }
         self.report_relaunch(session_id, result).await?;
         if is_resumed
             && let (Ok(from_version), Ok(to_version)) = (
@@ -493,7 +495,7 @@ impl ClaudeSessionRestarts {
         let session_id = live.session_id;
         // Its own wait is taken out with its stage and kept to the end, so dropping it aborts
         // nothing of this restart.
-        let (_own_wait, _relaunching) = {
+        let (_own_wait, relaunching) = {
             let mut table = lock(&self.table);
             let wait = match table.restarting.remove(&session_id) {
                 Some(ClaudeRestartStage::Held { ended, wait }) if Arc::ptr_eq(&ended, &live) => {
@@ -512,6 +514,11 @@ impl ClaudeSessionRestarts {
         };
         let result = self.resume(compose_claude_relaunch(&live)).await;
         let is_resumed = matches!(result, DriverResumeResult::Resumed { .. });
+        // Let go first, so the session reads down once the relaunch failed.
+        drop(relaunching);
+        if !is_resumed {
+            self.report_gone(session_id);
+        }
         if let Err(error) = self.report_relaunch(session_id, result).await {
             record_unheard_claude_failure(
                 DriverDiagnosticKind::ProcessReportFailed,
@@ -545,6 +552,14 @@ impl ClaudeSessionRestarts {
                     UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
                 ),
             },
+        }
+    }
+
+    // Tells the queue the session's process is gone: at an exit, and once a relaunch failed, after
+    // which the session stands down and its next run opens it again.
+    fn report_gone(&self, session_id: SessionId) {
+        if let Some(process_gone) = self.ports.process_gone.port() {
+            process_gone.process_gone(session_id);
         }
     }
 

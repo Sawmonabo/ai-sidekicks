@@ -138,7 +138,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     vec![at_once(|_| SupervisorEvent::Start), at_once(|_| start_failed(1))],
     "Stopped",
     &["TearDown { ticket: 1, end: Stop }",
-        "Publish(StartFailed(Transport { detail: \"refused\", cause: None }))"],
+        "Publish(StartFailed(Transport { detail: \"refused\", cause: None }))",
+        "ReportStoppedOnFailedStart"],
 )]
 #[case::a_drop_after_a_short_uptime_keeps_the_grown_count(
     CodexServiceKind::Account,
