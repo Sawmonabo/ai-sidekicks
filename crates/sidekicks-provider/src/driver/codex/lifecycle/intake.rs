@@ -6,8 +6,8 @@
 //! turn's route retired, its end recorded where no run moved, its pause or continue acted on and
 //! its owed fork let go, each turn's readings and the session's context reading published, and the
 //! spend it metered recorded in metering order. Each settled step publishes the session's
-//! context reading again with no usage when its model or window changed. The driver's own calls on the record take their
-//! place among the frames too.
+//! context reading again with no usage when its model or window changed. The driver's own calls on
+//! the record take their place among the frames too.
 
 use std::sync::Arc;
 

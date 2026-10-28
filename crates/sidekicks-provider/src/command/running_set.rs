@@ -413,9 +413,9 @@ impl RunningCommandSets {
     }
 
     /// The person's input: an open askpass prompt takes it as its answer, the end of input alone
-    /// answering it empty and every later prompt of the command at once; otherwise the session's `driver` writes it to a command that takes
-    /// input. Refused with `agent.command.takesNoInput` for any other command, and with the
-    /// provider's refusal.
+    /// answering it empty and every later prompt of the command at once; otherwise the session's
+    /// `driver` writes it to a command that takes input. Refused with `agent.command.takesNoInput`
+    /// for any other command, and with the provider's refusal.
     pub async fn write(
         &self,
         driver: &dyn ProviderDriver,

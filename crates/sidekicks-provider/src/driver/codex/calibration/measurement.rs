@@ -430,7 +430,6 @@ fn read_fallback_buffer(dump: &str, model_id: &str) -> u64 {
         .map_or(0, |budget| budget.auto_compact_fallback_buffer_tokens)
 }
 
-// A scratch folder name no other run shares.
 /// Removes the calibration folder under `data_folder` and whatever scratch a crashed run left in
 /// it; a folder that cannot be removed is logged and left, since the next daemon run tries again.
 pub(super) async fn remove_left_calibration_folder(data_folder: &Path) {

@@ -384,10 +384,10 @@ mod tests {
         }
     }
 
-    // Fails when a colon inside a style's name or description moves the split between them, or when a
-    // build that no longer lists `/output-style` reads as printing no descriptions rather than as the
-    // version fault it is. Mutations: in `read_output_style_descriptions`, split each row at its first
-    // `": "`; in `read_claude_command_choices`, the unlisted arm read as `Listed` of nothing.
+    // Fails when a colon inside a style's name or description moves the split between them, or when
+    // a build that no longer lists `/output-style` reads as printing no descriptions rather than as
+    // the version fault it is. Mutations: in `read_output_style_descriptions`, split each row at its
+    // first `": "`; in `read_claude_command_choices`, the unlisted arm read as `Listed` of nothing.
     #[test]
     fn style_descriptions_keep_their_colons_and_an_unlisted_command_is_a_version_fault() {
         let listed = read_claude_command_choices(&figures(ClaudeLocalCommandReply {

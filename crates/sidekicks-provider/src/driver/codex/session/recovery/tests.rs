@@ -199,8 +199,8 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
 
 // Killed by a notice after a crash restart, by the person's restart telling no session it
 // brought back, by a crash loop naming an exit older than its newest, by one naming its restart's
-// failure where it read an exit, and by a silent end's loop naming anything but its silence. Runs in real time under a bound, the service answering
-// on its own task.
+// failure where it read an exit, and by a silent end's loop naming anything but its silence. Runs
+// in real time under a bound, the service answering on its own task.
 #[tokio::test]
 async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_the_session() {
     tokio::time::timeout(Duration::from_secs(30), async {
