@@ -419,15 +419,12 @@ pub(crate) async fn write_back_ref_store(
     let kept = kept_folder.join(KEPT_REF_STORE_ENTRY);
     let record_folder = record_folder.to_path_buf();
     on_blocking_thread(move || {
+        if let Some(parent) = destination.parent() {
+            fs::create_dir_all(parent).map_err(at(parent))?;
+        }
         if kept.try_exists().map_err(at(&kept))? {
-            if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent).map_err(at(parent))?;
-            }
             copy_tree(&kept, &destination, TreeCopyPolicy::IntoEmpty, None)?;
         } else {
-            if let Some(parent) = destination.parent() {
-                fs::create_dir_all(parent).map_err(at(parent))?;
-            }
             fs::create_dir(&destination).map_err(at(&destination))?;
         }
         let head = record_folder.join("HEAD");

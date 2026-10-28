@@ -8,7 +8,6 @@
 use std::collections::HashSet;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
