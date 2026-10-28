@@ -29,6 +29,10 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     /// The folder the process runs in; a resume from any other folder starts a new conversation.
     pub(crate) working_directory: PathBuf,
     /// The daemon's callback tools.
+    #[expect(
+        dead_code,
+        reason = "the session's tool server lists these tools to Claude Code once it hosts them"
+    )]
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The session's helper policy.
     pub(crate) subagent_policy: Option<SubagentPolicy>,

@@ -31,7 +31,7 @@ use crate::driver::claude::hooks::callbacks::{
 };
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::driver::claude::hooks::pause::ClaudeRunPauses;
+use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
 use crate::driver::claude::run::controls::claude_dialog_session;
@@ -169,6 +169,19 @@ impl ClaudeSessionTask {
                 .await;
         }
         lock(&services.foreground_helpers).observe_frame(session_id, frame_kind, text);
+        // A helper's end frees the starts the helper limit held behind it.
+        let admitted =
+            lock(&services.helpers).observe_lifecycle(&session_id, &routed.routed.helper_lifecycle);
+        for request_id in admitted {
+            answer_claude_request(
+                &*live.channel,
+                &session_id,
+                &live.admitted_provider_account_id,
+                request_id,
+                &ClaudeHookAnswer::Pass,
+            )
+            .await;
+        }
         let is_reviewed = self.level() == Some(PermissionLevel::Reviewed);
         let after = services
             .delivery

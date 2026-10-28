@@ -7,6 +7,8 @@ use std::num::NonZeroUsize;
 
 use sidekicks_contracts::session::id::SessionId;
 
+use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
+
 // A held helper-tool callback: its request id and its tool call id.
 struct HeldStart {
     request_id: String,
@@ -94,8 +96,31 @@ impl ClaudeHelperLimit {
         ClaudeHelperStartAnswer::Hold
     }
 
-    /// Records a helper's announcement, by the helper-tool call that started it.
-    pub(crate) fn helper_started(
+    /// Counts the helpers one frame started and ended, and answers the held starts their ends
+    /// free, oldest first, each now admitted, by their request ids.
+    pub(crate) fn observe_lifecycle(
+        &mut self,
+        session_id: &SessionId,
+        emissions: &[SubagentLifecycleEmission],
+    ) -> Vec<String> {
+        let mut admitted = Vec::new();
+        for emission in emissions {
+            match emission.event_type {
+                SubagentLifecycleEventType::Started => {
+                    if let Some(parent_tool_use_id) = &emission.parent_tool_call_id {
+                        self.helper_started(session_id, &emission.subagent_id, parent_tool_use_id);
+                    }
+                }
+                SubagentLifecycleEventType::Completed => {
+                    admitted.extend(self.helper_finished(session_id, &emission.subagent_id));
+                }
+            }
+        }
+        admitted
+    }
+
+    // Records a helper's announcement, by the helper-tool call that started it.
+    fn helper_started(
         &mut self,
         session_id: &SessionId,
         helper_id: &str,
@@ -108,13 +133,9 @@ impl ClaudeHelperLimit {
         helpers.running_helper_ids.insert(helper_id.to_owned());
     }
 
-    /// Records a helper's end and answers the held starts it frees, oldest first, each now
-    /// admitted, by their request ids.
-    pub(crate) fn helper_finished(
-        &mut self,
-        session_id: &SessionId,
-        helper_id: &str,
-    ) -> Vec<String> {
+    // Records a helper's end and answers the held starts it frees, oldest first, each now
+    // admitted, by their request ids.
+    fn helper_finished(&mut self, session_id: &SessionId, helper_id: &str) -> Vec<String> {
         let Some(helpers) = self.sessions.get_mut(session_id) else {
             return Vec::new();
         };
@@ -157,6 +178,18 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
 
     use super::{ClaudeHelperLimit, ClaudeHelperStartAnswer};
+    use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEventType};
+
+    fn lifecycle(
+        event_type: SubagentLifecycleEventType,
+        parent_tool_call_id: &str,
+    ) -> [SubagentLifecycleEmission; 1] {
+        [SubagentLifecycleEmission {
+            event_type,
+            subagent_id: "h1".to_owned(),
+            parent_tool_call_id: Some(parent_tool_call_id.to_owned()),
+        }]
+    }
 
     // A session limited to one helper at once, with `r1` admitted and `r2` held behind it.
     fn one_admitted_one_held() -> (ClaudeHelperLimit, SessionId) {
@@ -175,13 +208,20 @@ mod tests {
         (limit, session_id)
     }
 
+    // Killed by a helper's start left uncounted, which frees the held start at the turn's end
+    // while the helper still runs, and by its end left uncounted, which holds it for good.
     #[test]
     fn a_held_start_waits_for_a_running_helper_to_finish() {
         let (mut limit, session_id) = one_admitted_one_held();
-        limit.helper_started(&session_id, "h1", "t1");
+        let started = lifecycle(SubagentLifecycleEventType::Started, "t1");
+        assert_eq!(
+            limit.observe_lifecycle(&session_id, &started),
+            Vec::<String>::new()
+        );
         assert_eq!(limit.turn_ended(&session_id), Vec::<String>::new());
 
-        assert_eq!(limit.helper_finished(&session_id, "h1"), ["r2"]);
+        let completed = lifecycle(SubagentLifecycleEventType::Completed, "t1");
+        assert_eq!(limit.observe_lifecycle(&session_id, &completed), ["r2"]);
     }
 
     #[test]
