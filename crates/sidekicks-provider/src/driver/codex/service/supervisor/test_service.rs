@@ -158,7 +158,6 @@ pub(crate) fn test_codex_service_dependencies(
     let link_folder = program_link_folder(&folder.join("data"));
     let exec_relay = Arc::new(CodexExecRelayDependencies {
         spawner: spawner.clone(),
-        data_folder: folder.join("data"),
         command_channel_root: command_channel_root(&folder.join("data")),
         caller_processes: Arc::new(
             ProcessTableReader::for_this_program().expect("this program's reader builds"),
@@ -169,7 +168,6 @@ pub(crate) fn test_codex_service_dependencies(
         command_output: Arc::new(PortRegistration::new("running commands")),
         wrapper_program: command_wrapper_program_path(&link_folder),
         askpass_program: command_askpass_program_path(&link_folder),
-        snapshot_sweep: Arc::default(),
     });
     Arc::new(CodexServiceDependencies {
         spawner,

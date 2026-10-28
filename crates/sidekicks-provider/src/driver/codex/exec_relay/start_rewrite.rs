@@ -1,10 +1,15 @@
 //! A command's start as the relay passes it on. A start a session's call made runs under the
 //! command wrapper, which tells the session's channel of it: its own name moved to the wrapper's
-//! `--arg0`, a login shell's line run after the conversation's snapshot as Codex's own path runs
-//! it, and its git and ssh prompts sent to the askpass. Every other start, a side question's copy's
-//! among them, runs with the environment that keeps git and ssh from asking anyone.
+//! `--arg0`, a login shell's line run by a non-login shell, and its git and ssh prompts sent to the
+//! askpass. Every other start, a side question's copy's among them, runs with the environment that
+//! keeps git and ssh from asking anyone.
+//!
+//! No shell snapshot is taken: every conversation's policy inherits nothing and the daemon composes
+//! each command's environment itself, so a snapshot would carry nothing a command reads. The line
+//! runs non-login, as Codex's own path runs it beside a snapshot, so the person's profile never
+//! runs again over that environment.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -14,7 +19,6 @@ use sidekicks_workspace::git::process::{GIT_TERMINAL_PROMPT_OFF, NO_PROMPT_ENVIR
 
 use crate::command::askpass::command_prompt_environment;
 use crate::driver::codex::exec_relay::executor::CodexExecutor;
-use crate::driver::codex::exec_relay::shell_snapshot::wrap::wrap_with_snapshot;
 use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand, forward};
 
 /// The wrapper's flags ahead of a relayed command's own words.
@@ -24,15 +28,19 @@ const ARG0_FLAG: &str = "--arg0";
 const TTY_FLAG: &str = "--tty";
 const WORDS_SEPARATOR: &str = "--";
 
+/// The flag of a login shell's line, and the one its non-login run takes.
+const LOGIN_LINE_FLAG: &str = "-lc";
+const LINE_FLAG: &str = "-c";
+
+/// The shells whose login line runs non-login, by file name, as Codex derives their starts.
+const LOGIN_LINE_SHELLS: [&str; 3] = ["zsh", "bash", "sh"];
+
 // The members of a start the relay reads.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartRead {
     process_id: String,
     metadata: Option<StartMetadata>,
-    #[serde(default)]
-    argv: Vec<String>,
-    cwd: Option<String>,
     #[serde(default)]
     tty: bool,
     #[serde(default)]
@@ -46,8 +54,7 @@ struct StartMetadata {
     tool_call_id: Option<String>,
 }
 
-/// What a relayed start runs under: the wrapper, the session's channel, the askpass and the
-/// snapshot.
+/// What a relayed start runs under: the wrapper, the session's channel and the askpass.
 pub(super) struct WrappedStart<'start> {
     /// The command wrapper's link.
     pub(super) wrapper_program: &'start Path,
@@ -60,8 +67,6 @@ pub(super) struct WrappedStart<'start> {
     /// The executor's id for the command's process, unique on the executor, which the wrapper
     /// pairs its row by.
     pub(super) executor_process_id: &'start str,
-    /// The conversation's snapshot, where one was taken.
-    pub(super) snapshot: Option<&'start Path>,
 }
 
 /// Adds to the start `params` the environment that keeps git and ssh from asking anyone, for a
@@ -79,8 +84,8 @@ pub(super) fn add_no_prompt_environment(params: &mut Map<String, Value>) {
 
 /// Rewrites the start `params` to run under the wrapper as `wrapped` says: the channel's and the
 /// askpass's variables join its environment with git's terminal prompt off, a login shell's line
-/// is wrapped with the relay's snapshot in place of any the start asks the executor for, and its
-/// own name and terminal move to the wrapper's flags.
+/// runs non-login with no snapshot the start asks the executor for, and its own name and terminal
+/// move to the wrapper's flags.
 pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart<'_>) {
     let mut environment = match params.remove("env") {
         Some(Value::Object(environment)) => environment,
@@ -100,7 +105,7 @@ pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart
     // The executor restores its own snapshot only for a login shell's words, which the wrapper's
     // now stand ahead of.
     params.remove("shellSnapshot");
-    let argv: Vec<String> = params
+    let mut words: Vec<String> = params
         .get("argv")
         .and_then(Value::as_array)
         .map(|words| {
@@ -110,10 +115,7 @@ pub(super) fn wrap_start(params: &mut Map<String, Value>, wrapped: &WrappedStart
                 .collect()
         })
         .unwrap_or_default();
-    let words = wrapped
-        .snapshot
-        .and_then(|snapshot| wrap_with_snapshot(&argv, snapshot, &environment))
-        .unwrap_or(argv);
+    run_login_line_without_login(&mut words);
     let mut rewritten = vec![
         wrapped.wrapper_program.to_string_lossy().into_owned(),
         CONVERSATION_FLAG.to_owned(),
@@ -169,8 +171,7 @@ impl CodexExecRelay {
         if let Some(Value::Object(params)) = message.get_mut("params") {
             let is_wrapped = match &started {
                 Some((command, false)) if RUNS_COMMAND_WRAPPER => {
-                    self.wrap_relayed_start(params, &executor, &read, command)
-                        .await
+                    self.wrap_relayed_start(params, &executor, command).await
                 }
                 _ => false,
             };
@@ -238,7 +239,6 @@ impl CodexExecRelay {
         &self,
         params: &mut Map<String, Value>,
         executor: &CodexExecutor,
-        read: &StartRead,
         command: &RelayedCommand,
     ) -> bool {
         let session_id = command.session_id;
@@ -255,17 +255,6 @@ impl CodexExecRelay {
                 return false;
             }
         };
-        let working_folder = read.cwd.as_deref().and_then(read_working_folder);
-        let snapshot = match (read.argv.first(), working_folder) {
-            (Some(shell), Some(working_folder))
-                if read.argv.get(1).is_some_and(|flag| flag == "-lc") =>
-            {
-                self.snapshots
-                    .snapshot_for(session_id, &command.thread_id, shell, &working_folder)
-                    .await
-            }
-            _ => None,
-        };
         wrap_start(
             params,
             &WrappedStart {
@@ -274,14 +263,23 @@ impl CodexExecRelay {
                 channel_folder: channel.channel.folder(),
                 channel_environment: &channel.environment,
                 executor_process_id: &command.executor_process_id,
-                snapshot: snapshot.as_deref(),
             },
         );
         true
     }
 }
 
-// The folder a start's `cwd`, a `file:` address, names.
-fn read_working_folder(cwd: &str) -> Option<PathBuf> {
-    url::Url::parse(cwd).ok()?.to_file_path().ok()
+// Turns `[shell, "-lc", line, ...]` for a shell Codex derives a login line for into
+// `[shell, "-c", line, ...]`; any other start is left as it is.
+fn run_login_line_without_login(words: &mut [String]) {
+    let [shell, flag, _line, ..] = words else {
+        return;
+    };
+    let is_login_shell = Path::new(shell.as_str())
+        .file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| LOGIN_LINE_SHELLS.contains(&name));
+    if is_login_shell && flag == LOGIN_LINE_FLAG {
+        LINE_FLAG.clone_into(flag);
+    }
 }

@@ -2,8 +2,8 @@
 //! account's service gets one relay for its life: the executor, `codex exec-server`, is the
 //! daemon's own child on standard input and output, and the service reaches it through a loopback
 //! WebSocket the relay serves under a token minted at every start of the service. Every message
-//! passes unchanged but two: a command's start, rewritten to run under the command wrapper with
-//! the conversation's shell snapshot, and a terminate, held until the wrapper ended the command.
+//! passes unchanged but two: a command's start, rewritten to run under the command wrapper, and a
+//! terminate, held until the wrapper ended the command.
 //! A command whose service was restarted while it ran is ended by the relay at its process's end,
 //! since the new service never reports the old one's items.
 
@@ -11,7 +11,6 @@ mod bearer_token;
 mod command_acts;
 mod endpoint;
 mod executor;
-mod shell_snapshot;
 mod start_rewrite;
 mod terminate_hold;
 
@@ -36,7 +35,6 @@ use tokio::task::JoinHandle;
 use self::bearer_token::RelayBearerToken;
 use self::endpoint::RelayEndpoint;
 use self::executor::{CodexExecutor, ProcessEnd};
-use self::shell_snapshot::ShellSnapshots;
 use crate::command::channel::CommandChannel;
 use crate::command::running_set::RunningCommandSets;
 use crate::command::waiting_checks::InputWaitReader;
@@ -72,10 +70,8 @@ pub(crate) fn compose_codex_command_channel_folder(
 
 /// What every relay of one driver starts and reports through.
 pub(crate) struct CodexExecRelayDependencies {
-    /// The daemon's spawner thread, which starts the executor and each snapshot's shell.
+    /// The daemon's spawner thread, which starts the executor.
     pub(crate) spawner: Spawner,
-    /// The daemon's data folder, under which the snapshots are written.
-    pub(crate) data_folder: PathBuf,
     /// The folder each session's command channel opens under.
     pub(crate) command_channel_root: PathBuf,
     /// Reads where a channel party's process sits, for its admission.
@@ -88,8 +84,6 @@ pub(crate) struct CodexExecRelayDependencies {
     pub(crate) wrapper_program: PathBuf,
     /// The command askpass's link, absolute.
     pub(crate) askpass_program: PathBuf,
-    /// The one removal, per daemon run, of the shell snapshot folders a former run left.
-    pub(crate) snapshot_sweep: Arc<OnceCell<()>>,
 }
 
 /// The session a conversation of the relay's service belongs to and what kind it is; `None` for
@@ -163,7 +157,6 @@ pub(crate) struct CodexExecRelay {
     service_start: AtomicU64,
     commands: Mutex<HashMap<String, CommandRecord>>,
     channels: Mutex<HashMap<SessionId, Arc<OnceCell<Arc<SessionChannel>>>>>,
-    snapshots: ShellSnapshots,
     // The process starts Codex sent through the relay, which a test reads.
     #[cfg(test)]
     process_starts: AtomicU64,
@@ -177,11 +170,6 @@ impl CodexExecRelay {
         thread_sessions: CodexThreadSessions,
         on_executor_ended: Arc<dyn Fn() + Send + Sync>,
     ) -> Arc<Self> {
-        let snapshots = ShellSnapshots::new(
-            dependencies.spawner.clone(),
-            &dependencies.data_folder,
-            Arc::clone(&dependencies.snapshot_sweep),
-        );
         Arc::new_cyclic(|me| Self {
             dependencies,
             thread_sessions,
@@ -193,14 +181,13 @@ impl CodexExecRelay {
             service_start: AtomicU64::new(0),
             commands: Mutex::new(HashMap::new()),
             channels: Mutex::new(HashMap::new()),
-            snapshots,
             #[cfg(test)]
             process_starts: AtomicU64::new(0),
         })
     }
 
-    /// Readies the relay for one start of its service: the executor `command` runs, on
-    /// `environment`, is started where none runs, the listener opened once, and a new token
+    /// Readies the relay for one start of its service: the executor `command` runs is started
+    /// where none runs, the listener opened once, and a new token
     /// minted, which the answered `environment/add` hands the service. The commands of the
     /// service's former start that already ended are ended now, since no item of theirs will be
     /// reported. Fails with `CodexError::Transport` when the executor cannot be started, the port
@@ -208,7 +195,6 @@ impl CodexExecRelay {
     pub(crate) async fn start(
         &self,
         command: tokio::process::Command,
-        environment: Vec<(String, String)>,
     ) -> Result<EnvironmentAddParams, CodexError> {
         let _starting = self.starting.lock().await;
         self.service_start.fetch_add(1, Ordering::AcqRel);
@@ -231,7 +217,6 @@ impl CodexExecRelay {
             .as_ref()
             .is_some_and(|executor| executor.is_running());
         if !is_running {
-            self.snapshots.set_environment(environment);
             let executor = CodexExecutor::start(&self.dependencies.spawner, command).await?;
             self.take_executor(executor);
         }
@@ -284,11 +269,10 @@ impl CodexExecRelay {
     }
 
     /// Closes `session_id`'s channel, removing the session's folder once nothing else is in it,
-    /// and forgets its commands and its conversations' snapshots, once the session has closed.
+    /// and forgets its commands, once the session has closed.
     /// Fails with the system's error when a folder cannot be removed.
     pub(crate) async fn forget_session(&self, session_id: SessionId) -> std::io::Result<()> {
         lock(&self.commands).retain(|_call, record| record.command.session_id != session_id);
-        self.snapshots.forget_session(session_id).await;
         let channel = lock(&self.channels).remove(&session_id);
         let Some(channel) = channel.and_then(|cell| cell.get().cloned()) else {
             return Ok(());

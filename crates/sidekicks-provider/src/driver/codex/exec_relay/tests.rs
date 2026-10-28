@@ -143,7 +143,6 @@ fn relay_reporting_to(
     let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     let dependencies = Arc::new(CodexExecRelayDependencies {
         spawner: spawner.clone(),
-        data_folder: folder.join("data"),
         command_channel_root: folder.join("channels"),
         caller_processes: Arc::new(
             ProcessTableReader::for_this_program().expect("this program's reader builds"),
@@ -152,7 +151,6 @@ fn relay_reporting_to(
         command_output,
         wrapper_program: folder.join("wrapper"),
         askpass_program: folder.join("askpass"),
-        snapshot_sweep: Arc::default(),
     });
     CodexExecRelay::new(dependencies, thread_sessions, Arc::new(|| {}))
 }
@@ -238,7 +236,10 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         read,
         "no initialize reaches the executor"
     );
-    let output = json!({ "method": "process/output", "params": { "processId": "p", "seq": 1, "chunk": "aGk=" } });
+    let output = json!({
+        "method": "process/output",
+        "params": { "processId": "p", "seq": 1, "chunk": "aGk=" },
+    });
     fake.write(&output).await;
     assert_eq!(next_text(&mut socket).await, output);
 
@@ -282,13 +283,20 @@ async fn passes_an_exchange_and_admits_only_the_token() {
         })
     );
 
-    let terminate = json!({ "id": 4, "method": "process/terminate", "params": { "processId": EXECUTOR_PROCESS } });
+    let terminate = json!({
+        "id": 4,
+        "method": "process/terminate",
+        "params": { "processId": EXECUTOR_PROCESS },
+    });
     socket
         .send(send(terminate.clone()))
         .await
         .expect("the client writes");
     assert_eq!(fake.next_sent().await, terminate);
-    let exited = json!({ "method": "process/exited", "params": { "processId": EXECUTOR_PROCESS, "seq": 2, "exitCode": 0 } });
+    let exited = json!({
+        "method": "process/exited",
+        "params": { "processId": EXECUTOR_PROCESS, "seq": 2, "exitCode": 0 },
+    });
     fake.write(&exited).await;
     assert_eq!(next_text(&mut socket).await, exited);
     for _turn in 0..100 {
@@ -301,13 +309,14 @@ async fn passes_an_exchange_and_admits_only_the_token() {
 }
 
 // A start the wrapper runs names the wrapper, the channel, the executor's process, the command's
-// own name and its terminal ahead of its words, sends no name of its own on, and sends its git and
-// ssh prompts to the askpass.
+// own name and its terminal ahead of its words, runs a login shell's line in a non-login shell,
+// sends no name of its own on, and sends its git and ssh prompts to the askpass. Killed by a
+// login shell left to run the person's profile over the composed environment.
 #[test]
 fn wraps_a_start_with_its_name_and_terminal() {
     let mut params: Map<String, Value> = serde_json::from_value(json!({
-        "argv": ["/usr/bin/git", "status"],
-        "arg0": "git",
+        "argv": ["/bin/zsh", "-lc", "git status"],
+        "arg0": "zsh",
         "tty": true,
         "env": { "KEPT": "1" },
     }))
@@ -322,7 +331,6 @@ fn wraps_a_start_with_its_name_and_terminal() {
             channel_folder: Path::new("/channel"),
             channel_environment: &channel_environment,
             executor_process_id: EXECUTOR_PROCESS,
-            snapshot: None,
         },
     );
 
@@ -335,11 +343,12 @@ fn wraps_a_start_with_its_name_and_terminal() {
             "--process",
             EXECUTOR_PROCESS,
             "--arg0",
-            "git",
+            "zsh",
             "--tty",
             "--",
-            "/usr/bin/git",
-            "status"
+            "/bin/zsh",
+            "-c",
+            "git status"
         ])
     );
     assert_eq!(params["arg0"], Value::Null);
@@ -380,7 +389,10 @@ async fn wraps_a_sessions_start_and_gives_a_copys_start_no_way_to_ask() {
             "env": { "KEPT": "1" },
             "tty": false,
             "arg0": null,
-            "shellSnapshot": { "scopeId": "scope-1", "shell": { "name": "bash", "path": "/bin/bash" } },
+            "shellSnapshot": {
+                "scopeId": "scope-1",
+                "shell": { "name": "bash", "path": "/bin/bash" },
+            },
             "metadata": { "threadId": thread, "toolCallId": call },
         }})
         .to_string()
@@ -453,7 +465,7 @@ async fn ends_the_row_of_a_former_service_starts_command_at_its_process_end() {
     {
         if index == 2 {
             relay
-                .start(tokio::process::Command::new("false"), Vec::new())
+                .start(tokio::process::Command::new("false"))
                 .await
                 .expect("the relay starts again over its running executor");
         }
@@ -509,7 +521,10 @@ async fn ends_the_row_of_a_former_service_starts_command_at_its_process_end() {
 }
 
 fn exited(process: &str) -> Value {
-    json!({ "method": "process/exited", "params": { "processId": process, "seq": 1, "exitCode": 3 } })
+    json!({
+        "method": "process/exited",
+        "params": { "processId": process, "seq": 1, "exitCode": 3 },
+    })
 }
 
 fn call_id(call: &str) -> CommandId {

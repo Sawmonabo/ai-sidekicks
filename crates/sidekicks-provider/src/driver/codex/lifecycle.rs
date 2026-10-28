@@ -189,14 +189,12 @@ impl CodexDriver {
         let link_folder = program_link_folder(&services.data_folder);
         let exec_relay = Arc::new(CodexExecRelayDependencies {
             spawner: services.spawner.clone(),
-            data_folder: services.data_folder.clone(),
             command_channel_root: command_channel_root.clone(),
             caller_processes: Arc::clone(&services.caller_processes),
             input_waits: Arc::clone(&services.input_waits),
             command_output: Arc::clone(&services.ports.command_output),
             wrapper_program: command_wrapper_program_path(&link_folder),
             askpass_program: command_askpass_program_path(&link_folder),
-            snapshot_sweep: Arc::default(),
         });
         let registry = Arc::new(CodexServiceRegistry::new(
             Arc::clone(&homes) as _,

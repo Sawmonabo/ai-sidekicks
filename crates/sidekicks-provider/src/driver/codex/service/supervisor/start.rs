@@ -189,10 +189,7 @@ async fn start_relayed_service(
             .collect(),
     )
     .await?;
-    let environment = executor_launch.environment.clone();
-    let environment_add = relay
-        .start(executor_launch.into_command(), environment)
-        .await?;
+    let environment_add = relay.start(executor_launch.into_command()).await?;
     let started = start_account_service(service, launch, cancel, executable).await?;
     match started
         .connection
