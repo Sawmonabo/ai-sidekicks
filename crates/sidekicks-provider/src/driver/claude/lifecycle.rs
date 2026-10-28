@@ -49,7 +49,7 @@ use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
-use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -325,7 +325,6 @@ impl ClaudeDriver {
         let pauses = Arc::new(Mutex::new(ClaudeRunPauses::default()));
         let helpers = Arc::new(Mutex::new(ClaudeHelperLimit::default()));
         let helper_steers = Arc::new(Mutex::new(ClaudeHelperSteers::default()));
-        let foreground_helpers = Arc::new(Mutex::new(ClaudeForegroundHelpers::default()));
         let dialogs = Arc::new(ClaudeProviderDialogs::new(ClaudeStreamDialogPorts::new(
             Arc::clone(dispatch),
             Arc::clone(&routes),
@@ -423,7 +422,6 @@ impl ClaudeDriver {
                 Arc::clone(&dialogs),
                 Arc::clone(&requests),
                 Arc::clone(&helper_steers),
-                Arc::clone(&foreground_helpers),
             ));
             let session_controls = Arc::new(ClaudeSessionControls::new(
                 run_start.clone(),
@@ -453,7 +451,6 @@ impl ClaudeDriver {
                 pauses: Arc::clone(&pauses),
                 helpers: Arc::clone(&helpers),
                 helper_steers,
-                foreground_helpers,
                 interventions: Arc::clone(&interventions),
                 goals: Arc::clone(&goals),
                 self_started: ClaudeSelfStartedTurns {

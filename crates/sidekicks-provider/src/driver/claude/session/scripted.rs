@@ -42,7 +42,7 @@ use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::lifecycle::ClaudeSessionParts;
 use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::ClaudeRunStart;
@@ -183,8 +183,6 @@ pub(crate) struct ScriptedSession {
     pub(crate) requests: Arc<ClaudeInboundRequests>,
     /// The interventions.
     pub(crate) interventions: Arc<ClaudeInterventions>,
-    /// The helpers running in the foreground.
-    pub(crate) foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     /// The words waiting for each helper.
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     listener: Arc<dyn ClaudeProcessListener>,
@@ -258,7 +256,6 @@ impl ScriptedSession {
             start: parts.run_start.clone(),
             requests: Arc::clone(&services.requests),
             interventions: Arc::clone(&parts.interventions),
-            foreground_helpers: Arc::clone(&services.foreground_helpers),
             helper_steers: Arc::clone(&services.helper_steers),
             parts,
             listener: started.listener,

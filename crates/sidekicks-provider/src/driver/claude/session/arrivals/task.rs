@@ -33,7 +33,7 @@ use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::{ClaudeHookAnswer, ClaudeRunPauses};
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
-use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::run::controls::claude_dialog_session;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::rewind::ClaudeConversationCuts;
@@ -75,8 +75,6 @@ pub(crate) struct ClaudeSessionTaskServices {
     pub(crate) helpers: Arc<Mutex<ClaudeHelperLimit>>,
     /// The words waiting for each running helper.
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
-    /// The helpers running in each session's foreground.
-    pub(crate) foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     /// The interventions, which hold the steers a `Send now` keeps back.
     pub(crate) interventions: Arc<ClaudeInterventions>,
     /// The goal commands waiting on each session.
@@ -168,7 +166,6 @@ impl ClaudeSessionTask {
                 .observe_lead_frame(session_id, frame_kind)
                 .await;
         }
-        lock(&services.foreground_helpers).observe_frame(session_id, frame_kind, text);
         // A helper's end frees the starts the helper limit held behind it.
         let admitted =
             lock(&services.helpers).observe_lifecycle(&session_id, &routed.routed.helper_lifecycle);

@@ -713,7 +713,7 @@ impl ClaudeSessionEstablishment {
     }
 
     // The adopted process's stream, task and notices; the helper limit counts the helpers its
-    // routing `band` holds.
+    // routing `band` holds, and an interrupt reads there the helpers the session waits on.
     fn adopt(
         &self,
         live: &Arc<LiveClaudeSession>,
@@ -731,6 +731,9 @@ impl ClaudeSessionEstablishment {
         self.streams.insert(Arc::clone(&stream));
         // A resume reuses its predecessor's conversation id, which a held record would match.
         self.handshakes.forget_handshake(session_id);
+        self.task_services
+            .interventions
+            .register_routing_band(session_id, Arc::clone(&band));
         self.handshakes.hold_fast_mode(
             session_id,
             &live.provider_session_id,

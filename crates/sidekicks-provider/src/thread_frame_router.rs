@@ -182,6 +182,12 @@ pub(crate) enum ThreadFrameRoute {
     Quarantined,
 }
 
+/// A registered child its parent waits on, under the tool call that started it.
+struct WaitingChild {
+    child_thread_id: String,
+    parent_thread_id: String,
+}
+
 /// The caps and timeout that bound the router's two held states.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct ThreadFrameRouterConfig {
@@ -218,7 +224,7 @@ pub(crate) struct ThreadFrameRouter<Frame> {
     /// Each registered child's spend attribution, by its thread identity.
     child_attributions_by_thread_id: HashMap<String, ChildSpendAttribution>,
     /// The registered children whose parent waits on a tool call until each ends, by that call.
-    child_thread_ids_by_waiting_call: HashMap<String, String>,
+    waiting_children_by_call: HashMap<String, WaitingChild>,
     /// Frames waiting for their thread's registration, in arrival order.
     pending_holds: VecDeque<PendingHold<Frame>>,
     /// The quarantine, oldest first.
@@ -236,7 +242,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
             session_thread_id: None,
             held_thread_ids: HashSet::new(),
             child_attributions_by_thread_id: HashMap::new(),
-            child_thread_ids_by_waiting_call: HashMap::new(),
+            waiting_children_by_call: HashMap::new(),
             pending_holds: VecDeque::new(),
             quarantined_frames: VecDeque::new(),
             quarantine_reports: OnceReportedDiagnostics::default(),
@@ -276,11 +282,14 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
             subagent_id,
             waiting_call_id,
         } = announcement;
-        let is_parent_recognized = declared_parent_thread_id.as_ref().is_some_and(|parent| {
-            self.session_thread_id.as_ref() == Some(parent)
-                || self.child_attributions_by_thread_id.contains_key(parent)
-        });
-        if !is_parent_recognized {
+        let recognized_parent_thread_id = declared_parent_thread_id
+            .as_ref()
+            .filter(|parent| {
+                self.session_thread_id.as_ref() == Some(*parent)
+                    || self.child_attributions_by_thread_id.contains_key(*parent)
+            })
+            .cloned();
+        let Some(parent_thread_id) = recognized_parent_thread_id else {
             self.emit(
                 DriverDiagnosticKind::ThreadRegistrationRefused,
                 None,
@@ -295,7 +304,7 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
                 ],
             );
             return ChildRegistrationResult::Refused;
-        }
+        };
 
         let attribution = match subagent_id {
             Some(subagent_id) => ChildSpendAttribution::Subagent { subagent_id },
@@ -304,8 +313,13 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
         self.child_attributions_by_thread_id
             .insert(child_thread_id.clone(), attribution.clone());
         if let Some(call_id) = waiting_call_id {
-            self.child_thread_ids_by_waiting_call
-                .insert(call_id, child_thread_id.clone());
+            self.waiting_children_by_call.insert(
+                call_id,
+                WaitingChild {
+                    child_thread_id: child_thread_id.clone(),
+                    parent_thread_id,
+                },
+            );
         }
         ChildRegistrationResult::Registered {
             released_frames: self.take_pending_holds_for(&child_thread_id),
@@ -332,15 +346,24 @@ impl<Frame: RoutableProviderFrame + Clone> ThreadFrameRouter<Frame> {
 
     /// The registered child whose parent waits on `call_id`, which that call's result ends.
     pub(crate) fn child_waiting_on_call(&self, call_id: &str) -> Option<&str> {
-        self.child_thread_ids_by_waiting_call
+        self.waiting_children_by_call
             .get(call_id)
-            .map(String::as_str)
+            .map(|waiting| waiting.child_thread_id.as_str())
+    }
+
+    /// The tool calls `parent_thread_id` waits on, each until the child it started ends.
+    pub(crate) fn calls_awaited_by(&self, parent_thread_id: &str) -> Vec<String> {
+        self.waiting_children_by_call
+            .iter()
+            .filter(|(_, waiting)| waiting.parent_thread_id == parent_thread_id)
+            .map(|(call_id, _)| call_id.clone())
+            .collect()
     }
 
     /// Stops reading a call's result as a child's end once its parent no longer waits on it.
     pub(crate) fn stop_waiting_on_child(&mut self, child_thread_id: &str) {
-        self.child_thread_ids_by_waiting_call
-            .retain(|_, waiting_child| waiting_child != child_thread_id);
+        self.waiting_children_by_call
+            .retain(|_, waiting| waiting.child_thread_id != child_thread_id);
     }
 
     /// Releases a completed child thread's state, so the registry does not grow with every child
