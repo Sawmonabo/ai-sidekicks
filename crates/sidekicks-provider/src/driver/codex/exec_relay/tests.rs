@@ -637,8 +637,24 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
         },
     );
     wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
+    // The wrapper's pairing sends it `Go`, so the stop is the second request written whole.
+    let written_requests = || {
+        sent_requests(&channel.channel)
+            .iter()
+            .filter(|name| {
+                Path::new(name)
+                    .extension()
+                    .is_none_or(|extension| extension != "tmp")
+            })
+            .count()
+    };
+    wait_until(|| written_requests() == 1).await;
+    // From here the clock moves only once nothing can run, so the hold cannot run out before the
+    // poll below, and a terminate passed on at once reaches the executor before it.
+    tokio::time::pause();
 
     let terminate = json!({
+
         "id": 4,
         "method": "process/terminate",
         "params": { "processId": EXECUTOR_PROCESS },
@@ -646,7 +662,8 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
     let terminating = tokio::spawn(
         Arc::clone(&relay).forward_terminate(Arc::clone(&executor), terminate.to_string()),
     );
-    wait_until(|| !sent_requests(&channel.channel).is_empty()).await;
+    wait_until(|| written_requests() == 2).await;
+
     // Held once the wrapper is asked: nothing has reached the executor yet. `next_line` is
     // cancel-safe, so this one poll loses no line.
     let sent_early = fake.next_sent().now_or_never();
