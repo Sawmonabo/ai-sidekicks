@@ -76,13 +76,15 @@ static URL_QUERY: LazyLock<Regex> = LazyLock::new(|| {
     .expect("the URL query pattern is a valid regex")
 });
 
-// A web address (`http`, `https`, `ws`, `wss`) up to whitespace or a character an address cannot
-// hold unescaped, such as the quote closing a JSON string: its host and path name a server, not a
-// file on this machine, so the path redaction passes over it.
+// A web address (`http`, `https`, `ws`, `wss`) up to whitespace, a character an address cannot
+// hold unescaped, such as the quote closing a JSON string, or a `,`, `;`, `)` or `]` that can
+// close it in prose: its host and path name a server, not a file on this machine, so the path
+// redaction passes over it. An address path holding one of those is cut there and the rest is read
+// as prose, which can redact more than the path, the safe direction.
 static WEB_ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
     let space = ECMASCRIPT_WHITESPACE_CLASS;
     Regex::new(&format!(
-        r#"(?-u:\b)(?:[Hh][Tt][Tt][Pp][Ss]?|[Ww][Ss][Ss]?)://[^{space}"'<>`{{}}|\\^]+"#
+        r#"(?-u:\b)(?:[Hh][Tt][Tt][Pp][Ss]?|[Ww][Ss][Ss]?)://[^{space}"'<>`{{}}|\\^,;)\]]+"#
     ))
     .expect("the web address pattern is a valid regex")
 });
@@ -225,5 +227,23 @@ mod tests {
             json,
             r#"{"url":"https://host.example/mcp","cwd":"<redacted-path>"}"#
         );
+        // An address ends at a comma, a parenthesis or a bracket too, so a path glued after it by
+        // one of them is still redacted.
+        for (raw, expected) in [
+            (
+                "url=https://host.example/mcp,cwd=/Users/someone/project",
+                "url=https://host.example/mcp,cwd=<redacted-path>",
+            ),
+            (
+                "(https://host.example/mcp)/Users/someone/project",
+                "(https://host.example/mcp)<redacted-path>",
+            ),
+            (
+                "[https://a.example/x,/Users/someone/secret.json]",
+                "[https://a.example/x,<redacted-path>]",
+            ),
+        ] {
+            assert_eq!(sanitize_failure_reason(raw, 512), expected);
+        }
     }
 }
