@@ -99,7 +99,7 @@ struct TailedRow {
 
 fn tailed_row(sets: &Arc<RunningCommandSets>, id: &str, party: PartyId) -> TailedRow {
     sets.command_started(row_start(id));
-    let paired = sets.wrapper_started(session(), party, WrapperCommand::Line(id.to_owned()));
+    let paired = sets.wrapper_started(session(), party, None, WrapperCommand::Line(id.to_owned()));
     let folder = tempfile::tempdir().expect("a folder");
     let path = folder.path().join("output");
     let file = std::fs::File::create(&path).expect("the output file is made");
@@ -204,6 +204,7 @@ async fn a_wrapper_killed_after_its_start_is_let_go() {
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
+        None,
         Arc::clone(&channel),
         watch,
         Arc::clone(&sets),
@@ -254,6 +255,7 @@ async fn a_nested_wrapper_is_answered_go_and_let_go_at_its_end() {
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
+        None,
         Arc::clone(&channel),
         watch,
         Arc::clone(&sets),
@@ -307,6 +309,7 @@ async fn an_askpass_s_answer_waits_for_it_and_its_end_closes_its_prompt() {
     let watch = channel.watch().await.expect("the channel is watched");
     let follower = tokio::spawn(follow_channel_records(
         session(),
+        None,
         Arc::clone(&channel),
         watch,
         Arc::clone(&sets),
@@ -408,6 +411,7 @@ async fn a_wrapper_s_exit_written_just_before_its_end_settles_its_row() {
     let (process_ended, _ended_parties) = tokio::sync::mpsc::unbounded_channel();
     let mut follower = RecordFollower {
         session_id: session(),
+        apart_run: None,
         channel: Arc::clone(&channel),
         set: Arc::clone(&sets),
         waits: Arc::new(NoTerminals),

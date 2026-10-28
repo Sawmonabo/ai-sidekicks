@@ -23,6 +23,7 @@ use super::{
     CommandEndingAppender, CommandInput, PromptAnswer, RunningCommandSets, WrapperCommand,
     next_sent_frame, next_sent_set_where,
 };
+use crate::command::channel::PartyId;
 use crate::command::waiting_checks::WaitingState;
 use crate::driver::contract::{DriverError, MockProviderDriver};
 use crate::port::running_command_publisher::{
@@ -335,9 +336,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
     fixture
         .sets
         .command_started(start("time-limit", "sleep 9999"));
-    fixture
-        .sets
-        .wrapper_started(session(), 3, WrapperCommand::Line("sleep 9999".to_owned()));
+    fixture.sets.wrapper_started(
+        session(),
+        3,
+        None,
+        WrapperCommand::Line("sleep 9999".to_owned()),
+    );
     fixture.sets.wrapper_exited(session(), 3, exit_code(0));
     let summary = "Stopped after 30 minutes";
     let stopped = ProviderCommandEnd {
@@ -419,10 +423,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .expect("written");
     assert_eq!(acts.asked().last(), Some(&"write"));
     // A wrapper that starts before its row pairs once the row comes.
-    let paired =
-        fixture
-            .sets
-            .wrapper_started(session(), 7, WrapperCommand::Line("git push".to_owned()));
+    let paired = fixture.sets.wrapper_started(
+        session(),
+        7,
+        None,
+        WrapperCommand::Line("git push".to_owned()),
+    );
     assert!(!*paired.borrow());
     fixture.sets.command_started(start("asking", "git push"));
     assert!(*paired.borrow());
@@ -495,9 +501,12 @@ async fn each_cell_of_the_table_moves_a_row_as_its_event_says() {
         .stop(&driver, session(), &command("missed"))
         .await
         .expect("stopped");
-    fixture
-        .sets
-        .wrapper_started(session(), 8, WrapperCommand::Line("npm run dev".to_owned()));
+    fixture.sets.wrapper_started(
+        session(),
+        8,
+        None,
+        WrapperCommand::Line("npm run dev".to_owned()),
+    );
     fixture.sets.wrapper_exited(session(), 8, exit_code(5));
     fixture.sets.commands_listed(
         session(),
@@ -600,6 +609,7 @@ async fn two_runs_of_one_command_each_settle_their_own_row() {
         fixture.sets.wrapper_started(
             session(),
             party,
+            None,
             WrapperCommand::Line("npm test".to_owned()),
         );
     }
@@ -644,4 +654,117 @@ async fn a_command_running_across_a_fork_move_ends_on_the_new_binding() {
         (bound, ending.command_id),
         (binding("binding-b"), command("long"))
     );
+}
+
+// Fails when a wrapper pairs with a row of another process's channel, at its start or at the
+// row's: a staged review's command and the session's own with one line swap wrappers. Mutations:
+// the channel check dropped from `wrapper_started`, and from `add_row`.
+#[tokio::test]
+async fn a_wrapper_pairs_only_with_a_row_of_its_own_channels_process() {
+    let fixture = fixture();
+    let apart_run = RunId::new("0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d10").expect("a run id");
+    fixture.sets.apart_run_started(session(), apart_run);
+    let line = || WrapperCommand::Line("git status".to_owned());
+    // The session's own row comes first, so a line alone pairs the review's wrapper with it.
+    fixture.sets.command_started(start("own", "git status"));
+    let apart_start = |id: &str| CommandStart {
+        run_id: apart_run,
+        ..start(id, "git status")
+    };
+    fixture.sets.command_started(apart_start("review"));
+    fixture
+        .sets
+        .wrapper_started(session(), 21, Some(apart_run), line());
+    assert_eq!(
+        fixture.sets.paired_wrapper(session(), &command("review")),
+        Some(21)
+    );
+    assert_eq!(
+        fixture.sets.paired_wrapper(session(), &command("own")),
+        None
+    );
+    fixture.sets.wrapper_started(session(), 22, None, line());
+    assert_eq!(
+        fixture.sets.paired_wrapper(session(), &command("own")),
+        Some(22)
+    );
+    // A wrapper of the session's own channel waits past the review's next row for its own.
+    let paired = fixture.sets.wrapper_started(session(), 23, None, line());
+    fixture.sets.command_started(apart_start("review-again"));
+    assert!(!*paired.borrow());
+    fixture
+        .sets
+        .command_started(start("own-again", "git status"));
+    assert_eq!(
+        fixture
+            .sets
+            .paired_wrapper(session(), &command("own-again")),
+        Some(23)
+    );
+    assert_eq!(
+        fixture
+            .sets
+            .paired_wrapper(session(), &command("review-again")),
+        None
+    );
+}
+
+// Fails when a prompt after the person ended the command's input opens again, so each of ssh's
+// retries raises a new prompt, or when an answer with text ends the prompts too. Mutations: the
+// ended-input check dropped from `prompt_opened`; `is_input_ended` set true on every answer.
+#[tokio::test]
+async fn after_the_input_ends_a_commands_later_prompts_answer_empty_at_once() {
+    let fixture = fixture();
+    let acts = Arc::new(DriverScript::default());
+    let driver = scripted_driver(&acts, true);
+    fixture.sets.command_started(start("push", "git push"));
+    fixture.sets.wrapper_started(
+        session(),
+        7,
+        None,
+        WrapperCommand::Line("git push".to_owned()),
+    );
+    let answers = Arc::new(Mutex::new(Vec::new()));
+    let prompt = |askpass: PartyId| {
+        let answers = Arc::clone(&answers);
+        fixture.sets.prompt_opened(
+            session(),
+            7,
+            askpass,
+            NonEmptyText::new("Enter passphrase: ".to_owned()).expect("text"),
+            true,
+            PromptAnswer::new(move |text| lock(&answers).push((askpass, text))),
+        );
+    };
+    let push = command("push");
+    let write = |text: Option<&str>, is_end_of_input: bool| {
+        fixture.sets.write(
+            &driver,
+            session(),
+            &push,
+            CommandInput {
+                text: text.map(str::to_owned),
+                is_end_of_input,
+            },
+        )
+    };
+    prompt(70);
+    write(Some("wrong"), false).await.expect("answered");
+    prompt(71);
+    assert_eq!(
+        lock(&answers).len(),
+        1,
+        "a prompt after a typed answer stays open"
+    );
+    write(None, true).await.expect("answered");
+    prompt(72);
+    assert_eq!(
+        *lock(&answers),
+        [
+            (70, "wrong".to_owned()),
+            (71, String::new()),
+            (72, String::new())
+        ]
+    );
+    assert!(acts.asked().is_empty());
 }
