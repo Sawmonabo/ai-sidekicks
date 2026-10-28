@@ -50,7 +50,8 @@ use crate::git::worktree::kept_copy::saved_state::{
     read_state_pins,
 };
 use crate::git::worktree::reads::{
-    LinkedTreeRecordError, common_folder_of_record, read_linked_tree_record,
+    LinkedTreeRecordError, RECORD_COMMONDIR_FILE_NAME, RECORD_GITDIR_FILE_NAME,
+    common_folder_of_record, read_linked_tree_record,
 };
 use crate::git::worktree::service::remove_folder;
 
@@ -73,8 +74,8 @@ pub(crate) const KEPT_REF_STORE_ENTRY: &str = "ref-store";
 // put-back writes afresh, and git's file-watch socket and cookie folder, which a copy cannot take
 // and a running watch churns. A `locked` file is kept, so a locked tree comes back locked.
 const RECORD_ENTRIES_LEFT_OUT: [&str; 4] = [
-    "gitdir",
-    "commondir",
+    RECORD_GITDIR_FILE_NAME,
+    RECORD_COMMONDIR_FILE_NAME,
     "fsmonitor--daemon.ipc",
     "fsmonitor--daemon",
 ];

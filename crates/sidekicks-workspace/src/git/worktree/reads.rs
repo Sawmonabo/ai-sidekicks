@@ -1,9 +1,9 @@
 //! The git reads behind the switcher's rows, the branch list, the working-folder watch, creation
 //! and Put back: the trees git lists for a repository, each branch's distance from its upstream,
 //! refs' commits and a branch's holding tree, every branch's name, the paths a tree has
-//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record and the
-//! record a `.git` file names. Every answer but the last is git's own; the last reads the `.git`
-//! file itself, so it answers even when the record it names is gone.
+//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record, the record a
+//! `.git` file names and the `.git` a record names. Every answer but the last two is git's own;
+//! those read git's files themselves, so they answer even when what the file names is gone.
 //!
 //! Each git read runs in the background with no optional lock, so it never rewrites the index
 //! under a run working in the same tree. Output stays bytes, and a path git prints is read back as
@@ -23,7 +23,7 @@ use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
-use sidekicks_platforms::path_from_program_output;
+use sidekicks_platforms::{path_from_program_output, resolve_path_against};
 use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::folder::canonical_path::canonical_folder_path;
@@ -36,6 +36,15 @@ pub(crate) const BRANCH_REF_PREFIX: &str = "refs/heads/";
 
 /// The folder in a repository's git common folder that holds a record per linked tree.
 pub(crate) const LINKED_RECORDS_FOLDER_NAME: &str = "worktrees";
+/// The file in a linked tree's record that names the tree's `.git` file.
+pub(crate) const RECORD_GITDIR_FILE_NAME: &str = "gitdir";
+/// The file in a linked tree's record that names the repository's git common folder.
+pub(crate) const RECORD_COMMONDIR_FILE_NAME: &str = "commondir";
+/// The file in a linked tree's record that keeps the tree locked; `worktree add` writes it first
+/// and removes it once the tree is made, before the checkout hook runs.
+pub(crate) const RECORD_LOCK_FILE_NAME: &str = "locked";
+/// A linked tree's own `.git` file, which names its record.
+pub(crate) const GIT_FILE_NAME: &str = ".git";
 
 const REMOTE_REF_PREFIX: &[u8] = b"refs/remotes/";
 const REMOTE_HEAD_SUFFIX: &[u8] = b"/HEAD";
@@ -757,6 +766,33 @@ pub(crate) async fn read_record_named_by(git_file: &Path) -> io::Result<Option<P
         Some(folder) => folder.join(named),
         None => named,
     }))
+}
+
+/// The `.git` file a linked tree's record names in its `gitdir`, with surrounding whitespace
+/// trimmed and a relative path resolved from the record's folder by the system's path rules.
+/// `None` for a record with no `gitdir` or an empty one. Fails with the read's error, or with
+/// `InvalidData` for a relative `gitdir` or a record folder that is not UTF-8.
+pub(crate) async fn read_record_git_file(record_folder: &Path) -> io::Result<Option<PathBuf>> {
+    let contents = match tokio::fs::read(record_folder.join(RECORD_GITDIR_FILE_NAME)).await {
+        Ok(contents) => contents,
+        Err(failure) if is_missing_entry(&failure) => return Ok(None),
+        Err(failure) => return Err(failure),
+    };
+    let gitdir = contents.trim_ascii();
+    if gitdir.is_empty() {
+        return Ok(None);
+    }
+    let named = path_from_program_output(gitdir.to_vec())?;
+    if named.is_absolute() {
+        return Ok(Some(named));
+    }
+    let (Some(base), Some(named)) = (record_folder.to_str(), named.to_str()) else {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "a relative record path that is not UTF-8 cannot be resolved",
+        ));
+    };
+    resolve_path_against(base, named).map(|resolved| Some(PathBuf::from(resolved)))
 }
 
 // The records of a `for-each-ref` listing whose format ends each record's last field with a NUL:

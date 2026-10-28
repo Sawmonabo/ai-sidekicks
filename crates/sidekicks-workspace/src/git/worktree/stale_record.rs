@@ -11,9 +11,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use sidekicks_platforms::{CAN_RENAME_REPLACE_EMPTY_FOLDER, resolve_path_against};
+use sidekicks_platforms::CAN_RENAME_REPLACE_EMPTY_FOLDER;
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::missing_entry::MissingEntry;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::worktree::claims::{KeptCopyClaims, KeptCopyClaimsReadError};
@@ -21,13 +20,10 @@ use crate::git::worktree::folder_names::read_folder_names;
 use crate::git::worktree::kept_copy::folder_move::{
     LeftoverKind, LeftoverNamesInUse, is_leftover_name, leftover_name, rename_folder,
 };
-use crate::git::worktree::reads::read_record_named_by;
+use crate::git::worktree::reads::{
+    GIT_FILE_NAME, RECORD_GITDIR_FILE_NAME, read_record_git_file, read_record_named_by,
+};
 use crate::git::worktree::service::remove_folder;
-
-// The name of a tree's `.git` file, which every record's `gitdir` names.
-const GIT_FILE_NAME: &str = ".git";
-// The file in a record that names its tree's `.git`.
-const RECORD_GITDIR_FILE_NAME: &str = "gitdir";
 
 /// What a stale record's removal reads before it removes anything: what live trees and put-backs
 /// hold, and the leftover names in use.
@@ -82,8 +78,8 @@ pub(crate) async fn remove_stale_tree_record(
     original_path: &Path,
 ) -> Result<bool, StaleRecordError> {
     finish_record_removals_cut_short(tools, record_folder).await?;
-    let Some(judged_gitdir) =
-        read_own_stale_record_gitdir(tools, record_folder, original_path).await?
+    let Some(judged_git_file) =
+        read_own_stale_record_git_file(tools, record_folder, original_path).await?
     else {
         return Ok(false);
     };
@@ -97,8 +93,8 @@ pub(crate) async fn remove_stale_tree_record(
         Err(failure) => return Err(at(record_folder)(failure)),
     }
     // Judged again once renamed: a record a put-back or a live tree took since goes back.
-    let is_claimed_since = read_record_gitdir(&removing_folder).await?.as_deref()
-        != Some(judged_gitdir.as_str())
+    let is_claimed_since = read_named_git_file(&removing_folder).await?.as_ref()
+        != Some(&judged_git_file)
         || tools.claims.is_live_tree_at(original_path).await?
         || is_record_being_restored(tools, record_folder).await?;
     if is_claimed_since {
@@ -111,17 +107,16 @@ pub(crate) async fn remove_stale_tree_record(
     Ok(true)
 }
 
-// The record's `gitdir` when the record is the kept copy's own and stale, as
+// The `.git` the record names when the record is the kept copy's own and stale, as
 // `remove_stale_tree_record` describes; `None` otherwise.
-async fn read_own_stale_record_gitdir(
+async fn read_own_stale_record_git_file(
     tools: StaleRecordTools<'_>,
     record_folder: &Path,
     original_path: &Path,
-) -> Result<Option<String>, StaleRecordError> {
-    let Some(gitdir) = read_record_gitdir(record_folder).await? else {
+) -> Result<Option<PathBuf>, StaleRecordError> {
+    let Some(git_file) = read_named_git_file(record_folder).await? else {
         return Ok(None);
     };
-    let git_file = resolve_git_file(record_folder, &gitdir)?;
     let is_named_git_file = git_file
         .file_name()
         .is_some_and(|name| name == GIT_FILE_NAME);
@@ -138,7 +133,7 @@ async fn read_own_stale_record_gitdir(
     {
         return Ok(None);
     }
-    Ok(Some(gitdir))
+    Ok(Some(git_file))
 }
 
 // Whether a put-back's mark names the record, which that put-back is making.
@@ -177,7 +172,7 @@ async fn finish_record_removals_cut_short(
         .filter(|leftover| !tools.leftover_names.is_in_use(leftover))
         .collect();
     for leftover in leftovers {
-        let is_tree_live = match read_record_git_file(&leftover).await? {
+        let is_tree_live = match read_named_git_file(&leftover).await? {
             Some(git_file) => is_record_named_by(&git_file, record_folder).await?,
             None => false,
         };
@@ -200,8 +195,8 @@ async fn put_record_back(
     if take_record_name(aside_folder, record_folder).await? {
         return Ok(());
     }
-    let aside_git_file = read_record_git_file(aside_folder).await?;
-    let taken_git_file = read_record_git_file(record_folder).await?;
+    let aside_git_file = read_named_git_file(aside_folder).await?;
+    let taken_git_file = read_named_git_file(record_folder).await?;
     if is_same_git_file(aside_git_file.as_deref(), taken_git_file.as_deref()).await? {
         remove_folder(aside_folder)
             .await
@@ -259,46 +254,14 @@ async fn take_record_name(
     Ok(true)
 }
 
-// The record's `gitdir`, trimmed; `None` when it is missing or empty.
-async fn read_record_gitdir(record_folder: &Path) -> Result<Option<String>, StaleRecordError> {
-    let path = record_folder.join(RECORD_GITDIR_FILE_NAME);
-    let Some(bytes) = tokio::fs::read(&path)
-        .await
-        .none_if_missing()
-        .map_err(at(&path))?
-    else {
-        return Ok(None);
-    };
-    let gitdir = String::from_utf8(bytes).map_err(|failure| {
-        StaleRecordError::Resolve(io::Error::new(io::ErrorKind::InvalidData, failure))
-    })?;
-    let gitdir = gitdir.trim();
-    Ok((!gitdir.is_empty()).then(|| gitdir.to_owned()))
-}
-
-/// The `.git` a record's `gitdir` names, a relative one resolved from the record folder; `None` for
-/// none. Fails when the file cannot be read or its path resolved.
-pub(crate) async fn read_record_git_file(
+/// The `.git` a record's `gitdir` names, as [`read_record_git_file`] reads it, with its failure
+/// carried as a stale record's.
+pub(crate) async fn read_named_git_file(
     record_folder: &Path,
 ) -> Result<Option<PathBuf>, StaleRecordError> {
-    read_record_gitdir(record_folder)
-        .await?
-        .map(|gitdir| resolve_git_file(record_folder, &gitdir))
-        .transpose()
-}
-
-// `gitdir` resolved from the record folder, by the system's path rules; a record folder that is no
-// text is a failure, never a lossy path.
-fn resolve_git_file(record_folder: &Path, gitdir: &str) -> Result<PathBuf, StaleRecordError> {
-    let base = record_folder.to_str().ok_or_else(|| {
-        StaleRecordError::Resolve(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "the record's folder is not UTF-8",
-        ))
-    })?;
-    resolve_path_against(base, gitdir)
-        .map(PathBuf::from)
-        .map_err(StaleRecordError::Resolve)
+    read_record_git_file(record_folder)
+        .await
+        .map_err(at(&record_folder.join(RECORD_GITDIR_FILE_NAME)))
 }
 
 async fn canonical(folder: &Path) -> Result<PathBuf, StaleRecordError> {

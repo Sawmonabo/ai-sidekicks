@@ -11,7 +11,7 @@ use sidekicks_contracts::worktree::copy_progress::WorktreeCopy;
 use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 
-use super::{GIT_FILE_NAME, PutBackBranch, PutBackMark, PutBackTools};
+use super::{PutBackBranch, PutBackMark, PutBackTools};
 use crate::git::process::{GitCall, GitError, in_folder};
 use crate::git::worktree::claims::KeptCopyClaimsReadError;
 use crate::git::worktree::kept_copy::folder_move::{
@@ -20,11 +20,12 @@ use crate::git::worktree::kept_copy::folder_move::{
 use crate::git::worktree::kept_copy::saved_state::{RepositoryStoreSettings, SavedStateError};
 use crate::git::worktree::kept_copy::{KEPT_TREE_ENTRY, RowWriteError};
 use crate::git::worktree::reads::{
-    BRANCH_REF_PREFIX, LINKED_RECORDS_FOLDER_NAME, common_folder_of_record, read_ref_heads,
+    BRANCH_REF_PREFIX, GIT_FILE_NAME, LINKED_RECORDS_FOLDER_NAME, common_folder_of_record,
+    read_ref_heads,
 };
 use crate::git::worktree::service::remove_folder;
 use crate::git::worktree::stale_record::{
-    StaleRecordError, is_record_named_by, is_same_git_file, read_record_git_file,
+    StaleRecordError, is_record_named_by, is_same_git_file, read_named_git_file,
 };
 
 /// One step of undoing a put-back that failed; the mark stays for the next try.
@@ -185,7 +186,7 @@ async fn remove_own_record(
             record_folder: record.clone(),
         });
     };
-    let named_git_file = read_record_git_file(record)
+    let named_git_file = read_named_git_file(record)
         .await
         .map_err(PutBackUndoError::Record)?;
     let target_git_file = mark.target_folder.join(GIT_FILE_NAME);

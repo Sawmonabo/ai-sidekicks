@@ -12,12 +12,11 @@ use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::JoinError;
 
-use super::GIT_FILE_NAME;
 use super::objects::RestoredObjects;
 use super::record::TakenRecord;
 use crate::git::worktree::flush::{DiskFlushError, flush_to_disk};
 use crate::git::worktree::kept_copy::folder_move::FolderPlacement;
-use crate::git::worktree::reads::BRANCH_REF_PREFIX;
+use crate::git::worktree::reads::{BRANCH_REF_PREFIX, GIT_FILE_NAME};
 
 // A reftable repository keeps every ref in the tables under this folder, which no other ref store
 // makes; the list names the tables in order.

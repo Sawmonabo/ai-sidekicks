@@ -11,10 +11,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_platforms::{PathRules, real_path, relative_path};
 use tokio::task::JoinError;
 
-use super::{
-    GIT_FILE_NAME, PutBackBranch, PutBackFailure, PutBackStepError, PutBackTools,
-    RECORD_LOCK_FILE_NAME, at,
-};
+use super::{PutBackBranch, PutBackFailure, PutBackStepError, PutBackTools, at};
 use crate::git::process::{
     CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read, in_folder,
 };
@@ -23,13 +20,13 @@ use crate::git::worktree::kept_copy::KEPT_RECORD_ENTRY;
 use crate::git::worktree::kept_copy::saved_state::{
     RefStorePayload, read_rebase_folder, write_back_ref_store,
 };
-use crate::git::worktree::reads::{BRANCH_REF_PREFIX, LINKED_RECORDS_FOLDER_NAME};
+use crate::git::worktree::reads::{
+    BRANCH_REF_PREFIX, GIT_FILE_NAME, LINKED_RECORDS_FOLDER_NAME, RECORD_COMMONDIR_FILE_NAME,
+    RECORD_GITDIR_FILE_NAME, RECORD_LOCK_FILE_NAME,
+};
 
-// The record's file naming the repository's git common folder, two folders up.
-const COMMONDIR_FILE_NAME: &str = "commondir";
+// What a record's `commondir` holds: the repository's git common folder, two folders up.
 const COMMONDIR_TEXT: &[u8] = b"../..\n";
-// The record's file naming its tree's `.git` file.
-const GITDIR_FILE_NAME: &str = "gitdir";
 // A rebase's file naming the branch being rebased.
 const REBASE_HEAD_NAME_FILE_NAME: &str = "head-name";
 
@@ -300,7 +297,7 @@ pub(super) async fn write_record(
     new_branch: Option<&PutBackBranch>,
 ) -> Result<(), PutBackStepError> {
     copy_kept_record(&kept_folder.join(KEPT_RECORD_ENTRY), record_folder).await?;
-    let commondir = record_folder.join(COMMONDIR_FILE_NAME);
+    let commondir = record_folder.join(RECORD_COMMONDIR_FILE_NAME);
     tokio::fs::write(&commondir, COMMONDIR_TEXT)
         .await
         .map_err(at(&commondir))?;
@@ -309,7 +306,7 @@ pub(super) async fn write_record(
             .await
             .map_err(PutBackStepError::SavedState)?;
     }
-    let gitdir = record_folder.join(GITDIR_FILE_NAME);
+    let gitdir = record_folder.join(RECORD_GITDIR_FILE_NAME);
     tokio::fs::write(&gitdir, &linking.record_gitdir)
         .await
         .map_err(at(&gitdir))?;

@@ -10,20 +10,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::place::Place;
-use sidekicks_platforms::{path_from_program_output, real_path, remove_tree, resolve_path_against};
+use sidekicks_platforms::{path_from_program_output, real_path, remove_tree};
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::random_hex::random_hex;
 
 use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
-use crate::git::worktree::reads::LINKED_RECORDS_FOLDER_NAME;
+use crate::git::worktree::reads::{LINKED_RECORDS_FOLDER_NAME, read_record_git_file};
 use crate::trust_envelope::is_contained_within;
-
-// The file in a linked tree's record naming the tree's `.git`.
-const RECORD_GITDIR_FILE_NAME: &str = "gitdir";
 
 // A dotted sibling of the project folders, which a slug never names and no sweep reads.
 const STAGED_CHANGES_SEGMENT: &str = ".staged-changes";
@@ -301,7 +297,7 @@ async fn remove_records_of(
     let mut failures = Vec::new();
     for name in names {
         let record_folder = records_folder.join(name);
-        let is_tree_record = match read_record_tree_git_file(&record_folder).await {
+        let is_tree_record = match read_record_git_file(&record_folder).await {
             Ok(Some(git_file)) => is_contained_within(&git_file, &real_folder),
             Ok(None) => false,
             Err(source) => {
@@ -330,26 +326,6 @@ async fn real_tree_folder(tree_folder: &Path) -> io::Result<PathBuf> {
         .await
         .map_err(io::Error::other)??;
     Ok(real_parent.join(name))
-}
-
-// The `.git` a record's `gitdir` file names, a relative one joined onto the record and folded;
-// `None` when the record has no such file, or names it relatively in a form that is not UTF-8,
-// which no daemon-made tree's record does.
-async fn read_record_tree_git_file(record_folder: &Path) -> io::Result<Option<PathBuf>> {
-    let Some(contents) = tokio::fs::read(record_folder.join(RECORD_GITDIR_FILE_NAME))
-        .await
-        .none_if_missing()?
-    else {
-        return Ok(None);
-    };
-    let named = path_from_program_output(strip_line_end(contents))?;
-    if named.is_absolute() {
-        return Ok(Some(named));
-    }
-    let (Some(record_folder), Some(named)) = (record_folder.to_str(), named.to_str()) else {
-        return Ok(None);
-    };
-    resolve_path_against(record_folder, named).map(|folded| Some(PathBuf::from(folded)))
 }
 
 // Removes `folder` and everything in it off the async workers; a folder already gone passes.

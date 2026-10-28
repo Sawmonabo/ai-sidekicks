@@ -22,7 +22,9 @@ use crate::git::branch_name_pattern::read_branch_name_refusal;
 use crate::git::process::{GitCall, GitError, GitRunner, background_read, in_folder};
 use crate::git::worktree::errors::{WorktreeCreateFailureReason, WorktreeRefusal};
 use crate::git::worktree::naming::{WorktreeName, WorktreeNamePlan, read_taken_branch_line};
-use crate::git::worktree::reads::{has_branch, read_branch_names, read_linked_tree_record};
+use crate::git::worktree::reads::{
+    RECORD_LOCK_FILE_NAME, has_branch, read_branch_names, read_linked_tree_record,
+};
 use crate::git::worktree::rows::{AttachedMountRow, LIVE_WORKTREE_STATE_PREDICATE};
 
 // The index's own predicate, read before git runs so a daemon-made live tree on the name is the
@@ -35,10 +37,6 @@ static SELECT_LIVE_WORKTREE_ON_BRANCH_SQL: LazyLock<String> = LazyLock::new(|| {
         LIVE_WORKTREE_STATE_PREDICATE.as_str()
     )
 });
-
-// The file in a tree's record that keeps it locked; `worktree add` writes it first and removes it
-// once the tree is made, before the checkout hook runs.
-const LOCKED_FILE_NAME: &str = "locked";
 
 /// Where the walk names and makes trees: the daemon's git and read pool, and the attached mount
 /// whose repository every git call runs in.
@@ -285,7 +283,7 @@ async fn is_tree_made(
     let Some(record_folder) = read_linked_tree_record(git, place, folder).await? else {
         return Ok(false);
     };
-    if tokio::fs::try_exists(record_folder.join(LOCKED_FILE_NAME)).await? {
+    if tokio::fs::try_exists(record_folder.join(RECORD_LOCK_FILE_NAME)).await? {
         return Ok(false);
     }
     let head = git

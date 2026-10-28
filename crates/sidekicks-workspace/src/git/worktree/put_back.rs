@@ -52,17 +52,15 @@ use crate::git::worktree::kept_copy::{
     KEPT_RECORD_ENTRY, KEPT_TREE_ENTRY, KeptCopyTools, RowWriteError,
 };
 use crate::git::worktree::naming::read_taken_branch_line;
-use crate::git::worktree::reads::{has_branch, read_record_named_by};
+use crate::git::worktree::reads::{
+    GIT_FILE_NAME, RECORD_LOCK_FILE_NAME, has_branch, read_record_named_by,
+};
 use crate::git::worktree::stale_record::StaleRecordTools;
 
 const PUTTING_THE_WORKTREE_BACK: &str = "putting the worktree back";
 
-// The record's lock, written first and removed last unless the tree was locked.
-const RECORD_LOCK_FILE_NAME: &str = "locked";
 // What git writes in a lock it holds while it makes a record, its own line end included.
 const INITIALIZING_LOCK: &[u8] = b"initializing\n";
-// A tree's own `.git` file, naming its record.
-const GIT_FILE_NAME: &str = ".git";
 
 /// The name a put-back gives a folder or a branch whose own is taken: `<name>-restored` first,
 /// then `<name>-restored-2`, `<name>-restored-3` and on.
