@@ -36,6 +36,7 @@ use sidekicks_provider::driver::test_registry::{
 use sidekicks_provider::run::delivery::{DeliveryBinding, InboundDelivery};
 use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
 use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
+use sidekicks_std::pause_point::ArmedPause;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
@@ -54,8 +55,8 @@ use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
 use crate::run::epochs::{EpochBinding, ExecutionEpochs};
+use crate::run::inbound::RunInboundDispatch;
 use crate::run::inbound::tests::UnreadRunStates;
-use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;
 
@@ -307,14 +308,19 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
     );
 }
 
-// A provider's report that shows it took a held answer settles that answer before the report is
-// applied, through the inbound dispatch; a settle whose write fails surfaces as the dispatch's
-// error, the report not applied and the answer held again, so the report delivered again settles
-// it. Killed by settling after the report (the report moves the run and nothing settles), by
-// logging the failed settle and applying the report, and by dropping the answer whose settle
-// failed.
+// A report that shows the provider took a held answer settles it first: a settle that fails once is
+// retried in the same dispatch, and one that fails twice leaves the answer held while the report
+// still applies, so the run never reads waiting for input while its provider runs. Killed by no
+// retry (a single failure leaves the answer unsettled), by applying the report before the settle,
+// and by a failed settle that fails the dispatch instead of applying the report.
+#[rstest]
+#[case::settled_on_its_retry(true, 1)]
+#[case::kept_after_two_failures(false, 0)]
 #[tokio::test]
-async fn a_report_settles_the_held_answer_first_and_a_failed_settle_keeps_it() {
+async fn a_report_settles_the_held_answer_first_and_a_failed_settle_is_retried_once(
+    #[case] is_let_through_before_the_retry: bool,
+    #[case] settlements: usize,
+) {
     let mut driver = MockProviderDriver::new();
     driver
         .expect_answer_provider_choice()
@@ -345,20 +351,6 @@ async fn a_report_settles_the_held_answer_first_and_a_failed_settle_keeps_it() {
         Arc::clone(&fixture.log.service),
         Arc::clone(&fixture.resolver),
     );
-    let report = || InboundDelivery::RunLifecycle {
-        binding: DeliveryBinding {
-            binding_id: binding_id.clone(),
-            operation: None,
-        },
-        change: RunStateReport::new(
-            fixture.run_id,
-            RunStateEntry::Running {
-                execution_posture: None,
-            },
-        ),
-        turn_end: None,
-        is_daemon_interrupt_end: false,
-    };
     let unanswered = fixture.answer(RunUsageCreditsChoice::Consent).await;
     assert!(unanswered.is_err(), "{unanswered:?}");
     let reader = fixture.database.reader();
@@ -369,23 +361,39 @@ async fn a_report_settles_the_held_answer_first_and_a_failed_settle_keeps_it() {
              BEGIN SELECT RAISE(ABORT, 'the test refuses the settlement'); END;",
         )
         .expect("the test refuses the settlement's write");
+    let ArmedPause { reached, release } = dispatch.settle_retry_pause.arm();
+    let let_through = async {
+        reached.await.expect("the first settle fails");
+        if is_let_through_before_the_retry {
+            reader
+                .execute_batch("DROP TRIGGER refuse_settlements")
+                .expect("the test lets the settlement through");
+        }
+        release.send(()).expect("the retry waits");
+    };
 
-    let failed = dispatch.dispatch(report()).await;
-    let after_failure = (fixture.state(), fixture.settlements());
-    reader
-        .execute_batch("DROP TRIGGER refuse_settlements")
-        .expect("the test lets the settlement through");
-    let delivered_again = dispatch.dispatch(report()).await;
-
-    assert!(
-        matches!(failed, Err(InboundDispatchError::HeldAnswer(_))),
-        "{failed:?}"
+    let (delivered, ()) = tokio::join!(
+        dispatch.dispatch(InboundDelivery::RunLifecycle {
+            binding: DeliveryBinding {
+                binding_id: binding_id.clone(),
+                operation: None,
+            },
+            change: RunStateReport::new(
+                fixture.run_id,
+                RunStateEntry::Running {
+                    execution_posture: None,
+                },
+            ),
+            turn_end: None,
+            is_daemon_interrupt_end: false,
+        }),
+        let_through
     );
-    assert_eq!(after_failure, ("waitingForInput".to_owned(), 0));
-    assert!(delivered_again.is_ok(), "{delivered_again:?}");
+
+    assert!(delivered.is_ok(), "{delivered:?}");
     assert_eq!(
         (fixture.state(), fixture.settlements()),
-        ("running".to_owned(), 1)
+        ("running".to_owned(), settlements)
     );
 }
 

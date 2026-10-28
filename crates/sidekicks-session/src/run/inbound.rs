@@ -35,6 +35,8 @@ use sidekicks_provider::run::delivery::{
 use sidekicks_provider::run::state_entry::RunStateReport;
 use sidekicks_provider::run::turn_end::ProviderTurnEnd;
 use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
@@ -48,7 +50,7 @@ use crate::run::engine::turns::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
-use crate::run::provider_choice::{ProviderChoiceError, ProviderChoiceResolver};
+use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, refused_statement_index};
 use crate::transcript::reasoning::split_reasoning_text;
@@ -68,10 +70,6 @@ pub(crate) enum InboundDispatchError {
     /// The event log did not keep the row.
     #[error("the delivery's event was not appended")]
     Append(#[from] SessionEventAppendError),
-    /// The answer held on the run's choice, which the report shows the provider took, was not
-    /// settled; it stays held and the report is not applied.
-    #[error("the answer held on the run's choice could not be settled")]
-    HeldAnswer(#[source] ProviderChoiceError),
 }
 
 /// Takes each provider delivery in, attributes it, and writes, routes or absorbs it.
@@ -81,6 +79,9 @@ pub struct RunInboundDispatch {
     run_state_publisher: Arc<dyn RunStatePublisher>,
     appender: SessionEventAppender,
     choices: Arc<ProviderChoiceResolver>,
+    /// Where a test holds a held answer's settle between its failed try and its retry.
+    #[cfg(test)]
+    pub(super) settle_retry_pause: PausePoint,
 }
 
 // A delivery attributed to its execution, with what is left to do for it.
@@ -203,6 +204,8 @@ impl RunInboundDispatch {
             run_state_publisher,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
             choices,
+            #[cfg(test)]
+            settle_retry_pause: PausePoint::default(),
         }
     }
 
@@ -485,6 +488,27 @@ impl RunInboundDispatch {
         })
     }
 
+    // Settles the answer the provider got with no reply back before the report that shows it took,
+    // so the report finds the move made. A failed settle is tried once more; on a second failure
+    // the answer stays held and the report still applies, so the run never reads waiting for input
+    // while its provider runs.
+    async fn settle_held_answer(&self, run_id: RunId, reported: RunState) {
+        let mut settled = self.choices.settle_held_answer(run_id, reported).await;
+        if settled.is_err() {
+            #[cfg(test)]
+            self.settle_retry_pause.pass().await;
+            settled = self.choices.settle_held_answer(run_id, reported).await;
+        }
+        if let Err(error) = settled {
+            tracing::warn!(
+                run_id = %run_id,
+                error = &error as &(dyn Error + 'static),
+                "the answer held on a run's choice was not settled; it stays held and the \
+                 provider's report applies"
+            );
+        }
+    }
+
     // Makes a delivery's engine call; a run that has ended absorbs it.
     async fn run(
         &self,
@@ -509,12 +533,8 @@ impl RunInboundDispatch {
             } => {
                 let run_id = change.run_id;
                 let change = RunStateChange::from(change);
-                // An answer the provider got with no reply back settles before the report that
-                // shows it took, so the report finds the move made.
-                self.choices
-                    .settle_held_answer(run_id, RunState::from(change.entry.state()))
-                    .await
-                    .map_err(InboundDispatchError::HeldAnswer)?;
+                self.settle_held_answer(run_id, RunState::from(change.entry.state()))
+                    .await;
                 match self
                     .engine
                     .apply_provider_state_change(change, turn_end)
