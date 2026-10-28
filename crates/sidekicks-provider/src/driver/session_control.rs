@@ -396,6 +396,9 @@ pub struct ProviderSessionHandle {
     pub provider_session_id: String,
     /// The handle a later resume names.
     pub resume_handle: String,
+    /// The build the session's own process reported when the create started it, which the
+    /// binding records.
+    pub spawned_version: SpawnedVersionBindingCarriers,
 }
 
 /// What a resume did, built by the driver from provider output. A failed resume carries why and

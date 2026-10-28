@@ -47,6 +47,12 @@ use crate::output_validation::{
     ProviderOutputValidationError, check_contract_version, check_resume_handle,
 };
 
+/// A new binding's id, which its caller mints before the provider runs under it.
+pub fn mint_runtime_binding_id() -> RuntimeBindingId {
+    RuntimeBindingId::new(mint_uuid_v7().to_string())
+        .expect("a UUID's text is within the binding id's bound")
+}
+
 /// The statements the binding reads prepare on a read connection: one binding, a run's, many
 /// runs', and every resumable one.
 pub const RUNTIME_BINDING_STORE_STATEMENT_CAPACITY: usize = 4;
@@ -210,10 +216,13 @@ pub struct RuntimeBinding {
     pub updated_at: String,
 }
 
-/// What [`RuntimeBindingStore::create`] records; the store mints the id, since a run has many
-/// bindings.
+/// What [`RuntimeBindingStore::create`] records, under the id its caller minted with
+/// [`mint_runtime_binding_id`], since the caller opens the binding's cursor before the provider
+/// runs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CreateRuntimeBindingInput {
+    /// The binding's id.
+    pub id: RuntimeBindingId,
     /// The run.
     pub run_id: RunId,
     /// The provider.
@@ -400,9 +409,10 @@ impl RuntimeBindingStore {
         Self { reads, writer }
     }
 
-    /// Records a new binding under a minted id and returns it as stored, once committed. Fails
-    /// with [`RuntimeBindingStoreError::InvalidOutput`] for a contract version or resume handle
-    /// that does not meet its rules, before anything is written, and when the write fails.
+    /// Records a new binding under the id its caller minted and returns it as stored, once
+    /// committed. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for a contract version or
+    /// resume handle that does not meet its rules, before anything is written, and when the write
+    /// fails, an id another row holds among the refused writes.
     pub async fn create(
         &self,
         input: CreateRuntimeBindingInput,
@@ -416,8 +426,7 @@ impl RuntimeBindingStore {
         if let Some(resume_handle) = &input.resume_handle {
             check_resume_handle(resume_handle)?;
         }
-        let id = RuntimeBindingId::new(mint_uuid_v7().to_string())
-            .expect("a UUID's text is within the binding id's bound");
+        let id = input.id;
         let timestamp = WireInstant::now().as_str().to_owned();
         let spawn_config_text = compose_spawn_config_text(
             &input.spawn_config,

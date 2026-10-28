@@ -364,6 +364,14 @@ impl SessionSpawnContextResolver for OneFolder {
         }
         .boxed()
     }
+
+    fn resolve_run_folder(
+        &self,
+        _session_id: SessionId,
+    ) -> BoxFuture<'_, Result<PathBuf, Box<dyn std::error::Error + Send + Sync>>> {
+        let run_folder = self.0.clone();
+        async move { Ok(run_folder) }.boxed()
+    }
 }
 
 impl ProviderAccountReader for OneFolder {

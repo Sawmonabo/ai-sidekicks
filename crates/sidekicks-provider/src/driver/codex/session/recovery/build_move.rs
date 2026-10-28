@@ -143,6 +143,8 @@ impl CodexServiceRecovery {
             let resumed = self.resume_claimed(service, &inbound, never_left()).await;
             drop(claim);
             if let Some(result) = resumed {
+                self.report_relaunch(service, inbound.session_id(), result.clone())
+                    .await;
                 self.report_moved(service, &inbound, result, change).await;
             }
         }

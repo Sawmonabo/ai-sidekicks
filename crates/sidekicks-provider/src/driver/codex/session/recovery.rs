@@ -40,7 +40,9 @@ use crate::driver::codex::session::calls::{
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::establishment::CodexSessionEstablishment;
+use crate::driver::codex::session::establishment::{
+    CodexSessionEstablishment, compose_failed_resume,
+};
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::transport::connection::read_codex_object;
@@ -55,6 +57,7 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::run::delivery::InboundDelivery;
+use crate::runtime_binding::store::mint_runtime_binding_id;
 use sidekicks_std::port_registration::PortRegistration;
 
 /// The words a run is failed with when its service ended with no exit the daemon could read.
@@ -79,6 +82,8 @@ pub(crate) struct CodexInPlaceResumeCall {
     pub(crate) establishment: Arc<CodexSessionEstablishment>,
     /// The service it resumes on.
     pub(crate) service: Arc<CodexService>,
+    /// The binding it resumes under, its cursor already open.
+    pub(crate) binding_id: RuntimeBindingId,
     /// Whether a refusing writer let the conversation go.
     pub(crate) writer_left: CodexWriterLeft,
 }
@@ -401,16 +406,32 @@ impl CodexServiceRecovery {
         Some(result)
     }
 
-    // The resume itself, the session's slot already claimed.
+    // The resume itself, the session's slot already claimed, under a binding whose cursor the
+    // session directory opened first, so what the resumed conversation delivers at once is taken;
+    // a binding that cannot be opened fails the relaunch with no resume.
     async fn resume_claimed(
         &self,
         service: &Arc<CodexService>,
         inbound: &CodexSessionInboundSender,
         writer_left: CodexWriterLeft,
     ) -> Option<DriverResumeResult> {
+        let binding_id = mint_runtime_binding_id();
+        let session_relaunched = &self.dependencies.session_relaunched;
+        if let Some(listener) = session_relaunched.port()
+            && let Err(cause) = listener
+                .open_relaunch_binding(inbound.session_id(), binding_id.clone())
+                .await
+        {
+            let error = CodexError::PortFailed {
+                port: session_relaunched.port_name(),
+                cause,
+            };
+            return Some(compose_failed_resume(None, &error).await);
+        }
         let resume = CodexInPlaceResumeCall {
             establishment: Arc::clone(&self.dependencies.establishment),
             service: Arc::clone(service),
+            binding_id,
             writer_left,
         };
         call_codex_session(inbound, |reply| CodexSessionCall::ResumeInPlace {
@@ -614,10 +635,11 @@ pub(crate) async fn resume_codex_session_in_place(
     let CodexInPlaceResumeCall {
         establishment,
         service,
+        binding_id,
         writer_left,
     } = resume;
     let resumed = establishment
-        .resume_in_place(task, service, writer_left)
+        .resume_in_place(task, service, binding_id, writer_left)
         .await;
     let mut routed = resumed.routed;
     for listed in resumed.listed_turns {

@@ -5,6 +5,7 @@
 mod caller_check;
 mod intake;
 mod sessions;
+mod skill_picks;
 mod terminal_reach;
 
 use std::path::Path;

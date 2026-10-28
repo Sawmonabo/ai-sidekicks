@@ -20,6 +20,7 @@ use crate::driver::codex::session::test_fixture::{
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::process_identity::ProviderProcessIds as _;
 use crate::run::posture::compose_execution_posture;
+use crate::runtime_binding::store::mint_runtime_binding_id;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.
@@ -116,8 +117,12 @@ async fn resume_on_second_service(
         }
     };
     let (mut task, _) = session.task.split();
-    let resume =
-        establishment.resume_in_place(&mut task, Arc::clone(&second.service), || async { false });
+    let resume = establishment.resume_in_place(
+        &mut task,
+        Arc::clone(&second.service),
+        mint_runtime_binding_id(),
+        || async { false },
+    );
     let resumed = tokio::select! {
         resumed = resume => resumed,
         () = service_side => unreachable!("the service answers until the resume ends"),

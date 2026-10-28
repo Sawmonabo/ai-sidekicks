@@ -13,7 +13,6 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::PathRules;
@@ -67,6 +66,7 @@ use crate::port::tool_server_route::ToolServerRoute;
 use crate::process_identity::ProviderProcessIds as _;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
+use crate::runtime_binding::store::mint_runtime_binding_id;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     build_conversation_command_environment,
@@ -168,11 +168,13 @@ impl CodexSessionEstablishment {
         Self { dependencies }
     }
 
-    /// Starts a fresh conversation on the account's service and answers its handle with the
-    /// session to open; a failure leaves nothing behind, a conversation started under another
-    /// profile let go first. Fails as the settings' composition, the service's start, the larger
-    /// window's check (`CodexError::LargerWindowUnavailable` for one the catalog does not offer at
-    /// that figure now), the request or the profile's read-back fails.
+    /// Starts a fresh conversation on the account's service and answers its handle, with the
+    /// version the service reported, and the session to open; a failure leaves nothing behind, a
+    /// conversation started under another profile or on a service that reported no version let go
+    /// first. Fails as the settings' composition, the service's start, the larger window's check
+    /// (`CodexError::LargerWindowUnavailable` for one the catalog does not offer at that figure
+    /// now), the request or the profile's read-back fails, and when the service reported no
+    /// version.
     pub(crate) async fn create(
         &self,
         params: &CreateSessionParams,
@@ -221,6 +223,14 @@ impl CodexSessionEstablishment {
             let_go_codex_thread(&service, &thread.id).await;
             return Err(error);
         }
+        let Some(version) = service.version_reading() else {
+            let_go_codex_thread(&service, &thread.id).await;
+            return Err(CodexError::Transport {
+                detail: "The Codex service reported no version for the new session's binding."
+                    .to_owned(),
+                cause: None,
+            });
+        };
         let (inbound, receiver) = codex_session_inbound(params.session_id);
         let record = CodexSessionRecord::new(CodexEstablishedConversation {
             session_id: params.session_id,
@@ -246,6 +256,7 @@ impl CodexSessionEstablishment {
         let handle = ProviderSessionHandle {
             provider_session_id: thread.session_id,
             resume_handle: thread.id,
+            spawned_version: to_binding_version_carriers(&version),
         };
         Ok((
             handle,
@@ -320,8 +331,7 @@ impl CodexSessionEstablishment {
                 cause: None,
             });
         };
-        let binding_id = RuntimeBindingId::new(mint_uuid_v7().to_string())
-            .expect("a minted UUID is a binding id");
+        let binding_id = mint_runtime_binding_id();
         let result = DriverResumeResult::Resumed {
             binding_id: binding_id.clone(),
             session_position: count_turns(turn_ids.len()),
@@ -419,14 +429,16 @@ impl CodexSessionEstablishment {
 
     /// Resumes the session's conversation on `service` in place, on the session's task: after its
     /// service crashed or its connection came back, or once it left the old service for a new
-    /// build. The resume carries the settings the record holds now, under a binding minted here,
-    /// and the conversation's turns come back with the result, so a caller can end the ones that
-    /// ended unseen. A resume refused while another runtime still writes the conversation is tried
-    /// again each time `writer_left` answers `true`. Every failure answers `Failed`, reported.
+    /// build. The resume carries the settings the record holds now, under `binding_id`, which the
+    /// caller minted and opened, and the conversation's turns come back with the result, so a
+    /// caller can end the ones that ended unseen. A resume refused while another runtime still
+    /// writes the conversation is tried again each time `writer_left` answers `true`. Every
+    /// failure answers `Failed`, reported.
     pub(crate) async fn resume_in_place<WriterLeft>(
         &self,
         task: &mut CodexSessionTask<'_>,
         service: Arc<CodexService>,
+        binding_id: RuntimeBindingId,
         mut writer_left: impl FnMut() -> WriterLeft,
     ) -> CodexInPlaceResume
     where
@@ -442,7 +454,7 @@ impl CodexSessionEstablishment {
             }
         };
         match self
-            .adopt_resumed_thread(task, Arc::clone(&service), resumed)
+            .adopt_resumed_thread(task, Arc::clone(&service), binding_id, resumed)
             .await
         {
             Ok(resumed) => resumed,
@@ -470,11 +482,12 @@ impl CodexSessionEstablishment {
         &self,
         task: &mut CodexSessionTask<'_>,
         service: Arc<CodexService>,
+        binding_id: RuntimeBindingId,
         resumed: Result<CodexResumedThread, CodexError>,
     ) -> Result<CodexInPlaceResume, CodexError> {
         let resumed = resumed?;
-        let adopted = prepare_adoption(task.record, &service, &resumed).await;
-        let (result, binding_id) = match adopted {
+        let adopted = prepare_adoption(task.record, &service, &resumed, &binding_id).await;
+        let result = match adopted {
             Ok(adopted) => adopted,
             Err(error) => {
                 if !resumed.was_held {
@@ -724,12 +737,13 @@ struct CodexResumedThread {
 
 // The steps of an adoption that can fail, run before the record changes: the binding's version
 // read, and the session's mode sent on `service`'s connection with the resumed effort. Answers
-// the result and the binding minted for it.
+// the result under `binding_id`.
 async fn prepare_adoption(
     record: &CodexSessionRecord,
     service: &CodexService,
     resumed: &CodexResumedThread,
-) -> Result<(DriverResumeResult, RuntimeBindingId), CodexError> {
+    binding_id: &RuntimeBindingId,
+) -> Result<DriverResumeResult, CodexError> {
     let Some(version) = service.version_reading() else {
         return Err(CodexError::Transport {
             detail: "The Codex service reported no version for the resumed session's binding."
@@ -746,16 +760,13 @@ async fn prepare_adoption(
         resumed.reasoning_effort.as_deref(),
     )
     .await?;
-    let binding_id =
-        RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a minted UUID is a binding id");
-    let result = DriverResumeResult::Resumed {
+    Ok(DriverResumeResult::Resumed {
         binding_id: binding_id.clone(),
         session_position: count_turns(resumed.listed_turns.len()),
         resume_handle: NonEmptyText::new(record.thread_id.clone())
             .expect("a resumed conversation's id is never empty"),
         spawned_version: to_binding_version_carriers(&version),
-    };
-    Ok((result, binding_id))
+    })
 }
 
 // What a resume composes its conversation's settings from.
@@ -837,9 +848,9 @@ fn report_withheld_definition_fields(
     }
 }
 
-// A failed resume's result: the recovery its failure needs, read from the service where one was
-// reached, and its words bounded.
-async fn compose_failed_resume(
+/// A failed resume's result: the recovery its failure needs, read from the service where one was
+/// reached, and its words bounded.
+pub(crate) async fn compose_failed_resume(
     service: Option<&CodexService>,
     error: &CodexError,
 ) -> DriverResumeResult {

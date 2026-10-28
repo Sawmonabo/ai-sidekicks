@@ -65,6 +65,14 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
             |(reported_session, binding)| *reported_session == session_id && binding.is_some()
         )
     );
+    // Each relaunch resumed under the binding it had opened first.
+    let opened: Vec<_> = fixture
+        .relaunches
+        .opened()
+        .into_iter()
+        .map(|(opened_session, binding)| (opened_session, Some(binding)))
+        .collect();
+    assert_eq!(opened, reported);
     let notices = fixture
         .engine
         .deliveries()

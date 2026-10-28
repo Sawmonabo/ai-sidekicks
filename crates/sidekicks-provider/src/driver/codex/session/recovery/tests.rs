@@ -75,14 +75,28 @@ impl ProcessGoneListener for HeardGone {
     }
 }
 
-struct TakenRelaunches;
+struct TakenRelaunches(Arc<Steps>);
 
 impl SessionRelaunchListener for TakenRelaunches {
+    fn open_relaunch_binding(
+        &self,
+        _session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        self.0.push(format!("opened {binding_id:?}"));
+        async { Ok(()) }.boxed()
+    }
+
     fn session_relaunched(
         &self,
         _session_id: SessionId,
-        _result: DriverResumeResult,
+        result: DriverResumeResult,
     ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+        let binding_id = match result {
+            DriverResumeResult::Resumed { binding_id, .. } => Some(binding_id),
+            DriverResumeResult::Failed { .. } => None,
+        };
+        self.0.push(format!("relaunched {binding_id:?}"));
         async { Ok(()) }.boxed()
     }
 }
@@ -102,8 +116,9 @@ fn test_recovery(
         .register(Arc::new(HeardGone(Arc::clone(steps))) as Arc<dyn ProcessGoneListener>)
         .expect("the port registers once");
     let session_relaunched = Arc::new(PortRegistration::new("session relaunched"));
+    let relaunches: Arc<dyn SessionRelaunchListener> = Arc::new(TakenRelaunches(Arc::clone(steps)));
     session_relaunched
-        .register(Arc::new(TakenRelaunches) as Arc<dyn SessionRelaunchListener>)
+        .register(relaunches)
         .expect("the port registers once");
     Arc::new(CodexServiceRecovery::new(
         CodexServiceRecoveryDependencies {
@@ -132,12 +147,20 @@ fn restart_failure() -> CodexError {
     }
 }
 
-// Serves, as the service, every conversation it is asked to resume, with no turns on it.
-async fn serve_resumes(mut script: ScriptedService, settings: CodexThreadSettings) {
+// Serves, as the service, every conversation it is asked to resume, with no turns on it, each
+// resume a step of `steps`.
+async fn serve_resumes(
+    mut script: ScriptedService,
+    settings: CodexThreadSettings,
+    steps: Arc<Steps>,
+) {
     loop {
         let sent = script.next_sent().await;
         let answer = match sent["method"].as_str() {
-            Some("thread/resume") => fork_reply(TEST_THREAD, &settings),
+            Some("thread/resume") => {
+                steps.push("resume".to_owned());
+                fork_reply(TEST_THREAD, &settings)
+            }
             Some("thread/turns/list") => no_turns(),
             Some("thread/settings/update") => json!({}),
             Some("account/rateLimits/read") => json!({"rateLimits": null}),
@@ -210,7 +233,11 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         let service = Arc::clone(&session.scripted.service);
         let settings = session.task.record.thread_settings.clone();
         let session_id = session.task.record.session_id;
-        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
         let notices = || {
             notices_on(&session.engine, session_id)
                 .into_iter()
@@ -263,6 +290,23 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                 ("providerRestarted".to_owned(), None),
             ]
         );
+        // Each relaunch's binding is opened before its resume and is the one it reports.
+        let relaunch_steps: Vec<String> = steps
+            .read()
+            .into_iter()
+            .map(|(step, _)| step)
+            .filter(|step| {
+                step.starts_with("opened") || step == "resume" || step.starts_with("relaunched")
+            })
+            .collect();
+        assert_eq!(relaunch_steps.len(), 6, "{relaunch_steps:?}");
+        for relaunch in relaunch_steps.chunks(3) {
+            let opened = relaunch[0]
+                .strip_prefix("opened ")
+                .expect("a relaunch opens its binding first");
+            assert_eq!(relaunch[1], "resume", "{relaunch:?}");
+            assert_eq!(relaunch[2], format!("relaunched Some({opened})"));
+        }
         service_side.abort();
     })
     .await
@@ -282,7 +326,11 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
         let settings = session.task.record.thread_settings.clone();
-        let service_side = tokio::spawn(serve_resumes(session.scripted.script, settings));
+        let service_side = tokio::spawn(serve_resumes(
+            session.scripted.script,
+            settings,
+            Arc::clone(&steps),
+        ));
 
         session
             .task

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
@@ -66,10 +67,24 @@ pub trait ProcessGoneListener: Send + Sync {
 }
 
 /// The session directory's intake of a resume a driver started on its own, after a crash or for a
-/// move to a new build, so the daemon records the binding it minted or the failure.
+/// move to a new build, so the daemon opens the binding the driver minted before the resume runs
+/// and records it, or the failure, once the resume answered.
 pub trait SessionRelaunchListener: Send + Sync {
-    /// Records what `session_id`'s relaunch did. Fails when its binding could not be recorded,
-    /// which the driver reports as a failed relaunch.
+    /// Opens the event cursor of `binding_id`, which the driver minted for its resume of
+    /// `session_id`'s conversation, where the cursor of the session's newest binding stands, before
+    /// the resume runs, so the resumed process can deliver at once; a session with no binding yet
+    /// has no cursor to carry on, and nothing opens. Fails when the cursor cannot be opened, and
+    /// the driver then does not resume and reports the relaunch failed.
+    fn open_relaunch_binding(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+
+    /// Records what `session_id`'s relaunch did: a `Resumed` one's binding row, under the cursor
+    /// `open_relaunch_binding` opened, which it does not open again; a `Failed` one forgets that
+    /// cursor. Fails when its binding could not be recorded, which the driver reports as a failed
+    /// relaunch.
     fn session_relaunched(
         &self,
         session_id: SessionId,
