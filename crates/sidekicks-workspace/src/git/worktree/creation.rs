@@ -47,7 +47,7 @@ use sidekicks_store::events::session::appender::{
 
 use self::free_name::NameWalk;
 use crate::folder::canonical_path::canonical_folder_path;
-use crate::git::process::{GitCall, GitRunner, in_folder};
+use crate::git::process::{GitCall, GitRunner, in_folder, read_git_common_folder};
 use crate::git::worktree::carry::{
     CarriedStash, KeptStash, carry_uncommitted_work, drop_carried_stash, kept_stash_failure,
     require_carry_onto_current_branch,
@@ -65,6 +65,7 @@ use crate::git::worktree::rows::{
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceError, remove_folder};
 use crate::git::worktree::setup::{MadeWorktree, WorktreeSetupError, WorktreeSetupRunner};
 use crate::git::worktree::status::NewWorktreeSuggestionSource;
+use crate::git::worktree::tree_records::remove_records_naming;
 use crate::trust_envelope::is_contained_within;
 
 // `creating -> failed`, for a recorded tree that could not reach `ready`. It appends no event: the
@@ -724,7 +725,14 @@ async fn undo_unrecorded_tree(
                 in_folder(repository, &["worktree", "remove", "--force", "--force"]);
             arguments.push(OsString::from(name.folder_path.as_os_str()));
             if let Err(remove_failure) = git.run(place, GitCall::write(arguments)).await {
-                failures.push(remove_failure.into());
+                // A tree git left without its `.git` names no record git can find, so its folder
+                // goes and the records naming it are found by their `gitdir`.
+                let fallback_failures =
+                    remove_tree_without_git(git, place, repository, &name.folder_path).await;
+                if !fallback_failures.is_empty() {
+                    failures.push(remove_failure.into());
+                    failures.extend(fallback_failures);
+                }
             }
         }
         Ok(false) => {}
@@ -744,6 +752,27 @@ async fn undo_unrecorded_tree(
         }
     }
     failures
+}
+
+// Removes the tree at `folder`, then every record of the repository at `repository` naming it.
+// Answers each step's failure.
+async fn remove_tree_without_git(
+    git: &GitRunner,
+    place: Option<&Place>,
+    repository: &Path,
+    folder: &Path,
+) -> Vec<Box<dyn Error + Send + Sync>> {
+    if let Err(folder_failure) = remove_folder(folder).await {
+        return vec![folder_failure.into()];
+    }
+    match read_git_common_folder(git, place, repository, None).await {
+        Ok(common_folder) => remove_records_naming(&common_folder, folder)
+            .await
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        Err(read_failure) => vec![read_failure.into()],
+    }
 }
 
 /// `original` beside the failures of undoing what was made before it; `original` alone when the

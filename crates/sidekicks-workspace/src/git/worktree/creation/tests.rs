@@ -28,6 +28,7 @@ use tempfile::TempDir;
 use super::{
     CreateWorktreeInput, LiveRunFolder, LiveRunFolderReadError, LiveRunFolderReader, NameCollision,
     WorktreeCreationError, WorktreeCreator, WorktreeCreatorDeps, WorktreeNameRequest,
+    undo_unrecorded_tree,
 };
 use crate::git::process::test_repository::{git_in, make_test_repository};
 use crate::git::process::{GitRunner, test_git_runner};
@@ -605,4 +606,47 @@ async fn a_supplied_head_is_refused_as_an_invalid_branch_name_with_git_s_line() 
         "git's line as printed: {line}"
     );
     assert!(fixture.worktree_states().is_empty());
+}
+
+// A git ended between making the folder and writing its linking files leaves a tree with no `.git`
+// and its record locked, which `worktree remove` cannot find. Kills an undo that stops at that
+// refusal, leaving the folder and the record that keep the name taken.
+#[tokio::test]
+async fn an_undo_removes_a_tree_git_left_without_its_git_file() {
+    let fixture = CreationFixture::new().await;
+    let name = plan_for(&fixture, "fix").name_at(1);
+    git_in(
+        &fixture.git,
+        &fixture.repository,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            "-b",
+            &name.branch_name,
+            &name.folder_path.to_string_lossy(),
+        ],
+    )
+    .await;
+    let records = fixture.repository.join(".git").join("worktrees");
+    let record = std::fs::read_dir(&records)
+        .expect("the records are listed")
+        .next()
+        .expect("git recorded the tree")
+        .expect("the record is read")
+        .path();
+    std::fs::write(record.join("locked"), "initializing\n").expect("the record is locked");
+    std::fs::remove_file(name.folder_path.join(".git")).expect("the tree's .git is removed");
+
+    let failures = undo_unrecorded_tree(&fixture.git, &fixture.mount, &name, true).await;
+
+    assert!(failures.is_empty(), "{failures:?}");
+    assert!(!name.folder_path.exists(), "the tree's folder is left");
+    assert!(!record.exists(), "the tree's record is left");
+    assert!(
+        !has_branch(&fixture.git, None, &fixture.repository, &name.branch_name)
+            .await
+            .expect("the branches are read"),
+        "the new branch is left"
+    );
 }
