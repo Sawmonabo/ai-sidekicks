@@ -116,9 +116,10 @@ pub(crate) async fn remove_stale_tree_record(
     Ok(true)
 }
 
-/// Removes the kept copy's stale record as [`remove_stale_tree_record`] does, then, once it is
-/// gone and the copy in `kept_folder` kept refs from a refs payload, the tree's refs folder there,
-/// so no later record of that name finds them. Answers whether the record is gone. Fails as the
+/// Removes the kept copy's stale record as [`remove_stale_tree_record`] does, then, once this call
+/// removed it or no record of its name stands, as after a crash between the two removals, and the
+/// copy in `kept_folder` kept refs from a refs payload, the tree's refs folder there, so no later
+/// record of that name finds them. Answers whether this call removed the record. Fails as the
 /// record's removal, the payload's read or the folder's removal does.
 pub(crate) async fn remove_stale_record_and_refs(
     tools: StaleRecordTools<'_>,
@@ -129,12 +130,18 @@ pub(crate) async fn remove_stale_record_and_refs(
     original_path: &Path,
 ) -> Result<bool, StaleRecordError> {
     let is_removed = remove_stale_tree_record(tools, record_folder, original_path).await?;
+    // A name a put-back holds is one it is taking, the refs folder included.
+    let is_name_free = is_removed
+        || (!tools.names_in_use.is_in_use(record_folder)
+            && !tokio::fs::try_exists(record_folder)
+                .await
+                .map_err(at(record_folder))?);
     let kept_ref_store = kept_folder.join(KEPT_REF_STORE_ENTRY);
     let has_kept_refs = tokio::fs::try_exists(&kept_ref_store)
         .await
         .map_err(at(&kept_ref_store))?;
     let (true, true, Some(common_folder), Some(record_name)) = (
-        is_removed,
+        is_name_free,
         has_kept_refs,
         common_folder_of_record(record_folder),
         record_folder.file_name().and_then(OsStr::to_str),
@@ -150,7 +157,7 @@ pub(crate) async fn remove_stale_record_and_refs(
             .await
             .map_err(at(&refs_folder))?;
     }
-    Ok(true)
+    Ok(is_removed)
 }
 
 // The `.git` the record names when the record is the kept copy's own and stale, as
