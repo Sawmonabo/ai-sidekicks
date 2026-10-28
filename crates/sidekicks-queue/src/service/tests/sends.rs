@@ -402,7 +402,7 @@ async fn a_review_not_delivered_is_sent_again_as_the_same_review() {
 }
 
 // A retry of a review not delivered that carries an answered question and a speed is refused
-// `request.paramsInvalid`, an issue at each member, and the failed review stays not delivered,
+// `agent.queueItem.changeRefused`, `reviewExtras`, and the failed review stays not delivered,
 // nothing written. Killed by a retry that queues the review and drops what the send carried.
 #[tokio::test]
 async fn a_review_s_retry_carrying_what_a_review_cannot_take_is_refused() {
@@ -425,16 +425,10 @@ async fn a_review_s_retry_carrying_what_a_review_cannot_take_is_refused() {
     let Err(QueueError::Refused(DomainError { code, detail, .. })) = retried else {
         panic!("the retry is refused, got {retried:?}");
     };
-    assert_eq!(code, RefusalCode::RequestParamsInvalid);
-    let paths: Vec<_> = detail.expect("the refusal names its issues")["issues"]
-        .as_array()
-        .expect("the issues are a list")
-        .iter()
-        .map(|issue| issue["path"].clone())
-        .collect();
+    assert_eq!(code, RefusalCode::AgentQueueItemChangeRefused);
     assert_eq!(
-        paths,
-        [json!(["answersQuestionId"]), json!(["outputSpeedForTurn"])]
+        detail.expect("the refusal names its reason")["reason"],
+        json!("reviewExtras")
     );
     assert_eq!(fixture.count_items(), 1);
     assert_eq!(

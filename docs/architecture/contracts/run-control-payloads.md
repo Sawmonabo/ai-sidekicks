@@ -112,7 +112,7 @@ type QueueMessageSummary = QueueItemByState<{
 // reads not delivered is sent again as a message is, through `replacesQueueItemId`, and queues the
 // same review, the send's words unread. A review takes no files, skills, answered question or
 // speed, so a retry carrying `attachments`, `skills`, `answersQuestionId` or `outputSpeedForTurn`
-// is refused (`request.paramsInvalid`, an issue at each member it carried).
+// is refused (`agent.queueItem.changeRefused`, `reviewExtras`).
 type QueueReviewSummary = QueueItemByState<{
   target: SessionReviewTarget;
 }>;

@@ -173,7 +173,8 @@ pub struct AgentQueueItemCreateRequest {
     /// `superseded`. Naming a message not delivered, with its own words, is a retry that queues
     /// its words and files again as a new message at the queue's end. Naming a review not
     /// delivered queues the same review, the words unread; carrying `attachments`, `skills`,
-    /// `answersQuestionId` or `outputSpeedForTurn` beside it is refused `request.paramsInvalid`.
+    /// `answersQuestionId` or `outputSpeedForTurn` beside it is refused
+    /// `agent.queueItem.changeRefused`, `reviewExtras`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -621,8 +622,9 @@ ts_constants! {
     /// an item of another session, or one of another queue than the change names.
     AGENT_QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::AgentQueueItemNotFound;
     /// The refusal of a change to a waiting message the agent has already taken or the provider
-    /// did not give back, a retry in other words than its own, an edit of a queued review, or a
-    /// reorder whose list is not exactly the waiting items.
+    /// did not give back, a retry in other words than its own, an edit of a queued review, a
+    /// review's retry carrying a message's extras, or a reorder whose list is not exactly the
+    /// waiting items.
     AGENT_QUEUE_ITEM_CHANGE_REFUSED_CODE = RefusalCode::AgentQueueItemChangeRefused;
 }
 
@@ -638,6 +640,9 @@ pub enum AgentQueueItemChangeRefusedReason {
     OrderMismatch,
     /// The edit names a queued review, which carries no words to edit.
     ReviewItem,
+    /// A review sent again carried files, skills, an answered question or a speed, which a review
+    /// cannot take.
+    ReviewExtras,
 }
 
 /// The details an `agent.queueItem.changeRefused` refusal carries.
