@@ -17,6 +17,7 @@ mod event_log;
 mod provider_accounts;
 pub mod recovery;
 pub mod session_directory;
+mod session_kept_schedules;
 
 /// The event log's table, by the name the schema creates it under and the reads that look for it
 /// by name use.
@@ -97,8 +98,8 @@ impl DatabaseSchema {
 }
 
 /// The store's own parts: the event log, the session directory, this machine, the daemon's
-/// configuration, the recovery's records, the provider accounts and the compaction calibrations,
-/// in foreign-key order.
+/// configuration, the recovery's records, the provider accounts, the compaction calibrations and
+/// each session's kept schedules, in foreign-key order.
 pub fn schema_parts() -> SchemaParts {
     SchemaParts::default()
         .with_part(SchemaPart::new(
@@ -122,5 +123,9 @@ pub fn schema_parts() -> SchemaParts {
         .with_part(SchemaPart::new(
             "compaction_calibrations",
             compaction_calibrations::COMPACTION_CALIBRATIONS_SCHEMA_SQL,
+        ))
+        .with_part(SchemaPart::new(
+            "session_kept_schedules",
+            session_kept_schedules::SESSION_KEPT_SCHEDULES_SCHEMA_SQL,
         ))
 }

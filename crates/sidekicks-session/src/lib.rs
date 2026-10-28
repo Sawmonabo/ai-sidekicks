@@ -15,6 +15,7 @@ pub mod directory;
 pub mod draft_store;
 pub mod driver_resolution;
 pub mod groups;
+pub mod idle_sleep;
 pub mod interventions;
 pub mod links;
 pub mod live_folders;

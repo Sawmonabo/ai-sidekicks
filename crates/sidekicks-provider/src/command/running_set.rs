@@ -42,6 +42,8 @@ pub(crate) use feed::RunningCommandFeed;
 #[cfg(test)]
 pub(crate) use feed::{next_sent_frame, next_sent_set_where};
 
+#[cfg(any(test, feature = "test-support"))]
+mod test_support;
 #[cfg(test)]
 mod tests;
 
@@ -257,6 +259,14 @@ impl RunningCommandSets {
             .changed
             .subscribe();
         RunningCommandFeed::new(Arc::clone(&self.sessions), session_id, changed)
+    }
+
+    /// Whether a command of `session_id` still runs: one the provider reported, or one whose
+    /// wrapper started before the provider named it.
+    pub fn has_running_commands(&self, session_id: SessionId) -> bool {
+        self.lock()
+            .get(&session_id)
+            .is_some_and(|commands| !commands.rows.is_empty() || !commands.unpaired.is_empty())
     }
 
     /// The person's stop, carried out by the session's `driver`: answered once the provider

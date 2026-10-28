@@ -499,6 +499,22 @@ CREATE TABLE compaction_calibrations (
 ) STRICT;
 ```
 
+**Kept schedules.** `session_kept_schedules` holds, for each session, the timed fires its provider keeps as the provider last reported them: a one-shot wake-up or job by the instant it fires, a recurring job by its five-field schedule in local time and its next run where the provider gave one ([Plan-001](../../plans/001-session-core.md) T6.12). The list is replaced whole at each change. The daemon's start reads it, so a sleeping session is woken on its schedule after a restart; a session's purge deletes its rows.
+
+```sql
+-- One row per kept fire; exactly one of fires_at and cron is set.
+CREATE TABLE session_kept_schedules (
+  session_id    TEXT NOT NULL,
+  position      INTEGER NOT NULL CHECK (position >= 0),
+  fires_at      TEXT,
+  cron          TEXT,
+  next_fire_at  TEXT,
+  CHECK ((fires_at IS NULL) <> (cron IS NULL)),
+  CHECK (cron IS NOT NULL OR next_fire_at IS NULL),
+  PRIMARY KEY (session_id, position)
+) STRICT;
+```
+
 ---
 
 ## Daemon Configuration (Plan-005)

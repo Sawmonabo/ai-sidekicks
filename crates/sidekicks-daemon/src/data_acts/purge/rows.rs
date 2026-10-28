@@ -183,11 +183,12 @@ const RUN_KEYED_DELETES: [&str; 4] = [
 // The session's own deletes after its run-keyed ones, up to its row, in foreign-key order: a
 // snapshot and a recovery checkpoint name the event they reflect, an ask goes after its answer and
 // after the gate answers found through it, and an artifact after the reference to its payload.
-const DELETES_THROUGH_SESSION_ROW: [&str; 20] = [
+const DELETES_THROUGH_SESSION_ROW: [&str; 21] = [
     "DELETE FROM session_snapshots WHERE session_id = @sessionId",
     "DELETE FROM recovery_checkpoints WHERE session_id = @sessionId",
     "DELETE FROM session_events WHERE session_id = @sessionId",
     "DELETE FROM session_drafts WHERE session_id = @sessionId",
+    "DELETE FROM session_kept_schedules WHERE session_id = @sessionId",
     "DELETE FROM session_review_notes WHERE session_id = @sessionId",
     "DELETE FROM workflow_gate_resolutions WHERE approval_request_id IN
        (SELECT id FROM approval_requests WHERE session_id = @sessionId)",
