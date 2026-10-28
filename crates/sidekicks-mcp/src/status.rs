@@ -60,9 +60,9 @@ pub(crate) struct McpBindingStatusReading {
 pub(crate) struct McpServerStatusTracker {
     legs: Mutex<McpLegs>,
     board: Arc<McpNoticeBoard>,
-    /// Each binding a leg reports a status of or the probe reads, for the drain to record; the
-    /// drain keeps which bindings it has recorded, so one whose write failed is tried again at its
-    /// next reading.
+    /// Each binding a leg first reports or reports a status of, or the probe reads, for the drain
+    /// to record; the drain keeps which bindings it has recorded, so one whose write failed is
+    /// tried again at its next reading.
     first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
 }
 
@@ -76,8 +76,8 @@ pub(crate) struct McpServerStatusTracker {
 )]
 impl McpServerStatusTracker {
     /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
-    /// leg reports a status of or the probe reads through `first_observations`, whose drain
-    /// records it.
+    /// leg first reports or reports a status of, or the probe reads, through `first_observations`,
+    /// whose drain records it.
     pub(crate) fn new(
         board: Arc<McpNoticeBoard>,
         first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
