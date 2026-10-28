@@ -269,8 +269,7 @@ impl Harness {
     // Where `run_id`'s stop at its token limit stands; `None` once the run keeps no tally.
     async fn limit_stop(&self, run_id: RunId) -> Option<TokenLimitStop> {
         let slot = self.engine.run_usage_tally(run_id);
-        let stop = slot.lock().await.as_ref().map(|tally| tally.limit_stop);
-        stop
+        slot.lock().await.as_ref().map(|tally| tally.limit_stop)
     }
 
     // Each stored event of `event_type`, its run and its payload member `member` as text.

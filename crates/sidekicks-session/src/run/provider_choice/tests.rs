@@ -319,7 +319,7 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
 #[tokio::test]
 async fn a_report_settles_the_held_answer_first_and_a_failed_settle_is_retried_once(
     #[case] is_let_through_before_the_retry: bool,
-    #[case] settlements: usize,
+    #[case] settlements: i64,
 ) {
     let mut driver = MockProviderDriver::new();
     driver
