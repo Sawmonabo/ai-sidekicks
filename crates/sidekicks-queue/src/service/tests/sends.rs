@@ -304,9 +304,10 @@ async fn a_review_behind_a_running_turn_is_never_handed_into_it() {
     assert_eq!(review.state, RecordedQueueItemState::Queued);
 }
 
-// An edit naming a review that waits behind a running turn is refused `agent.queueItem.changeRefused`
-// with the reason `reviewItem`, and the review keeps waiting, nothing written. Killed by an edit
-// that answers the review as an item the queue does not hold, or edits it like a message.
+// An edit naming a review that waits behind a running turn is refused
+// `agent.queueItem.changeRefused` with the reason `reviewItem`, and the review keeps waiting,
+// nothing written. Killed by an edit that answers the review as an item the queue does not hold, or
+// edits it like a message.
 #[tokio::test]
 async fn an_edit_of_a_waiting_review_is_refused_as_a_review_item() {
     let calls = Arc::new(DriverCalls::default());
