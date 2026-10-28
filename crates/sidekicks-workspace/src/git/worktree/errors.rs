@@ -30,8 +30,8 @@ use strum::IntoStaticStr;
 use crate::run_setup_gates::RunSetupGateError;
 
 /// Why making a worktree failed; closed and free of paths, so it is safe on the wire, where its
-/// name is the detail's `reason`. `branchNameInvalid` and `branchNameTaken` carry git's own line
-/// refusing the name, `carryFailed` how to recover the stashed work, and `carryCheckoutRunning`
+/// name is the detail's `reason`. `branchNameInvalid` and `branchNameTaken` carry the line refusing
+/// the name, `carryFailed` how to recover the stashed work, and `carryCheckoutRunning`
 /// the run in the way.
 #[derive(Clone, Debug, PartialEq, Eq, IntoStaticStr)]
 #[strum(serialize_all = "camelCase")]
@@ -40,10 +40,11 @@ pub enum WorktreeCreateFailureReason {
     BaseRefOptionLike,
     /// No base ref was supplied and the mount's HEAD names no branch.
     BaseRefUnresolved,
-    /// Git refused the branch name.
+    /// Git's branch-name rule refused the branch name.
     BranchNameInvalid {
-        /// Git's `fatal:` line as git printed it, with none of its `hint:` lines.
-        git_line: String,
+        /// The line refusing it: git's `fatal:` line as git printed it, with none of its `hint:`
+        /// lines, or the daemon's own line for a name git would read as an option.
+        line: String,
     },
     /// Git refused the branch name as taken.
     BranchNameTaken {
@@ -268,8 +269,8 @@ fn create_failed_message(reason: &WorktreeCreateFailureReason) -> Cow<'_, str> {
             "worktree creation failed: no base ref was supplied and the repo mount's HEAD does \
              not resolve to a branch",
         ),
-        WorktreeCreateFailureReason::BranchNameInvalid { git_line }
-        | WorktreeCreateFailureReason::BranchNameTaken { git_line } => Cow::Borrowed(git_line),
+        WorktreeCreateFailureReason::BranchNameInvalid { line }
+        | WorktreeCreateFailureReason::BranchNameTaken { git_line: line } => Cow::Borrowed(line),
         WorktreeCreateFailureReason::BranchNameUnderivable => Cow::Borrowed(
             "worktree creation failed: no branch name could be derived, since neither the \
              session's title nor a run id gave a tail",

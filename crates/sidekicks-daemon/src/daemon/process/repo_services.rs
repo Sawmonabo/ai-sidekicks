@@ -16,7 +16,6 @@ use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::live_folders::{
     LiveFolderError, LiveSessionFolders, LiveSessionFoldersDeps,
 };
-use sidekicks_session::worktree_naming::worktrees_folder;
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
 };
@@ -32,6 +31,7 @@ use sidekicks_workspace::git::turn_snapshot::service::TurnSnapshotService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
 use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
+use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
 use sidekicks_workspace::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
 use sidekicks_workspace::git::worktree::watch::{

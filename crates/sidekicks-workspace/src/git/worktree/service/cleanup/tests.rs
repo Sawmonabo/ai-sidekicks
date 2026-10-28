@@ -17,6 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{
     RetiredWorktreeKeeper, WorktreeCleanupError, WorktreeCleanupFailure, is_nothing_to_stop,
+    stop_file_watch,
 };
 use crate::git::process::{
     GitCall, GitError, GitRunner, find_git_executable, in_folder, test_git_runner,
@@ -291,7 +292,7 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
     let keeper = RecordingKeeper::default();
 
     let first = service
-        .cleanup_pass(&keeper, &CancellationToken::new())
+        .cleanup_pass(&keeper, &[], &CancellationToken::new())
         .await;
 
     let Err(SettleFailures::Many { failures, .. }) = first else {
@@ -349,7 +350,7 @@ async fn a_pass_defers_a_tree_in_use_keeps_new_work_aside_and_reports_every_fail
             .expect("the unnamed folders are settled");
     }
     let second = service
-        .cleanup_pass(&keeper, &CancellationToken::new())
+        .cleanup_pass(&keeper, &[], &CancellationToken::new())
         .await
         .expect("the second pass succeeds");
     assert_eq!(second.cleaned, [busy]);
@@ -412,7 +413,7 @@ async fn a_cut_short_removal_git_still_knows_keeps_new_work_aside() {
 
     let report = fixture
         .service
-        .cleanup_pass(&keeper, &CancellationToken::new())
+        .cleanup_pass(&keeper, &[], &CancellationToken::new())
         .await
         .expect("the pass succeeds");
 
@@ -494,9 +495,7 @@ async fn the_cleanup_stops_a_running_file_watch_daemon_whatever_the_repository_s
     };
     assert!(status().await.is_ok(), "the daemon runs before the stop");
 
-    fixture
-        .service
-        .stop_file_watch(None, &folder)
+    stop_file_watch(&fixture.git, None, &folder)
         .await
         .expect("the stop succeeds");
 

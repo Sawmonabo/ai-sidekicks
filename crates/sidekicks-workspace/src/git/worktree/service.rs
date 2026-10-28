@@ -12,6 +12,7 @@
 pub(crate) mod cleanup;
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
@@ -75,7 +76,8 @@ static SELECT_WORKTREE_SQL: LazyLock<String> = LazyLock::new(|| {
 // Only an `attached` mount is a provisioning target; a detached one is `repoMount.notFound`.
 static SELECT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, canonical_root, project_id FROM repo_mounts WHERE id = ? AND state = '{}'",
+        "SELECT id, canonical_root, project_id, place FROM repo_mounts
+ WHERE id = ? AND state = '{}'",
         <&'static str>::from(RepoMountState::Attached)
     )
 });
@@ -83,6 +85,14 @@ static SELECT_ATTACHED_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 const SELECT_ROW_AT_FOLDER_SQL: &str = "SELECT 1 FROM worktrees WHERE fs_root = ? LIMIT 1";
 
 const SELECT_WORKTREE_STATE_SQL: &str = "SELECT state FROM worktrees WHERE id = ?";
+
+// Which of a JSON list of worktree ids have their retirement recorded.
+static SELECT_RETIRED_AMONG_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT id FROM worktrees WHERE id IN (SELECT value FROM json_each(?)) AND state = '{}'",
+        <&'static str>::from(WorktreeState::Retired)
+    )
+});
 
 // The retirement's write checks, in order, that the row is not yet retired and that no agent runs
 // in the tree, then retires it; every state but `retired` is a legal predecessor, `failed`
@@ -223,6 +233,17 @@ pub struct WorktreeServiceDeps {
     pub worktrees_folder: PathBuf,
 }
 
+/// Why the worktree rows could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum WorktreeRowsReadError {
+    /// The read did not reach the database.
+    #[error("the worktree rows did not reach the database")]
+    Pool(#[from] DatabaseReadError),
+    /// The rows could not be read.
+    #[error("the worktree rows could not be read")]
+    Database(#[from] rusqlite::Error),
+}
+
 /// Owns every `worktrees` transition and worktree-scoped git call.
 pub struct WorktreeService {
     deps: WorktreeServiceDeps,
@@ -303,6 +324,7 @@ impl WorktreeService {
                             id: text_column(row, 0, |text| RepoMountId::new(&text))?,
                             canonical_root: text_column(row, 1, FilesystemPath::new)?,
                             project_id: text_column(row, 2, |text| ProjectId::new(&text))?,
+                            place: place_of(row, 3)?,
                         })
                     })
                     .optional()
@@ -515,8 +537,34 @@ impl WorktreeService {
         }
     }
 
-    // The worktree's row and its mount's place; `worktree.notFound` for an unknown id.
-    async fn require_worktree_at_place(
+    /// Which of `worktree_ids` have their retirement recorded. Fails with the read's failure.
+    pub async fn read_retired(
+        &self,
+        worktree_ids: &[WorktreeId],
+    ) -> Result<HashSet<WorktreeId>, WorktreeRowsReadError> {
+        let listed = serde_json::to_string(
+            &worktree_ids
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>(),
+        )
+        .expect("a list of strings serializes");
+        self.deps
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                Ok(connection
+                    .prepare_cached(SELECT_RETIRED_AMONG_SQL.as_str())?
+                    .query_map([listed], |row| {
+                        text_column(row, 0, |text| WorktreeId::new(&text))
+                    })?
+                    .collect::<rusqlite::Result<_>>()?)
+            })
+            .await
+    }
+
+    /// The worktree's row and the place its mount's project is at. Fails with `worktree.notFound`
+    /// for an unknown id, or the read's failure.
+    pub(crate) async fn require_worktree_at_place(
         &self,
         worktree_id: &WorktreeId,
     ) -> Result<(WorktreeRow, Option<Place>), WorktreeServiceError> {
@@ -736,8 +784,9 @@ fn read_unreleased_runs(
         .collect::<rusqlite::Result<_>>()?)
 }
 
-// Removes `folder` and everything under it, as `rm -rf` does; a folder already gone is removed.
-async fn remove_folder(folder: &Path) -> io::Result<()> {
+/// Removes `folder` and everything under it off the async workers, as `rm -rf` does; a folder
+/// already gone passes. Fails with the removal's failure.
+pub(crate) async fn remove_folder(folder: &Path) -> io::Result<()> {
     let folder = folder.to_path_buf();
     tokio::task::spawn_blocking(move || sidekicks_platforms::remove_tree(&folder))
         .await

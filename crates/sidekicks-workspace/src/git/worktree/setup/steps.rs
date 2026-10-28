@@ -317,7 +317,7 @@ struct CommandEnd {
 /// Why a setup command could not be ended.
 #[derive(Debug, thiserror::Error)]
 #[error("a setup command could not be ended")]
-pub(crate) struct SetupCommandEndError(#[source] Arc<io::Error>);
+pub struct SetupCommandEndError(#[source] Arc<io::Error>);
 
 impl RunningCommand {
     /// A command not yet started, which an end asked before its start keeps from starting.

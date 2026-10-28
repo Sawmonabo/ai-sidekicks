@@ -39,7 +39,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 
-pub(crate) use self::steps::SetupCommandEndError;
+pub use self::steps::SetupCommandEndError;
 use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
     keep_succeeded_steps, project_steps_of, run_command, step_error,
@@ -81,12 +81,8 @@ pub(crate) struct MadeWorktree {
 }
 
 /// Why a setup call failed.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the setup card's subscribe and retry handlers")
-)]
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeSetupError {
+pub enum WorktreeSetupError {
     /// The tree is unknown, or has no card where one is needed (`worktree.notFound`).
     #[error(transparent)]
     Refused(#[from] WorktreeRefusal),
@@ -97,14 +93,9 @@ pub(crate) enum WorktreeSetupError {
     #[error("the setup's records could not be read")]
     Read(#[source] Box<dyn Error + Send + Sync>),
     /// The folder whose commands were to be ended could not be resolved.
-    #[cfg_attr(test, expect(dead_code, reason = "worktree removal"))]
     #[error("the folder whose setup commands were to be ended could not be resolved")]
     Folder(#[source] io::Error),
     /// Commands that were to be ended could not be.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "worktree removal and the daemon's stop")
-    )]
     #[error(transparent)]
     CommandsNotEnded(SettleFailures<SetupCommandEndError>),
     /// The run of the steps ended without finishing, the runtime stopping under it.
@@ -114,21 +105,15 @@ pub(crate) enum WorktreeSetupError {
 
 /// Where the setup reads what other owners keep: the worktree's rows, its project's setup steps
 /// and the environment its commands start with.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the daemon's start gives the setup its sources")
-)]
-pub(crate) trait WorktreeSetupSources: Send + Sync {
+pub trait WorktreeSetupSources: Send + Sync {
     /// Answers once `worktree_id` names a worktree. Fails with `Refused` holding
     /// `WorktreeRefusal::NotFound` for one with no row, else with `Read`.
-    #[cfg_attr(test, expect(dead_code, reason = "the setup card's subscribe handler"))]
     fn require_worktree<'a>(
         &'a self,
         worktree_id: &'a WorktreeId,
     ) -> BoxFuture<'a, Result<(), WorktreeSetupError>>;
 
     /// Which of `worktree_ids` have their retirement recorded. Fails with `Read`.
-    #[cfg_attr(test, expect(dead_code, reason = "the paths that retire a tree"))]
     fn read_retired<'a>(
         &'a self,
         worktree_ids: &'a [WorktreeId],

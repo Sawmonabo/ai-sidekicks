@@ -46,12 +46,23 @@ const SAMPLE_PATTERN_VALUES: BranchNamePatternValues<'static> = BranchNamePatter
 // Git's exit code for a ref name its format rule refuses.
 const GIT_FORMAT_REFUSED_EXIT_CODE: i32 = 1;
 
+// The end of git's `fatal:` line refusing a branch name.
+const GIT_INVALID_BRANCH_NAME_ENDING: &str = "is not a valid branch name";
+
+// The daemon's line for a branch name starting with `-`, which git would read as an option.
+const OPTION_LIKE_BRANCH_NAME_LINE: &str = "a branch name cannot start with -";
+
+// The daemon's line for a refused branch name when git printed no line naming it.
+const INVALID_BRANCH_NAME_LINE: &str = "the branch name is not one git takes";
+
 // Git's exit code for a fatal failure: a folder that is gone or holds no repository, and a ref
 // transaction it could not prepare.
 const GIT_REFUSED_EXIT_CODE: i32 = 128;
 
-// The prefixes git writes before a failed transaction's own words.
-const GIT_FATAL_PREFIX: &str = "fatal: ";
+/// The prefix git writes before its fatal line.
+pub(crate) const GIT_FATAL_PREFIX: &str = "fatal: ";
+
+// The prefix git writes before a failed transaction's own words.
 const GIT_PREPARE_PREFIX: &str = "prepare: ";
 
 // The start of the clause the files backend writes before a ref refusal's own words.
@@ -132,7 +143,7 @@ async fn find_branch_pattern_refusal<'a>(
     projects: impl Iterator<Item = &'a BranchPatternProject>,
 ) -> Result<Option<ProjectBranchPatternRefusedDetails>, GitError> {
     let branch_name = fill_branch_name_pattern(pattern.as_str(), SAMPLE_PATTERN_VALUES);
-    if !is_branch_name(git, &branch_name).await? {
+    if read_branch_name_refusal(git, &branch_name).await?.is_some() {
         return Ok(Some(ProjectBranchPatternRefusedDetails::NotABranchName {}));
     }
     for project in projects {
@@ -148,12 +159,17 @@ async fn find_branch_pattern_refusal<'a>(
     Ok(None)
 }
 
-// Whether git's own rule takes `branch_name` as a branch's name: the format check over the ref
-// the branch would be, which opens no repository.
-async fn is_branch_name(git: &GitRunner, branch_name: &str) -> Result<bool, GitError> {
-    // A leading `-` would reach git as an option rather than a name.
+/// The line refusing `branch_name` under git's own branch-name rule, `None` when git takes it.
+/// The rule is the format check over the ref the branch would be, which opens no repository; a
+/// refused name's line is git's own `fatal:` line from the branch form of the check, and a name
+/// starting with `-`, which would reach git as an option, gets the daemon's line. Fails with the
+/// git failure when the check itself could not run.
+pub(crate) async fn read_branch_name_refusal(
+    git: &GitRunner,
+    branch_name: &str,
+) -> Result<Option<String>, GitError> {
     if branch_name.starts_with('-') {
-        return Ok(false);
+        return Ok(Some(OPTION_LIKE_BRANCH_NAME_LINE.to_owned()));
     }
     match git
         .run(
@@ -165,16 +181,43 @@ async fn is_branch_name(git: &GitRunner, branch_name: &str) -> Result<bool, GitE
         )
         .await
     {
-        Ok(_) => Ok(true),
-        Err(refusal) if refusal.exit_code() == Some(GIT_FORMAT_REFUSED_EXIT_CODE) => Ok(false),
+        Ok(_) => Ok(None),
+        Err(refusal) if refusal.exit_code() == Some(GIT_FORMAT_REFUSED_EXIT_CODE) => {
+            read_git_branch_name_line(git, branch_name).await.map(Some)
+        }
         Err(failure) => Err(failure),
+    }
+}
+
+// Git's `fatal:` line for a name the format check refused, read from the branch form of the check,
+// which prints one; the daemon's own line when git printed none naming an invalid branch, as a
+// broken repository in the daemon's folder would make it print another.
+async fn read_git_branch_name_line(git: &GitRunner, branch_name: &str) -> Result<String, GitError> {
+    let refused = git
+        .run(
+            None,
+            GitCall::read(["check-ref-format", "--branch", branch_name]),
+        )
+        .await;
+    let git_line = match &refused {
+        Err(GitError::Exited { stderr, .. }) => last_fatal_line(stderr)
+            .filter(|line| line.ends_with(GIT_INVALID_BRANCH_NAME_ENDING))
+            .map(str::to_owned),
+        Ok(_) | Err(_) => None,
+    };
+    match (git_line, refused) {
+        (Some(line), _) => Ok(line),
+        (None, Err(failure)) if failure.exit_code().is_none() => Err(failure),
+        (None, Ok(_) | Err(_)) => Ok(INVALID_BRANCH_NAME_LINE.to_owned()),
     }
 }
 
 // Git's line for a clash of `branch_name` with a branch in `project`'s repository, or `None`
 // when there is none or the repository cannot be checked: a transaction creating the branch at
 // `HEAD` is prepared, which takes the ref's locks as a real creation would, then aborted, which
-// releases them and writes nothing. It runs as a read, so no `reference-transaction` hook sees it.
+// releases them and writes nothing. It runs as a read, so no hook in the repository's hooks folder
+// sees it; git before 2.55 still runs a `reference-transaction` hook its config declares, whose
+// refusal is no clash's line, so the check then fails rather than answering.
 async fn find_branch_clash(
     git: &GitRunner,
     project: &BranchPatternProject,
@@ -247,7 +290,7 @@ fn strip_clash_message(stderr: &str) -> Option<&str> {
 
 /// Git's last `fatal: ` line in `stderr`, whole and with its line end trimmed; `None` when git
 /// wrote none.
-pub fn last_fatal_line(stderr: &str) -> Option<&str> {
+pub(crate) fn last_fatal_line(stderr: &str) -> Option<&str> {
     stderr
         .lines()
         .rev()
@@ -259,7 +302,7 @@ pub fn last_fatal_line(stderr: &str) -> Option<&str> {
 /// `cannot lock ref '<ref>': ` clause, which reftable leaves out, and which the files backend
 /// leaves out too when the clashing ref is packed; `words` as given when it has no such clause. A
 /// ref name holds no `:`, so the clause ends at the first `': `.
-pub fn strip_lock_clause(words: &str) -> &str {
+pub(crate) fn strip_lock_clause(words: &str) -> &str {
     words
         .strip_prefix(GIT_LOCK_CLAUSE_PREFIX)
         .and_then(|rest| rest.split_once("': "))

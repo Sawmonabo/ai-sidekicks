@@ -156,6 +156,25 @@ impl WriteError {
             | Self::Closed => None,
         }
     }
+
+    /// The position of the statement SQLite failed and SQLite's error, for a write SQLite failed
+    /// alone at a statement; `None` for any other failure.
+    pub fn failed_statement(&self) -> Option<(usize, &rusqlite::Error)> {
+        match self {
+            Self::Failed(WriteJobFailure::Statement {
+                statement_index,
+                source,
+            }) => Some((*statement_index, source)),
+            Self::Failed(WriteJobFailure::Savepoint(_) | WriteJobFailure::EventRow(_))
+            | Self::Refused { .. }
+            | Self::BatchFailed(_)
+            | Self::TooLarge { .. }
+            | Self::Ended(_)
+            | Self::ClosedWhileHeld
+            | Self::ClosedAtDrainBound
+            | Self::Closed => None,
+        }
+    }
 }
 
 /// Why a checkpoint or a repack, the writer's work on its connection between batches, did not run

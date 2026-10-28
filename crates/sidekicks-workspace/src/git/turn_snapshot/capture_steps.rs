@@ -363,7 +363,11 @@ impl SnapshotCheckout<'_> {
             snapshot_commit.as_str(),
             "",
         ]);
-        let Err(refusal) = self.git.run(self.place, GitCall::write(arguments)).await else {
+        let Err(refusal) = self
+            .git
+            .run(self.place, GitCall::private_ref_write(arguments))
+            .await
+        else {
             return Ok(None);
         };
         // The ref, not git's message, is read, and only after the swap refused, so a concurrent

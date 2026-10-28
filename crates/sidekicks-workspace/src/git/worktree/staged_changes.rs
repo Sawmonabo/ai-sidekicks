@@ -1,21 +1,29 @@
 //! The temporary worktree a review of a folder's staged changes runs in: a detached checkout of the
 //! folder's `HEAD` under the daemon's worktrees folder, holding the index's staged changes and none
-//! of the unstaged or untracked work, removed and pruned by its `close`. The folder's own checkout
-//! and index are only read. One a stopped daemon left behind is removed at the next start.
+//! of the unstaged or untracked work, removed with its own git record by its `close`. The folder's
+//! own checkout and index are only read. One a stopped daemon left behind is removed at the next
+//! start. A record is removed by name, never by a repository-wide prune, which would also drop the
+//! records of the person's trees whose folders are missing, such as one on an unplugged drive.
 
 use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 
 use sidekicks_contracts::place::Place;
-use sidekicks_platforms::{path_from_program_output, remove_tree};
+use sidekicks_platforms::{path_from_program_output, real_path, remove_tree, resolve_path_against};
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::missing_entry::MissingEntry;
 use sidekicks_std::random_hex::random_hex;
 
 use crate::git::process::{
     GitCall, GitError, GitRunner, in_folder, read_git_common_folder, strip_line_end,
 };
 use crate::git::worktree::folder_names::read_folder_names;
+use crate::git::worktree::reads::LINKED_RECORDS_FOLDER_NAME;
+use crate::trust_envelope::is_contained_within;
+
+// The file in a linked tree's record naming the tree's `.git`.
+const RECORD_GITDIR_FILE_NAME: &str = "gitdir";
 
 // A dotted sibling of the project folders, which a slug never names and no sweep reads.
 const STAGED_CHANGES_SEGMENT: &str = ".staged-changes";
@@ -44,8 +52,8 @@ pub enum StagedChangesError {
     /// The system's random source could not name a worktree's folder.
     #[error("a staged-changes worktree's folder could not be named")]
     Naming(#[source] getrandom::Error),
-    /// A worktree's folder could not be removed.
-    #[error("the staged-changes worktree {} could not be removed", path.display())]
+    /// A worktree's folder or its git record could not be read or removed.
+    #[error("the staged-changes worktree or record {} could not be removed", path.display())]
     Remove {
         /// The worktree's folder.
         path: PathBuf,
@@ -94,6 +102,9 @@ impl StagedChangesWorktrees {
         // Handed back to git, so every byte of a name that is not UTF-8 is kept.
         let repository_root = path_from_program_output(strip_line_end(toplevel.stdout))
             .map_err(|failure| without_cleanup(GitError::PathText(failure).into()))?;
+        let common_git_folder = read_git_common_folder(&self.git, place, &repository_root, None)
+            .await
+            .map_err(|failure| without_cleanup(failure.into()))?;
         // The person's diff settings never shape it: fixed prefixes, no external or
         // text-converting driver, no color, so `apply` reads exactly the index's change.
         let staged_patch = self
@@ -130,6 +141,7 @@ impl StagedChangesWorktrees {
         let worktree = StagedChangesWorktree {
             folder: self.folder.join(name),
             repository_root,
+            common_git_folder,
             place: place.cloned(),
             git: self.git.clone(),
         };
@@ -171,19 +183,11 @@ impl StagedChangesWorktrees {
                         None
                     }
                 };
-            if let Err(failure) = remove_folder(folder).await {
+            if let Err(failure) = remove_folder(folder.clone()).await {
                 failures.push(failure);
             }
-            if let Some(common_git_folder) = common_git_folder
-                && let Err(failure) = self
-                    .git
-                    .run(
-                        None,
-                        GitCall::read(in_folder(&common_git_folder, &["worktree", "prune"])),
-                    )
-                    .await
-            {
-                failures.push(failure.into());
+            if let Some(common_git_folder) = common_git_folder {
+                failures.extend(remove_records_of(&common_git_folder, &folder).await);
             }
         }
         failures
@@ -194,6 +198,7 @@ impl StagedChangesWorktrees {
 pub struct StagedChangesWorktree {
     folder: PathBuf,
     repository_root: PathBuf,
+    common_git_folder: PathBuf,
     place: Option<Place>,
     git: GitRunner,
 }
@@ -204,7 +209,7 @@ impl StagedChangesWorktree {
         &self.folder
     }
 
-    /// Removes the worktree and prunes its record from the repository. Every step runs whatever
+    /// Removes the worktree and its own record from the repository. Every step runs whatever
     /// failed before it; fails with the first failure, carrying the rest.
     pub async fn close(self) -> Result<(), CleanupFailures<StagedChangesError>> {
         let mut failures = self.remove(true).await.into_iter();
@@ -244,8 +249,9 @@ impl StagedChangesWorktree {
     }
 
     // `--force` because the worktree holds the staged changes, which git would otherwise refuse
-    // to discard; a worktree whose making failed has no record git could remove by name, so its
-    // folder goes and the prune drops any record. Every step runs whatever failed before it.
+    // to discard; a worktree whose making failed has no `.git` git could find its record by, so
+    // its folder goes and the records naming it are removed by name, as they are after a removal
+    // git left unfinished. Every step runs whatever failed before it.
     async fn remove(&self, is_worktree_made: bool) -> Vec<StagedChangesError> {
         let place = self.place.as_ref();
         let mut failures = Vec::new();
@@ -259,18 +265,90 @@ impl StagedChangesWorktree {
         if let Err(failure) = remove_folder(self.folder.clone()).await {
             failures.push(failure);
         }
-        if let Err(failure) = self
-            .git
-            .run(
-                place,
-                GitCall::read(in_folder(&self.repository_root, &["worktree", "prune"])),
-            )
-            .await
-        {
-            failures.push(failure.into());
-        }
+        failures.extend(remove_records_of(&self.common_git_folder, &self.folder).await);
         failures
     }
+}
+
+// Removes every record in `common_git_folder` whose `gitdir` names a `.git` in `tree_folder`, a
+// daemon-made tree, locked or not, since a `worktree add` ended mid-way leaves its record locked;
+// a record naming any other tree is never touched. Every record is tried; the answer is every
+// failure.
+async fn remove_records_of(
+    common_git_folder: &Path,
+    tree_folder: &Path,
+) -> Vec<StagedChangesError> {
+    let records_folder = common_git_folder.join(LINKED_RECORDS_FOLDER_NAME);
+    let real_tree_folder = match real_tree_folder(tree_folder).await {
+        Ok(real_tree_folder) => real_tree_folder,
+        Err(source) => {
+            return vec![StagedChangesError::Remove {
+                path: tree_folder.to_path_buf(),
+                source,
+            }];
+        }
+    };
+    let names = match read_folder_names(&records_folder).await {
+        Ok(names) => names,
+        Err(source) => {
+            return vec![StagedChangesError::Folder {
+                path: records_folder,
+                source,
+            }];
+        }
+    };
+    let mut failures = Vec::new();
+    for name in names {
+        let record_folder = records_folder.join(name);
+        let is_tree_record = match read_record_tree_git_file(&record_folder).await {
+            Ok(Some(git_file)) => is_contained_within(&git_file, &real_tree_folder),
+            Ok(None) => false,
+            Err(source) => {
+                failures.push(StagedChangesError::Remove {
+                    path: record_folder,
+                    source,
+                });
+                continue;
+            }
+        };
+        if is_tree_record && let Err(failure) = remove_folder(record_folder).await {
+            failures.push(failure);
+        }
+    }
+    failures
+}
+
+// `tree_folder` as git's records name it, from real paths: its parent's real path joined with its
+// name, so a tree already removed still resolves.
+async fn real_tree_folder(tree_folder: &Path) -> io::Result<PathBuf> {
+    let (Some(parent), Some(name)) = (tree_folder.parent(), tree_folder.file_name()) else {
+        return Ok(tree_folder.to_path_buf());
+    };
+    let parent = parent.to_path_buf();
+    let real_parent = tokio::task::spawn_blocking(move || real_path(&parent))
+        .await
+        .map_err(io::Error::other)??;
+    Ok(real_parent.join(name))
+}
+
+// The `.git` a record's `gitdir` file names, a relative one joined onto the record and folded;
+// `None` when the record has no such file, or names it relatively in a form that is not UTF-8,
+// which no daemon-made tree's record does.
+async fn read_record_tree_git_file(record_folder: &Path) -> io::Result<Option<PathBuf>> {
+    let Some(contents) = tokio::fs::read(record_folder.join(RECORD_GITDIR_FILE_NAME))
+        .await
+        .none_if_missing()?
+    else {
+        return Ok(None);
+    };
+    let named = path_from_program_output(strip_line_end(contents))?;
+    if named.is_absolute() {
+        return Ok(Some(named));
+    }
+    let (Some(record_folder), Some(named)) = (record_folder.to_str(), named.to_str()) else {
+        return Ok(None);
+    };
+    resolve_path_against(record_folder, named).map(|folded| Some(PathBuf::from(folded)))
 }
 
 // Removes `folder` and everything in it off the async workers; a folder already gone passes.

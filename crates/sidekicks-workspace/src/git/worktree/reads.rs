@@ -1,9 +1,9 @@
-//! The git reads behind the switcher's rows, the branch list, the working-folder watch and Put
-//! back: the trees git lists for a repository, each branch's distance from its upstream, refs'
-//! commits and a branch's holding tree, the paths a tree has uncommitted, the branch a folder is
-//! on, its own git folder, a linked tree's record and the record a `.git` file names. Every answer
-//! but the last is git's own; the last reads the `.git` file itself, so it answers even when the
-//! record it names is gone.
+//! The git reads behind the switcher's rows, the branch list, the working-folder watch, creation
+//! and Put back: the trees git lists for a repository, each branch's distance from its upstream,
+//! refs' commits and a branch's holding tree, every branch's name, the paths a tree has
+//! uncommitted, the branch a folder is on, its own git folder, a linked tree's record and the
+//! record a `.git` file names. Every answer but the last is git's own; the last reads the `.git`
+//! file itself, so it answers even when the record it names is gone.
 //!
 //! Each git read runs in the background with no optional lock, so it never rewrites the index
 //! under a run working in the same tree. Output stays bytes, and a path git prints is read back as
@@ -469,6 +469,36 @@ pub(crate) async fn has_branch(
             .await?
             .contains_key(&ref_name),
     )
+}
+
+/// Every local branch's name in the repository at `repository_folder`, in git's order, each read
+/// as UTF-8 with any other byte replaced. Fails as [`GitRunner::run`] does.
+#[expect(dead_code, reason = "worktree creation")]
+pub(crate) async fn read_branch_names(
+    git: &GitRunner,
+    place: Option<&Place>,
+    repository_folder: &Path,
+) -> Result<Vec<String>, GitError> {
+    let output = git
+        .run(
+            place,
+            GitCall::read(background_read(
+                repository_folder,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname:lstrip=2)",
+                    BRANCH_REF_PREFIX,
+                ],
+            )),
+        )
+        .await?;
+    Ok(output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .map(strip_carriage_return)
+        .filter(|name| !name.is_empty())
+        .map(|name| String::from_utf8_lossy(name).into_owned())
+        .collect())
 }
 
 /// Names the default branch of the repository at `repository_root`: the branch a remote's HEAD
