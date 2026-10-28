@@ -289,7 +289,8 @@ impl TerminalWatch {
             return Err((error, Box::new(pty)));
         }
         // SAFETY: the program is unreaped until the watch reaps it, and the watch takes the event
-        // off the poller before that reap, in `release`, on its drop and on the failure below.
+        // off the poller before that reap: in `take_child_exit`, in `release`, on its drop and on the
+        // failure below.
         let registered = unsafe { ExitEvent::register(&waker.poller, pty.process_id(), CHILD_KEY) };
         let exit_event = match registered {
             Ok(exit_event) => exit_event,
@@ -436,9 +437,10 @@ impl TerminalWatch {
     }
 
     /// Reaps the program once its exit event came, answering its status, which is absent when the
-    /// reap failed (logged); `None` before the event. The caller holds its signal lock across
-    /// this. The program is reaped whether or not a wait sees the exit yet: macOS posts the event
-    /// before, and posts no second, so the blocking reap that follows returns at once.
+    /// reap failed (logged); `None` before the event or once the program is reaped. The caller
+    /// holds its signal lock across this. The program is reaped whether or not a wait sees the
+    /// exit yet: macOS posts the event before, and posts no second, so the blocking reap that
+    /// follows returns at once.
     pub fn take_child_exit(&mut self) -> Option<Option<ExitStatus>> {
         let pty = self.pty.as_ref()?;
         if !self.has_exit_event {

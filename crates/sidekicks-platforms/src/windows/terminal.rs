@@ -238,10 +238,7 @@ pub const CAN_START_AN_INNER_TERMINAL: bool = false;
 /// controlling terminal. Always answers `Unsupported`.
 #[cfg(any(test, feature = "test-support"))]
 pub fn run_terminal_taking_stand_in() -> io::Error {
-    io::Error::new(
-        ErrorKind::Unsupported,
-        "a pseudo console makes no session for its command",
-    )
+    no_session()
 }
 
 /// Starts a command as the leader of a terminal of its own, which a `ConPTY` does not make: it has
@@ -252,10 +249,14 @@ pub fn start_inner_terminal(
     _arguments: &[String],
     _window_size: WindowSize,
 ) -> io::Result<InnerTerminal> {
-    Err(io::Error::new(
+    Err(no_session())
+}
+
+fn no_session() -> io::Error {
+    io::Error::new(
         ErrorKind::Unsupported,
         "a pseudo console makes no session for its command",
-    ))
+    )
 }
 
 /// Makes the program load libraries only from the system's own folder, so `ConPTY` comes from
