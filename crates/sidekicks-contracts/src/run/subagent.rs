@@ -21,7 +21,7 @@ branded_free_form_text! {
 
 /// The `agent.subagent.started` and `agent.subagent.completed` payload: a helper the provider
 /// started under the run `run_id`, by the provider's own id, and the tool call it was opened under
-/// where the provider names one. `subagent_id` is unique only within its provider's run, so a
+/// where the provider names one, and the helper's own run where one was started. `subagent_id` is unique only within its provider's run, so a
 /// completion pairs to its start on `run_id`, `provider` and `subagent_id` together. It takes the
 /// epoch stamp: `source_epoch` and `source_position` come together.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
@@ -37,6 +37,14 @@ pub struct SubagentLifecyclePayload {
     pub provider: ProviderId,
     /// The provider's own id for the helper.
     pub subagent_id: SubagentId,
+    /// The helper's own run, which its usage is counted toward, where the daemon started one.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::wire::present"
+    )]
+    #[schemars(with = "RunId")]
+    pub child_run_id: Option<RunId>,
     /// The tool call the helper was opened under, where the provider names one.
     #[serde(
         default,

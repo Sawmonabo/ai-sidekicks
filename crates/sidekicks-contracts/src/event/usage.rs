@@ -41,6 +41,17 @@ pub fn compose_scoped_limit_id(kind: &str, model_display_name: &str) -> String {
     format!("{kind}:{model_display_name}")
 }
 
+/// Whether a usage row's input figure has the cache's read and written tokens taken out of it:
+/// taken out where the provider's breakdown showed them inside its input, else left in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub enum UsageContainment {
+    /// The breakdown's sum identity showed the cache counts inside input, so they were subtracted.
+    ConfirmedSubtracted,
+    /// No identity held, so input is the raw figure: an overstatement, surfaced by a diagnostic.
+    UnconfirmedUnsubtracted,
+}
+
 /// The `usage.tokenCount.recorded` payload: one turn's own token figures, never a running total, so
 /// a run's or a session's total is the sum of its rows. A count is absent when the provider
 /// reported none, never zero. The account is the one the turn was charged to, read from the run's
@@ -108,6 +119,8 @@ pub struct UsageTokenCountRecordedPayload {
     )]
     #[schemars(with = "SafeInt<0>")]
     pub reasoning_tokens: Option<SafeInt<0>>,
+    /// Whether `input_tokens` has the cache's read and written tokens taken out.
+    pub containment: UsageContainment,
     /// The account the turn was charged to.
     pub provider_account_id: ProviderAccountId,
     /// The account's credential generation seen with the turn.
@@ -616,6 +629,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
           quota snapshot, a provider's retry, a compaction of a run's context, and the provider's \
           move of a turn onto another model.",
     definitions: &[
+        Definition::read::<UsageContainment>(),
         Definition::read::<UsageTokenCountRecordedPayload>().checked(),
         Definition::read::<UsageCostUpdatedPayload>().checked(),
         Definition::read::<UsageContextWindowUpdatedPayload>().checked(),
