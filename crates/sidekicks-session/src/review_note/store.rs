@@ -100,7 +100,7 @@ pub(crate) type WorkingFolderDetach = Box<dyn FnOnce() + Send>;
 /// implementation's own failure is kept as the cause.
 #[derive(Debug, thiserror::Error)]
 #[error("the session's working folder could not be read or followed for its review notes")]
-pub(crate) struct ReviewNoteFolderError(#[source] pub(crate) Box<dyn Error + Send + Sync>);
+pub struct ReviewNoteFolderError(#[source] pub(crate) Box<dyn Error + Send + Sync>);
 
 /// The folder reads the note store needs from the session's live working folder.
 ///
@@ -128,7 +128,7 @@ pub(crate) trait ReviewNoteFolders: Send + Sync {
 
 /// Why a review note call was refused or failed; a refused change keeps nothing.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ReviewNoteStoreError {
+pub enum ReviewNoteStoreError {
     /// The session holds no such note (`session.reviewNote.notFound`), or the session is unknown
     /// (`session.notFound`).
     #[error(transparent)]
@@ -196,7 +196,7 @@ impl StoredNote {
 type FollowerWake = Arc<Notify>;
 
 /// Holds each session's review notes and answers them with their stranded marks read fresh.
-pub(crate) struct SessionReviewNoteStore {
+pub struct SessionReviewNoteStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     folders: Arc<dyn ReviewNoteFolders>,
@@ -231,14 +231,7 @@ impl SessionReviewNoteStore {
     /// a note already held under its id is answered as held. Refused `session.notFound` for an
     /// unknown session and `session.reviewNote.notFound` when the note is deleted elsewhere before
     /// it is answered; fails as a read, a write or a line read fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the `session.reviewNote.add` handler holds a person's note through it"
-        )
-    )]
-    pub(crate) async fn add(
+    pub async fn add(
         &self,
         request: SessionReviewNoteAddRequest,
     ) -> Result<SessionReviewNoteResponse, ReviewNoteStoreError> {
@@ -275,11 +268,7 @@ impl SessionReviewNoteStore {
     /// Replaces a held note's words and answers the note. Refused `session.notFound` for an
     /// unknown session and `session.reviewNote.notFound` for a note it does not hold; fails as a
     /// read, a write or a line read fails.
-    #[expect(
-        dead_code,
-        reason = "the `session.reviewNote.update` handler replaces a note's words through it"
-    )]
-    pub(crate) async fn update(
+    pub async fn update(
         &self,
         request: SessionReviewNoteUpdateRequest,
     ) -> Result<SessionReviewNoteResponse, ReviewNoteStoreError> {
@@ -320,14 +309,7 @@ impl SessionReviewNoteStore {
     /// Discards the named notes in one write and answers the ids it discarded; an id the session
     /// does not hold is passed over. Refused `session.notFound` for an unknown session; fails when
     /// the write is not kept or a discarded id does not read.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the `session.reviewNote.delete` handler discards a person's notes through it"
-        )
-    )]
-    pub(crate) async fn delete(
+    pub async fn delete(
         &self,
         request: SessionReviewNoteDeleteRequest,
     ) -> Result<SessionReviewNoteDeleteResponse, ReviewNoteStoreError> {
@@ -363,11 +345,7 @@ impl SessionReviewNoteStore {
     /// ends the stream with that failure, and the read pool closing at the daemon's stop ends it
     /// finished. Refused `session.notFound` for an unknown session, following nothing; fails when
     /// the folder cannot be followed.
-    #[expect(
-        dead_code,
-        reason = "the `session.reviewNote.subscribe` handler follows a session's notes through it"
-    )]
-    pub(crate) async fn follow(
+    pub async fn follow(
         self: &Arc<Self>,
         session_id: SessionId,
         outlet: LatestValueOutlet<ReviewNoteSet>,

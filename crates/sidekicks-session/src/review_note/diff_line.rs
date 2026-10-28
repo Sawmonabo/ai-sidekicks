@@ -76,7 +76,7 @@ pub(crate) struct NoteLocation<'a> {
 
 /// Why a noted line could not be read.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum NotedLineError {
+pub enum NotedLineError {
     /// git failed for a reason other than finding no commit or a difference.
     #[error("git could not read the noted file")]
     Git(#[from] GitError),
