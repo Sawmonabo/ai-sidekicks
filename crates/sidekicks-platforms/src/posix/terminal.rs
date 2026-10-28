@@ -1,25 +1,25 @@
 //! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns
 //! into signals, the PTY's window size and a poller over the terminal and its program's exit,
 //! whose descriptor the runtime watches; `pty` opens a terminal and starts a program in it with no
-//! fork, and `inner` starts a command in a terminal of its own.
+//! fork, `inner` starts a command in a terminal of its own, and `test_programs` holds the programs
+//! the terminal tests run.
 
 pub(crate) mod inner;
 pub(crate) mod pty;
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) mod test_programs;
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::future::{pending, ready};
 use std::io::{self, ErrorKind, Read, Write};
 use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
-use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::ptr;
 use std::sync::{Arc, Once};
 use std::time::{Duration, Instant};
 
-use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
 use nix::errno::Errno;
 use nix::sys::signal::{Signal, kill};
 use nix::sys::termios::{LocalFlags, SpecialCharacterIndices, tcgetattr, tcgetsid};
@@ -30,12 +30,11 @@ use tokio::io::unix::AsyncFd;
 
 #[cfg(target_os = "linux")]
 use crate::linux::input_wait::read_queued_input_bytes;
-use crate::posix::process::exit::wait_for_exit;
+use crate::posix::process::exit::{ExitEvent, wait_for_exit};
 use crate::posix::process::group::signal_group;
 use crate::posix::process::id::system_process_id;
+use crate::posix::terminal::pty::Pty;
 use crate::spawner::Spawner;
-#[cfg(any(test, feature = "test-support"))]
-use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
     ConsoleReading, ProcessTreeEnd, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
     TerminalSignalRoute, TerminalWake, TerminalWaker,
@@ -149,30 +148,9 @@ pub fn restrict_library_search() -> io::Result<()> {
     Ok(())
 }
 
-/// The options `alacritty_terminal` opens a shell's terminal with: `program` with `arguments`
-/// started in `working_directory` with `environment` added, its output not drained once it exits.
-#[expect(
-    clippy::implicit_hasher,
-    reason = "the map goes straight into alacritty_terminal's options, which take the default \
-              hasher"
-)]
-pub fn terminal_options(
-    program: String,
-    arguments: Vec<String>,
-    working_directory: Option<PathBuf>,
-    environment: HashMap<String, String>,
-) -> tty::Options {
-    tty::Options {
-        shell: Some(tty::Shell::new(program, arguments)),
-        working_directory,
-        drain_on_exit: false,
-        env: environment,
-    }
-}
-
 /// The process id of the program running in `pty`; always known on macOS and Linux.
 pub fn child_process_id(pty: &Pty) -> Option<u32> {
-    Some(pty.child().id())
+    Some(pty.process_id())
 }
 
 /// Runs a terminal's read loop for the shell's life as a task on `runtime`; `name` names the loop
@@ -193,14 +171,14 @@ const RELEASE_HANGUP_GRACE: Duration = Duration::from_secs(2);
 /// Ends the program in `pty`, which the caller found not yet exited, and drops the PTY; blocking,
 /// so it runs on a thread of its own. The program's process group gets a hangup, then `SIGKILL`
 /// when the program's exit event has not come within a short grace or cannot be watched, and the
-/// program is waited for; `mark_exited` runs once it has exited and before its process id is
-/// freed, so a caller that sends signals under the same lock as the mark never reaches a process
-/// that took the id. Both signals go to the group the program leads (its start made it a session
-/// leader), so the commands it started end with it; a job it moved into a group of its own is
-/// outside the send. The program stays unreaped until the drop, so its id, which is its group's,
-/// cannot be taken by another process while the signals are sent.
+/// program is waited for; `mark_exited` runs once it has exited and before it is reaped, so a
+/// caller that sends signals under the same lock as the mark never reaches a process that took the
+/// id. Both signals go to the group the program leads (its start made it a session leader), so the
+/// commands it started end with it; a job it moved into a group of its own is outside the send.
+/// The program stays unreaped until after the mark, so its id, which is its group's, cannot be
+/// taken by another process while the signals are sent.
 pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
-    let process_id = pty.child().id();
+    let process_id = pty.process_id();
     if let Err(error) = signal_process_group(process_id, TerminalSignal::Hangup) {
         tracing::warn!(
             process_id,
@@ -208,7 +186,7 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
             "a released terminal's program got no hangup"
         );
     }
-    // The program is left unreaped, so its id stays its own until the drop below reaps it.
+    // The program is left unreaped, so its id stays its own until the reap below.
     let waited = match wait_for_exit(process_id, Some(RELEASE_HANGUP_GRACE)) {
         Ok(true) => Ok(true),
         bounded => {
@@ -243,26 +221,36 @@ pub fn release_terminal(pty: Pty, mark_exited: impl FnOnce()) {
         );
     }
     mark_exited();
-    // The drop's own hangup reaches the exited, unreaped program, then the drop reaps it.
-    drop(pty);
+    // Reaped, the PTY's drop sends nothing, so no hangup reaches a process that takes the id.
+    if let Err(error) = pty.reap() {
+        tracing::error!(
+            process_id,
+            error = &error as &(dyn Error + 'static),
+            "a released terminal's program could not be reaped"
+        );
+    }
 }
 
-/// The key the terminal's input and output are registered under, as `alacritty_terminal` sets it.
+/// The key the terminal's input and output are registered under.
 const TERMINAL_KEY: usize = 0;
 
-/// The key `alacritty_terminal` registers its child-signal pipe under.
+/// The key the program's exit event is registered under.
 const CHILD_KEY: usize = 1;
 
-/// What a terminal's read loop waits on: the terminal's output and input, the program's exit (its
-/// `SIGCHLD` pipe in `alacritty_terminal`), its waker and a deadline, all through one poller whose
-/// descriptor the runtime watches. It ends through [`Self::release`]: dropped while its program
-/// runs, it drops the PTY in place, which blocks until the program exits.
+/// What a terminal's read loop waits on: the terminal's output and input, the program's exit
+/// event, its waker and a deadline, all through one poller whose descriptor the runtime watches.
+/// It ends through [`Self::release`]: dropped while its program runs, it drops the PTY in place,
+/// which blocks until the program exits.
 pub struct TerminalWatch {
-    /// The PTY until its program is reaped; dropped right after the reap, since its drop sends a
-    /// hangup to the program's id.
+    /// The PTY until its program is reaped.
     pty: Option<Pty>,
-    /// A duplicate of the PTY's master, which `alacritty_terminal` made non-blocking; it reads the
-    /// output that is left once the PTY is gone, and takes the window size.
+    /// The program's exit event on the poller, until the program is reaped.
+    exit_event: Option<ExitEvent>,
+    /// Set once the program's exit event came, or the program was already exiting as the watch
+    /// began, which leaves no event to come; the program is then reaped at once.
+    has_exit_event: bool,
+    /// A duplicate of the PTY's non-blocking master, registered on the poller for the watch's
+    /// life; it reads the output that is left once the PTY is gone, and takes the window size.
     master: File,
     poller: AsyncFd<Arc<Poller>>,
     waker: TerminalWaker,
@@ -278,9 +266,10 @@ pub struct TerminalWatch {
 impl TerminalWatch {
     /// Makes the watch over `pty`, woken by `waker`, keeping `input_refusal` set while the terminal
     /// refuses a waiting write; called inside the read loop, since it needs the runtime. Fails,
-    /// handing the PTY back, when the master cannot be duplicated or the poller cannot be watched.
+    /// handing the PTY back, when the master cannot be duplicated, the terminal or the program's
+    /// exit cannot be registered, or the poller cannot be watched.
     pub fn new(
-        mut pty: Pty,
+        pty: Pty,
         waker: &TerminalWaker,
         input_refusal: &TerminalInputRefusal,
     ) -> Result<Self, (io::Error, Box<Pty>)> {
@@ -289,11 +278,27 @@ impl TerminalWatch {
             Err(error) => return Err((error, Box::new(pty))),
         };
         let interest = Event::none(TERMINAL_KEY);
-        // SAFETY: the PTY's descriptors outlive the registration, because the watch deletes it
-        // before the PTY is dropped (`drop_pty`, `release`) and on the failure below.
-        if let Err(error) = unsafe { pty.register(&waker.poller, interest, PollMode::Level) } {
+        // SAFETY: the watch's duplicate of the master outlives the registration, because the
+        // watch's drop deletes it, as the failures below do, before the duplicate is closed.
+        let added = unsafe {
+            waker
+                .poller
+                .add_with_mode(&master, interest, PollMode::Level)
+        };
+        if let Err(error) = added {
             return Err((error, Box::new(pty)));
         }
+        // SAFETY: the program is unreaped until the watch reaps it, and the watch takes the event
+        // off the poller at that reap, in `release`, on its drop and on the failure below.
+        let registered = unsafe { ExitEvent::register(&waker.poller, pty.process_id(), CHILD_KEY) };
+        let exit_event = match registered {
+            Ok(exit_event) => exit_event,
+            Err(error) => {
+                unwatch(&waker.poller, &master, None);
+                return Err((error, Box::new(pty)));
+            }
+        };
+        let has_exit_event = exit_event.is_none();
         // SAFETY: the poller's descriptor stays open for as long as the `Arc` the `AsyncFd` holds
         // keeps the poller alive, and `as_raw_fd` answers that one descriptor every time.
         let registered = unsafe {
@@ -302,18 +307,14 @@ impl TerminalWatch {
         let poller = match registered {
             Ok(poller) => poller,
             Err(registration) => {
-                let error = io::Error::from(registration);
-                if let Err(deregister_error) = pty.deregister(&waker.poller) {
-                    tracing::warn!(
-                        error = &deregister_error as &(dyn Error + 'static),
-                        "a terminal's watch could not be undone"
-                    );
-                }
-                return Err((error, Box::new(pty)));
+                unwatch(&waker.poller, &master, exit_event);
+                return Err((io::Error::from(registration), Box::new(pty)));
             }
         };
         Ok(Self {
             pty: Some(pty),
+            exit_event,
+            has_exit_event,
             master,
             poller,
             waker: waker.clone(),
@@ -355,6 +356,9 @@ impl TerminalWatch {
         ))?;
         if write_from.is_none() {
             self.input_refusal.set(false);
+        }
+        if self.has_exit_event && self.pty.is_some() {
+            return Ok(TerminalWake::ChildEvent);
         }
         loop {
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
@@ -431,12 +435,32 @@ impl TerminalWatch {
         Ok(true)
     }
 
-    /// Reaps the program when it has exited, answering its status; the caller holds its signal
-    /// lock across this. The PTY is dropped right after the reap, which sends its hangup to the
-    /// reaped program's id at once rather than whenever the terminal closes.
+    /// Reaps the program when it has exited, answering its status, which is absent when the
+    /// reap failed (logged); the caller holds its signal lock across this. Once its exit event
+    /// came, the program is reaped whether or not a wait sees the exit yet: macOS posts the event
+    /// before, and posts no second, so the blocking reap that follows returns at once.
     pub fn take_child_exit(&mut self) -> Option<Option<ExitStatus>> {
-        let ChildEvent::Exited(status) = self.pty.as_mut()?.next_child_event()?;
-        self.drop_pty();
+        let pty = self.pty.as_ref()?;
+        let reaped = match pty.reap_if_exited() {
+            Ok(Some(status)) => Ok(status),
+            Ok(None) if !self.has_exit_event => return None,
+            Ok(None) => pty.reap(),
+            Err(error) => Err(error),
+        };
+        let status = match reaped {
+            Ok(status) => Some(status),
+            Err(error) => {
+                tracing::error!(
+                    process_id = pty.process_id(),
+                    error = &error as &(dyn Error + 'static),
+                    "a terminal's exited program could not be reaped"
+                );
+                None
+            }
+        };
+        unregister_exit_event(self.poller.get_ref(), self.exit_event.take());
+        // Reaped, the PTY's drop sends nothing; the master's duplicate keeps the output readable.
+        self.pty = None;
         Some(status)
     }
 
@@ -469,24 +493,9 @@ impl TerminalWatch {
     /// [`release_terminal`] ends it, blocking, with `mark_exited` run before its id is freed; a
     /// reaped one needs neither.
     pub fn release(mut self, mark_exited: impl FnOnce()) {
-        match self.pty.take() {
-            Some(mut pty) => {
-                if let Err(error) = pty.deregister(self.poller.get_ref()) {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "a terminal's watch could not be undone"
-                    );
-                }
-                release_terminal(pty, mark_exited);
-            }
-            None => {
-                if let Err(error) = self.poller.get_ref().delete(&self.master) {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "a terminal's watch could not be undone"
-                    );
-                }
-            }
+        unregister_exit_event(self.poller.get_ref(), self.exit_event.take());
+        if let Some(pty) = self.pty.take() {
+            release_terminal(pty, mark_exited);
         }
     }
 
@@ -510,6 +519,8 @@ impl TerminalWatch {
         // program's event returns, so the signal keys taken next never read a stale refusal.
         let is_newly_refused = write_from.is_some() && self.input_refusal.set(!is_writable);
         if is_child_event {
+            // A posted exit event is not posted again, so the watch never waits on it twice.
+            self.has_exit_event = true;
             return Ok(Some(TerminalWake::ChildEvent));
         }
         if is_readable && let Some(buffer) = read_into {
@@ -544,43 +555,50 @@ impl TerminalWatch {
         Ok(is_newly_refused.then_some(TerminalWake::InputRefused))
     }
 
-    /// Registers the terminal with `interest` when it changed.
+    /// Registers the terminal with `interest` when it changed; the program's exit event stays
+    /// registered as it is until it is posted.
     fn set_interest(&mut self, interest: Event) -> io::Result<()> {
         if interest == self.interest {
             return Ok(());
         }
-        let poller = self.poller.get_ref();
-        match &mut self.pty {
-            Some(pty) => pty.reregister(poller, interest, PollMode::Level)?,
-            None => poller.modify_with_mode(&self.master, interest, PollMode::Level)?,
-        }
+        self.poller
+            .get_ref()
+            .modify_with_mode(&self.master, interest, PollMode::Level)?;
         self.interest = interest;
         Ok(())
     }
+}
 
-    /// Drops the reaped program's PTY, moving the watch onto the master's duplicate, which keeps
-    /// the terminal's output readable.
-    fn drop_pty(&mut self) {
-        let Some(mut pty) = self.pty.take() else {
-            return;
-        };
-        let poller = self.poller.get_ref();
-        if let Err(error) = pty.deregister(poller) {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "a terminal's watch could not be moved off its PTY"
-            );
-        }
-        drop(pty);
-        // SAFETY: the duplicate is the watch's own and outlives the registration, which `release`
-        // deletes before the watch is dropped.
-        let added = unsafe { poller.add_with_mode(&self.master, self.interest, PollMode::Level) };
-        if let Err(error) = added {
-            tracing::warn!(
-                error = &error as &(dyn Error + 'static),
-                "a terminal's watch could not be moved onto its master"
-            );
-        }
+impl Drop for TerminalWatch {
+    fn drop(&mut self) {
+        // Off the shared poller before the master's duplicate closes, and before a PTY left by a
+        // watch ended without `release` drops, which waits for its program.
+        unwatch(self.poller.get_ref(), &self.master, self.exit_event.take());
+    }
+}
+
+/// Takes the watch's duplicate of the master and, where given, its program's exit event off
+/// `poller`; a failure is logged, since the registration then goes with the poller.
+fn unwatch(poller: &Poller, master: &File, exit_event: Option<ExitEvent>) {
+    if let Err(error) = poller.delete(master) {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "a terminal's watch could not be undone"
+        );
+    }
+    unregister_exit_event(poller, exit_event);
+}
+
+/// Takes a program's exit event off `poller` where one is given; a failure is logged, since the
+/// registration then goes with the poller.
+fn unregister_exit_event(poller: &Poller, exit_event: Option<ExitEvent>) {
+    if let Some(exit_event) = exit_event
+        && let Err(error) = exit_event.unregister(poller)
+    {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "a terminal's watch on its program's exit could not be undone"
+        );
     }
 }
 
@@ -710,116 +728,18 @@ pub(crate) fn posix_signal(signal: TerminalSignal) -> Signal {
     }
 }
 
-/// A shell that prints `text` on a line of its own and exits with code 0.
-#[cfg(any(test, feature = "test-support"))]
-pub fn echo_program(text: &str) -> TestProgram {
-    shell_script(&format!("echo {text}"))
-}
-
-/// A shell that turns its terminal's echo off, prints `ready`, waits for one input line, then
-/// prints the numbers from 0 below `line_count`, one a line, and exits with code 0.
-#[cfg(any(test, feature = "test-support"))]
-pub fn waiting_printer(line_count: usize) -> TestProgram {
-    shell_script(&format!(
-        "stty -echo; echo ready; read line; i=0; \
-         while [ $i -lt {line_count} ]; do echo $i; i=$((i+1)); done"
-    ))
-}
-
-/// A shell that ends itself with `SIGTERM`, which the terminal reports as code 0 and signal 15.
-#[cfg(any(test, feature = "test-support"))]
-pub fn abnormal_exit() -> AbnormalExit {
-    AbnormalExit {
-        program: shell_script("kill -TERM $$"),
-        exit_code: 0,
-        signal_code: Some(libc::SIGTERM),
-    }
-}
-
-/// A shell that takes its terminal's input unread and byte by byte, its interrupt key left on,
-/// prints `ready` and sleeps 20 seconds; the exit is the one its interrupt key gives it.
-#[cfg(any(test, feature = "test-support"))]
-pub fn interruptible_sleeper() -> AbnormalExit {
-    AbnormalExit {
-        program: shell_script("stty -icanon -echo; echo ready; exec sleep 20"),
-        exit_code: 0,
-        signal_code: Some(libc::SIGINT),
-    }
-}
-
-/// A shell that ignores its interrupt, has its terminal echo its input with the interrupt key
-/// shown as `^C` and keep the input on that key, prints `ready`, reads one input line and prints
-/// `got:<line>`, then exits after one more line, so input written behind the first line is
-/// echoed before it exits.
-#[cfg(any(test, feature = "test-support"))]
-pub fn echoing_line_reader() -> TestProgram {
-    shell_script(concat!(
-        "trap '' INT; stty echo echoctl noflsh; echo ready; ",
-        "read line; echo \"got:$line\"; read rest"
-    ))
-}
-
-/// A shell that turns its terminal raw with no echo, asks it for its device attributes, prints
-/// `ready`, copies the next `byte_count` input bytes to the file `path`, then prints `done`.
-#[cfg(any(test, feature = "test-support"))]
-pub fn input_recorder(path: &std::path::Path, byte_count: usize) -> TestProgram {
-    let path = path.display().to_string().replace('\'', "'\\''");
-    shell_script(&format!(
-        "stty raw -echo; printf '\\033[c'; echo ready; head -c {byte_count} > '{path}'; echo done"
-    ))
-}
-
-/// A shell that takes its input unread and byte by byte, asks its terminal for its device
-/// attributes `question_count` times, prints `asked`, and a second later reads every input byte
-/// until two seconds pass with none, printing `read <bytes> key <count>`, where the count is of
-/// `Z` bytes among them.
-#[cfg(any(test, feature = "test-support"))]
-pub fn device_attribute_asker(question_count: usize) -> TestProgram {
-    shell_script(&format!(
-        "stty -icanon -echo; i=0; while [ $i -lt {question_count} ]; do printf '\\033[c'; \
-         i=$((i+1)); done; echo asked; sleep 1; stty min 0 time 20; cat | od -An -tx1 -v | \
-         awk '{{for(i=1;i<=NF;i++){{n++; if($i==\"5a\")z++}}}} \
-         END{{print \"read \" n+0 \" key \" z+0}}'"
-    ))
-}
-
-/// A shell that takes its terminal's input unread and without echo, prints `ready`, then prints
-/// the numbers from 0, one a line, until it reads the key `Z`, when it prints `key` and exits with
-/// code 0.
-#[cfg(any(test, feature = "test-support"))]
-pub fn key_stopped_printer() -> TestProgram {
-    shell_script(
-        "stty -icanon -echo min 0 time 0; echo ready; i=0; while :; do echo $i; i=$((i+1)); \
-         key=$(dd bs=1 count=1 2>/dev/null); if [ \"$key\" = Z ]; then echo key; exit 0; fi; done",
-    )
-}
-
-/// A shell that prints the folder it runs in, then its whole environment, one `NAME=value` a line.
-#[cfg(any(test, feature = "test-support"))]
-pub fn launch_printer() -> TestProgram {
-    shell_script("pwd -P; env")
-}
-
-#[cfg(any(test, feature = "test-support"))]
-fn shell_script(script: &str) -> TestProgram {
-    TestProgram {
-        program: "/bin/sh".to_owned(),
-        arguments: vec!["-c".to_owned(), script.to_owned()],
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::mpsc;
     use std::thread;
     use std::time::Duration;
 
-    use super::{RELEASE_HANGUP_GRACE, release_terminal, terminal_options};
+    use super::{RELEASE_HANGUP_GRACE, release_terminal};
     use crate::posix::process::exit::wait_for_stop;
     use crate::posix::terminal::inner::{
-        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+        end_inner_terminal, read_until_marker, start_test_terminal,
     };
+    use crate::posix::terminal::test_programs::shell_script;
 
     // Fails when a program stopped as its terminal is released reads as exited, so it is never
     // killed and the PTY's drop waits on it for good. It ignores the hangup, which macOS otherwise
@@ -827,18 +747,11 @@ mod tests {
     // `release_terminal`'s kill after the grace deleted.
     #[test]
     fn a_stopped_program_is_killed_within_the_release_s_grace() {
-        let options = terminal_options(
-            "/bin/sh".to_owned(),
-            vec![
-                "-c".to_owned(),
-                "trap '' HUP; echo ready; kill -STOP $$; sleep 30".to_owned(),
-            ],
-            None,
-            HashMap::new(),
-        );
-        let terminal =
-            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
-        let process_id = terminal.pty.child().id();
+        let terminal = start_test_terminal(&shell_script(
+            "trap '' HUP; echo ready; kill -STOP $$; sleep 30",
+        ))
+        .expect("the terminal starts");
+        let process_id = terminal.pty.process_id();
         if let Err(output) = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20)) {
             end_inner_terminal(terminal);
             panic!("the program did not print ready: {output}");

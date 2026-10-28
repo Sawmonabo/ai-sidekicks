@@ -361,18 +361,18 @@ pub use posix::stop_request::StopRequest;
 pub use posix::system_locale::{system_hour_cycle, system_locale};
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::test_programs::{
+    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
+    interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
+};
 #[cfg(unix)]
 pub use posix::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
     end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
     release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
-    send_console_break, send_signal, terminal_ending_route, terminal_options,
-    terminal_signal_route, write_console_waiting_input,
-};
-#[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::terminal::{
-    abnormal_exit, device_attribute_asker, echo_program, echoing_line_reader, input_recorder,
-    interruptible_sleeper, key_stopped_printer, launch_printer, waiting_printer,
+    send_console_break, send_signal, terminal_ending_route, terminal_signal_route,
+    write_console_waiting_input,
 };
 #[cfg(unix)]
 pub use posix::thread_cpu_time::thread_cpu_time;
@@ -563,10 +563,10 @@ pub use windows::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 pub use windows::terminal::start_inner_terminal;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
-    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, TerminalWatch, child_process_id,
-    end_process_tree, read_console, read_console_waiting_input, read_terminal_master,
-    release_terminal, restrict_library_search, run_console_helper, run_terminal_loop,
-    send_console_break, send_signal, terminal_ending_route, terminal_options,
+    DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, Pty, TerminalWatch,
+    child_process_id, end_process_tree, read_console, read_console_waiting_input,
+    read_terminal_master, release_terminal, restrict_library_search, run_console_helper,
+    run_terminal_loop, send_console_break, send_signal, start_terminal, terminal_ending_route,
     terminal_signal_route, write_console_waiting_input,
 };
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]

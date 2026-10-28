@@ -9,8 +9,8 @@ use std::process::{Command, ExitCode, ExitStatus};
 use std::time::Duration;
 
 use alacritty_terminal::event::WindowSize;
-use alacritty_terminal::tty::Pty;
 
+use crate::Pty;
 use crate::terminal::TerminalSignal;
 
 /// Replaces no process. Always answers `Unsupported`.

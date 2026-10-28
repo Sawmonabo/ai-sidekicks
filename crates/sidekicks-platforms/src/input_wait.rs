@@ -54,7 +54,6 @@ pub(crate) const PIPE_HOLDING_SELECT_READER_SCRIPT: &str = "exec python3 -c \"im
 
 #[cfg(all(test, unix))]
 mod tests {
-    use std::collections::HashMap;
     use std::io::{Read, Write};
     use std::sync::Once;
     use std::thread;
@@ -69,9 +68,10 @@ mod tests {
     };
     use crate::posix::process::exit::wait_for_stop;
     use crate::posix::terminal::inner::{
-        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
+        end_inner_terminal, read_until_marker, start_test_terminal,
     };
-    use crate::posix::terminal::{read_terminal_master, terminal_options};
+    use crate::posix::terminal::read_terminal_master;
+    use crate::posix::terminal::test_programs::shell_script;
     use crate::read_input_wait;
     use crate::spawner::Spawner;
     use crate::terminal::InnerTerminal;
@@ -231,15 +231,12 @@ mod tests {
         nix::sys::prctl::set_child_subreaper(true).expect("the test takes in orphans");
         // The command's own folder, which holds what it makes and goes with the test.
         let folder = tempfile::tempdir().expect("a scratch folder");
-        let options = terminal_options(
-            "/bin/sh".to_owned(),
-            vec!["-c".to_owned(), script.to_owned()],
-            Some(folder.path().to_path_buf()),
-            HashMap::new(),
-        );
+        let escaped_folder = folder.path().display().to_string().replace('\'', "'\\''");
         let spawner = Spawner::new(tokio::runtime::Handle::current()).expect("the spawner starts");
-        let terminal =
-            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let terminal = start_test_terminal(&shell_script(&format!(
+            "cd '{escaped_folder}' || exit 1; {script}"
+        )))
+        .expect("the terminal starts");
         let peer_failure_noted = Once::new();
         let prompt = read_until_marker(&terminal.pty, marker, Duration::from_secs(20));
         let is_marked = expected.is_waiting || expected.is_waiting_in_select;
@@ -337,21 +334,13 @@ mod tests {
     // count is the program's output, or when it does not follow the program's read of the line.
     #[test]
     fn queued_input_counts_a_typed_line_until_the_program_reads_it() {
-        let options = terminal_options(
-            "/bin/sh".to_owned(),
-            vec![
-                "-c".to_owned(),
-                "stty -echo; printf ready; kill -STOP $$; read line; printf done; sleep 30"
-                    .to_owned(),
-            ],
-            None,
-            HashMap::new(),
-        );
-        let terminal =
-            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let terminal = start_test_terminal(&shell_script(
+            "stty -echo; printf ready; kill -STOP $$; read line; printf done; sleep 30",
+        ))
+        .expect("the terminal starts");
         let peer_failure_noted = Once::new();
         let read_master = || read_terminal_master(&terminal.pty, &peer_failure_noted);
-        let leader = Pid::from_raw(i32::try_from(terminal.pty.child().id()).expect("a process id"));
+        let leader = Pid::from_raw(i32::try_from(terminal.pty.process_id()).expect("a process id"));
         let prompt = read_until_marker(&terminal.pty, "ready", Duration::from_secs(20));
         let before_typing = prompt.is_ok().then(read_master);
         // The line stays queued: the program stops itself before its read.
@@ -421,7 +410,7 @@ mod tests {
                 Self::Nothing => Ok(()),
                 Self::Type(typed) => terminal.pty.file().write_all(typed.as_bytes()),
                 Self::Stop => {
-                    let leader = terminal.pty.child().id();
+                    let leader = terminal.pty.process_id();
                     let group = Pid::from_raw(i32::try_from(leader).expect("a process id"));
                     killpg(group, Signal::SIGSTOP).map_err(std::io::Error::from)?;
                     // The test is the leader's parent; the wait leaves the stop for the reader.

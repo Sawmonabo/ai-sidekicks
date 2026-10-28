@@ -2,21 +2,21 @@
 //! wait on each shell's own thread, `taskkill.exe` for a process tree and the console helper's
 //! calls.
 
-use std::collections::HashMap;
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
 use std::io::{self, ErrorKind, Read, Write};
 use std::num::NonZeroU32;
-#[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
-use std::path::PathBuf;
 use std::process::{ExitStatus, Stdio};
 use std::ptr;
 use std::sync::Once;
 use std::time::Instant;
 
 use alacritty_terminal::event::{OnResize, WindowSize};
-use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite, Pty};
+/// A shell's pseudo console (`ConPTY`) and the program started in it; dropping it closes the
+/// console, which ends every process on it.
+pub use alacritty_terminal::tty::Pty;
+use alacritty_terminal::tty::{self, ChildEvent, EventedPty, EventedReadWrite};
 use polling::{Event, Events, PollMode};
 use tokio::process::Command;
 use windows_sys::Win32::Foundation::{
@@ -44,7 +44,8 @@ use crate::terminal::{AbnormalExit, TestProgram};
 use crate::terminal::{
     CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, InnerTerminal,
     ProcessTreeEnd, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
-    TerminalSignalRoute, TerminalWake, TerminalWaker, read_waiting_input_line, waiting_input_line,
+    TerminalSignalRoute, TerminalStart, TerminalWake, TerminalWaker, read_waiting_input_line,
+    waiting_input_line,
 };
 use crate::windows::child_command::prepare_child_command;
 use crate::windows::known_folder::system_folder;
@@ -231,7 +232,9 @@ pub fn read_terminal_master(
 /// Starts a command as the leader of a terminal of its own, which a `ConPTY` does not make: it has
 /// no session or controlling terminal. Always fails with `Unsupported`.
 pub fn start_inner_terminal(
-    _options: &tty::Options,
+    _program: &Path,
+    _argument_zero: &OsStr,
+    _arguments: &[String],
     _window_size: WindowSize,
 ) -> io::Result<InnerTerminal> {
     Err(io::Error::new(
@@ -251,33 +254,48 @@ pub fn restrict_library_search() -> io::Result<()> {
     Ok(())
 }
 
-/// The options `alacritty_terminal` opens a shell's terminal with: `program` with `arguments`
-/// started in `working_directory` with `environment` added, its output not drained once it exits,
-/// and each argument quoted by the C runtime's rules, since each is its own string. The program is
-/// written as given, so one holding a space is put in double quotes, which a path never holds.
-#[expect(
-    clippy::implicit_hasher,
-    reason = "the map goes straight into alacritty_terminal's options, which take the default \
-              hasher"
-)]
-pub fn terminal_options(
-    program: String,
-    arguments: Vec<String>,
-    working_directory: Option<PathBuf>,
-    environment: HashMap<String, String>,
-) -> tty::Options {
+/// Opens a shell's pseudo console at `start`'s size and starts the daemon's `shell` mode in it, in
+/// `start`'s folder, with the confirmation's entry added to the daemon's own environment and each
+/// argument quoted by the C runtime's rules; the mode's output is not drained once it exits.
+/// Blocking; runs on the daemon's spawner thread. Fails with `InvalidInput` for a program path that
+/// is not Unicode, and as the console or the program cannot be started, the error naming the
+/// program.
+pub fn start_terminal(start: &TerminalStart<'_>) -> io::Result<Pty> {
+    let program = start.program.to_str().ok_or_else(|| {
+        io::Error::new(
+            ErrorKind::InvalidInput,
+            format!("the program {} is not Unicode", start.program.display()),
+        )
+    })?;
+    // The program is written as given, so one holding a space is put in double quotes, which a
+    // path never holds.
     let program = if program.contains([' ', '\t']) {
         format!("\"{program}\"")
     } else {
-        program
+        program.to_owned()
     };
-    tty::Options {
-        shell: Some(tty::Shell::new(program, arguments)),
-        working_directory,
+    let options = tty::Options {
+        shell: Some(tty::Shell::new(program, start.arguments.to_vec())),
+        working_directory: Some(start.folder.to_path_buf()),
         drain_on_exit: false,
-        env: environment,
+        env: start.confirmation.environment_entry().into_iter().collect(),
         escape_args: true,
-    }
+    };
+    let window_size = WindowSize {
+        num_lines: start.rows,
+        num_cols: start.columns,
+        cell_width: 0,
+        cell_height: 0,
+    };
+    tty::new(&options, window_size, 0).map_err(|error| {
+        io::Error::new(
+            error.kind(),
+            format!(
+                "the program {} could not be started: {error}",
+                start.program.display()
+            ),
+        )
+    })
 }
 
 /// The process id of the program running in `pty`, when Windows reported one.

@@ -10,10 +10,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use alacritty_terminal::tty::Pty;
 use polling::Poller;
 
-use crate::ShellStartConfirmation;
+use crate::{Pty, ShellStartConfirmation};
 
 /// How long a helper program the terminals start (`taskkill.exe`, the console helper, and on macOS
 /// the input wait's `sample` and `ps`) may run, and how long an outright end of a process tree is

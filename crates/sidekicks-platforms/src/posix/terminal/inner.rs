@@ -1,41 +1,52 @@
-//! The start of a command in a terminal of its own on macOS and Linux, through
-//! `alacritty_terminal`'s PTY, which makes the command its own session's leader with the terminal
-//! as its controlling one.
+//! The start of a command in a terminal of its own on macOS and Linux, as its own session's leader,
+//! which takes the terminal as its controlling one itself.
 
+use std::ffi::OsStr;
 use std::io;
+use std::path::Path;
 
 use alacritty_terminal::event::WindowSize;
-use alacritty_terminal::tty::{self, Options};
 use nix::sys::stat::fstat;
-use rustix_openpty::openpty;
 use rustix_openpty::rustix::termios::Winsize;
 
+use crate::posix::spawn::inherited_environment;
+use crate::posix::terminal::pty::{TerminalProgram, open_terminal, spawn_in_terminal};
 use crate::terminal::{InnerTerminal, TerminalDevice};
 
-/// Opens a terminal of `window_size` and starts the program `options` names in it as a session
-/// leader whose controlling terminal it is, with `alacritty_terminal`'s `USER`, `HOME`,
-/// `ALACRITTY_WINDOW_ID` and `WINDOWID` added, the last two of which the program removes itself;
-/// the terminal keeps a handle of its own on the program side. Blocks; fails with the system's
-/// error when the terminal cannot be opened or read or the program cannot be started.
+/// Opens a terminal of `window_size` and starts `program` in it, named `argument_zero`, with
+/// `arguments` and this process's environment, as the leader of a session of its own; the program
+/// takes the terminal as its controlling one itself, as the command wrapper's inner form does. The
+/// terminal keeps a handle of its own on the program side. Blocking; fails with the system's error
+/// when the terminal cannot be opened or read, and as the spawn fails, the error naming the
+/// program.
 pub fn start_inner_terminal(
-    options: &Options,
+    program: &Path,
+    argument_zero: &OsStr,
+    arguments: &[String],
     window_size: WindowSize,
 ) -> io::Result<InnerTerminal> {
-    let size = Winsize {
+    let terminal = open_terminal(&Winsize {
         ws_row: window_size.num_lines,
         ws_col: window_size.num_cols,
         ws_xpixel: window_size.num_cols.saturating_mul(window_size.cell_width),
         ws_ypixel: window_size
             .num_lines
             .saturating_mul(window_size.cell_height),
-    };
-    // Both close-on-exec from the open (atomically on Linux), so a child another thread starts
-    // meanwhile inherits neither and cannot hold the terminal open past its program's end.
-    let rustix_openpty::Pty { controller, user } = openpty(None, Some(&size))?;
-    let device = terminal_device(fstat(&user).map_err(io::Error::from)?.st_rdev)?;
-    // Close-on-exec, so the command inherits only the descriptors the PTY gives it.
-    let program_side = user.try_clone()?;
-    let pty = tty::from_fd(options, 0, controller, user)?;
+    })?;
+    let device = terminal_device(fstat(&terminal.follower).map_err(io::Error::from)?.st_rdev)?;
+    // Close-on-exec, so the program inherits only the follower the spawn puts on its streams.
+    let program_side = terminal.follower.try_clone()?;
+    let pty = spawn_in_terminal(
+        terminal,
+        &TerminalProgram {
+            program,
+            argument_zero,
+            arguments,
+            environment: inherited_environment(&[]),
+            folder: None,
+            inherited: None,
+        },
+    )?;
     Ok(InnerTerminal {
         _program_side: program_side,
         pty,
@@ -58,18 +69,51 @@ fn terminal_device(rdev: libc::dev_t) -> io::Result<TerminalDevice> {
 
 /// The 80 by 24 window the tests' terminals open at.
 #[cfg(test)]
-pub(crate) const TEST_WINDOW_SIZE: WindowSize = WindowSize {
+const TEST_WINDOW_SIZE: WindowSize = WindowSize {
     num_lines: 24,
     num_cols: 80,
     cell_width: 0,
     cell_height: 0,
 };
 
+/// The ignored test the tests' inner terminals start their programs through.
+#[cfg(test)]
+const TERMINAL_TAKING_STAND_IN: &str = "the_terminal_taking_stand_in_runs_its_program";
+
+#[test]
+#[ignore = "run only as the inner terminal's stand-in, in a test's terminal"]
+fn the_terminal_taking_stand_in_runs_its_program() {
+    let error = crate::posix::terminal::pty::run_terminal_taking_stand_in();
+    panic!("the stand-in did not run its program: {error:?}");
+}
+
+/// Starts `program` in an 80 by 24 terminal of its own through the stand-in above, which takes
+/// the terminal as its controlling one and then becomes `program`. Fails as
+/// [`start_inner_terminal`] fails.
+#[cfg(test)]
+pub(crate) fn start_test_terminal(
+    program: &crate::terminal::TestProgram,
+) -> io::Result<InnerTerminal> {
+    use crate::posix::terminal::pty::terminal_taking_start;
+    use crate::test_program::harness_test_name;
+
+    let start = terminal_taking_start(
+        &harness_test_name(module_path!(), TERMINAL_TAKING_STAND_IN),
+        program,
+    );
+    start_inner_terminal(
+        Path::new(&start.program),
+        OsStr::new(&start.program),
+        &start.arguments,
+        TEST_WINDOW_SIZE,
+    )
+}
+
 /// What `pty`'s program printed until it printed `marker`, read within `deadline`; what it printed
 /// instead when the marker does not come.
 #[cfg(test)]
 pub(crate) fn read_until_marker(
-    pty: &tty::Pty,
+    pty: &crate::Pty,
     marker: &str,
     deadline: std::time::Duration,
 ) -> Result<String, String> {
@@ -113,7 +157,7 @@ pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
         pty,
         ..
     } = terminal;
-    let leader = i32::try_from(pty.child().id()).expect("a process id");
+    let leader = i32::try_from(pty.process_id()).expect("a process id");
     match killpg(Pid::from_raw(leader), Signal::SIGKILL) {
         Ok(()) => {}
         Err(Errno::ESRCH) => return,
@@ -139,35 +183,22 @@ pub(crate) fn end_inner_terminal(terminal: InnerTerminal) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
     use std::sync::Once;
     use std::time::Duration;
 
     use nix::sys::stat::stat;
 
-    use super::{
-        TEST_WINDOW_SIZE, end_inner_terminal, read_until_marker, start_inner_terminal,
-        terminal_device,
-    };
-    use crate::posix::terminal::{read_terminal_master, terminal_options};
+    use super::{end_inner_terminal, read_until_marker, start_test_terminal, terminal_device};
+    use crate::posix::terminal::read_terminal_master;
+    use crate::posix::terminal::test_programs::shell_script;
 
     // Fails when the command is not its own session's leader with the terminal as its controlling
     // one, which leaves the terminal no session or foreground group, or when the device is read
     // from the master rather than the program's side.
     #[test]
     fn inner_terminal_runs_its_command_as_the_leader_of_its_own_session() {
-        let options = terminal_options(
-            "/bin/sh".to_owned(),
-            vec![
-                "-c".to_owned(),
-                "echo \"path:$(tty):end\"; sleep 20".to_owned(),
-            ],
-            None,
-            HashMap::new(),
-        );
-
-        let terminal =
-            start_inner_terminal(&options, TEST_WINDOW_SIZE).expect("the terminal starts");
+        let terminal = start_test_terminal(&shell_script("echo \"path:$(tty):end\"; sleep 20"))
+            .expect("the terminal starts");
         let output = read_until_marker(&terminal.pty, ":end", Duration::from_secs(10));
         // The device is read while the terminal is open: macOS removes its node at the close.
         let device = output.as_ref().ok().and_then(|output| {
@@ -175,7 +206,7 @@ mod tests {
             Some(stat(path).map(|status| status.st_rdev))
         });
         let reading = read_terminal_master(&terminal.pty, &Once::new());
-        let child_id = terminal.pty.child().id();
+        let child_id = terminal.pty.process_id();
         let device_read = terminal.device;
         end_inner_terminal(terminal);
 
