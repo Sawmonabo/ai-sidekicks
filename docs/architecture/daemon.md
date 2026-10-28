@@ -44,7 +44,7 @@ The Local Runtime Daemon is the local execution kernel. It must own the parts of
 
 ## PTY Backend Strategy
 
-Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the terminal is `sidekicks-terminal` in the daemon on every system (on macOS and Linux started through `sidekicks_platforms::start_terminal`, on Windows through `alacritty_terminal`'s ConPTY): one in-process implementation, with no child process and no protocol of its own. the cost is that a native ConPTY crash takes the daemon down. Implementation detail (crate structure, test matrix) lives in [Plan-021](../plans/021-terminal.md).
+Per [ADR-018](../decisions/018-windows-v1-tier-and-pty-in-the-daemon.md), the terminal is `sidekicks-terminal` in the daemon on every system (on macOS and Linux started through `sidekicks_platforms::start_terminal`, on Windows through `alacritty_terminal`'s ConPTY): one in-process implementation, with no child process and no protocol of its own. The cost is that a native ConPTY crash takes the daemon down. Implementation detail (crate structure, test matrix) lives in [Plan-021](../plans/021-terminal.md).
 
 ## Data Flow
 

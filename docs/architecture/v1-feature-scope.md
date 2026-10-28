@@ -55,7 +55,7 @@ Per [ADR-018: Windows V1 Tier and the PTY in the Daemon](../decisions/018-window
 | --- | --- | --- |
 | macOS (arm64, x64) | GA | `sidekicks-terminal` in the daemon (started through `sidekicks_platforms::start_terminal`) |
 | Linux (x64, arm64) | GA | `sidekicks-terminal` in the daemon (started through `sidekicks_platforms::start_terminal`) |
-| Windows 10/11 (x64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s tty, ConPTY) |
+| Windows 10/11 (x64) | GA | `sidekicks-terminal` in the daemon (`alacritty_terminal`'s ConPTY) |
 
 The terminal is `sidekicks-terminal` in the daemon on every system (on macOS and Linux started through `sidekicks_platforms::start_terminal`, on Windows through `alacritty_terminal`'s ConPTY), per ADR-018; the upstream `node-pty` ConPTY crash cluster (openai/codex#13973, microsoft/node-pty#904/#887/#894/#437/#647) is the reason `node-pty` is not used. Implementation detail lives in Plan-021 — see [Daemon Architecture §PTY Backend Strategy](./daemon.md#pty-backend-strategy).
 
