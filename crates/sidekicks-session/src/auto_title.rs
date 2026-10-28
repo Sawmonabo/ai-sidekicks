@@ -34,6 +34,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::content::codec::{StoredBodyColumns, stored_body_columns_sql};
 use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
+use sidekicks_workspace::git::worktree::naming::DERIVED_NAME_MAX_CODE_POINTS;
 use sidekicks_workspace::working_folder::{WorkingFolderReadError, read_working_folder};
 use tokio::runtime::Handle;
 use tokio_util::sync::CancellationToken;
@@ -46,9 +47,6 @@ use crate::run::read::read_run_provider;
 /// the name and first message, the run's reply, the unnamed sessions, the session's working folder
 /// and the run's provider.
 pub const SESSION_AUTO_TITLE_STATEMENT_CAPACITY: usize = 6;
-
-/// A fallback name reads as a few words: whole words up to this many code points.
-const FALLBACK_NAME_MAX_CODE_POINTS: usize = 40;
 
 /// What joins one reply message to the next in the reply the pass reads.
 const REPLY_MESSAGE_SEPARATOR: &str = "\n\n";
@@ -441,9 +439,25 @@ impl SessionAutoTitle {
     }
 }
 
+/// The words a session's title gives a worktree's name: its `name`, else the first words of its
+/// `first_message_preview`, else those of `fallback_message`, which stands in for a first message
+/// not yet recorded on the session. Empty when none gives any.
+pub fn session_title_words(
+    name: Option<&str>,
+    first_message_preview: Option<&str>,
+    fallback_message: Option<&str>,
+) -> String {
+    match name {
+        Some(name) => name.to_owned(),
+        None => first_message_preview
+            .or(fallback_message)
+            .map_or_else(String::new, first_words_of),
+    }
+}
+
 /// The fallback name a session takes from its first message: the message's whole words, split at
-/// ECMAScript whitespace and joined by single spaces, up to 40 code points; a first word longer
-/// than that is cut at it. Empty when the message has no words.
+/// ECMAScript whitespace and joined by single spaces, up to [`DERIVED_NAME_MAX_CODE_POINTS`]; a
+/// first word longer than that is cut at it. Empty when the message has no words.
 pub(crate) fn first_words_of(message: &str) -> String {
     let mut words = message
         .split(is_ecmascript_whitespace)
@@ -452,13 +466,13 @@ pub(crate) fn first_words_of(message: &str) -> String {
         return String::new();
     };
     let mut code_points = first_word.chars().count();
-    if code_points > FALLBACK_NAME_MAX_CODE_POINTS {
-        return cut_to_code_points(first_word, FALLBACK_NAME_MAX_CODE_POINTS).to_owned();
+    if code_points > DERIVED_NAME_MAX_CODE_POINTS {
+        return cut_to_code_points(first_word, DERIVED_NAME_MAX_CODE_POINTS).to_owned();
     }
     let mut name = first_word.to_owned();
     for word in words {
         let extended = code_points + 1 + word.chars().count();
-        if extended > FALLBACK_NAME_MAX_CODE_POINTS {
+        if extended > DERIVED_NAME_MAX_CODE_POINTS {
             break;
         }
         name.push(' ');

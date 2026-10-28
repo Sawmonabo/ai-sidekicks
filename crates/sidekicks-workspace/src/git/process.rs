@@ -2,7 +2,8 @@
 //! no shell, the login shell's environment cleared of the variables that redirect which repository
 //! git reads, a bound on its output and on its time, and an end that reaches every process it
 //! started. A read runs no hook and no file-watch helper program; a write keeps the repository's
-//! hooks. A long call whose standard error its caller reads as it goes is started instead of run.
+//! hooks, except a write of the daemon's own refs, which runs none. A long call whose standard
+//! error its caller reads as it goes is started instead of run.
 
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
@@ -66,6 +67,10 @@ const PINNED_GIT_ENVIRONMENT: [(&str, &str); 3] =
 /// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
 /// helper program the repository names starts for it.
 const FILE_WATCH_OFF_SETTING: &str = "core.fsmonitor=false";
+
+/// The setting that switches off the hooks a repository's config declares for the
+/// `reference-transaction` event, which `core.hooksPath` does not reach.
+const REFERENCE_TRANSACTION_OFF_SETTING: &str = "hook.reference-transaction.enabled=false";
 
 /// The setting that keeps git's built-in file-watch daemon for one call, never a helper program.
 const BUILT_IN_FILE_WATCH_SETTING: &str = "core.fsmonitor=true";
@@ -194,6 +199,11 @@ enum GitHooks {
     Off,
     /// The repository's hooks run as they do for the person: a write of a commit or a ref.
     Repository,
+    /// No hook runs for a write of the daemon's own refs under `refs/sidekicks/`: `core.hooksPath`
+    /// names the null device and the `reference-transaction` event is switched off, which git
+    /// before 2.55 reads only for a hook its config names `reference-transaction`, so there a hook
+    /// another name declares in config for that event still runs.
+    PrivateRefs,
 }
 
 /// What a call does with the repository's file watch (`core.fsmonitor`).
@@ -236,6 +246,13 @@ impl GitCall {
     /// watch as it sets them.
     pub fn write(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
         Self::new(GitHooks::Repository, GitFileWatch::Repository, arguments)
+    }
+
+    /// A write of the daemon's own refs under `refs/sidekicks/`, run with `arguments`: no hook
+    /// runs, so a hook that refuses or logs unknown refs never sees them, and the file watch stays
+    /// as the repository sets it.
+    pub fn private_ref_write(arguments: impl IntoIterator<Item = impl Into<OsString>>) -> Self {
+        Self::new(GitHooks::PrivateRefs, GitFileWatch::Repository, arguments)
     }
 
     fn new(
@@ -767,12 +784,22 @@ pub(crate) fn strip_carriage_return(line: &[u8]) -> &[u8] {
 }
 
 // The `-c` settings put before a call's own arguments: hooks from the null device when `hooks` is
-// off, and `file_watch_setting` when there is one.
+// off, the reference-transaction event off too for the daemon's own refs, and `file_watch_setting`
+// when there is one.
 fn call_settings(hooks: GitHooks, file_watch_setting: Option<&str>) -> Vec<OsString> {
     let mut settings = Vec::new();
-    if hooks == GitHooks::Off {
-        settings.push(OsString::from("-c"));
-        settings.push(OsString::from(format!("core.hooksPath={NULL_DEVICE_PATH}")));
+    match hooks {
+        GitHooks::Off => {
+            settings.push(OsString::from("-c"));
+            settings.push(OsString::from(format!("core.hooksPath={NULL_DEVICE_PATH}")));
+        }
+        GitHooks::PrivateRefs => {
+            settings.push(OsString::from("-c"));
+            settings.push(OsString::from(format!("core.hooksPath={NULL_DEVICE_PATH}")));
+            settings.push(OsString::from("-c"));
+            settings.push(OsString::from(REFERENCE_TRANSACTION_OFF_SETTING));
+        }
+        GitHooks::Repository => {}
     }
     if let Some(file_watch_setting) = file_watch_setting {
         settings.push(OsString::from("-c"));

@@ -1,8 +1,8 @@
 //! Sessions: creating, changing, naming, converting and searching them, reading a session's record
 //! and log, their groups, tags, drafts, staged files, review notes, inbox addresses and directory;
 //! the run engine and a session's runs; the transcript; questions, interventions and attention; the
-//! queue's store; the driver a run or session resolves to; the live sessions' folders and worktree
-//! names; and deleting the provider conversations a session ran on. It sits over std, store, ipc,
+//! queue's store; the driver a run or session resolves to; the live sessions' folders; and
+//! deleting the provider conversations a session ran on. It sits over std, store, ipc,
 //! workspace, provider and mcp and is taken by approval, queue, artifact, recovery and the program.
 
 pub mod addresses;
@@ -33,4 +33,3 @@ pub mod spawn_cwd_translator;
 pub mod staged_attachments;
 pub mod tags;
 pub mod transcript;
-pub mod worktree_naming;

@@ -8,6 +8,7 @@ use std::sync::LazyLock;
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::git::shared::GitRefName;
+use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::run::id::RunId;
@@ -53,6 +54,8 @@ pub(crate) struct AttachedMountRow {
     pub(crate) canonical_root: FilesystemPath,
     /// The project the mount belongs to.
     pub(crate) project_id: ProjectId,
+    /// Where the repository is, for its git calls; absent on macOS and Linux.
+    pub(crate) place: Option<Place>,
 }
 
 /// One run context whose run has not ended.
