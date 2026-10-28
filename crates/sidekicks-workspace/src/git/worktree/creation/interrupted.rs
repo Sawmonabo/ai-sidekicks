@@ -3,7 +3,8 @@
 //! as a failed creation is: the row marked `failed`, the folder and its own record removed and the
 //! branch its creation made deleted. A row whose tree is gone, or whose mount is no longer
 //! attached, is retired, so the sweep settles it; for a tree gone from an attached mount, git's
-//! records naming its folder are removed too, since no sweep reads a record of a missing folder.
+//! records naming its folder are removed first, since no sweep reads a record of a missing folder,
+//! and the row stays `creating` for the next start when they cannot be.
 
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -92,8 +93,8 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
     }
 
     // Undoes the tree of one `creating` row while it stands on an attached mount, and otherwise
-    // retires the row, removing the records of a tree gone from an attached mount; answers each
-    // step's failure.
+    // retires the row, once the records of a tree gone from an attached mount are removed; answers
+    // each step's failure.
     async fn settle_interrupted_creation(
         &self,
         worktree_id: &WorktreeId,
@@ -118,22 +119,23 @@ impl<W: Watcher + Send + 'static> WorktreeCreator<W> {
                 .record_create_failure(mount, &folder, row.branch_name.as_str(), worktree_id)
                 .await;
         }
-        let mut failures: Vec<Box<dyn Error + Send + Sync>> = worktrees
-            .record_retirement(&row, RecordRetirementOptions::default())
-            .await
-            .err()
-            .into_iter()
-            .map(Into::into)
-            .collect();
+        // The records go first: a row retired before them would leave no `creating` row for the
+        // next start to retry a failed removal from.
         if let Some(mount) = &mount {
             let repository = Path::new(mount.canonical_root.as_str());
             if let Err(record_failures) =
                 remove_tree_without_git(&self.deps.git, mount.place.as_ref(), repository, &folder)
                     .await
             {
-                failures.extend(record_failures);
+                return record_failures;
             }
         }
-        failures
+        worktrees
+            .record_retirement(&row, RecordRetirementOptions::default())
+            .await
+            .err()
+            .into_iter()
+            .map(Into::into)
+            .collect()
     }
 }
