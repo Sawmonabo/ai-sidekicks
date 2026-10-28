@@ -130,7 +130,8 @@ impl TableShared {
             session.order.retain(|id| *id != shell.terminal_id);
             session.list.mark_changed();
         }
-        let (handle, mark_nonce, spawn_nonce) = shell.record_end(ShellOutputEnd::Closed, true);
+        let (handle, mark_nonce, spawn_nonce) =
+            self.record_shell_end(shell, ShellOutputEnd::Closed, true);
         self.release_streams(shell);
         let table = Arc::clone(self);
         Some(

@@ -87,7 +87,7 @@ impl TableShared {
             exit_code,
             cursor: record.output_offset(),
         };
-        let (handle, mark_nonce, spawn_nonce) = record.record_end(end, false);
+        let (handle, mark_nonce, spawn_nonce) = self.record_shell_end(record, end, false);
         self.release_streams(record);
         self.refresh_list(&record.session_id);
         let closing = close_terminal(&self.deps.terminals, handle);

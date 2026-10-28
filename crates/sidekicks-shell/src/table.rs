@@ -18,7 +18,7 @@ mod output;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -41,7 +41,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{HandlerError, TransportId};
 use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_terminal::{CommandLine, Terminals};
+use sidekicks_terminal::{CommandLine, TerminalHandle, Terminals};
 use sidekicks_workspace::working_folder::SessionWorkingFolder;
 use tokio::runtime::Handle;
 use tokio::sync::watch;
@@ -50,10 +50,11 @@ use crate::control_lease::{
     LeaseBroadcast, LeaseReading, ShellConnection, ShellControlLease, ShellLeaseCaller,
 };
 use crate::input_lookup::ShellInputLookup;
-use crate::integration::injection::ShellStartupFolders;
+use crate::integration::injection::{ShellMarkNonce, ShellStartupFolders};
 use crate::list::ShellListFollowers;
 use crate::orphan::guard::OrphanGuard;
 use crate::output::screen::{ShellScreenAppearance, cut_title};
+use crate::output::stream::ShellOutputEnd;
 use crate::record::{ShellRecord, ShellRecordDeps};
 use crate::refusals::terminal_not_found;
 use crate::resize::{ShellResizeError, ShellSize};
@@ -140,6 +141,9 @@ struct TableShared {
     sessions: Mutex<HashMap<SessionId, SessionShells>>,
     /// The folder holds in force, each taken under the sessions' lock.
     folder_holds: Mutex<Vec<FolderHold>>,
+    /// The spawn nonces of ended shells, kept until a folder close finds no process carrying one,
+    /// so a process an ended shell left behind is still ended with its folder.
+    ended_nonces: Mutex<HashSet<String>>,
     /// The one count that orders the opens and the folder holds, taken under the sessions' lock.
     sequence: AtomicU64,
 }
@@ -170,6 +174,7 @@ impl ShellTable {
                 record_deps,
                 sessions: Mutex::new(HashMap::new()),
                 folder_holds: Mutex::new(Vec::new()),
+                ended_nonces: Mutex::new(HashSet::new()),
                 sequence: AtomicU64::new(0),
             }),
         }
@@ -409,6 +414,31 @@ impl TableShared {
         self.folder_holds
             .lock()
             .expect("no panic holds the folder holds, since a panic ends the daemon")
+    }
+
+    fn lock_ended_nonces(&self) -> MutexGuard<'_, HashSet<String>> {
+        self.ended_nonces
+            .lock()
+            .expect("no panic holds the ended shells' nonces, since a panic ends the daemon")
+    }
+
+    /// Records `shell`'s end as [`ShellRecord::record_end`] does, keeping its spawn nonce among the
+    /// ended shells' for the folder closes to search.
+    fn record_shell_end(
+        &self,
+        shell: &ShellRecord,
+        end: ShellOutputEnd,
+        is_removed: bool,
+    ) -> (
+        Option<TerminalHandle>,
+        Option<ShellMarkNonce>,
+        Option<String>,
+    ) {
+        let (handle, mark_nonce, spawn_nonce) = shell.record_end(end, is_removed);
+        if let Some(spawn_nonce) = &spawn_nonce {
+            self.lock_ended_nonces().insert(spawn_nonce.clone());
+        }
+        (handle, mark_nonce, spawn_nonce)
     }
 
     /// The next place in the order of opens and folder holds; taken under the sessions' lock.

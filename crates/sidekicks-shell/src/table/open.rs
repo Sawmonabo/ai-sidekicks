@@ -238,7 +238,7 @@ impl TableShared {
         };
         record.record_did_not_start(describe_error(&error));
         let (handle, mark_nonce, spawn_nonce) =
-            record.record_end(ShellOutputEnd::DidNotStart, false);
+            self.record_shell_end(record, ShellOutputEnd::DidNotStart, false);
         let closing = close_terminal(&self.deps.terminals, handle);
         if let Err(error) =
             let_shell_go(&self.deps.orphan_guard, closing, mark_nonce, spawn_nonce).await
