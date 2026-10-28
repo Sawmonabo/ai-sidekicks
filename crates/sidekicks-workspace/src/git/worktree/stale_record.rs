@@ -7,21 +7,27 @@
 //! still list, holding its branch, so it is removed; one for another tree stays there, and the
 //! service log says so.
 
+use std::ffi::OsStr;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use sidekicks_contracts::place::Place;
 use sidekicks_platforms::CAN_RENAME_REPLACE_EMPTY_FOLDER;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 
 use crate::folder::canonical_path::canonical_folder_path;
+use crate::git::process::GitRunner;
 use crate::git::worktree::claims::{KeptCopyClaims, KeptCopyClaimsReadError};
 use crate::git::worktree::folder_names::read_folder_names;
+use crate::git::worktree::kept_copy::KEPT_REF_STORE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::{
     LeftoverKind, LeftoverNamesInUse, is_leftover_name, leftover_name, rename_folder,
 };
+use crate::git::worktree::kept_copy::saved_state::{RepositoryStoreSettings, SavedStateError};
 use crate::git::worktree::reads::{
-    GIT_FILE_NAME, RECORD_GITDIR_FILE_NAME, read_record_git_file, read_record_named_by,
+    GIT_FILE_NAME, RECORD_GITDIR_FILE_NAME, common_folder_of_record, read_record_git_file,
+    read_record_named_by,
 };
 use crate::git::worktree::service::remove_folder;
 
@@ -56,6 +62,9 @@ pub(crate) enum StaleRecordError {
     /// The system gave no random bytes for the record's name aside.
     #[error("the record's name aside could not be made")]
     LeftoverName(#[source] getrandom::Error),
+    /// The repository's refs payload could not be read to remove the tree's refs there.
+    #[error("the repository's refs payload could not be read")]
+    RefStore(#[source] SavedStateError),
     /// The record set aside could not take its name back, and the empty folder that held the name
     /// could not be removed either.
     #[error(transparent)]
@@ -104,6 +113,43 @@ pub(crate) async fn remove_stale_tree_record(
     remove_folder(&removing_folder)
         .await
         .map_err(at(&removing_folder))?;
+    Ok(true)
+}
+
+/// Removes the kept copy's stale record as [`remove_stale_tree_record`] does, then, once it is
+/// gone and the copy in `kept_folder` kept refs from a refs payload, the tree's refs folder there,
+/// so no later record of that name finds them. Answers whether the record is gone. Fails as the
+/// record's removal, the payload's read or the folder's removal does.
+pub(crate) async fn remove_stale_record_and_refs(
+    tools: StaleRecordTools<'_>,
+    git: &GitRunner,
+    place: Option<&Place>,
+    kept_folder: &Path,
+    record_folder: &Path,
+    original_path: &Path,
+) -> Result<bool, StaleRecordError> {
+    let is_removed = remove_stale_tree_record(tools, record_folder, original_path).await?;
+    let kept_ref_store = kept_folder.join(KEPT_REF_STORE_ENTRY);
+    let has_kept_refs = tokio::fs::try_exists(&kept_ref_store)
+        .await
+        .map_err(at(&kept_ref_store))?;
+    let (true, true, Some(common_folder), Some(record_name)) = (
+        is_removed,
+        has_kept_refs,
+        common_folder_of_record(record_folder),
+        record_folder.file_name().and_then(OsStr::to_str),
+    ) else {
+        return Ok(is_removed);
+    };
+    let settings = RepositoryStoreSettings::read(git, place, common_folder)
+        .await
+        .map_err(StaleRecordError::RefStore)?;
+    if let Some(payload) = settings.ref_store_payload(common_folder) {
+        let refs_folder = payload.tree_refs_folder(record_name);
+        remove_folder(&refs_folder)
+            .await
+            .map_err(at(&refs_folder))?;
+    }
     Ok(true)
 }
 

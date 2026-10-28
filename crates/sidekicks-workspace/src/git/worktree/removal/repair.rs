@@ -5,7 +5,6 @@
 //! in the worktrees folder removed. Each step's failure is kept for the next pass and stops no
 //! other.
 
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -17,16 +16,14 @@ use super::{
     RecordRemovalFailure, RemovalShared, WorktreeRemoval, WorktreeRemovalError,
     file_watch_stop_failed,
 };
+use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::list_leftover_copies;
 use crate::git::worktree::kept_copy::held_work::{held_answer, log_landed_late};
-use crate::git::worktree::kept_copy::saved_state::RepositoryStoreSettings;
-use crate::git::worktree::kept_copy::{KEPT_REF_STORE_ENTRY, KEPT_TREE_ENTRY};
-use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::removed_store::RemovedWorktreeStoreError;
 use crate::git::worktree::removed_store::rows::finish_statement;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::{RecordRetirementOptions, remove_folder};
-use crate::git::worktree::stale_record::{StaleRecordTools, remove_stale_tree_record};
+use crate::git::worktree::stale_record::{StaleRecordTools, remove_stale_record_and_refs};
 use crate::git::worktree::unfinished_discards::UnfinishedKeptWorktree;
 
 /// What one pass over the work a crash cut short did; its failures stay for the next pass.
@@ -387,38 +384,19 @@ impl RemovalShared {
         record_folder: &Path,
         original_path: &Path,
     ) -> Result<(), RecordRemovalFailure> {
-        let is_removed = remove_stale_tree_record(
+        let store = &self.deps.removed_worktrees;
+        remove_stale_record_and_refs(
             StaleRecordTools {
-                claims: self.deps.removed_worktrees.claims(),
-                leftover_names: self
-                    .deps
-                    .removed_worktrees
-                    .folder_move_tools()
-                    .leftover_names,
+                claims: store.claims(),
+                leftover_names: store.folder_move_tools().leftover_names,
             },
+            &self.deps.git,
+            unfinished.place.as_ref(),
+            Path::new(unfinished.kept_folder.as_str()),
             record_folder,
             original_path,
         )
         .await?;
-        let kept_folder = Path::new(unfinished.kept_folder.as_str());
-        if !is_removed || !tokio::fs::try_exists(kept_folder.join(KEPT_REF_STORE_ENTRY)).await? {
-            return Ok(());
-        }
-        let (Some(common_folder), Some(record_name)) = (
-            common_folder_of_record(record_folder),
-            record_folder.file_name().and_then(OsStr::to_str),
-        ) else {
-            return Ok(());
-        };
-        let settings = RepositoryStoreSettings::read(
-            &self.deps.git,
-            unfinished.place.as_ref(),
-            Path::new(unfinished.canonical_root.as_str()),
-        )
-        .await?;
-        if let Some(payload) = settings.ref_store_payload(common_folder) {
-            remove_folder(&payload.tree_refs_folder(record_name)).await?;
-        }
         Ok(())
     }
 

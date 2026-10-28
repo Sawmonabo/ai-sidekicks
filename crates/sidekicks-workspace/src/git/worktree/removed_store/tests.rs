@@ -219,3 +219,49 @@ async fn an_interrupted_put_back_is_undone_at_the_next_pass() {
         Vec::new()
     );
 }
+
+// A crash between the discard's retirement write and its record removal leaves git's record and
+// the tree's refs in the repository's refs payload. Kills a cleanup that removes the record but
+// leaves the refs, whose name every later put-back's counter would skip.
+#[tokio::test]
+async fn a_cleanup_removes_a_crash_left_record_with_its_refs_in_a_refs_payload() {
+    let fixture = KeptCopyFixture::new().await;
+    // The repository's refs move to the payload, as a repository made with one would hold them.
+    let payload = fixture.repository.join("payload");
+    fs::create_dir_all(payload.join("refs/heads")).expect("the payload's refs are made");
+    fs::create_dir_all(payload.join("worktrees")).expect("the payload's tree refs are made");
+    let main = fixture
+        .git(&fixture.repository, &["rev-parse", "main"])
+        .await;
+    fs::write(payload.join("refs/heads/main"), format!("{main}\n")).expect("main is written");
+    fs::write(payload.join("HEAD"), "ref: refs/heads/main\n").expect("HEAD is written");
+    for setting in [
+        ["config", "core.repositoryformatversion", "1"],
+        ["config", "extensions.refStorage", "files://../payload"],
+    ] {
+        fixture.git(&fixture.repository, &setting).await;
+    }
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let refs_folder = payload.join("worktrees/fix");
+    assert!(refs_folder.exists(), "the crash left the tree's refs");
+    let record = fixture.common_folder().join("worktrees/fix");
+    fs::create_dir_all(&record).expect("the crash left the record");
+    fs::write(
+        record.join("gitdir"),
+        format!(
+            "{}\n",
+            Path::new(tree.fs_root.as_str()).join(".git").display()
+        ),
+    )
+    .expect("the record names the tree");
+
+    fixture
+        .store
+        .remove_stale_record_of(removed_worktree_id)
+        .await
+        .expect("the cleanup removes what the crash left");
+
+    assert!(!record.exists(), "the record is left");
+    assert!(!refs_folder.exists(), "the tree's refs are left");
+}

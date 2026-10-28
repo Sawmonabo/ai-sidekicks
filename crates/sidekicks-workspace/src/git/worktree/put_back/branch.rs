@@ -17,7 +17,7 @@ use crate::git::worktree::kept_copy::KEPT_RECORD_ENTRY;
 use crate::git::worktree::kept_copy::pins::{KeptPin, pick_pins, pin_ref_names};
 use crate::git::worktree::kept_copy::saved_state::{SavedStateError, read_rebase_folder};
 use crate::git::worktree::reads::{BRANCH_REF_PREFIX, read_ref_heads};
-use crate::git::worktree::stale_record::{StaleRecordError, remove_stale_tree_record};
+use crate::git::worktree::stale_record::{StaleRecordError, remove_stale_record_and_refs};
 
 /// The kept copy whose branch a put-back chooses, as its row records it.
 #[derive(Clone, Copy)]
@@ -107,8 +107,11 @@ pub(crate) async fn choose_put_back_branch(
                     .map_err(BranchChoiceStepError::Rebase)
             },
             async {
-                remove_stale_tree_record(
+                remove_stale_record_and_refs(
                     tools.stale_record(),
+                    tools.git(),
+                    tools.place(),
+                    kept.kept_folder,
                     kept.record_folder,
                     kept.original_path,
                 )

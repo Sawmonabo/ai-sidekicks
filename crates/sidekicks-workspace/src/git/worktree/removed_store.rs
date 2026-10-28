@@ -72,7 +72,7 @@ use crate::git::worktree::put_back::undo::undo_put_back;
 use crate::git::worktree::put_back::{PutBackTools, UnsoundTreeError, require_sound_restored_tree};
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::{WorktreeRowsReadError, WorktreeService};
-use crate::git::worktree::stale_record::{StaleRecordTools, remove_stale_tree_record};
+use crate::git::worktree::stale_record::{StaleRecordTools, remove_stale_record_and_refs};
 use crate::git::worktree::unfinished_discards::{UnfinishedKeptWorktree, read_unfinished_discards};
 use crate::trust_envelope::components_equal;
 
@@ -650,16 +650,20 @@ impl RemovedWorktreeStore {
         .map_err(RemovedWorktreeStoreError::failed)
     }
 
-    // Removes the tree's old record when it is still the copy's own, under the copy's lock.
+    // Removes the tree's old record when it is still the copy's own, and its refs in a refs payload,
+    // under the copy's lock.
     async fn remove_stale_record(
         &self,
         kept: &RemovedWorktreeRow,
     ) -> Result<(), RemovedWorktreeStoreError> {
-        remove_stale_tree_record(
+        remove_stale_record_and_refs(
             StaleRecordTools {
                 claims: &self.claims,
                 leftover_names: &self.deps.leftover_names,
             },
+            &self.deps.git,
+            kept.place.as_ref(),
+            Path::new(kept.kept_path.as_str()),
             Path::new(kept.record_folder.as_str()),
             Path::new(kept.original_path.as_str()),
         )
