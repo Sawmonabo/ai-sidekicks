@@ -95,8 +95,16 @@ enum ServiceStartError {
     /// The service's own program could not be found, which its crash monitor runs.
     #[error("the service's own program could not be found")]
     Program(#[source] io::Error),
-    /// A link one of the service's modes runs by is missing and could not be made, or its folder
-    /// could not be.
+    /// The folder of the links the service's modes run by could not be made.
+    #[error("the program link folder {} could not be made", folder.display())]
+    ProgramLinkFolder {
+        /// The folder.
+        folder: PathBuf,
+        /// The system's refusal.
+        #[source]
+        source: io::Error,
+    },
+    /// A link one of the service's modes runs by is missing and could not be made.
     #[error("the program link {} could not be made", link.display())]
     ProgramLink {
         /// The link.
@@ -265,12 +273,12 @@ fn run_daemon(
 
 // Makes the links git, ssh and a provider's shell prefix run the program's modes by, in the data
 // folder's link folder, before any driver sets them on a command. A link missing that cannot be
-// made fails the start; one that opens another build and cannot be made again, as on Windows a copy
-// a running command holds, is logged and kept for this start.
+// made fails the start; one that opens another build or cannot be opened, and cannot be made again,
+// as on Windows a copy a running command holds, is logged and kept for this start.
 fn make_program_links(daemon_program: &Path, link_folder: &Path) -> Result<(), ServiceStartError> {
     create_missing_private_folders(link_folder).map_err(|source| {
-        ServiceStartError::ProgramLink {
-            link: link_folder.to_path_buf(),
+        ServiceStartError::ProgramLinkFolder {
+            folder: link_folder.to_path_buf(),
             source,
         }
     })?;
@@ -287,7 +295,8 @@ fn make_program_links(daemon_program: &Path, link_folder: &Path) -> Result<(), S
             Err(ProgramLinkError::Stale(error)) => tracing::warn!(
                 link = %link.display(),
                 error = &error as &(dyn Error + 'static),
-                "a program link that opens another build could not be made again; it is kept"
+                "a program link that opens another build or cannot be opened could not be made \
+                 again; it is kept"
             ),
         }
     }
