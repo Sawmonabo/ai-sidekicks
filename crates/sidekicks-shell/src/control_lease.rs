@@ -69,6 +69,13 @@ pub struct ShellLeaseCaller {
 }
 
 /// An agent's running command asking for a shell through the run's write path.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the run's write path, which holds the shell for an agent's command"
+    )
+)]
 #[derive(Clone, Debug)]
 pub(crate) struct ShellLeaseRun {
     /// The run.
@@ -83,6 +90,13 @@ pub(crate) enum ShellWriter {
     /// A device's pane.
     Device(ShellLeaseCaller),
     /// An agent's run.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run's write path, which holds the shell for an agent's command"
+        )
+    )]
     Run(RunId),
 }
 
@@ -295,6 +309,13 @@ impl ShellControlLease {
     /// aside for the hand-back. Answers `false` with nothing changed when `is_shell_idle`, called
     /// under the lease's lock, says something was typed at the prompt; fails with the take's
     /// broadcast failure.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run's write path, which holds the shell for an agent's command"
+        )
+    )]
     pub(crate) async fn take_for_run(
         &self,
         run: &ShellLeaseRun,
@@ -406,6 +427,13 @@ impl ShellControlLease {
     /// Ends a run's hold when the command it holds the shell for ends; a run past that command
     /// keeps it. The shell goes back to the device hold kept aside, or to nobody. Fails with the
     /// hand-back broadcast's failure, nobody holding.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run's write path, which holds the shell for an agent's command"
+        )
+    )]
     pub(crate) async fn release_command(&self, run: &ShellLeaseRun) -> Result<(), DomainError> {
         self.release_run_hold(
             |hold| hold.run_id == run.run_id && hold.command_id == run.command_id,
@@ -417,6 +445,13 @@ impl ShellControlLease {
     /// Ends a run's hold when the run leaves its running state. The shell goes back to the device
     /// hold kept aside, or to nobody. Fails with the hand-back broadcast's failure, nobody
     /// holding.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the run's write path, which holds the shell for an agent's command"
+        )
+    )]
     pub(crate) async fn release_run(&self, run_id: RunId) -> Result<(), DomainError> {
         self.release_run_hold(
             |hold| hold.run_id == run_id,
