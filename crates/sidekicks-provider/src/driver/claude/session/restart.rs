@@ -562,6 +562,7 @@ pub(crate) fn claude_process_exit_of(end: &ClaudeProcessEnd) -> ProcessExit {
         Err(error) => ProcessExit::Code(ProcessExitWithCode {
             exit_code: ExitCode::new(0).expect("zero is a safe integer"),
             signal: None,
+            silent_seconds: None,
             output_tail: bound_failure_detail(
                 &describe_error(&**error as &(dyn Error + 'static)),
                 UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),

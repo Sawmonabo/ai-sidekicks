@@ -104,8 +104,8 @@ pub(crate) struct CodexDriver {
     shell_lines: Arc<sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound>,
     background_work: Arc<BackgroundWorkForms>,
     pending_compactions: PendingCompactionRegistry,
-    // The helpers stopped at their token limit, whose later turns are interrupted at their start.
-    limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
+    /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
+    pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
     processes: Arc<ProviderProcessRegistry>,
     ports: Arc<DriverPorts>,
     helper_roles_folder: PathBuf,

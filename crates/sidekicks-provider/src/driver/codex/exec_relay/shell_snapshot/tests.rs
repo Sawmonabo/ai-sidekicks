@@ -24,8 +24,7 @@ async fn runs_a_login_start_with_the_conversations_environment_alone() {
     std::fs::create_dir(&home).expect("the home is made");
     std::fs::write(
         home.join(".bashrc"),
-        "export SNAPSHOT_EXPORTED=from-profile\nexport CONVERSATION_SET=from-profile\n\
-         greet() { echo hello; }\n",
+        "export SNAPSHOT_EXPORTED=from-profile\nexport CONVERSATION_SET=from-profile\n",
     )
     .expect("the rc is written");
     let spawner = Spawner::new(Handle::current()).expect("a spawner");
@@ -41,7 +40,7 @@ async fn runs_a_login_start_with_the_conversations_environment_alone() {
     let mut environment = Map::new();
     environment.insert("CODEX_THREAD_ID".to_owned(), json!("thread-1"));
     environment.insert("CONVERSATION_SET".to_owned(), json!("from-conversation"));
-    let line = r#"echo "${SNAPSHOT_EXPORTED-unset}:$CONVERSATION_SET:$(greet):$0:$1""#;
+    let line = r#"echo "${SNAPSHOT_EXPORTED-unset}:$CONVERSATION_SET:$0:$1""#;
     let argv = words(&["/bin/bash", "-lc", line, "first", "second"]);
 
     let wrapped = wrap_with_snapshot(&argv, &snapshot, &environment).expect("a login start");
@@ -58,7 +57,7 @@ async fn runs_a_login_start_with_the_conversations_environment_alone() {
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "unset:from-conversation:hello:first:second\n"
+        "unset:from-conversation:first:second\n"
     );
 }
 

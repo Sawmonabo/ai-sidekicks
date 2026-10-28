@@ -1,7 +1,7 @@
 //! What tests of the command channel and of its users share: this test program started as a
 //! party, and a party's records sealed and written where the channel reads them.
 
-use std::io::{BufRead as _, BufReader, Lines};
+use std::io::{BufReader, Lines};
 use std::path::Path;
 use std::process::{Child, ChildStdout, Command, Stdio};
 use std::sync::Arc;
