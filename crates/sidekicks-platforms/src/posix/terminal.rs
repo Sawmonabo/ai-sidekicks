@@ -289,7 +289,7 @@ impl TerminalWatch {
             return Err((error, Box::new(pty)));
         }
         // SAFETY: the program is unreaped until the watch reaps it, and the watch takes the event
-        // off the poller at that reap, in `release`, on its drop and on the failure below.
+        // off the poller before that reap, in `release`, on its drop and on the failure below.
         let registered = unsafe { ExitEvent::register(&waker.poller, pty.process_id(), CHILD_KEY) };
         let exit_event = match registered {
             Ok(exit_event) => exit_event,
@@ -435,15 +435,19 @@ impl TerminalWatch {
         Ok(true)
     }
 
-    /// Reaps the program when it has exited, answering its status, which is absent when the
-    /// reap failed (logged); the caller holds its signal lock across this. Once its exit event
-    /// came, the program is reaped whether or not a wait sees the exit yet: macOS posts the event
+    /// Reaps the program once its exit event came, answering its status, which is absent when the
+    /// reap failed (logged); `None` before the event. The caller holds its signal lock across
+    /// this. The program is reaped whether or not a wait sees the exit yet: macOS posts the event
     /// before, and posts no second, so the blocking reap that follows returns at once.
     pub fn take_child_exit(&mut self) -> Option<Option<ExitStatus>> {
         let pty = self.pty.as_ref()?;
+        if !self.has_exit_event {
+            return None;
+        }
+        // Off the poller before the reap frees the program's id, which the event names.
+        unregister_exit_event(self.poller.get_ref(), self.exit_event.take());
         let reaped = match pty.reap_if_exited() {
             Ok(Some(status)) => Ok(status),
-            Ok(None) if !self.has_exit_event => return None,
             Ok(None) => pty.reap(),
             Err(error) => Err(error),
         };
@@ -458,7 +462,6 @@ impl TerminalWatch {
                 None
             }
         };
-        unregister_exit_event(self.poller.get_ref(), self.exit_event.take());
         // Reaped, the PTY's drop sends nothing; the master's duplicate keeps the output readable.
         self.pty = None;
         Some(status)

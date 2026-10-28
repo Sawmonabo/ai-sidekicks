@@ -160,7 +160,7 @@ pub use file_watch::{WATCHES_TREES, inotify_watch_ceiling};
 pub use footprint::ProcessFootprint;
 pub use held_file::{create_held_file, is_held, remove_unless_held};
 pub use hidden_entry::is_hidden_entry;
-#[cfg(all(unix, any(test, feature = "test-support")))]
+#[cfg(any(test, feature = "test-support"))]
 pub use input_wait::SELECT_READER_SCRIPT;
 pub use input_wait::{InputTerminal, InputWaitReading};
 pub use keep_awake::{KeepAwakeHold, KeepAwakePurpose, KeepAwakeRefused};
@@ -332,12 +332,14 @@ pub use posix::shell_start::{
 pub use posix::shell_start::{
     LOGIN_SHELL_ARGUMENTS, POSIX_SHELL, default_shell, prepare_shell_start, start_program,
 };
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::inner::CAN_START_AN_INNER_TERMINAL;
 #[cfg(unix)]
 pub use posix::terminal::inner::start_inner_terminal;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::pty::run_terminal_taking_stand_in;
 #[cfg(unix)]
 pub use posix::terminal::pty::{Pty, start_terminal};
-#[cfg(all(unix, any(test, feature = "test-support")))]
-pub use posix::terminal::pty::{run_terminal_taking_stand_in, terminal_taking_start};
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
@@ -421,7 +423,7 @@ pub use terminal::{
     TerminalSignalRoute, TerminalStart, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
-pub use test_program::{harness_test_name, pass_through_start};
+pub use test_program::{harness_test_name, pass_through_start, terminal_taking_start};
 pub use tool_memory_cap::TOOL_MEMORY_CAP_ENFORCEABLE;
 #[cfg(not(target_os = "linux"))]
 pub use user_namespace::can_create_user_namespace;
@@ -561,6 +563,8 @@ pub use windows::system_locale::{system_hour_cycle, system_locale};
 pub use windows::terminal::DOES_TERMINAL_OUTLIVE_ITS_LEADER;
 #[cfg(target_os = "windows")]
 pub use windows::terminal::start_inner_terminal;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::terminal::{CAN_START_AN_INNER_TERMINAL, run_terminal_taking_stand_in};
 #[cfg(target_os = "windows")]
 pub use windows::terminal::{
     DOES_CONSOLE_COUNT_WAITING_INPUT, DOES_PAUSED_READ_HOLD_INPUT, Pty, TerminalWatch,

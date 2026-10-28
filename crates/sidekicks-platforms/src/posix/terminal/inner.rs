@@ -13,6 +13,10 @@ use crate::posix::spawn::inherited_environment;
 use crate::posix::terminal::pty::{TerminalProgram, open_terminal, spawn_in_terminal};
 use crate::terminal::{InnerTerminal, TerminalDevice};
 
+/// Whether [`start_inner_terminal`] starts a command: yes on macOS and Linux.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_START_AN_INNER_TERMINAL: bool = true;
+
 /// Opens a terminal of `window_size` and starts `program` in it, named `argument_zero`, with
 /// `arguments` and this process's environment, as the leader of a session of its own; the program
 /// takes the terminal as its controlling one itself, as the command wrapper's inner form does. The
@@ -49,6 +53,7 @@ pub fn start_inner_terminal(
     )?;
     Ok(InnerTerminal {
         _program_side: program_side,
+        process_id: pty.process_id(),
         pty,
         device,
     })
@@ -76,31 +81,16 @@ const TEST_WINDOW_SIZE: WindowSize = WindowSize {
     cell_height: 0,
 };
 
-/// The ignored test the tests' inner terminals start their programs through.
-#[cfg(test)]
-const TERMINAL_TAKING_STAND_IN: &str = "the_terminal_taking_stand_in_runs_its_program";
-
-#[test]
-#[ignore = "run only as the inner terminal's stand-in, in a test's terminal"]
-fn the_terminal_taking_stand_in_runs_its_program() {
-    let error = crate::posix::terminal::pty::run_terminal_taking_stand_in();
-    panic!("the stand-in did not run its program: {error:?}");
-}
-
-/// Starts `program` in an 80 by 24 terminal of its own through the stand-in above, which takes
-/// the terminal as its controlling one and then becomes `program`. Fails as
+/// Starts `program` in an 80 by 24 terminal of its own through the stand-in in this file's tests,
+/// which takes the terminal as its controlling one and then becomes `program`. Fails as
 /// [`start_inner_terminal`] fails.
 #[cfg(test)]
 pub(crate) fn start_test_terminal(
     program: &crate::terminal::TestProgram,
 ) -> io::Result<InnerTerminal> {
-    use crate::posix::terminal::pty::terminal_taking_start;
-    use crate::test_program::harness_test_name;
+    use crate::test_program::terminal_taking_start;
 
-    let start = terminal_taking_start(
-        &harness_test_name(module_path!(), TERMINAL_TAKING_STAND_IN),
-        program,
-    );
+    let start = terminal_taking_start(&tests::terminal_taking_stand_in(), program);
     start_inner_terminal(
         Path::new(&start.program),
         OsStr::new(&start.program),
@@ -189,8 +179,26 @@ mod tests {
     use nix::sys::stat::stat;
 
     use super::{end_inner_terminal, read_until_marker, start_test_terminal, terminal_device};
+    use crate::posix::terminal::pty::run_terminal_taking_stand_in;
     use crate::posix::terminal::read_terminal_master;
     use crate::posix::terminal::test_programs::shell_script;
+    use crate::test_program::harness_test_name;
+
+    /// The harness name of the ignored test the tests' inner terminals start their programs
+    /// through.
+    pub(super) fn terminal_taking_stand_in() -> String {
+        harness_test_name(
+            module_path!(),
+            "the_terminal_taking_stand_in_runs_its_program",
+        )
+    }
+
+    #[test]
+    #[ignore = "run only as the inner terminal's stand-in, in a test's terminal"]
+    fn the_terminal_taking_stand_in_runs_its_program() {
+        let error = run_terminal_taking_stand_in();
+        panic!("the stand-in did not run its program: {error:?}");
+    }
 
     // Fails when the command is not its own session's leader with the terminal as its controlling
     // one, which leaves the terminal no session or foreground group, or when the device is read

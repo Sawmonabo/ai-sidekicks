@@ -229,6 +229,21 @@ pub fn read_terminal_master(
     ))
 }
 
+/// Whether [`start_inner_terminal`] starts a command: not on Windows, whose `ConPTY` makes no
+/// session.
+#[cfg(any(test, feature = "test-support"))]
+pub const CAN_START_AN_INNER_TERMINAL: bool = false;
+
+/// The inner terminal's stand-in, which has no terminal to take, since a `ConPTY` has no
+/// controlling terminal. Always answers `Unsupported`.
+#[cfg(any(test, feature = "test-support"))]
+pub fn run_terminal_taking_stand_in() -> io::Error {
+    io::Error::new(
+        ErrorKind::Unsupported,
+        "a pseudo console makes no session for its command",
+    )
+}
+
 /// Starts a command as the leader of a terminal of its own, which a `ConPTY` does not make: it has
 /// no session or controlling terminal. Always fails with `Unsupported`.
 pub fn start_inner_terminal(

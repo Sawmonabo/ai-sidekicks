@@ -269,7 +269,8 @@ pub(crate) fn spawn_session_leader(spawn: &SessionLeaderSpawn<'_>) -> io::Result
             }
         }
     }
-    // After the streams, so a source numbered 0 to 2 is read before it is replaced. macOS keeps a
+    // After the streams, so on Linux a stream's source on descriptor 3 is copied before the
+    // inherited end replaces it. macOS keeps a
     // descriptor a duplication names under `POSIX_SPAWN_CLOEXEC_DEFAULT`, and a duplication clears
     // close-on-exec on the copy.
     if let Some(inherited) = spawn.inherited {

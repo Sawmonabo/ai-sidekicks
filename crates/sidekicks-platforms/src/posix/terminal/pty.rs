@@ -1,8 +1,8 @@
-//! A terminal's PTY on macOS and Linux and the start of a program in it with no fork: the PTY opened
-//! at its window size, its master set to read input as UTF-8 and not to block, and the program
-//! spawned as the leader of a session of its own with the terminal on its standard streams. The
-//! program takes the terminal as its controlling one itself, since a spawn cannot hand it one on
-//! macOS.
+//! A terminal's PTY on macOS and Linux and the start of a program in it with no fork: the PTY
+//! opened at its window size, its master set to read input as UTF-8 and not to block, and the
+//! program spawned as the leader of a session of its own with the terminal on its standard streams.
+//! The program takes the terminal as its controlling one itself, since a spawn cannot hand it one
+//! on macOS.
 
 use std::error::Error;
 use std::ffi::{OsStr, OsString};
@@ -81,8 +81,15 @@ impl Pty {
     }
 
     /// Waits for the program's exit and reaps it, answering how it ended; blocking, and past a
-    /// stop. Fails with the system's error from the wait, `ECHILD` once it is reaped.
+    /// stop. Fails with `NotFound` once it is reaped, since its id may then name another child,
+    /// and with the system's error from the wait.
     pub(crate) fn reap(&self) -> io::Result<ExitStatus> {
+        if self.is_reaped() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the terminal's program is already reaped",
+            ));
+        }
         let status = reap_spawned_child(self.process_id)?;
         self.is_reaped.store(true, Ordering::SeqCst);
         Ok(status)
@@ -242,21 +249,6 @@ pub fn run_terminal_taking_stand_in() -> io::Error {
         return io::Error::new(io::ErrorKind::InvalidInput, "no program follows `--`");
     };
     std::process::Command::new(program).args(words).exec()
-}
-
-/// The start of `program` through this test program's stand-in `stand_in_test`, whose body is
-/// [`run_terminal_taking_stand_in`]: the stand-in's own start, then `--`, `program` and its words,
-/// which the test harness reads as filters that name no other test.
-#[cfg(any(test, feature = "test-support"))]
-pub fn terminal_taking_start(
-    stand_in_test: &str,
-    program: &crate::terminal::TestProgram,
-) -> crate::terminal::TestProgram {
-    let mut start = crate::test_program::pass_through_start(stand_in_test);
-    start.arguments.push("--".to_owned());
-    start.arguments.push(program.program.clone());
-    start.arguments.extend(program.arguments.iter().cloned());
-    start
 }
 
 #[cfg(test)]

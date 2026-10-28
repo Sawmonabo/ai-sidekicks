@@ -77,7 +77,9 @@ impl ShellStartConfirmation {
 
     /// The variable and value the `shell` mode's environment carries so the mode finds its end, at
     /// the number the terminal's start places that end on; `None` once the confirmation is written.
-    pub fn environment_entry(&self) -> Option<(String, String)> {
+    /// The number holds only for a mode started by [`start_terminal`](crate::start_terminal),
+    /// which places the end there.
+    pub(crate) fn environment_entry(&self) -> Option<(String, String)> {
         self.shell_end.as_ref().map(|shell_end| {
             (
                 SHELL_START_CONFIRMATION.to_owned(),

@@ -1,7 +1,7 @@
 //! The macOS and Linux pieces of the `shell` mode: the default shell, the parent check that
 //! keeps a shell from outliving the daemon, the launch the daemon confirms it started the mode
-//! with, the terminal the mode takes as its controlling one, the exec on the program's resolved path, on macOS as its own responsible process, and the
-//! plain words a failed exec reads as.
+//! with, the terminal the mode takes as its controlling one, the exec on the program's resolved
+//! path, on macOS as its own responsible process, and the plain words a failed exec reads as.
 
 use std::convert::Infallible;
 use std::ffi::{CString, OsStr};
@@ -107,7 +107,8 @@ pub fn prepare_shell_start(daemon_pid: u32) -> Result<ShellLaunch, ShellStartErr
 
 /// The `shell` mode's stand-in tests start shells through: reads the launch its parent wrote, as
 /// the mode does but with no parent-death signal and no responsible-process check, takes its
-/// terminal, enters the shell's folder and starts the shell. Returns only on failure, with the error that stopped it.
+/// terminal, enters the shell's folder and starts the shell. Returns only on failure, with the
+/// error that stopped it.
 #[cfg(any(test, feature = "test-support"))]
 pub fn run_shell_start_stand_in() -> io::Error {
     let parent = std::os::unix::process::parent_id();

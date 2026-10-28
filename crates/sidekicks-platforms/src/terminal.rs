@@ -158,6 +158,8 @@ pub struct InnerTerminal {
     pub(crate) _program_side: OwnedFd,
     /// The open PTY, with the command it started.
     pub pty: Pty,
+    /// The command's process id, its session's and its group's, its own until it is reaped.
+    pub process_id: u32,
     /// The device number of the PTY's program side.
     pub device: TerminalDevice,
 }

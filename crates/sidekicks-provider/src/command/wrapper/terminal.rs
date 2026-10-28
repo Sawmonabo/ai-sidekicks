@@ -12,10 +12,9 @@ use std::time::{Duration, Instant};
 
 use alacritty_terminal::event::WindowSize;
 use sidekicks_platforms::{
-    Pty, RawStandardInput, TerminalOutputWatch, blocking_terminal_master, child_process_id,
-    end_terminal_session, pass_on_stop_signals, read_standard_input_window_size,
-    read_terminal_master, signal_foreground_group, start_inner_terminal, wait_for_exit,
-    wait_for_terminal_command,
+    Pty, RawStandardInput, TerminalOutputWatch, blocking_terminal_master, end_terminal_session,
+    pass_on_stop_signals, read_standard_input_window_size, read_terminal_master,
+    signal_foreground_group, start_inner_terminal, wait_for_exit, wait_for_terminal_command,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::standard_error::write_error_line;
@@ -106,13 +105,7 @@ pub(super) fn run_in_terminal(
         Ok(terminal) => terminal,
         Err(error) => return exec_failed(&error),
     };
-    let Some(group) = child_process_id(&terminal.pty) else {
-        let error = io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "the system reported no process id for the command",
-        );
-        return abandon_terminal(&terminal.pty, &error);
-    };
+    let group = terminal.process_id;
     *lock(state) = CommandState::Running { group };
     // The rest of `terminal`, its own handle on the program side among it, lives until the
     // wrapper returns, so the master never reads as closed while the command runs.

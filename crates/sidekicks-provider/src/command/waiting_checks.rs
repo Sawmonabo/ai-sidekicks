@@ -361,10 +361,10 @@ mod tests {
     use futures::future::BoxFuture;
     use rstest::rstest;
     use sidekicks_platforms::{
-        InputTerminal, InputWaitReading, POSIX_SHELL, SELECT_READER_SCRIPT, Spawner,
-        TerminalDevice, TerminalMasterReading, TestProgram, blocking_terminal_master,
-        harness_test_name, read_input_wait, read_terminal_master, run_terminal_taking_stand_in,
-        start_inner_terminal, terminal_taking_start,
+        CAN_START_AN_INNER_TERMINAL, InputTerminal, InputWaitReading, POSIX_SHELL,
+        SELECT_READER_SCRIPT, Spawner, TerminalDevice, TerminalMasterReading, TestProgram,
+        blocking_terminal_master, harness_test_name, read_input_wait, read_terminal_master,
+        run_terminal_taking_stand_in, start_inner_terminal, terminal_taking_start,
     };
     use sidekicks_std::mutex_lock::lock;
     use tokio::time::Instant;
@@ -511,6 +511,9 @@ mod tests {
     // the no-prompt assert catches where the reader is read waiting in `select`.
     #[tokio::test]
     async fn a_select_reader_is_marked_waiting_with_a_prompt_line_and_not_without_one() {
+        if !CAN_START_AN_INNER_TERMINAL {
+            return;
+        }
         let start = terminal_taking_start(
             &harness_test_name(module_path!(), STAND_IN),
             &TestProgram {
