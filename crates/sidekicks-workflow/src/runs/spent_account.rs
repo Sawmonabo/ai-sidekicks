@@ -38,10 +38,6 @@ pub(crate) fn spent_account_columns(account_alias: &str) -> String {
 }
 
 /// The stored columns a spent account is named from, as [`spent_account_columns`] selects them.
-#[expect(
-    dead_code,
-    reason = "the workflow handlers name a spent account once they hold the provider read"
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SpentAccountColumns {
     /// The account's provider, read as written and never checked against the drivers, so an

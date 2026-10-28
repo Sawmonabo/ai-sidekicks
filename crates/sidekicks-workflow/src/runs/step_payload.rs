@@ -50,11 +50,19 @@ pub(crate) enum WorkflowStepPayloadError {
 }
 
 /// Reads one step's stored payloads for its step panel, on one of the daemon's read connections.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.step.read handler")
+)]
 pub(crate) struct WorkflowStepPayloadReader<'connection> {
     /// A read-only connection.
     reader: &'connection Connection,
 }
 
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the workflow.step.read handler")
+)]
 impl<'connection> WorkflowStepPayloadReader<'connection> {
     /// A reader over `reader`, one of the daemon's read-only connections.
     pub(crate) fn new(reader: &'connection Connection) -> Self {
