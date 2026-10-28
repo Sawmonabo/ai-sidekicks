@@ -11,8 +11,10 @@
 //!   after it, the project's steps read again and those that already succeeded kept.
 //! - A running command is kept on its card, so a removal ends it before its tree moves and the
 //!   daemon's stop ends every one; a card dropped once its tree is retired ends its command too,
-//!   and a dropped card runs no further step.
+//!   and a dropped card runs no further step. No step starts in a tree while its removal is under
+//!   way, and a retry there is refused as one of a retired tree.
 
+mod closing_folders;
 mod steps;
 
 use std::collections::{HashMap, HashSet};
@@ -39,17 +41,15 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::Instant;
 
+use self::closing_folders::{ClosingFolders, tree_key_of};
 pub use self::steps::SetupCommandEndError;
 use self::steps::{
     CardStep, RunningCommand, SetupCommand, StepAction, StepOutcome, copy_setup_file,
     keep_succeeded_steps, output_text, project_steps_of, run_command, step_error,
 };
-use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{GitCall, GitRunner, SHUTDOWN_STOP_GRACE, in_folder};
 use crate::git::worktree::errors::WorktreeRefusal;
-use crate::git::worktree::removal::{FolderProcessHold, FolderProcessOwner};
 use crate::git::worktree::watch::{WatchHold, WatchTarget, WorkingFolderWatcher};
-use crate::trust_envelope::is_contained_within;
 
 /// How long a command ended because its tree is being removed has after it is asked to stop
 /// before every process it started is ended: the grace terminal programs give a process they close.
@@ -187,6 +187,8 @@ struct RunnerState {
     cards: HashMap<WorktreeId, Card>,
     // The commands of dropped cards still being ended, so the stop reaches them too.
     ending: HashMap<u64, Arc<RunningCommand>>,
+    // The folders being moved or deleted, in which no step starts.
+    closing_folders: ClosingFolders,
     next_id: u64,
     is_stopped: bool,
 }
@@ -233,6 +235,12 @@ impl Card {
 }
 
 impl RunnerState {
+    // Whether the tree whose key is `tree_key` lies in a folder being moved or deleted; `false`
+    // for a card whose tree was never made.
+    fn is_closing(&self, tree_key: Option<&Path>) -> bool {
+        tree_key.is_some_and(|tree_key| self.closing_folders.is_closing(tree_key))
+    }
+
     fn next_id(&mut self) -> u64 {
         self.next_id += 1;
         self.next_id
@@ -409,8 +417,20 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         &self,
         worktree_id: WorktreeId,
     ) -> Result<WorktreeSetupStatus, WorktreeSetupError> {
+        let tree_path = self
+            .shared
+            .lock()
+            .require_card(&worktree_id)?
+            .made
+            .as_ref()
+            .map(|made| made.tree_path.clone());
+        let tree_key = match tree_path {
+            Some(tree_path) => Some(tree_key_of(&tree_path).await),
+            None => None,
+        };
         let retry = {
             let mut state = self.shared.lock();
+            let is_closing = state.is_closing(tree_key.as_deref());
             let card = state.require_card(&worktree_id)?;
             let failed = card
                 .steps
@@ -424,6 +444,10 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             let Some(made) = card.made.clone() else {
                 return Err(WorktreeSetupError::TreeNeverMade);
             };
+            // A tree whose removal is under way is as good as retired.
+            if is_closing {
+                return Err(not_found(worktree_id));
+            }
             match card.steps[failed].action {
                 StepAction::MakeTree => return Err(WorktreeSetupError::TreeNeverMade),
                 // The project's steps all succeeded, so they are not read again.
@@ -446,9 +470,13 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         let read_again = self.read_project_steps(&worktree_id).await;
         let run = {
             let mut state = self.shared.lock();
+            let is_closing = state.is_closing(tree_key.as_deref());
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return Err(not_found(worktree_id));
             };
+            if is_closing {
+                return Err(not_found(worktree_id));
+            }
             if card.is_running || card.state != WorktreeSetupState::Failed {
                 return Ok(card.status(worktree_id));
             }
@@ -483,41 +511,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                 .start_run(&mut state, worktree_id, made, 1 + kept_count)
         };
         run.await.map_err(WorktreeSetupError::RunEnded)
-    }
-
-    /// Ends every running setup command whose tree is `folder` or inside it: each is asked to
-    /// stop and ended after a grace, its step failing as removed; answers once each has exited.
-    /// Run before the folder is moved or deleted. Fails with `Folder` when `folder` cannot be
-    /// resolved, and with `CommandsNotEnded` naming each command that could not be ended.
-    pub(crate) async fn end_processes_in_folder(
-        &self,
-        folder: &Path,
-    ) -> Result<(), WorktreeSetupError> {
-        let folder_key = canonical_folder_path(folder)
-            .await
-            .map_err(WorktreeSetupError::Folder)?;
-        let running: Vec<(PathBuf, Arc<RunningCommand>)> = self
-            .shared
-            .lock()
-            .cards
-            .values()
-            .filter_map(|card| {
-                Some((
-                    card.made.as_ref()?.tree_path.clone(),
-                    Arc::clone(card.running_command.as_ref()?),
-                ))
-            })
-            .collect();
-        let mut in_folder = Vec::new();
-        for (tree_path, command) in running {
-            let tree_key = canonical_folder_path(&tree_path)
-                .await
-                .map_err(WorktreeSetupError::Folder)?;
-            if is_contained_within(&tree_key, &folder_key) {
-                in_folder.push(command);
-            }
-        }
-        end_all(&in_folder, REMOVED_END_REASON, REMOVAL_END_GRACE).await
     }
 
     /// Ends every running setup command, each asked to stop and ended within the daemon's stop
@@ -600,20 +593,6 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     }
 }
 
-impl<W: Watcher + Send + 'static> FolderProcessOwner for WorktreeSetupRunner<W> {
-    fn end_processes_in_folder<'a>(
-        &'a self,
-        folder: &'a Path,
-    ) -> BoxFuture<'a, Result<FolderProcessHold, Box<dyn Error + Send + Sync>>> {
-        // Nothing is held: a retry of the card's failed step can still start in the folder before
-        // its move or deletion lands.
-        Box::pin(async move {
-            WorktreeSetupRunner::end_processes_in_folder(self, folder).await?;
-            Ok(Box::new(()) as FolderProcessHold)
-        })
-    }
-}
-
 impl<W: Watcher + Send + 'static> RunnerShared<W> {
     fn lock(&self) -> MutexGuard<'_, RunnerState> {
         lock(&self.state)
@@ -663,11 +642,13 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         made: &MadeWorktree,
         first_index: usize,
     ) -> WorktreeSetupStatus {
+        let tree_key = tree_key_of(&made.tree_path).await;
         let mut index = first_index;
         loop {
             let action = {
                 let mut state = self.lock();
                 let is_stopped = state.is_stopped;
+                let is_closing = state.closing_folders.is_closing(&tree_key);
                 let Some(card) = state.held_card(&worktree_id, card_id) else {
                     // A dropped card runs no further step, so nothing starts in a tree being
                     // removed.
@@ -681,12 +662,21 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
                 entry.step.state = WorktreeSetupStepState::Running;
                 let action = entry.action.clone();
                 card.emit(worktree_id);
-                (!is_stopped).then_some(action)
+                if is_stopped {
+                    Err(STOPPED_END_REASON)
+                } else if is_closing {
+                    Err(REMOVED_END_REASON)
+                } else {
+                    Ok(action)
+                }
             };
             let started_at = Instant::now();
             let outcome = match action {
-                Some(action) => self.run_step(worktree_id, card_id, made, action).await,
-                None => StepOutcome::failed(STOPPED_END_REASON),
+                Ok(action) => {
+                    self.run_step(worktree_id, card_id, made, &tree_key, action)
+                        .await
+                }
+                Err(reason) => StepOutcome::failed(reason),
             };
             let mut state = self.lock();
             let Some(card) = state.held_card(&worktree_id, card_id) else {
@@ -713,6 +703,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         worktree_id: WorktreeId,
         card_id: u64,
         made: &MadeWorktree,
+        tree_key: &Path,
         action: StepAction,
     ) -> StepOutcome {
         match action {
@@ -723,8 +714,15 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
                 copy_setup_file(&made.repository_root, &made.tree_path, &path).await
             }
             StepAction::Command { line, time_limit } => {
-                self.run_command_step(worktree_id, card_id, made, line.as_str(), time_limit)
-                    .await
+                self.run_command_step(
+                    worktree_id,
+                    card_id,
+                    made,
+                    line.as_str(),
+                    time_limit,
+                    tree_key,
+                )
+                .await
             }
             StepAction::Warm => self.warm(worktree_id, card_id, made).await,
         }
@@ -737,6 +735,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         made: &MadeWorktree,
         line: &str,
         time_limit: Option<Duration>,
+        tree_key: &Path,
     ) -> StepOutcome {
         let environment = match self
             .deps
@@ -752,6 +751,9 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
             let mut state = self.lock();
             if state.is_stopped {
                 return StepOutcome::failed(STOPPED_END_REASON);
+            }
+            if state.closing_folders.is_closing(tree_key) {
+                return StepOutcome::failed(REMOVED_END_REASON);
             }
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return StepOutcome::failed(REMOVED_END_REASON);

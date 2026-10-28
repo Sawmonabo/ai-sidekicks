@@ -32,7 +32,9 @@ use super::test_runner::test_setup_runner;
 use super::{MadeWorktree, WorktreeSetupError, WorktreeSetupRunner, WorktreeSetupSources};
 use crate::git::process::test_git_runner;
 use crate::git::process::test_repository::{git_in, make_test_repository};
+use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
+use crate::git::worktree::removal::FolderProcessOwner;
 use crate::git::worktree::schema::schema_parts;
 
 const READ_STATEMENT_CAPACITY: usize = 16;
@@ -242,6 +244,36 @@ async fn a_failed_command_stops_the_run_and_a_retry_runs_on_from_it_keeping_the_
         read("ran.log"),
         "ran\n",
         "a step that succeeded is not run again"
+    );
+}
+
+// Kills a retry that starts in a tree whose removal is under way: pressed while the removal holds
+// the tree's folder it is refused as one of a retired tree, and once the hold drops it runs.
+#[tokio::test]
+async fn a_retry_pressed_during_a_removal_is_refused() {
+    let fixture = SetupFixture::new(setup_of(&[], &["test -f fixed"], None)).await;
+    let (worktree_id, failed) = fixture.make().await;
+    assert_eq!(failed.state, WorktreeSetupState::Failed);
+    fs::write(fixture.tree().join("fixed"), "").expect("written");
+
+    let hold = FolderProcessOwner::end_processes_in_folder(&fixture.runner, &fixture.tree())
+        .await
+        .expect("the tree's setup commands end");
+    let during = fixture.runner.retry(worktree_id).await;
+    drop(hold);
+    let after = fixture.runner.retry(worktree_id).await;
+
+    assert!(
+        matches!(
+            during,
+            Err(WorktreeSetupError::Refused(WorktreeRefusal::NotFound { worktree_id: refused }))
+                if refused == worktree_id
+        ),
+        "a retry during the removal is refused, not {during:?}"
+    );
+    assert_eq!(
+        after.expect("a retry once the removal let go runs").state,
+        WorktreeSetupState::Succeeded
     );
 }
 
