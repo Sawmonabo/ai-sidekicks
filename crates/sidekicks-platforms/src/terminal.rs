@@ -5,12 +5,15 @@ use std::error::Error;
 use std::io;
 #[cfg(unix)]
 use std::os::fd::OwnedFd;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use alacritty_terminal::tty::Pty;
 use polling::Poller;
+
+use crate::ShellStartConfirmation;
 
 /// How long a helper program the terminals start (`taskkill.exe`, the console helper, and on macOS
 /// the input wait's `sample` and `ps`) may run, and how long an outright end of a process tree is
@@ -124,6 +127,24 @@ impl TerminalMasterReading {
 /// from every other, whatever path opened it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct TerminalDevice(pub u64);
+
+/// What a shell's terminal starts: the daemon's `shell` mode, which takes the terminal as its
+/// controlling one and starts the shell the confirmation's launch names.
+pub struct TerminalStart<'a> {
+    /// The mode's program, by its absolute path.
+    pub program: &'a Path,
+    /// The words after the program's own.
+    pub arguments: &'a [String],
+    /// The folder the mode starts in, one no person removes.
+    pub folder: &'a Path,
+    /// The terminal's height in rows.
+    pub rows: u16,
+    /// The terminal's width in columns.
+    pub columns: u16,
+    /// The confirmation whose end the mode inherits, its environment entry added over the
+    /// daemon's own environment.
+    pub confirmation: &'a ShellStartConfirmation,
+}
 
 /// A terminal a command runs in as its own session's leader, the terminal its controlling one: the
 /// open PTY, whose master reads the command's output and takes its input, a handle of its own on

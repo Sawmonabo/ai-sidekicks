@@ -1,8 +1,10 @@
 //! The macOS and Linux side of the terminal interface: POSIX signals, the keys a terminal turns
 //! into signals, the PTY's window size and a poller over the terminal and its program's exit,
-//! whose descriptor the runtime watches; `inner` starts a command in a terminal of its own.
+//! whose descriptor the runtime watches; `pty` opens a terminal and starts a program in it with no
+//! fork, and `inner` starts a command in a terminal of its own.
 
 pub(crate) mod inner;
+pub(crate) mod pty;
 
 use std::collections::HashMap;
 use std::error::Error;

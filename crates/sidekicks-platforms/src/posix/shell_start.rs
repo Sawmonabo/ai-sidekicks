@@ -1,6 +1,6 @@
 //! The macOS and Linux pieces of the `shell` mode: the default shell, the parent check that
 //! keeps a shell from outliving the daemon, the launch the daemon confirms it started the mode
-//! with, the exec on the program's resolved path, on macOS as its own responsible process, and the
+//! with, the terminal the mode takes as its controlling one, the exec on the program's resolved path, on macOS as its own responsible process, and the
 //! plain words a failed exec reads as.
 
 use std::convert::Infallible;
@@ -87,12 +87,12 @@ pub(crate) fn arm_parent_death(daemon_pid: u32) -> io::Result<()> {
 /// parent-death signal, the check alone); reads the daemon's confirmation that it started this
 /// process and the shell's launch after it, written by the daemon `daemon_pid` (on macOS also its
 /// own responsible process, without which no program starts as its own responsible process);
-/// enters the shell's folder, which the shell inherits across the exec; then sets `SIGPIPE` back to
-/// its default, since an ignored signal survives `execve`. Fails with
-/// [`ShellStartError::DaemonGone`] when the daemon is no longer the parent,
-/// [`ShellStartError::Unconfirmed`] when the confirmation or the launch does not come from it,
-/// [`ShellStartError::FolderRefused`] when the folder cannot be entered, and with the variant
-/// naming the call the system refused.
+/// takes its terminal as its controlling one, so the shell's jobs and signal keys reach it; enters
+/// the shell's folder, which the shell inherits across the exec; then sets `SIGPIPE` back to its
+/// default, since an ignored signal survives `execve`. Fails with [`ShellStartError::DaemonGone`]
+/// when the daemon is no longer the parent, [`ShellStartError::Unconfirmed`] when the confirmation
+/// or the launch does not come from it, [`ShellStartError::FolderRefused`] when the folder cannot
+/// be entered, and with the variant naming the call the system refused.
 pub fn prepare_shell_start(daemon_pid: u32) -> Result<ShellLaunch, ShellStartError> {
     arm(daemon_pid).map_err(|failure| match failure {
         ArmingFailure::DaemonGone => ShellStartError::DaemonGone,
@@ -101,13 +101,13 @@ pub fn prepare_shell_start(daemon_pid: u32) -> Result<ShellLaunch, ShellStartErr
     })?;
     let launch =
         receive_launch(daemon_pid, WriterCheck::Daemon).map_err(ShellStartError::Unconfirmed)?;
-    enter_folder_with_default_sigpipe(&launch.shell.folder)?;
+    prepare_exec(&launch.shell.folder)?;
     Ok(launch)
 }
 
 /// The `shell` mode's stand-in tests start shells through: reads the launch its parent wrote, as
-/// the mode does but with no parent-death signal and no responsible-process check, enters the
-/// shell's folder and starts the shell. Returns only on failure, with the error that stopped it.
+/// the mode does but with no parent-death signal and no responsible-process check, takes its
+/// terminal, enters the shell's folder and starts the shell. Returns only on failure, with the error that stopped it.
 #[cfg(any(test, feature = "test-support"))]
 pub fn run_shell_start_stand_in() -> io::Error {
     let parent = std::os::unix::process::parent_id();
@@ -115,14 +115,31 @@ pub fn run_shell_start_stand_in() -> io::Error {
         Ok(launch) => launch,
         Err(error) => return error,
     };
-    if let Err(error) = enter_folder_with_default_sigpipe(&launch.shell.folder) {
+    if let Err(error) = prepare_exec(&launch.shell.folder) {
         return io::Error::other(error);
     }
     start_program(&launch.shell)
 }
 
-// Enters `folder`, then sets `SIGPIPE` back to its default.
-fn enter_folder_with_default_sigpipe(folder: &Path) -> Result<(), ShellStartError> {
+// `TIOCSCTTY`, which makes a terminal the calling session leader's controlling terminal; through
+// nix's macro, since `libc` types the request differently on macOS and Linux.
+nix::ioctl_write_int_bad!(set_controlling_terminal, libc::TIOCSCTTY);
+
+/// Makes the terminal on standard input this process's controlling terminal, as a session leader
+/// that has none takes it; argument 0, so a terminal another session holds is refused, never
+/// stolen. The spawn that made this process a session leader cannot do it: macOS runs a spawn's
+/// file actions before its new session. Fails with the system's error.
+pub(crate) fn take_controlling_terminal() -> io::Result<()> {
+    // SAFETY: `TIOCSCTTY` reads only its integer argument, and descriptor 0 is this process's own.
+    unsafe { set_controlling_terminal(libc::STDIN_FILENO, 0) }
+        .map(drop)
+        .map_err(io::Error::from)
+}
+
+// Readies this process for the shell's exec: takes the terminal on its standard input as its
+// controlling one, enters `folder`, then sets `SIGPIPE` back to its default.
+fn prepare_exec(folder: &Path) -> Result<(), ShellStartError> {
+    take_controlling_terminal().map_err(ShellStartError::TerminalRefused)?;
     chdir(folder).map_err(|errno| ShellStartError::FolderRefused(io::Error::from(errno)))?;
     // SAFETY: the default disposition installs no handler, so no code of this program can run
     // inside a signal.

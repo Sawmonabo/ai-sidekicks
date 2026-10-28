@@ -11,8 +11,9 @@
               input count (`GetNumberOfConsoleInputEvents`) and library-search calls, the shell \
               start's signal and console-handler calls, the parent check a Linux `Command` child \
               runs in `pre_exec`, a Linux lasting child's `setsid` and `prctl` in `pre_exec`, a \
-              lasting child's and a session child's `posix_spawn` on macOS (its attributes, file \
-              actions and reap), a Linux session child's `setsid` in `pre_exec`, the stop of a \
+              lasting child's and a session child's `posix_spawn` on macOS and a terminal's on \
+              macOS and Linux (its attributes, file actions and reap), the `shell` mode's \
+              `TIOCSCTTY`, a Linux session child's `setsid` in `pre_exec`, the stop of a \
               pinned process (Linux's `pidfd_send_signal`, macOS's exit filter, descendant list \
               and audit-token signal, Windows' `OpenProcess`, `GetProcessTimes`, \
               `WaitForSingleObject`, `TerminateProcess` and its job's open, check and end), a \
@@ -333,6 +334,10 @@ pub use posix::shell_start::{
 };
 #[cfg(unix)]
 pub use posix::terminal::inner::start_inner_terminal;
+#[cfg(unix)]
+pub use posix::terminal::pty::{Pty, start_terminal};
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::terminal::pty::{run_terminal_taking_stand_in, terminal_taking_start};
 // The daemon's own socket on macOS and Linux is AF_UNIX too, so one dial serves both.
 #[cfg(unix)]
 pub use posix::shell_start_confirmation::{ShellLaunchWriter, ShellStartConfirmation};
@@ -413,7 +418,7 @@ pub use terminal::{AbnormalExit, TestProgram};
 pub use terminal::{
     CONSOLE_WAITING_INPUT_ARGUMENT, ConsoleReading, HELPER_PROGRAM_TIME_LIMIT, InnerTerminal,
     ProcessTreeEnd, TerminalDevice, TerminalInputRefusal, TerminalMasterReading, TerminalSignal,
-    TerminalSignalRoute, TerminalWake, TerminalWaker,
+    TerminalSignalRoute, TerminalStart, TerminalWake, TerminalWaker,
 };
 #[cfg(any(test, feature = "test-support"))]
 pub use test_program::{harness_test_name, pass_through_start};

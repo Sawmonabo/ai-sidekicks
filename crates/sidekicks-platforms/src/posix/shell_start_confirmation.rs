@@ -8,7 +8,7 @@
 //! end, so the mode starts nothing for it.
 
 use std::io::{self, Read as _, Write as _};
-use std::os::fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
+use std::os::fd::{AsFd as _, AsRawFd as _, FromRawFd as _, OwnedFd, RawFd};
 use std::os::unix::net::UnixStream;
 
 use tokio::io::AsyncWriteExt as _;
@@ -17,6 +17,7 @@ use tokio::io::AsyncWriteExt as _;
 use crate::linux::shell_start_confirmation::check_confirming_writer;
 #[cfg(target_os = "macos")]
 use crate::macos::shell_start_confirmation::check_confirming_writer;
+use crate::posix::spawn::inherited_descriptor_in_child;
 use crate::shell_start::{SHELL_START_CONFIRMATION, ShellLaunch};
 
 /// The bytes the confirmation carries: the started process's id.
@@ -74,13 +75,13 @@ impl ShellStartConfirmation {
         })
     }
 
-    /// The variable and value the `shell` mode's environment carries so the mode finds its end;
-    /// `None` once the confirmation is written.
+    /// The variable and value the `shell` mode's environment carries so the mode finds its end, at
+    /// the number the terminal's start places that end on; `None` once the confirmation is written.
     pub fn environment_entry(&self) -> Option<(String, String)> {
         self.shell_end.as_ref().map(|shell_end| {
             (
                 SHELL_START_CONFIRMATION.to_owned(),
-                shell_end.as_raw_fd().to_string(),
+                inherited_descriptor_in_child(shell_end.as_fd()).to_string(),
             )
         })
     }
