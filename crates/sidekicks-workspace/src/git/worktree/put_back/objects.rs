@@ -8,11 +8,18 @@ use std::path::{Path, PathBuf};
 
 use sidekicks_std::file::clone_or_copy::clone_or_copy;
 use sidekicks_std::missing_entry::MissingEntry;
+use sidekicks_std::random_hex::random_hex;
 
 use super::undo::PutBackUndoError;
 use super::{PutBackStepError, at};
 use crate::git::worktree::kept_copy::saved_state::lfs_object_path;
 use crate::git::worktree::kept_copy::{KEPT_LFS_ENTRY, KEPT_OBJECTS_ENTRY};
+
+// The extension of a pack's index, the file whose presence makes git read the pack.
+const PACK_INDEX_EXTENSION: &str = "idx";
+
+// The random bytes in a pack file's temporary name, so two put-backs never meet.
+const TEMPORARY_NAME_RANDOM_BYTES: usize = 8;
 
 /// What a put-back copied into the repository, each file named before it is written, so a failure
 /// part way still names it for the undo, and the folders it made on the way.
@@ -70,7 +77,8 @@ pub(super) async fn restore_objects(
 }
 
 // Copies each kept pack file into `pack_folder` and each kept LFS object into `lfs_store`, naming
-// each in `restored` before it is written.
+// each in `restored` before it is written. A pack file lands whole by a rename, and each index
+// last, so git never reads a pack before it is all there, as git's own pack writes do.
 fn copy_kept_objects(
     kept_objects: &Path,
     pack_folder: &Path,
@@ -78,8 +86,11 @@ fn copy_kept_objects(
     lfs_store: &Path,
     restored: &mut RestoredObjects,
 ) -> Result<(), PutBackStepError> {
-    for name in read_entry_names(kept_objects)? {
-        restore_object(
+    let mut pack_names = read_entry_names(kept_objects)?;
+    pack_names
+        .sort_by_key(|name| Path::new(name).extension() == Some(PACK_INDEX_EXTENSION.as_ref()));
+    for name in pack_names {
+        restore_pack_file(
             &kept_objects.join(&name),
             &pack_folder.join(&name),
             restored,
@@ -105,6 +116,36 @@ fn read_entry_names(folder: &Path) -> Result<Vec<OsString>, PutBackStepError> {
         .collect()
 }
 
+// Copies one kept pack file to `target` unless something is there, through a temporary name
+// beside it renamed into place, making its missing folders first.
+fn restore_pack_file(
+    source: &Path,
+    target: &Path,
+    restored: &mut RestoredObjects,
+) -> Result<(), PutBackStepError> {
+    if target.try_exists().map_err(at(target))? {
+        return Ok(());
+    }
+    make_missing_folders(target, restored)?;
+    let mut temporary_name = OsString::from("tmp_");
+    temporary_name
+        .push(random_hex(TEMPORARY_NAME_RANDOM_BYTES).map_err(PutBackStepError::TemporaryName)?);
+    temporary_name.push("_");
+    temporary_name.push(
+        target
+            .file_name()
+            .expect("a pack file's path ends in its name"),
+    );
+    let temporary = target.with_file_name(temporary_name);
+    restored.files.push(temporary.clone());
+    clone_or_copy(source, &temporary).map_err(at(&temporary))?;
+    fs::rename(&temporary, target).map_err(at(target))?;
+    // The file is now at its own name alone, which the undo and the flush reach.
+    restored.files.pop();
+    restored.files.push(target.to_path_buf());
+    Ok(())
+}
+
 // Copies one kept object to `target` unless something is there, making its missing folders first.
 fn restore_object(
     source: &Path,
@@ -114,6 +155,16 @@ fn restore_object(
     if target.try_exists().map_err(at(target))? {
         return Ok(());
     }
+    make_missing_folders(target, restored)?;
+    restored.files.push(target.to_path_buf());
+    clone_or_copy(source, target).map_err(at(target))
+}
+
+// Makes each missing folder above `target`, outermost first, naming each in `restored`.
+fn make_missing_folders(
+    target: &Path,
+    restored: &mut RestoredObjects,
+) -> Result<(), PutBackStepError> {
     if let Some(folder) = target.parent() {
         let mut missing = Vec::new();
         for ancestor in folder.ancestors() {
@@ -130,6 +181,5 @@ fn restore_object(
             }
         }
     }
-    restored.files.push(target.to_path_buf());
-    clone_or_copy(source, target).map_err(at(target))
+    Ok(())
 }

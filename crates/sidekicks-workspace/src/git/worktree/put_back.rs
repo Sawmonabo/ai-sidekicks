@@ -224,6 +224,9 @@ pub(crate) enum PutBackStepError {
     /// A blocking task ended before it finished.
     #[error("a put-back step ended before it finished")]
     Interrupted(#[source] JoinError),
+    /// The system gave no random bytes for a pack file's temporary name.
+    #[error("a pack file's temporary name could not be made")]
+    TemporaryName(#[source] getrandom::Error),
 }
 
 fn at(path: &Path) -> impl FnOnce(io::Error) -> PutBackStepError {
