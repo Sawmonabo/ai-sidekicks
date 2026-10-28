@@ -1,10 +1,12 @@
 //! Answers to a provider's choice over a test database holding one run waiting on a choice, bound
 //! to the table's first provider, whose driver is a stand-in: an answer the provider got with no
-//! reply back, settled by the provider's word, the order an answer is refused in, and the one
-//! settlement of each choice a run's end lets go or an answer ends the run with.
+//! reply back, settled by the provider's word and held again when its settle fails, the order an
+//! answer is refused in, and the one settlement of each choice a run's end lets go or an answer
+//! ends the run with.
 
-use std::sync::Arc;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
 use futures::FutureExt as _;
 use rstest::rstest;
@@ -12,6 +14,7 @@ use rusqlite::params;
 use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceResolveRequest, AgentRunUsageCreditsChoiceRequestedPayload,
@@ -19,16 +22,20 @@ use sidekicks_contracts::run::provider_choice::{
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::transcript::turn_attribution::RUN_START_POSITION;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::error_causes::unanswered;
+use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::run_control::AnswerProviderChoiceResult;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_provider,
 };
-use sidekicks_provider::run::state_entry::RunStateEntry;
+use sidekicks_provider::run::delivery::{DeliveryBinding, InboundDelivery};
+use sidekicks_provider::run::state_entry::{RunStateEntry, RunStateReport};
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
@@ -46,6 +53,9 @@ use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::RunEngine;
 use crate::run::engine::test_fixture::{append, insert_running_run, stored_run_state, test_engine};
+use crate::run::epochs::{EpochBinding, ExecutionEpochs};
+use crate::run::inbound::tests::UnreadRunStates;
+use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChange;
 
@@ -53,10 +63,10 @@ use crate::run::state_change::RunStateChange;
 struct Fixture {
     database: TestDatabase,
     engine: Arc<RunEngine>,
-    resolver: ProviderChoiceResolver,
+    resolver: Arc<ProviderChoiceResolver>,
     session_id: SessionId,
     run_id: RunId,
-    _log: TestLog,
+    log: TestLog,
     _home: TempDir,
 }
 
@@ -199,21 +209,21 @@ async fn fixture(driver: MockProviderDriver, setup: ChoiceRun) -> Fixture {
             .expect("the provider asks the choice");
     }
     let engine = test_engine(&database, Arc::clone(&log.service), home.path());
-    let resolver = ProviderChoiceResolver::new(
+    let resolver = Arc::new(ProviderChoiceResolver::new(
         Arc::new(DatabaseReadPool::new(
             database.path(),
             PROVIDER_CHOICE_STATEMENT_CAPACITY,
         )),
         Arc::clone(&engine),
         Arc::new(registry_of_first_provider(Arc::new(driver))),
-    );
+    ));
     Fixture {
         database,
         engine,
         resolver,
         session_id,
         run_id,
-        _log: log,
+        log,
         _home: home,
     }
 }
@@ -291,6 +301,88 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
     );
     assert_eq!(after_first, ("waitingForInput".to_owned(), 0));
     assert!(settled);
+    assert_eq!(
+        (fixture.state(), fixture.settlements()),
+        ("running".to_owned(), 1)
+    );
+}
+
+// A provider's report that shows it took a held answer settles that answer before the report is
+// applied, through the inbound dispatch; a settle whose write fails surfaces as the dispatch's
+// error, the report not applied and the answer held again, so the report delivered again settles
+// it. Killed by settling after the report (the report moves the run and nothing settles), by
+// logging the failed settle and applying the report, and by dropping the answer whose settle
+// failed.
+#[tokio::test]
+async fn a_report_settles_the_held_answer_first_and_a_failed_settle_keeps_it() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_answer_provider_choice()
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let fixture = fixture(driver, WAITING_ON_THE_CHOICE).await;
+    let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
+        NonZeroUsize::new(2).expect("the cap is not zero"),
+    )));
+    let binding_id =
+        RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a UUID is a binding id");
+    epochs
+        .lock()
+        .expect("no test thread panics holding the cursors")
+        .open_binding(
+            EpochBinding {
+                id: binding_id.clone(),
+                run_id: fixture.run_id,
+                provider_name: test_provider(),
+                provider_account_id: test_provider_account_id(),
+            },
+            RUN_START_POSITION,
+        )
+        .expect("the binding has no cursor yet");
+    let dispatch = RunInboundDispatch::new(
+        Arc::clone(&fixture.engine),
+        epochs,
+        Arc::new(UnreadRunStates),
+        Arc::clone(&fixture.log.service),
+        Arc::clone(&fixture.resolver),
+    );
+    let report = || InboundDelivery::RunLifecycle {
+        binding: DeliveryBinding {
+            binding_id: binding_id.clone(),
+            operation: None,
+        },
+        change: RunStateReport::new(
+            fixture.run_id,
+            RunStateEntry::Running {
+                execution_posture: None,
+            },
+        ),
+        turn_end: None,
+        is_daemon_interrupt_end: false,
+    };
+    let unanswered = fixture.answer(RunUsageCreditsChoice::Consent).await;
+    assert!(unanswered.is_err(), "{unanswered:?}");
+    let reader = fixture.database.reader();
+    reader
+        .execute_batch(
+            "CREATE TRIGGER refuse_settlements BEFORE INSERT ON session_events
+               WHEN NEW.type = 'agent.run.usageCreditsChoice.resolved'
+             BEGIN SELECT RAISE(ABORT, 'the test refuses the settlement'); END;",
+        )
+        .expect("the test refuses the settlement's write");
+
+    let failed = dispatch.dispatch(report()).await;
+    let after_failure = (fixture.state(), fixture.settlements());
+    reader
+        .execute_batch("DROP TRIGGER refuse_settlements")
+        .expect("the test lets the settlement through");
+    let delivered_again = dispatch.dispatch(report()).await;
+
+    assert!(
+        matches!(failed, Err(InboundDispatchError::HeldAnswer(_))),
+        "{failed:?}"
+    );
+    assert_eq!(after_failure, ("waitingForInput".to_owned(), 0));
+    assert!(delivered_again.is_ok(), "{delivered_again:?}");
     assert_eq!(
         (fixture.state(), fixture.settlements()),
         ("running".to_owned(), 1)

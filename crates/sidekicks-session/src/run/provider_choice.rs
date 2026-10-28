@@ -411,7 +411,8 @@ impl ProviderChoiceResolver {
     /// refused. A report that the run still waits on input keeps the answer held, and a run the
     /// provider ended drops an answer that would have returned it to `running`. A driver's own
     /// signal that the provider resolved the choice settles the held answer the same way. Answers
-    /// whether it wrote the settlement; fails as the settlement's write fails.
+    /// whether it wrote the settlement; fails as the settlement's write fails, the answer held
+    /// again for the next report or answer to settle.
     pub(crate) async fn settle_held_answer(
         &self,
         run_id: RunId,
@@ -541,21 +542,32 @@ impl ProviderChoiceResolver {
         lock(&self.held_answers).remove(&run_id)
     }
 
-    // Writes the settlement `held` carries.
+    // Writes the settlement `held` carries. A write that fails for any reason but the choice
+    // settled since holds the answer again, the provider having taken it, so the next report or
+    // answer settles it; one held meanwhile defers to it.
     async fn settle_held(
         &self,
         held: HeldAnswer,
     ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
-        let HeldAnswer {
-            change,
-            session_id,
-            dialog,
-            pending,
-            settlement,
-            ..
-        } = held;
-        self.settle(change, session_id, dialog, &pending, &settlement)
-            .await
+        let run_id = held.change.run_id;
+        let settled = self
+            .settle(
+                held.change.clone(),
+                held.session_id,
+                held.dialog,
+                &held.pending,
+                &held.settlement,
+            )
+            .await;
+        if let Err(failure) = &settled
+            && !matches!(
+                failure,
+                ProviderChoiceError::Refused(RunRefusal::InvalidTransition { .. })
+            )
+        {
+            lock(&self.held_answers).insert(run_id, held);
+        }
+        settled
     }
 
     // The settlement row and the run's move in one write, refused whole when the request was

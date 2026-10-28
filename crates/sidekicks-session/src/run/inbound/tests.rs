@@ -47,8 +47,8 @@ use crate::run::refusals::RunRefusal;
 use crate::run::state_change::RunStateChangeCompanions;
 use crate::transcript::reasoning::read_reasoning;
 
-// A run-state stream no one reads.
-struct UnreadRunStates;
+/// A run-state stream no one reads.
+pub(crate) struct UnreadRunStates;
 
 impl RunStatePublisher for UnreadRunStates {
     fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}

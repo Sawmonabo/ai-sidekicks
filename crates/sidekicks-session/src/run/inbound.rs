@@ -48,7 +48,7 @@ use crate::run::engine::turns::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
-use crate::run::provider_choice::ProviderChoiceResolver;
+use crate::run::provider_choice::{ProviderChoiceError, ProviderChoiceResolver};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, refused_statement_index};
 use crate::transcript::reasoning::split_reasoning_text;
@@ -68,6 +68,10 @@ pub(crate) enum InboundDispatchError {
     /// The event log did not keep the row.
     #[error("the delivery's event was not appended")]
     Append(#[from] SessionEventAppendError),
+    /// The answer held on the run's choice, which the report shows the provider took, was not
+    /// settled; it stays held and the report is not applied.
+    #[error("the answer held on the run's choice could not be settled")]
+    HeldAnswer(#[source] ProviderChoiceError),
 }
 
 /// Takes each provider delivery in, attributes it, and writes, routes or absorbs it.
@@ -506,19 +510,11 @@ impl RunInboundDispatch {
                 let run_id = change.run_id;
                 let change = RunStateChange::from(change);
                 // An answer the provider got with no reply back settles before the report that
-                // shows it took, so the report finds the move made; a failed settle leaves the
-                // report to apply.
-                if let Err(error) = self
-                    .choices
+                // shows it took, so the report finds the move made.
+                self.choices
                     .settle_held_answer(run_id, RunState::from(change.entry.state()))
                     .await
-                {
-                    tracing::error!(
-                        error = &error as &(dyn Error + 'static),
-                        run_id = %run_id,
-                        "the answer held on the run's choice could not be settled"
-                    );
-                }
+                    .map_err(InboundDispatchError::HeldAnswer)?;
                 match self
                     .engine
                     .apply_provider_state_change(change, turn_end)

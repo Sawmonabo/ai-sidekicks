@@ -19,7 +19,6 @@ use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, ChildRunProvenance, RunQueuedSessionAgentPayload,
 };
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
-use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::turn_attribution::{
@@ -31,7 +30,6 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::driver::registry::test_provider;
 use sidekicks_provider::driver::test_registry::new_run_id;
-use sidekicks_provider::port::run_state_publisher::RunStatePublisher;
 use sidekicks_provider::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use sidekicks_provider::usage_delta_accountant::{
     MeteredUsageDelta, UsageAxisCounts, UsageDiagnosticBand,
@@ -46,17 +44,11 @@ use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::{append, insert_running_run, test_choices, test_engine};
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{EpochBinding, ExecutionEpochs};
+use crate::run::inbound::tests::UnreadRunStates;
 use crate::run::inbound::{InboundDispatchError, RunInboundDispatch};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 
 const ACCOUNT: &str = "account-1";
-
-// A run-state stream no one reads.
-struct UnreadRunStates;
-
-impl RunStatePublisher for UnreadRunStates {
-    fn publish(&self, _hold: RunSafetyBufferingUpdatedPayload) {}
-}
 
 // An interventions service that takes every limit's interrupt and counts them.
 #[derive(Default)]
