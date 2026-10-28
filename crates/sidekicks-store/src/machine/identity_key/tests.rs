@@ -19,6 +19,7 @@ use sidekicks_contracts::trust_statement::{ChannelPublicKey, MachineIdentityKey}
 use sidekicks_contracts::wire::base64::Base64Array;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::pause_point::PausePoint;
 use x25519_dalek::StaticSecret;
 
 use super::{
@@ -39,14 +40,15 @@ const CHANNEL_SEED: [u8; KEY_LENGTH] = [0xc9; KEY_LENGTH];
 const OTHER_IDENTITY_SEED: [u8; KEY_LENGTH] = [11; KEY_LENGTH];
 const OTHER_CHANNEL_SEED: [u8; KEY_LENGTH] = [13; KEY_LENGTH];
 
-/// A credential store in memory that counts its reads and writes, and refuses the next read with
-/// a cause it is given.
+/// A credential store in memory that counts its reads and writes, refuses the next read with a
+/// cause it is given, and holds a read where a test arms its pause.
 #[derive(Default)]
 struct CountingKeychain {
     items: Mutex<HashMap<String, String>>,
     reads: AtomicUsize,
     writes: AtomicUsize,
     refused_read: Mutex<Option<KeychainRefusalCause>>,
+    read_pause: PausePoint,
 }
 
 impl CountingKeychain {
@@ -87,7 +89,10 @@ impl SecretKeychain for CountingKeychain {
             Some(cause) => Err(KeychainRefusal::new(cause, "the test store refuses")),
             None => Ok(self.item(account).map(SecretString::from)),
         };
-        Box::pin(async move { answer })
+        Box::pin(async move {
+            self.read_pause.pass().await;
+            answer
+        })
     }
 
     fn remove<'call>(
@@ -334,7 +339,7 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
 
     let items_after = fixture.items();
     let pins_after = fixture.pins();
-    let recorded = identity.machine_key();
+    let recorded = identity.machine_key().await;
     match expected {
         Expected::Minted => {
             let keys = read.expect("the keys are minted");
@@ -411,37 +416,42 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
     }
 }
 
-/// A store that refuses the first read as locked, then answers: the status member reads `reading`
-/// until the start's first read ends, which records the identity key's refusal while the channel
-/// key, read on its own, is minted. The next status read starts a read of both keys and reads
-/// `reading`; once that read ends, the status read finds both keys held. Killed by a status that
-/// waits for the first read or guesses its outcome, a pair resolved as one, and no read started
-/// by the status read.
+/// A store that refuses the first read as locked, then answers. The status read waits for the
+/// start's read and shows the identity key's refusal with its cause, while the channel key, read on
+/// its own, is minted. Refused again, a status read whose read of the keys is held past
+/// `MACHINE_KEY_READ_WAIT` answers `reading` while the read goes on. Once the store answers, the
+/// next status read reads the keys again and answers both held within the bound. Killed by no wait
+/// and by no re-read.
 #[tokio::test]
-async fn a_locked_first_read_is_read_again_by_the_status_read() {
+async fn a_status_read_waits_for_the_key_read_and_reads_a_refused_store_again() {
     let fixture = Fixture::new((None, None)).await;
     *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
     let identity = fixture.identity();
-    let reading = Some(DaemonMachineKey {
-        state: DaemonMachineKeyState::Reading,
-        cause: None,
+    let locked = Some(DaemonMachineKey {
+        state: DaemonMachineKeyState::NotMinted,
+        cause: Some(DaemonMachineKeyCause::Locked),
     });
 
-    assert_eq!(identity.machine_key(), reading);
-
-    identity.stop().await;
-    assert_eq!(
-        lock(&identity.store.outcomes).machine_key(),
-        Some(DaemonMachineKey {
-            state: DaemonMachineKeyState::NotMinted,
-            cause: Some(DaemonMachineKeyCause::Locked),
-        })
-    );
+    assert_eq!(identity.machine_key().await, locked);
     assert_eq!(fixture.keychain.writes(), 1);
 
-    assert_eq!(identity.machine_key(), reading);
+    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
+    let held = fixture.keychain.read_pause.arm();
+    assert_eq!(
+        identity.machine_key().await,
+        Some(DaemonMachineKey {
+            state: DaemonMachineKeyState::Reading,
+            cause: None,
+        })
+    );
+    held.reached
+        .await
+        .expect("the status read's read of the keys is held");
+    held.release.send(()).expect("the held read waits");
     identity.stop().await;
-    assert_eq!(identity.machine_key(), None);
+    assert_eq!(lock(&identity.store.outcomes).machine_key(), locked);
+
+    assert_eq!(identity.machine_key().await, None);
     assert_eq!(fixture.keychain.writes(), 2);
 }
 
@@ -503,7 +513,7 @@ async fn a_lost_or_changed_channel_key_refuses_only_the_channel(
     );
     verify_ed25519(&identity_half, message, &signature.to_bytes())
         .expect("the signature verifies under the identity key");
-    assert_eq!(identity.machine_key(), Some(refused));
+    assert_eq!(identity.machine_key().await, Some(refused));
     assert!(
         fixture.items() == items_before,
         "the items are kept as they were"
@@ -537,7 +547,7 @@ async fn a_relink_stopped_before_its_pins_is_finished_by_the_next_read() {
     assert!(matches!(refused, Err(IdentityKeyError::Write(_))));
     assert_eq!(fixture.pins(), (None, None));
     assert_eq!(
-        identity.machine_key(),
+        identity.machine_key().await,
         Some(DaemonMachineKey {
             state: DaemonMachineKeyState::NotMinted,
             cause: Some(DaemonMachineKeyCause::Database),
@@ -608,6 +618,6 @@ async fn a_sign_in_mints_again_only_while_unregistered(
             Err(MintAgainUnregisteredError::Registered)
         ));
         assert_eq!(now, first);
-        assert_eq!(identity.machine_key(), None);
+        assert_eq!(identity.machine_key().await, None);
     }
 }

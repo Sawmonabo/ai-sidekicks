@@ -10,7 +10,9 @@
 
 use std::borrow::Cow;
 use std::error::Error;
+use std::pin::pin;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use ed25519_dalek::{Signature, Signer as _, SigningKey};
 use rusqlite::types::Value;
@@ -23,8 +25,10 @@ use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::trust_statement::{ChannelPublicKey, MachineIdentityKey};
 use sidekicks_contracts::wire::base64::Base64Array;
+use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::mutex_lock::lock;
 use subtle::ConstantTimeEq as _;
+use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 use x25519_dalek::{PublicKey, StaticSecret};
 use zeroize::Zeroizing;
@@ -139,6 +143,10 @@ pub enum MintAgainUnregisteredError {
     Keys(#[from] IdentityKeyError),
 }
 
+/// How long a status read waits for a running read of the keys before it answers `reading`; the
+/// read goes on in the background past it.
+pub const MACHINE_KEY_READ_WAIT: Duration = Duration::from_secs(2);
+
 /// This machine's two keys, each read or minted once and held for the run; see the module doc.
 /// Every read, mint and pin change runs under one lock.
 pub struct MachineIdentity {
@@ -146,7 +154,7 @@ pub struct MachineIdentity {
     store: Arc<MachineKeyStore>,
     /// The last background read of both keys, the start's or one a status read started, until
     /// the stop joins it.
-    background_read: Mutex<Option<AbortOnDropHandle<()>>>,
+    background_read: Mutex<Option<BackgroundRead>>,
 }
 
 impl MachineIdentity {
@@ -248,25 +256,39 @@ impl MachineIdentity {
         Ok(use_secret(channel.key.as_bytes()))
     }
 
-    /// Where the keys stand, never waiting on a read: `reading` while a background read runs,
-    /// else the identity key's refusal, else the channel key's, and `None` while both are held.
-    /// A refusal by the credential store starts a background read of both keys and answers
-    /// `reading`, so the state clears once the store answers. Must be called inside a tokio
+    /// Where the keys stand: the identity key's refusal, else the channel key's, and `None` while
+    /// both are held. A running background read is waited for up to [`MACHINE_KEY_READ_WAIT`];
+    /// with none running, a refusal by the credential store starts a read of both keys and waits
+    /// the same bound, so the state clears once the store answers. A read still running at the
+    /// bound answers `reading` and goes on in the background. Must be called inside a tokio
     /// runtime.
-    pub fn machine_key(&self) -> Option<DaemonMachineKey> {
-        let mut background_read = lock(&self.background_read);
-        if background_read
-            .as_ref()
-            .is_some_and(|read| !read.is_finished())
+    pub async fn machine_key(&self) -> Option<DaemonMachineKey> {
+        let mut ended = {
+            let mut background_read = lock(&self.background_read);
+            match background_read
+                .as_ref()
+                .filter(|read| !read.task.is_finished())
+            {
+                Some(running) => running.ended.clone(),
+                None => {
+                    let machine_key = lock(&self.store.outcomes).machine_key();
+                    if !machine_key.is_some_and(is_store_refusal) {
+                        return machine_key;
+                    }
+                    let read = read_in_background(&self.store);
+                    let ended = read.ended.clone();
+                    *background_read = Some(read);
+                    ended
+                }
+            }
+        };
+        if wait_within(pin!(ended.changed()), MACHINE_KEY_READ_WAIT, None)
+            .await
+            .is_none()
         {
             return Some(READING);
         }
-        let machine_key = lock(&self.store.outcomes).machine_key();
-        if machine_key.is_some_and(is_store_refusal) {
-            *background_read = Some(read_in_background(&self.store));
-            return Some(READING);
-        }
-        machine_key
+        lock(&self.store.outcomes).machine_key()
     }
 
     /// Waits for the last background read to end; a later call returns at once.
@@ -274,7 +296,7 @@ impl MachineIdentity {
         let Some(background_read) = lock(&self.background_read).take() else {
             return;
         };
-        background_read.await.expect(
+        background_read.task.await.expect(
             "the read neither panics, which aborts the service, nor is aborted while awaited",
         );
     }
@@ -513,13 +535,24 @@ const READING: DaemonMachineKey = DaemonMachineKey {
     cause: None,
 };
 
+/// A read of both keys on its own task.
+struct BackgroundRead {
+    task: AbortOnDropHandle<()>,
+    /// Closed when the task ends, which wakes every status read waiting on it.
+    ended: watch::Receiver<()>,
+}
+
 // Starts a read of both keys on a task; each key's outcome is recorded, and a refusal logged,
 // where it is made.
-fn read_in_background(store: &Arc<MachineKeyStore>) -> AbortOnDropHandle<()> {
+fn read_in_background(store: &Arc<MachineKeyStore>) -> BackgroundRead {
     let store = Arc::clone(store);
-    AbortOnDropHandle::new(tokio::spawn(async move {
+    let (ending, ended) = watch::channel(());
+    let task = AbortOnDropHandle::new(tokio::spawn(async move {
+        // Dropped as the task ends, aborted or not, which closes `ended`.
+        let _ending = ending;
         let _keys = store.both().await;
-    }))
+    }));
+    BackgroundRead { task, ended }
 }
 
 // Whether `machine_key` is a refusal by the credential store, which a later read can clear.

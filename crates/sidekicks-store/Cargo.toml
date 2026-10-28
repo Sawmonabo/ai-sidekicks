@@ -44,6 +44,8 @@ zstd.workspace = true
 rstest.workspace = true
 # The in-memory and sealed credential stores and the unreadable files the tests use.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
+# The pause point the machine keys' test holds a read at.
+sidekicks-std = { workspace = true, features = ["test-support"] }
 tempfile.workspace = true
 # The paused clock the writer's tests drive.
 tokio = { workspace = true, features = ["test-util"] }
