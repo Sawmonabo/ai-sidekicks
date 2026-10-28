@@ -270,6 +270,7 @@ mod tests {
                     resume_handle: "conversation".to_owned(),
                     model: FreeFormText::new("model".to_owned()).expect("valid text"),
                     larger_window: None,
+                    runtime_metadata: serde_json::Map::new(),
                     mode: SessionMode::Build,
                     execution_posture: None,
                     output_speed: None,
