@@ -76,9 +76,10 @@ interface McpServerBindingAuditRef {
 // The binding's id on the wire: opaque and path-free, the lowercase hex of a blake3 hash over the
 // binding's whole key (provider, scope, scopeRef, the root's distribution, serverName), so it is the
 // same on the binding's mcp.server.list entry and on every status notice about it, and across the
-// daemon's runs. The audit ref names a binding to a person; this id places a status notice on its
-// row, where two bindings share an audit ref (two project roots with a `github` server, or one root
-// in two WSL 2 distributions). A page never re-reads the list to place a notice.
+// daemon's runs. The audit ref names a binding to a person; this id places every status notice on
+// its row, which the audit ref alone cannot where two bindings share it (two project roots with a
+// `github` server, or one root in two WSL 2 distributions). A page never re-reads the list to place
+// a notice.
 type McpServerBindingId = string; // 64 lowercase hex digits
 
 // Effective-binding derivation output (Plan-022 T22.4.5). NOT a carrier threaded in from another plan — Plan-022 derives this

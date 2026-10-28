@@ -60,8 +60,8 @@ macro_rules! status_notice {
                 scope: McpBindingScope,
                 /// The server's name.
                 server_name: McpServerName,
-                /// The binding's id, the same as on its `mcp.server.list` entry, which places the
-                /// notice on that row where two bindings share a provider, scope and name.
+                /// The binding's id, the same as on its `mcp.server.list` entry, which places
+                /// every notice on that row; the audit ref names the binding to a person.
                 server_binding_id: McpServerBindingId,
                 /// The status before.
                 previous_status: McpServerStatus,
