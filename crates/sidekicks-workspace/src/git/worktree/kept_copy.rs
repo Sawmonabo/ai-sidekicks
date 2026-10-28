@@ -47,7 +47,7 @@ use crate::git::worktree::kept_copy::pins::{delete_pins, write_pins};
 use crate::git::worktree::kept_copy::saved_state::{
     RepositoryStoreSettings, SavedStateError, keep_lfs_objects, keep_ref_store,
     list_index_objects_missing_from_head, pack_objects, read_head_refs, read_kept_branch,
-    read_kept_head_commit, read_state_pins,
+    read_kept_head_commit, read_state_pins, read_tree_head_commit,
 };
 use crate::git::worktree::reads::{
     LinkedTreeRecordError, RECORD_COMMONDIR_FILE_NAME, RECORD_GITDIR_FILE_NAME,
@@ -500,7 +500,15 @@ async fn keep_saved_state(
     *known_common_folder = Some(common_folder.clone());
 
     let kept_record = kept_folder.join(KEPT_RECORD_ENTRY);
-    let record_copied = copy_record(&record_folder, &kept_record);
+    // The branch's commit is read before the copy and again after it, so a commit landing between
+    // the two refuses the keep rather than pinning a commit the kept index was not made on.
+    let record_copied = async {
+        let before = read_tree_head_commit(git, place, tree_folder)
+            .await
+            .map_err(KeepStepError::State)?;
+        copy_record(&record_folder, &kept_record).await?;
+        Ok::<_, KeepStepError>(before)
+    };
     let objects_packed = async {
         let objects_folder = kept_folder.join(KEPT_OBJECTS_ENTRY);
         pack_objects(git, place, tree_folder, &objects_folder, &missing_from_head)
@@ -528,13 +536,15 @@ async fn keep_saved_state(
             None => Ok::<_, KeepStepError>(None),
         }
     };
-    let ref_store_folder = match tokio::join!(
+    let (head_before_copy, ref_store_folder) = match tokio::join!(
         record_copied,
         objects_packed,
         lfs_objects_kept,
         ref_store_kept
     ) {
-        (Ok(()), Ok(()), Ok(()), Ok(ref_store_folder)) => ref_store_folder,
+        (Ok(head_before_copy), Ok(()), Ok(()), Ok(ref_store_folder)) => {
+            (head_before_copy, ref_store_folder)
+        }
         (copied, packed, lfs, ref_store) => {
             return Err(failures_of([
                 copied.err(),
@@ -546,9 +556,10 @@ async fn keep_saved_state(
     };
 
     // HEAD and the state files are read from the copy, so the pins and the row match what is kept.
-    let head_commit = read_kept_head_commit(git, place, tree_folder, &kept_record)
-        .await
-        .map_err(|failure| failures_of([Some(KeepStepError::State(failure))]))?;
+    let head_commit =
+        read_kept_head_commit(git, place, tree_folder, &kept_record, &head_before_copy)
+            .await
+            .map_err(|failure| failures_of([Some(KeepStepError::State(failure))]))?;
     let pins_written = async {
         let pins = read_state_pins(&kept_record, head_commit.clone(), head.orig_head.clone())
             .await
@@ -614,3 +625,6 @@ async fn copy_record(record_folder: &Path, kept_record: &Path) -> Result<(), Kee
     .await
     .map_err(KeepStepError::Interrupted)?
 }
+
+#[cfg(test)]
+mod tests;

@@ -89,6 +89,19 @@ pub(crate) enum SavedStateError {
     /// The blocking task that copied ended before it finished.
     #[error("a copy of the saved state ended before it finished")]
     Interrupted(#[source] JoinError),
+    /// The tree's branch moved while its record was copied, so the kept index may stand on either
+    /// commit.
+    #[error(
+        "the worktree's branch moved from {} to {} while it was being kept",
+        before.as_str(),
+        after.as_str()
+    )]
+    HeadMoved {
+        /// The commit the branch stood on before the copy.
+        before: GitObjectId,
+        /// The commit it stood on after.
+        after: GitObjectId,
+    },
 }
 
 fn at(path: &Path) -> impl FnOnce(io::Error) -> SavedStateError {
@@ -580,16 +593,36 @@ pub(crate) fn lfs_object_path(lfs_store: &Path, lfs_object_id: &str) -> PathBuf 
 /// HEAD's commit as the kept record `kept_record` names it, read once the record is copied, so the
 /// pins and the row hold what is kept: the id a detached HEAD's file holds, else the commit HEAD
 /// names in `tree_folder`, whose refs the record shares, a ref store keeping HEAD out of the file
-/// included. Fails with the file's read or git's failure, or `Unexpected` when git names no commit.
+/// included. That branch's commit must still be `before`, read before the copy. Fails with
+/// `HeadMoved` when it is not, with the file's read or git's failure, or `Unexpected` when git
+/// names no commit.
 pub(crate) async fn read_kept_head_commit(
     git: &GitRunner,
     place: Option<&Place>,
     tree_folder: &Path,
     kept_record: &Path,
+    before: &GitObjectId,
 ) -> Result<GitObjectId, SavedStateError> {
     if let Some(commit) = read_first_object_id(&kept_record.join(HEAD_FILE_NAME)).await? {
         return Ok(commit);
     }
+    let after = read_tree_head_commit(git, place, tree_folder).await?;
+    if after != *before {
+        return Err(SavedStateError::HeadMoved {
+            before: before.clone(),
+            after,
+        });
+    }
+    Ok(after)
+}
+
+/// The commit HEAD names in `tree_folder`, as git reads it there. Fails with git's failure, or
+/// `Unexpected` when git names no commit.
+pub(crate) async fn read_tree_head_commit(
+    git: &GitRunner,
+    place: Option<&Place>,
+    tree_folder: &Path,
+) -> Result<GitObjectId, SavedStateError> {
     let output = git
         .run(
             place,
@@ -704,6 +737,7 @@ async fn on_blocking_thread<Answer: Send + 'static>(
 mod tests {
     use std::fs;
 
+    use sidekicks_contracts::repo::git_reads::GitObjectId;
     use sidekicks_platforms::real_path;
 
     use super::{RefStorePayload, keep_ref_store, read_kept_head_commit, write_back_ref_store};
@@ -743,7 +777,8 @@ mod tests {
         .expect("the record's HEAD is copied");
         commit_empty(&git, &tree, "after the copy").await;
 
-        let head = read_kept_head_commit(&git, None, &tree, &kept_record)
+        let before = GitObjectId::new(kept_head.clone()).expect("git names a commit by its id");
+        let head = read_kept_head_commit(&git, None, &tree, &kept_record, &before)
             .await
             .expect("the kept HEAD is read");
 
