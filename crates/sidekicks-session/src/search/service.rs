@@ -808,7 +808,7 @@ mod tests {
             damaged.first_hit_sequence
         };
         let read_damaged_from_sequence =
-            |session_id: &SessionId| (*session_id == shown).then_some(damaged_from);
+            move |session_id: &SessionId| (*session_id == shown).then_some(damaged_from);
 
         let second = searches
             .page(

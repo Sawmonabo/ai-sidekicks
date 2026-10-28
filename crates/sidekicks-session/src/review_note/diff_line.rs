@@ -55,10 +55,6 @@ const DIFF_FLAGS: [&str; 8] = [
 ];
 
 /// The members of a note that name its line in its comparison.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the note store names each note's line through it")
-)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct NoteLocation<'a> {
     /// The comparison the note was left in.
@@ -130,13 +126,6 @@ impl NotedLineReader {
     /// Fails with `Git` when git fails otherwise (`WslPlace` for a project in a WSL 2
     /// distribution), `Path` when the path cannot be resolved, `File` when the working file's
     /// entry cannot be read, and `Patch` when git's diff does not parse.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the note store quotes and checks each note's line through it"
-        )
-    )]
     pub(crate) async fn read(
         &mut self,
         location: &NoteLocation<'_>,

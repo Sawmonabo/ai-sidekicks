@@ -60,13 +60,6 @@ const GIT_FOLDER_NAME: &str = ".git";
 const RULES_FILE_NAME: &str = ".gitignore";
 
 /// A working folder's files and folders, and how many files it could not name.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the `@` file search ranks and counts the listed entries"
-    )
-)]
 #[derive(Debug)]
 pub(crate) struct WorkingFolderListing {
     /// Every file and folder, each path relative to the working folder and `/`-separated.
@@ -77,13 +70,6 @@ pub(crate) struct WorkingFolderListing {
 }
 
 /// One file or folder of a working folder.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the `@` file search turns each listed entry into a row"
-    )
-)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ListedEntry {
     /// The path, relative to the working folder and `/`-separated.
@@ -94,7 +80,7 @@ pub(crate) struct ListedEntry {
 
 /// Why a working folder could not be listed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ListingError {
+pub enum ListingError {
     /// git failed for a reason other than the folder lying outside any working tree.
     #[error("git could not list the working folder")]
     Git(#[from] GitError),
@@ -120,13 +106,6 @@ impl ListingError {
 /// and by a walk outside one, retrying once a read another moment may clear. Fails with `Git` for
 /// any other git failure, a project in a WSL 2 distribution among them, `Walk` when the walk
 /// cannot read `folder` or meets a failure that persists, and `Task` when a blocking task ends.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the `@` file search lists a session's working folder through it"
-    )
-)]
 pub(crate) async fn list_working_folder(
     git: &GitRunner,
     place: Option<&Place>,
