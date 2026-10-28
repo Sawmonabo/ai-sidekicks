@@ -1,9 +1,11 @@
-//! A live session's level and mode moves Codex refuses, and a settle while the session comes back,
-//! through the driver.
+//! A live session's level and mode moves Codex refuses, and a settle as the session opens and while
+//! it comes back, through the driver.
 
 use std::pin::pin;
 use std::sync::Arc;
 use std::time::Duration;
+
+use futures::FutureExt as _;
 
 use rstest::rstest;
 use serde_json::json;
@@ -11,9 +13,12 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
-use super::LiveCodexSession;
+use super::{LiveCodexSession, driver_holding};
+use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, create_session_params};
 use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::session_control::{UpdatePermissionLevelParams, UpdateSessionModeParams};
+use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
 
 /// How long a test waits before it counts a settle or a move as stuck.
@@ -108,14 +113,6 @@ async fn a_settle_waits_until_its_session_came_back_live(#[case] coming_back: Co
         ..
     } = LiveCodexSession::idle().await;
     let parts = Arc::clone(driver.parts().expect("the driver composes"));
-    // The session's task shows its record once it first runs.
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while driver.session_process_state(session_id) != SessionProcessState::Live {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("the session reads live once its task ran");
     let (establishing, connection) = match coming_back {
         ComingBack::Establishment => (
             Some(
@@ -149,4 +146,46 @@ async fn a_settle_waits_until_its_session_came_back_live(#[case] coming_back: Co
         .await
         .expect("the settle answers")
         .expect("the session settles live");
+}
+
+// Killed by showing a new session's view only once its task first ran: a settle as soon as the
+// create returns reads the session down and refuses its first run.
+#[tokio::test]
+async fn a_settle_as_soon_as_a_session_is_created_answers_live() {
+    let mut scripted = start_scripted_codex_service();
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let driver = driver_holding(&scripted, folder.path());
+    let session_id = new_session_id();
+    let mut creating = pin!(driver.create_session(create_session_params(session_id)));
+
+    let created = tokio::time::timeout(SETTLE_BOUND, async {
+        loop {
+            tokio::select! {
+                created = &mut creating => break created,
+                sent = scripted.script.next_sent() => {
+                    let reply = if sent["method"] == "thread/start" {
+                        json!({
+                            "thread": {"id": TEST_THREAD, "sessionId": "codex-session"},
+                            "activePermissionProfile": {
+                                "id": sent["params"]["config"]["default_permissions"],
+                            },
+                        })
+                    } else {
+                        json!({})
+                    };
+                    scripted.script.answer(&sent, &reply);
+                }
+            }
+        }
+    })
+    .await
+    .expect("the create answers");
+    created.expect("the session is created");
+    // Polled once with no yield before it, so the session's task has not run yet.
+    let settled = driver.settle_session(session_id).now_or_never();
+
+    assert!(
+        matches!(settled, Some(Ok(()))),
+        "a session reads live as soon as its create returns: {settled:?}"
+    );
 }

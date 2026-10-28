@@ -1,25 +1,21 @@
 //! A live session's close, the daemon's stop and an in-place resume that failed, through the
 //! driver.
 
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 
 use super::super::CodexDriver;
-use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
+use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, driver_holding};
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
@@ -33,16 +29,13 @@ use crate::driver::codex::session::side_questions::test_copies::{
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_fixture::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
-};
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
 use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::ports::ProcessGoneListener;
 use crate::driver::session_control::CloseSessionParams;
-use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
-use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
-use crate::run::posture::ExecutionPostureService;
+use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::run_host::test_host::EngineCall;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
@@ -410,35 +403,6 @@ async fn a_side_question_codexs_policy_refuses_is_refused_once_its_turn_ended() 
     assert_eq!(detail["cause"]["cause"], "refused");
     assert_eq!(detail["cause"]["safetyCategory"], "cyberPolicy");
     assert_eq!(detail["cause"]["sentence"], POLICY_REFUSAL);
-}
-
-// The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
-// session running in `folder`'s `work`, its runs on a recording engine.
-fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
-    let engine = Arc::new(RecordingRunEngine::default());
-    let mut services = test_driver_services();
-    services
-        .ports
-        .spawn_contexts
-        .register(Arc::new(OneFolder(folder.join("work"))))
-        .expect("the spawn contexts register once");
-    services.execution_postures = Arc::new(ExecutionPostureService::new(
-        folder,
-        folder.join("session-token"),
-    ));
-    let ports = &services.ports;
-    assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
-    assert!(ports.inbound_dispatch.register(engine as _).is_ok());
-    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
-    assert!(
-        ports
-            .daemon_turn_bindings
-            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
-            .is_ok()
-    );
-    let mut driver = CodexDriver::new(&services);
-    driver.registry = CodexServiceRegistry::holding(scripted);
-    driver
 }
 
 // That `turn_id` was interrupted once, before the conversation was unsubscribed.

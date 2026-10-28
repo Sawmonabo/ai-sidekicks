@@ -29,7 +29,7 @@ use crate::driver::DriverServices;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::notification_routing::CodexRoutedFrames;
 use crate::driver::codex::run::routes::CodexRunBinding;
-use crate::driver::codex::service::registry::home_socket_path;
+use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
     write_failing_codex,
@@ -37,7 +37,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
+    OneFolder, TEST_THREAD, TestDaemonTurnBindings, open_test_record, turn_completed,
 };
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
 use crate::driver::schema::schema_parts;
@@ -47,6 +47,7 @@ use crate::driver::test_registry::{
 use crate::port::question::QuestionPort;
 use crate::port::registration::PortRegistration;
 use crate::port::run_host::test_host::RecordingRunEngine;
+use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
 use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
 
@@ -263,6 +264,35 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
             tokio::spawn(answer_as_codex_service(stream));
         }
     });
+}
+
+/// The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
+/// session running in `folder`'s `work`, its runs on a recording engine.
+pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
+    let engine = Arc::new(RecordingRunEngine::default());
+    let mut services = test_driver_services();
+    services
+        .ports
+        .spawn_contexts
+        .register(Arc::new(OneFolder(folder.join("work"))))
+        .expect("the spawn contexts register once");
+    services.execution_postures = Arc::new(ExecutionPostureService::new(
+        folder,
+        folder.join("session-token"),
+    ));
+    let ports = &services.ports;
+    assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
+    assert!(ports.inbound_dispatch.register(engine as _).is_ok());
+    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
+    assert!(
+        ports
+            .daemon_turn_bindings
+            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
+            .is_ok()
+    );
+    let mut driver = CodexDriver::new(&services);
+    driver.registry = CodexServiceRegistry::holding(scripted);
+    driver
 }
 
 /// Answers what stopping a turn sends, a close's or an interrupt's: an interrupt, with the end of

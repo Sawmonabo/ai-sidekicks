@@ -77,12 +77,14 @@ pub(crate) struct CodexSessionIntake {
 }
 
 impl CodexSessionIntake {
-    /// The task of `record`'s session, routing through `routing`.
+    /// The task of `record`'s session, routing through `routing`, with the record's view shown
+    /// now, so the session reads live as soon as its opening returns, before the task first runs.
     pub(crate) fn new(
         record: CodexSessionRecord,
         routing: CodexSessionRouting,
         parts: Arc<CodexDriverParts>,
     ) -> Self {
+        parts.views.show(&record);
         Self {
             session_id: record.session_id,
             record: Some(record),
