@@ -122,7 +122,7 @@ impl CodexRunStart {
             .run_routes
             .bind_run_delivery(run_id, binding);
         let sent = self
-            .send_opening_turn(inbound, run_id, binding_id, opening)
+            .send_daemon_turn(inbound, run_id, binding_id, opening)
             .await;
         if sent.is_err() {
             self.dependencies.run_routes.forget_run(run_id);
@@ -132,7 +132,7 @@ impl CodexRunStart {
 
     // Sends the opening with the run waiting as the turn starting next, so the turn's first frames
     // reach it even when they come before the reply; the run's interrupt withdraws it meanwhile.
-    async fn send_opening_turn(
+    async fn send_daemon_turn(
         &self,
         inbound: &CodexSessionInboundSender,
         run_id: RunId,

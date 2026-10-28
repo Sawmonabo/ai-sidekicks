@@ -211,12 +211,10 @@ The run's state is event-sourced: each `agent.run.*` state change, and each appl
 CREATE TABLE runs (
   run_id         TEXT NOT NULL PRIMARY KEY,
   session_id     TEXT NOT NULL,
-  parent_run_id  TEXT,                          -- NULL on a lead run
+  parent_run_id  TEXT,                          -- NULL on a lead run, Claude Code's staged review among them
   reached_by     TEXT                           -- how a child run was reached; NULL on a lead run
                  CHECK(reached_by IS NULL
                    OR reached_by IN ('providerSubagent', 'bridgeRun', 'workflowStep')),
-  -- Claude Code's review of the staged set runs as the lead run, in a process of its own; no
-  -- column marks it.
   state          TEXT NOT NULL
     CHECK(state IN ('queued', 'starting', 'running', 'waitingForApproval', 'waitingForInput',
                     'pausing', 'paused', 'completed', 'interrupted', 'stopped', 'failed')),
