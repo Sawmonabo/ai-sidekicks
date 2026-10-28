@@ -5,7 +5,8 @@
 //! reading filed on its turn's run, each steer Codex echoed taken from the queue once, each ended
 //! turn's route retired, its end recorded where no run moved, its pause or continue acted on and
 //! its owed fork let go, each turn's readings and the session's context reading published, and the
-//! spend it metered recorded in metering order. The driver's own calls on the record take their
+//! spend it metered recorded in metering order. Each settled step publishes the session's
+//! context reading again with no usage when its model or window changed. The driver's own calls on the record take their
 //! place among the frames too.
 
 use std::sync::Arc;
@@ -48,9 +49,7 @@ use crate::driver::codex::server_requests::{
 use crate::driver::codex::session::calls::{
     CodexSessionTask, ask_codex_session, run_codex_session_call,
 };
-use crate::driver::codex::session::context_reading::{
-    CodexContextStops, compose_codex_context_reading,
-};
+use crate::driver::codex::session::context_reading::CodexSessionContextReadings;
 use crate::driver::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
@@ -109,9 +108,7 @@ pub(crate) struct CodexSessionIntake {
     routing: CodexSessionRouting,
     waiters: CodexTurnEndWaiters,
     parts: Arc<CodexDriverParts>,
-    // The input of the session's first usage report, its fixed start, which the context
-    // reading's bottom stop counts from.
-    fixed_start_tokens: Option<u64>,
+    context_readings: CodexSessionContextReadings,
     // The session's one usage recorder, fed in metering order; opened at the first spend metered
     // once the usage service registered, and ended when the session's task ends.
     usage_recorder: Option<mpsc::Sender<Vec<MeteredUsage>>>,
@@ -124,13 +121,14 @@ impl CodexSessionIntake {
         routing: CodexSessionRouting,
         parts: Arc<CodexDriverParts>,
     ) -> Self {
+        let session_id = record.session_id;
         Self {
-            session_id: record.session_id,
+            session_id,
             record: Some(record),
             routing,
             waiters: CodexTurnEndWaiters::default(),
             parts,
-            fixed_start_tokens: None,
+            context_readings: CodexSessionContextReadings::new(session_id),
             usage_recorder: None,
         }
     }
@@ -155,8 +153,7 @@ impl CodexSessionIntake {
         };
         let parts = &self.parts;
         for reading in &routed.context_windows {
-            self.fixed_start_tokens = self.fixed_start_tokens.or(reading.breakdown.input);
-            publish_codex_context_reading(parts, record, reading, self.fixed_start_tokens);
+            self.context_readings.publish_report(parts, record, reading);
         }
         let usage = apply_codex_routed_frames(
             &CodexRoutedFramesIntake {
@@ -229,6 +226,8 @@ impl CodexSessionIntake {
         if let Some(record) = &self.record {
             self.waiters.settle(record);
             self.parts.views.show(record);
+            self.context_readings
+                .publish_settings_change(&self.parts, record);
         }
     }
 
@@ -647,31 +646,6 @@ fn find_filing_binding(
         .map(|binding| binding.binding_id)
         .or_else(|| record.binding_id.clone());
     (run_id, binding_id)
-}
-
-// Publishes the session's context reading from one usage report of its own conversation, its top
-// stop from the limit calibrated for its Codex build, model and window.
-fn publish_codex_context_reading(
-    parts: &CodexDriverParts,
-    record: &CodexSessionRecord,
-    reading: &CodexContextWindowReading,
-    fixed_start_tokens: Option<u64>,
-) {
-    // Before the reading's owner registers there is no one to tell.
-    let Some(publisher) = parts.ports.context_readings.port() else {
-        return;
-    };
-    let stops = CodexContextStops {
-        compaction_limit_tokens: parts.compaction_limits.limit(
-            &record.service,
-            &record.thread_settings.model,
-            record.thread_settings.model_context_window,
-        ),
-        fixed_start_tokens,
-    };
-    if let Some(reading) = compose_codex_context_reading(record.session_id, reading, stops) {
-        publisher.publish_context_reading(reading);
-    }
 }
 
 // Writes the end of a turn that moved no run; a failed write is logged, the turn already gone.

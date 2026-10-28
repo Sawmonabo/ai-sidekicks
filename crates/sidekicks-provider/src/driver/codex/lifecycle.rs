@@ -44,6 +44,7 @@ use crate::driver::codex::lifecycle::effects::{CodexDriverEffects, CodexDriverLi
 use crate::driver::codex::lifecycle::intake::CodexSessionIntake;
 use crate::driver::codex::lifecycle::service_events::CodexDriverServiceEvents;
 use crate::driver::codex::lifecycle::views::CodexSessionViews;
+use crate::driver::codex::model_windows::CodexModelWindowCache;
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::rules::CodexProjectRuleFiles;
 use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDependencies};
@@ -119,6 +120,7 @@ pub(crate) struct CodexDriver {
     project_rules: Arc<CodexProjectRuleFiles>,
     pub(super) views: Arc<CodexSessionViews>,
     compaction_limits: Arc<CodexCompactionLimits>,
+    model_windows: Arc<CodexModelWindowCache>,
     // The services whose rate limits were read since they first started.
     rate_limits_read: Mutex<HashSet<CodexServiceId>>,
     // Held through a capability read, so a second one never empties the scratch home the first
@@ -162,6 +164,8 @@ pub(crate) struct CodexDriverParts {
     pub(crate) tasks: TaskTracker,
     /// The compaction limit each Codex version, model and window was measured at.
     pub(crate) compaction_limits: Arc<CodexCompactionLimits>,
+    /// Each home's model windows as its catalog last gave them.
+    pub(crate) model_windows: Arc<CodexModelWindowCache>,
 }
 
 impl CodexDriver {
@@ -255,6 +259,7 @@ impl CodexDriver {
                 Arc::clone(&services.ports.database_writer),
                 tasks.clone(),
             )),
+            model_windows: Arc::default(),
             rate_limits_read: Mutex::default(),
             capability_read: tokio::sync::Mutex::default(),
             tasks,
@@ -373,6 +378,7 @@ impl CodexDriver {
         let adoptions = Arc::new(CodexBindingAdoptions::default());
         Ok(CodexDriverParts {
             compaction_limits: Arc::clone(&self.compaction_limits),
+            model_windows: Arc::clone(&self.model_windows),
             ask_intake: CodexAskIntake {
                 hand_off: Arc::clone(&hand_off),
                 run_routes: Arc::clone(&self.run_routes),

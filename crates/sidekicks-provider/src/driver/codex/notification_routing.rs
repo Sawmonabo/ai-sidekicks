@@ -85,6 +85,9 @@ pub(crate) struct CodexContextWindowReading {
     pub(crate) window: WindowTelemetry,
     /// The last request's counts.
     pub(crate) breakdown: UsageAxisCounts,
+    /// Whether the last request is the conversation's first, its whole total being that
+    /// request's; a resumed or forked conversation's total holds its history's too.
+    pub(crate) is_conversation_start: bool,
 }
 
 /// What routing one notification produced for the session's task to apply: each delivered frame's
@@ -475,6 +478,7 @@ fn read_context_window(
             false,
         ),
         breakdown,
+        is_conversation_start: usage.cumulative.total == Some(window_used_tokens),
     })
 }
 

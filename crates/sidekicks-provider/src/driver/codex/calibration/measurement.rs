@@ -157,7 +157,7 @@ pub(super) async fn read_codex_calibration_catalog(
         .or_else(|| {
             windows
                 .get(&request.model_id)
-                .and_then(|window| window.context_window.or(window.max_context_window))
+                .and_then(|window| window.whole_window(None))
         })
         .ok_or(CodexCalibrationError::WindowNotListed)?;
     let fallback_buffer_tokens = read_fallback_buffer(&dump, &request.model_id);

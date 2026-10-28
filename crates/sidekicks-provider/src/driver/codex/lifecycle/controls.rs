@@ -31,10 +31,7 @@ use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
 use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
-use crate::driver::codex::model_windows::{
-    join_codex_model_windows, read_codex_service_model_windows,
-};
-use crate::driver::codex::service::command::read_codex_model_catalog_dump;
+use crate::driver::codex::model_windows::join_codex_model_windows;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
@@ -224,11 +221,7 @@ impl CodexDriver {
             }
             read => read?,
         };
-        let windows = read_codex_service_model_windows(
-            read_codex_model_catalog_dump(&service),
-            service.home(),
-        )
-        .await;
+        let windows = self.model_windows.refresh(&service).await;
         Ok(join_codex_model_windows(models, &windows))
     }
 
