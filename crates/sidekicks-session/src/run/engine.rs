@@ -67,6 +67,7 @@ use crate::run::daemon_turn::DaemonTurnQueueError;
 use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
 use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::state_change::{
@@ -245,6 +246,9 @@ pub struct RunEngineDeps {
     pub providers: Arc<ProviderRegistry>,
     /// The plans a run's end reopens as it lets their held requests go.
     pub plan_holds: Arc<dyn PlanHolds>,
+    /// The answers to a provider's choice that got no reply back, which the run's choice resolver
+    /// holds and a run's end writes as its choice's settlement once a report showed one taken.
+    pub held_choice_answers: Arc<HeldChoiceAnswers>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -272,6 +276,7 @@ pub struct RunEngine {
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
     plan_holds: Arc<dyn PlanHolds>,
+    held_choice_answers: Arc<HeldChoiceAnswers>,
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
@@ -304,6 +309,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -319,6 +325,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
@@ -349,6 +356,12 @@ impl RunEngine {
     #[cfg(any(test, feature = "test-support"))]
     pub fn restart_facts_pause(&self) -> &PausePoint {
         &self.restart_facts_pause
+    }
+
+    /// The held answers this engine's run ends read, for a test's resolver to hold its answers in.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn held_choice_answers(&self) -> &Arc<HeldChoiceAnswers> {
+        &self.held_choice_answers
     }
 
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,

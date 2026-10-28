@@ -2,9 +2,11 @@
 //! death between the end and the settle leaves one open: each question its agent waits on that the
 //! run holds open, or that waits for the run, is canceled, each plan still waiting on a request the
 //! run's driver held is reopened, and each choice its provider asked and no answer settled is
-//! settled with none. The reason is the end's own: `interrupted` (`canceled` for the retry-or-edit
-//! choice) for every interrupted end, `runEnded` for any other, a restart's among them. A question
-//! its agent does not wait for stays open, since a queued message answers it after the run.
+//! settled by the held answer a report showed the provider took, or else with none. The reason is
+//! the end's own: `interrupted` (`canceled` for the retry-or-edit choice) for every interrupted
+//! end, `runEnded` for any other, a restart's among them. A held answer no report showed taken
+//! stays `Unanswered`, since the daemon never saw the provider take it. A question its agent does
+//! not wait for stays open, since a queued message answers it after the run.
 
 use std::sync::Arc;
 
@@ -17,17 +19,19 @@ use crate::plan_holds::PlanHolds;
 use crate::questions::service::canceled_event;
 use crate::questions::store::{read_unsettled_held_questions, settle_question_statement};
 use crate::run::engine::RunEngineError;
-use crate::run::provider_choice::read_open_choice_settlements;
+use crate::run::provider_choice::held::HeldChoiceAnswers;
+use crate::run::provider_choice::run_end::read_open_choice_settlements;
 use crate::run::read::RunStateReader;
 use crate::run::state_change::{RunStateChange, RunStateChangeCompanions};
 
 /// Adds to `companions`, the write of `change`, a run's end, the settle of every held question,
 /// holding plan `plan_holds` reads and unsettled choice of the run but the choices the companions
-/// settle, each guarded on the state it was read in. Fails as the read fails or an event cannot be
-/// drafted.
+/// settle, a choice whose answer `held_answers` holds as taken settled by that answer, each guarded
+/// on the state it was read in. Fails as the read fails or an event cannot be drafted.
 pub(crate) async fn settle_held_requests_at_run_end(
     pool: &DatabaseReadPool,
     plan_holds: &Arc<dyn PlanHolds>,
+    held_answers: &HeldChoiceAnswers,
     change: &RunStateChange,
     companions: &mut RunStateChangeCompanions,
 ) -> Result<(), RunEngineError> {
@@ -36,6 +40,7 @@ pub(crate) async fn settle_held_requests_at_run_end(
     let is_interrupted = end == RunState::Interrupted;
     let settled_choices = companions.settled_choices.clone();
     let read_holds = Arc::clone(plan_holds);
+    let moved = held_answers.moved_answer(run_id);
     let (questions, plans, choices) = pool
         .read(ReadLength::Short, move |reader| {
             let choices = match RunStateReader::new(reader).read_run(&run_id)? {
@@ -45,6 +50,7 @@ pub(crate) async fn settle_held_requests_at_run_end(
                     run_id,
                     end,
                     &settled_choices,
+                    moved.as_ref(),
                 )?,
                 None => Vec::new(),
             };

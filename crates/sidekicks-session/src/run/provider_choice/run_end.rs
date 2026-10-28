@@ -1,6 +1,7 @@
 //! The choices a run's end lets go: each choice the provider asked and no answer settled is
-//! settled with none in the write that ends the run, and a run that ended with one still open,
-//! because its request committed after the end had read them, is settled once it reads ended.
+//! settled in the write that ends the run, by the held answer a report showed the provider took or
+//! else with none, and a run that ended with one still open, because its request committed after
+//! the end had read them, is settled once it reads ended.
 
 use std::sync::LazyLock;
 
@@ -21,6 +22,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventLinkage,
 };
 
+use super::held::MovedAnswer;
 use super::{ChoiceDialog, is_settled_since, latest_request, settlement_guard};
 use crate::run::engine::RunEngineError;
 use crate::run::read::{RunStateReader, SessionRun, session_run_of_row};
@@ -71,15 +73,17 @@ pub(crate) struct OpenChoiceSettlement {
 }
 
 /// The settle of each choice of `run_id`, a run of `session_id`, still unsettled when the run ends
-/// in `end`, read on `reader`, but those in `settled`, which the end's own write settles:
-/// `canceled` and `interrupted` for an interrupted end, `runEnded` for any other. Fails when the
-/// read fails or an event breaks a check of its type.
+/// in `end`, read on `reader`, but those in `settled`, which the end's own write settles: `moved`'s
+/// settlement for the request it answered, else `canceled` and `interrupted` for an interrupted
+/// end and `runEnded` for any other. Fails when the read fails or an event breaks a check of its
+/// type.
 pub(crate) fn read_open_choice_settlements(
     reader: &Connection,
     session_id: SessionId,
     run_id: RunId,
     end: RunState,
     settled: &[ChoiceDialog],
+    moved: Option<&MovedAnswer>,
 ) -> Result<Vec<OpenChoiceSettlement>, RunEngineError> {
     let is_interrupted = end == RunState::Interrupted;
     let mut settlements = Vec::new();
@@ -93,8 +97,11 @@ pub(crate) fn read_open_choice_settlements(
         if is_settled_since(reader, session_id, run_id, dialog, &pending)? {
             continue;
         }
-        let event = match dialog {
-            ChoiceDialog::Refusal => {
+        let moved_settlement = moved
+            .filter(|moved| moved.dialog == dialog && moved.requested_sequence == pending.sequence);
+        let event = match (moved_settlement, dialog) {
+            (Some(moved), _) => moved.settlement.clone(),
+            (None, ChoiceDialog::Refusal) => {
                 SessionEvent::AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload {
                     session_id,
                     run_id,
@@ -106,7 +113,7 @@ pub(crate) fn read_open_choice_settlements(
                     device_id: None,
                 })
             }
-            ChoiceDialog::UsageCredits => SessionEvent::AgentRunUsageCreditsChoiceResolved(
+            (None, ChoiceDialog::UsageCredits) => SessionEvent::AgentRunUsageCreditsChoiceResolved(
                 AgentRunUsageCreditsChoiceResolvedPayload {
                     session_id,
                     run_id,
@@ -146,7 +153,7 @@ pub async fn settle_open_choices_of_ended_run(
                 else {
                     return Ok::<_, RunEngineError>(Vec::new());
                 };
-                read_open_choice_settlements(reader, run.session_id, run_id, run.state, &[])
+                read_open_choice_settlements(reader, run.session_id, run_id, run.state, &[], None)
             })
             .await?;
         let (guards, mut events): (Vec<_>, Vec<_>) = settlements

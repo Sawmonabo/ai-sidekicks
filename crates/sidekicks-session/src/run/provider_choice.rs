@@ -8,8 +8,7 @@
 //! whose report moved the run without it settles as its settlement event alone.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -37,7 +36,6 @@ use sidekicks_provider::driver::run_control::{
 };
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -55,12 +53,12 @@ use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
 };
 
-mod run_end;
+pub mod held;
+pub mod run_end;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use run_end::read_open_choice_settlements;
-pub use run_end::{read_ended_runs_with_open_choices, settle_open_choices_of_ended_run};
+use held::{HeldAnswer, HeldChoiceAnswers};
 
 /// The statements [`ProviderChoiceResolver`] prepares on a read connection: the run, the provider
 /// it runs on, the newest request of a choice and a settlement since it.
@@ -199,19 +197,6 @@ struct PendingChoice {
     payload: String,
 }
 
-// An answer the provider got with no reply back, with the settlement it writes once the provider
-// shows it took it: the move, the request it settles and its event. Once a report moved the run
-// without the answer's move, only the event is written.
-struct HeldAnswer {
-    answer: ProviderChoiceAnswer,
-    change: RunStateChange,
-    is_move_made: bool,
-    session_id: SessionId,
-    dialog: ChoiceDialog,
-    pending: PendingChoice,
-    settlement: SessionEvent,
-}
-
 // A run waiting on a choice, the choice, and the provider the run runs on.
 struct WaitingRun {
     run: RunRead,
@@ -226,26 +211,25 @@ pub struct ProviderChoiceResolver {
     engine: Arc<RunEngine>,
     providers: Arc<ProviderRegistry>,
     run_lock: KeyedLock<RunId>,
-    // Each run's answer the provider got with no reply back, until its settle; never locked
-    // across an await. No holder panics while it changes the map, so a poisoned lock still guards
-    // a whole map.
-    held_answers: Mutex<HashMap<RunId, HeldAnswer>>,
+    held_answers: Arc<HeldChoiceAnswers>,
 }
 
 impl ProviderChoiceResolver {
-    /// A resolver reading runs and their log through `pool`, moving them through `engine` and
-    /// reaching each run's provider through its driver in `providers`.
+    /// A resolver reading runs and their log through `pool`, moving them through `engine`,
+    /// reaching each run's provider through its driver in `providers` and holding each answer that
+    /// got no reply back in `held_answers`, the store `engine`'s run ends read.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,
         providers: Arc<ProviderRegistry>,
+        held_answers: Arc<HeldChoiceAnswers>,
     ) -> Self {
         Self {
             pool,
             engine,
             providers,
             run_lock: KeyedLock::new(),
-            held_answers: Mutex::new(HashMap::new()),
+            held_answers,
         }
     }
 
@@ -394,12 +378,12 @@ impl ProviderChoiceResolver {
         reported: RunState,
     ) -> Result<bool, ProviderChoiceError> {
         let _run_hold = self.run_lock.acquire(run_id).await;
-        let Some(held) = self.take_held(run_id) else {
+        let Some(held) = self.held_answers.take(run_id) else {
             return Ok(false);
         };
         if !held.is_move_made {
             if reported == RunState::WaitingForInput {
-                lock(&self.held_answers).insert(run_id, held);
+                self.held_answers.hold_again(held);
                 return Ok(false);
             }
             if reported.is_terminal() && !RunState::from(held.change.entry.state()).is_terminal() {
@@ -421,9 +405,7 @@ impl ProviderChoiceResolver {
     /// Leaves the answer held on `run_id`, if any, to settle as its settlement event alone, once a
     /// report moved the run without the answer's move because the settle failed.
     pub(crate) fn hold_answer_as_settlement_alone(&self, run_id: RunId) {
-        if let Some(held) = lock(&self.held_answers).get_mut(&run_id) {
-            held.is_move_made = true;
-        }
+        self.held_answers.mark_move_made(run_id);
     }
 
     // The run, the request it waits on and its provider, or the refusal of an answer that settles
@@ -486,12 +468,12 @@ impl ProviderChoiceResolver {
             .await;
         match answered {
             Ok(AnswerProviderChoiceResult::Answered {}) => {
-                drop(self.take_held(run_id));
+                drop(self.held_answers.take(run_id));
                 self.settle_held(answer).await
             }
             Ok(AnswerProviderChoiceResult::NotPending {}) => {
                 let to_state = answer.change.entry.state();
-                let Some(earlier) = self.take_held(run_id) else {
+                let Some(earlier) = self.held_answers.take(run_id) else {
                     return Err(RunRefusal::InvalidTransition {
                         run_id,
                         from_state: run.state,
@@ -516,22 +498,18 @@ impl ProviderChoiceResolver {
             Err(unanswered @ DriverError::Unanswered(_)) => {
                 // The first answer held stays held: the provider may have taken it, and its word
                 // settles whichever it took.
-                lock(&self.held_answers).entry(run_id).or_insert(answer);
+                self.held_answers.hold(answer);
                 Err(ProviderChoiceError::Driver(unanswered))
             }
             Err(failed) => Err(ProviderChoiceError::Driver(failed)),
         }
     }
 
-    // The answer held on `run_id`, taken out.
-    fn take_held(&self, run_id: RunId) -> Option<HeldAnswer> {
-        lock(&self.held_answers).remove(&run_id)
-    }
-
-    // Lets go every held answer whose run ended with no report showing what its provider did; the
-    // run's end settled its choice, so nothing is left to write. Fails as the read fails.
+    // Lets go every held answer whose run ended: the run's end wrote the settlement of one a report
+    // showed the provider took and settled the rest `Unanswered`, so nothing is left to write. A
+    // read that fails refuses the answer, as the answer's own read on the same pool would next.
     async fn forget_answers_of_ended_runs(&self) -> Result<(), ProviderChoiceError> {
-        let held: Vec<RunId> = lock(&self.held_answers).keys().copied().collect();
+        let held = self.held_answers.held_run_ids();
         if held.is_empty() {
             return Ok(());
         }
@@ -551,14 +529,8 @@ impl ProviderChoiceResolver {
                 Ok::<_, ProviderChoiceError>(ended)
             })
             .await?;
-        lock(&self.held_answers).retain(|run_id, _| !ended.contains(run_id));
+        self.held_answers.forget_ended(&ended);
         Ok(())
-    }
-
-    // How many answers are held, for the tests.
-    #[cfg(test)]
-    fn held_answer_count(&self) -> usize {
-        lock(&self.held_answers).len()
     }
 
     // Writes the settlement `held` carries. A write that fails for any reason but the choice
@@ -568,7 +540,6 @@ impl ProviderChoiceResolver {
         &self,
         held: HeldAnswer,
     ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
-        let run_id = held.change.run_id;
         let settled = if held.is_move_made {
             self.settle_alone(&held).await
         } else {
@@ -587,7 +558,7 @@ impl ProviderChoiceResolver {
                 ProviderChoiceError::Refused(RunRefusal::InvalidTransition { .. })
             )
         {
-            lock(&self.held_answers).insert(run_id, held);
+            self.held_answers.hold_again(held);
         }
         settled
     }

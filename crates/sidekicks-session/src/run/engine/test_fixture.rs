@@ -20,6 +20,7 @@ use sidekicks_workspace::run_setup_gates::RunSetupGate;
 
 use crate::plan_holds::{NoPlanHolds, PlanHolds};
 use crate::run::engine::{RUN_ENGINE_STATEMENT_CAPACITY, RunEngine, RunEngineDeps};
+use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::provider_choice::{PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceResolver};
 
 /// An engine on `database`, appending through `event_log`, with no registered driver, no
@@ -55,6 +56,7 @@ pub fn test_engine_with(
         )),
         providers: Arc::new(ProviderRegistry::register_from(&[], &services)),
         plan_holds,
+        held_choice_answers: Arc::new(HeldChoiceAnswers::default()),
     };
     Arc::new_cyclic(|this| {
         let mut engine = RunEngine::new(deps, this.clone());
@@ -65,8 +67,8 @@ pub fn test_engine_with(
     })
 }
 
-/// A resolver of the choices `engine`'s runs wait on, reading `database`, with no registered
-/// driver.
+/// A resolver of the choices `engine`'s runs wait on, reading `database`, holding its answers in
+/// the store `engine`'s run ends read, with no registered driver.
 pub fn test_choices(
     database: &TestDatabase,
     engine: &Arc<RunEngine>,
@@ -81,6 +83,7 @@ pub fn test_choices(
             &[],
             &test_driver_services(),
         )),
+        Arc::clone(engine.held_choice_answers()),
     ))
 }
 

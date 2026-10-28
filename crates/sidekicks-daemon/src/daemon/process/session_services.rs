@@ -53,6 +53,7 @@ use sidekicks_session::run::epochs::ExecutionEpochs;
 use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_session::run::provider_choice::ProviderChoiceResolver;
+use sidekicks_session::run::provider_choice::held::HeldChoiceAnswers;
 use sidekicks_session::search::files::service::FileSearchService;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
@@ -314,6 +315,7 @@ pub(crate) fn build_session_services(
     // The run holds take the engine's `Weak`, and the engine takes the run-end gate as it is
     // built, so the approval side is built inside the engine's allocation and leaves it here.
     let mut built_approvals = None;
+    let held_choice_answers = Arc::new(HeldChoiceAnswers::default());
     let engine = Arc::new_cyclic(|engine: &Weak<RunEngine>| {
         let approvals = build_approvals(engine.clone(), &approval_start);
         let mut built = RunEngine::new(
@@ -323,6 +325,7 @@ pub(crate) fn build_session_services(
                 execution_postures,
                 providers: Arc::clone(&providers),
                 plan_holds,
+                held_choice_answers: Arc::clone(&held_choice_answers),
             },
             engine.clone(),
         );
@@ -353,6 +356,7 @@ pub(crate) fn build_session_services(
         Arc::clone(&reads),
         Arc::clone(&engine),
         Arc::clone(&providers),
+        held_choice_answers,
     ));
     let inbound_dispatch = Arc::new(RunInboundDispatch::new(
         Arc::clone(&engine),

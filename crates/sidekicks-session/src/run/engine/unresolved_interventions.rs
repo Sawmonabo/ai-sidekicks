@@ -81,6 +81,7 @@ impl RunEngine {
             settle_held_requests_at_run_end(
                 &self.pool,
                 &self.plan_holds,
+                &self.held_choice_answers,
                 &change,
                 &mut with_settle,
             )

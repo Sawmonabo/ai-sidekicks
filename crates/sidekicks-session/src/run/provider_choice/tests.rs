@@ -1,8 +1,8 @@
 //! Answers to a provider's choice over a test database holding one run waiting on a choice, bound
 //! to the table's first provider, whose driver is a stand-in: an answer the provider got with no
 //! reply back, settled by the provider's word and held again when its settle fails, the order an
-//! answer is refused in, and the one settlement of each choice a run's end lets go or an answer
-//! ends the run with.
+//! answer is refused in, and the one settlement of each choice a run's end lets go, a taken held
+//! answer's among them, or an answer ends the run with.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -47,8 +47,8 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
 use super::{
-    PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin, ProviderChoiceError,
-    ProviderChoiceResolver,
+    ChoiceDialog, PROVIDER_CHOICE_STATEMENT_CAPACITY, ProviderChoiceAnswerOrigin,
+    ProviderChoiceError, ProviderChoiceResolver,
 };
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::schema_parts;
@@ -92,6 +92,49 @@ impl Fixture {
             )
             .await
             .map(|answered| answered.new_state)
+    }
+
+    /// Answers the run's `dialog` choice from a device: `retryFallback` or `consent`.
+    async fn answer_dialog(
+        &self,
+        dialog: ChoiceDialog,
+    ) -> Result<RunState, Box<ProviderChoiceError>> {
+        let answered = match dialog {
+            ChoiceDialog::Refusal => self
+                .resolver
+                .resolve_refusal_choice(
+                    &AgentRunRefusalChoiceResolveRequest {
+                        run_id: self.run_id,
+                        choice: RunRefusalChoice::RetryFallback,
+                    },
+                    ProviderChoiceAnswerOrigin {
+                        device_id: DeviceId::new("device".to_owned()).expect("a device id"),
+                    },
+                )
+                .await
+                .map(|answered| answered.new_state),
+            ChoiceDialog::UsageCredits => self.answer(RunUsageCreditsChoice::Consent).await,
+        };
+        answered.map_err(Box::new)
+    }
+
+    /// Ends the run on its provider process's exit.
+    async fn end_on_process_exit(&self) {
+        self.engine
+            .end_turn_on_process_exit(
+                self.run_id,
+                serde_json::from_value(
+                    json!({ "exitCode": 1, "outputTail": "the provider stopped" }),
+                )
+                .expect("the test's exit reads as one"),
+            )
+            .await
+            .expect("the run ends on its process's exit");
+    }
+
+    /// How many answers are held.
+    fn held_count(&self) -> usize {
+        self.engine.held_choice_answers().held_count()
     }
 
     /// Appends the provider's ask of the retry-or-edit choice on the run.
@@ -214,6 +257,7 @@ async fn fixture(driver: MockProviderDriver, setup: ChoiceRun) -> Fixture {
         )),
         Arc::clone(&engine),
         Arc::new(registry_of_first_provider(Arc::new(driver))),
+        Arc::clone(engine.held_choice_answers()),
     ));
     Fixture {
         database,
@@ -306,16 +350,32 @@ async fn an_unanswered_choice_settles_on_the_providers_word(#[case] word: Provid
 }
 
 // A held answer whose run ended with no report showing what its provider did is let go at the next
-// answer on any run, since the run's end settled its choice. Killed by dropping the sweep before an
-// answer (`forget_answers_of_ended_runs`), which keeps the answer for the process's life.
+// answer of either kind of choice, since the run's end settled its choice. Killed by dropping the
+// sweep before either kind of answer (`forget_answers_of_ended_runs`), which keeps the answer for
+// the process's life.
+#[rstest]
+#[case::refusal(ChoiceDialog::Refusal)]
+#[case::usage_credits(ChoiceDialog::UsageCredits)]
 #[tokio::test]
-async fn a_held_answer_of_a_run_that_ended_without_a_report_is_let_go_at_the_next_answer() {
+async fn a_held_answer_of_a_run_that_ended_without_a_report_is_let_go_at_the_next_answer(
+    #[case] dialog: ChoiceDialog,
+) {
     let mut driver = MockProviderDriver::new();
     driver
         .expect_answer_provider_choice()
         .returning(|_| async { Err(unanswered()) }.boxed());
-    let fixture = fixture(driver, WAITING_ON_THE_CHOICE).await;
-    let first = fixture.answer(RunUsageCreditsChoice::Consent).await;
+    let fixture = fixture(
+        driver,
+        ChoiceRun {
+            is_asked: dialog == ChoiceDialog::UsageCredits,
+            ..WAITING_ON_THE_CHOICE
+        },
+    )
+    .await;
+    if dialog == ChoiceDialog::Refusal {
+        fixture.ask_refusal_choice().await;
+    }
+    let first = fixture.answer_dialog(dialog).await.map_err(|error| *error);
     assert!(
         matches!(
             first,
@@ -323,18 +383,10 @@ async fn a_held_answer_of_a_run_that_ended_without_a_report_is_let_go_at_the_nex
         ),
         "{first:?}"
     );
-    assert_eq!(fixture.resolver.held_answer_count(), 1);
-    fixture
-        .engine
-        .end_turn_on_process_exit(
-            fixture.run_id,
-            serde_json::from_value(json!({ "exitCode": 1, "outputTail": "the provider stopped" }))
-                .expect("the test's exit reads as one"),
-        )
-        .await
-        .expect("the run ends on its process's exit");
+    assert_eq!(fixture.held_count(), 1);
+    fixture.end_on_process_exit().await;
 
-    let next = fixture.answer(RunUsageCreditsChoice::Consent).await;
+    let next = fixture.answer_dialog(dialog).await.map_err(|error| *error);
 
     assert!(
         matches!(
@@ -345,7 +397,68 @@ async fn a_held_answer_of_a_run_that_ended_without_a_report_is_let_go_at_the_nex
         ),
         "{next:?}"
     );
-    assert_eq!(fixture.resolver.held_answer_count(), 0);
+    assert_eq!(fixture.held_count(), 0);
+}
+
+// A held answer a report showed the provider took, whose settle never wrote, is the choice's one
+// settlement when the run then ends by its process's exit, with the answering device, and is let
+// go with the run. Killed by the run's end reading no held answer, which settles it `runEnded`
+// with no device.
+#[tokio::test]
+async fn a_run_end_writes_a_taken_held_answer_as_its_choices_settlement() {
+    let mut driver = MockProviderDriver::new();
+    driver
+        .expect_answer_provider_choice()
+        .returning(|_| async { Err(unanswered()) }.boxed());
+    let fixture = fixture(driver, WAITING_ON_THE_CHOICE).await;
+    let first = fixture.answer(RunUsageCreditsChoice::Consent).await;
+    assert!(first.is_err(), "{first:?}");
+    fixture
+        .engine
+        .apply_provider_state_change(
+            RunStateChange::new(
+                fixture.run_id,
+                RunStateEntry::Running {
+                    execution_posture: None,
+                },
+            ),
+            None,
+        )
+        .await
+        .expect("the report moves the run")
+        .log_resend_failure(fixture.run_id);
+    fixture
+        .resolver
+        .hold_answer_as_settlement_alone(fixture.run_id);
+
+    fixture.end_on_process_exit().await;
+    let next = fixture.answer(RunUsageCreditsChoice::Consent).await;
+
+    let settlements: Vec<(String, Option<String>)> = fixture
+        .database
+        .reader()
+        .prepare(
+            "SELECT json_extract(payload, '$.choice'), json_extract(payload, '$.deviceId')
+               FROM session_events WHERE session_id = ?1 AND type = ?2 ORDER BY sequence",
+        )
+        .expect("the test reads the log")
+        .query_map(
+            params![
+                fixture.session_id.text().as_str(),
+                SessionEventType::AgentRunUsageCreditsChoiceResolved.as_str()
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the log reads")
+        .collect::<Result<_, _>>()
+        .expect("each settlement reads");
+    assert_eq!(
+        settlements,
+        [("consent".to_owned(), Some("device".to_owned()))]
+    );
+    assert_eq!(fixture.state(), "failed");
+    assert!(next.is_err(), "{next:?}");
+    assert_eq!(fixture.held_count(), 0);
 }
 
 // A report that shows the provider took a held answer settles it first: a settle that fails once is
@@ -512,15 +625,7 @@ async fn a_process_exit_settles_each_open_choice_in_the_runs_end() {
     let fixture = fixture(MockProviderDriver::new(), WAITING_ON_THE_CHOICE).await;
     fixture.ask_refusal_choice().await;
 
-    fixture
-        .engine
-        .end_turn_on_process_exit(
-            fixture.run_id,
-            serde_json::from_value(json!({ "exitCode": 1, "outputTail": "the provider stopped" }))
-                .expect("the test's exit reads as one"),
-        )
-        .await
-        .expect("the run ends on its process's exit");
+    fixture.end_on_process_exit().await;
 
     let newest: Vec<(String, Option<String>)> = fixture
         .database
@@ -555,8 +660,9 @@ async fn a_process_exit_settles_each_open_choice_in_the_runs_end() {
 
 // `editPrompt` on a waiting retry-or-edit choice ends the run `failed`, and the person's answer is
 // the one settlement of the choice: the run's end, in the same write, leaves the choice its
-// companions settle. Killed by dropping that skip (`provider_choice.rs`, the `settled.contains`
-// check in `read_open_choice_settlements`), which adds `runEnded` beside `editPrompt`.
+// companions settle. Killed by dropping that skip (`provider_choice/run_end.rs`, the
+// `settled.contains` check in `read_open_choice_settlements`), which adds `runEnded` beside
+// `editPrompt`.
 #[tokio::test]
 async fn an_edit_prompt_answer_is_its_choices_one_settlement() {
     let mut driver = MockProviderDriver::new();
