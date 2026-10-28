@@ -97,6 +97,9 @@ pub struct KeychainRefusal {
     /// The keychain's failure underneath, kept for the service log.
     #[source]
     failure: Option<Box<dyn Error + Send + Sync>>,
+    /// Whether the refusal came from the sealed secrets file not opening, which the status read
+    /// names on its own.
+    is_secrets_file_unopened: bool,
 }
 
 impl KeychainRefusal {
@@ -107,6 +110,16 @@ impl KeychainRefusal {
             cause,
             reason: reason.into(),
             failure: None,
+            is_secrets_file_unopened: false,
+        }
+    }
+
+    /// An `unavailable` refusal because the sealed secrets file cannot be opened, with `reason` in
+    /// words a person reads, which must hold no secret value.
+    pub(crate) fn of_unopened_secrets_file(reason: impl Into<Cow<'static, str>>) -> Self {
+        Self {
+            is_secrets_file_unopened: true,
+            ..Self::new(KeychainRefusalCause::Unavailable, reason)
         }
     }
 
@@ -120,9 +133,14 @@ impl KeychainRefusal {
     }
 
     /// Why the keychain could not be used.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn cause(&self) -> KeychainRefusalCause {
         self.cause
+    }
+
+    /// Whether the call was refused because the sealed secrets file cannot be opened, whose cause
+    /// the secrets file's status names.
+    pub fn is_secrets_file_unopened(&self) -> bool {
+        self.is_secrets_file_unopened
     }
 
     /// What went wrong, in words a person reads.

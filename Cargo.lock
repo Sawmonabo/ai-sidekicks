@@ -8934,6 +8934,7 @@ dependencies = [
  "base16ct 1.0.0",
  "blake3",
  "deadpool",
+ "ed25519-dalek",
  "futures",
  "garde",
  "getrandom 0.4.3",
@@ -8955,6 +8956,7 @@ dependencies = [
  "tokio-util",
  "tracing",
  "walkdir",
+ "x25519-dalek",
  "zeroize",
  "zstd",
 ]

@@ -14,6 +14,7 @@ doctest = false
 base16ct.workspace = true
 blake3.workspace = true
 deadpool.workspace = true
+ed25519-dalek.workspace = true
 futures.workspace = true
 garde.workspace = true
 getrandom.workspace = true
@@ -35,6 +36,7 @@ tokio.workspace = true
 tokio-util.workspace = true
 tracing.workspace = true
 walkdir.workspace = true
+x25519-dalek = { workspace = true, features = ["static_secrets"] }
 zeroize.workspace = true
 zstd.workspace = true
 
@@ -48,9 +50,9 @@ tokio = { workspace = true, features = ["test-util"] }
 
 [features]
 # Helpers other crates' tests use: a database file with a crate's schema list and the session rows
-# other tables build on, the event log's test rows and its test log, the test credential store and
-# the keychain refusal's cause, and the write-ahead log truncation's settle; platforms' feature
-# gives the unusable-store error the test credential store refuses to open with.
+# other tables build on, the event log's test rows and its test log, the test credential store, and
+# the write-ahead log truncation's settle; platforms' feature gives the unusable-store error the test
+# credential store refuses to open with.
 test-support = ["dep:tempfile", "sidekicks-platforms/test-support"]
 
 [lints]
