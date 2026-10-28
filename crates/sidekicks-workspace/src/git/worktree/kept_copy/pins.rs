@@ -178,3 +178,72 @@ async fn run_ref_transaction(
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_contracts::repo::git_reads::GitObjectId;
+    use sidekicks_platforms::real_path;
+    use sidekicks_std::file::atomic_write::write_file_atomically;
+
+    use super::{KeptPin, KeptWorktreePins, write_pins};
+    use crate::git::process::test_git_runner;
+    use crate::git::process::test_repository::{git_in, make_test_repository};
+    use crate::git::process::{GitCall, in_folder};
+    use crate::git::worktree::removal::new_removed_worktree_id;
+
+    // A `reference-transaction` hook the repository's config names refuses every ref write it
+    // sees. Kills the daemon's own ref writes running the repository's hooks.
+    #[tokio::test]
+    async fn the_pins_land_past_a_refusing_reference_transaction_hook() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let scratch_path = real_path(scratch.path()).expect("the scratch folder resolves");
+        let git = test_git_runner();
+        let repository = make_test_repository(&git, &scratch_path, "app").await;
+        let hooks = scratch_path.join("hooks");
+        tokio::fs::create_dir_all(&hooks)
+            .await
+            .expect("the hooks folder is made");
+        write_file_atomically(
+            &hooks.join("reference-transaction"),
+            "#!/bin/sh\necho 'hook refused the ref' >&2\nexit 1\n",
+            0o755,
+        )
+        .await
+        .expect("the hook is written");
+        git_in(
+            &git,
+            &repository,
+            &["config", "core.hooksPath", &hooks.to_string_lossy()],
+        )
+        .await;
+        let head = git_in(&git, &repository, &["rev-parse", "HEAD"]).await;
+        let refused = git
+            .run(
+                None,
+                GitCall::write(in_folder(&repository, &["branch", "refused"])),
+            )
+            .await;
+        assert!(refused.is_err(), "the hook refuses the person's ref write");
+        let removed_worktree_id = new_removed_worktree_id();
+        let mut pins = KeptWorktreePins::default();
+        pins.set(KeptPin::Head, GitObjectId::new(head.clone()));
+
+        write_pins(
+            &git,
+            None,
+            &repository.join(".git"),
+            &removed_worktree_id,
+            &pins,
+        )
+        .await
+        .expect("the pins land");
+
+        let pinned = git_in(
+            &git,
+            &repository,
+            &["rev-parse", &KeptPin::Head.ref_name(&removed_worktree_id)],
+        )
+        .await;
+        assert_eq!(pinned, head);
+    }
+}

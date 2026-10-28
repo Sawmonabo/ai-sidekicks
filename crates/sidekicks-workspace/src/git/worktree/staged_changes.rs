@@ -340,3 +340,6 @@ async fn remove_folder(folder: PathBuf) -> Result<(), StagedChangesError> {
             source,
         })
 }
+
+#[cfg(test)]
+mod tests;
