@@ -83,7 +83,8 @@ use crate::driver::run_control::{
 use crate::driver::schema::schema_parts;
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
-    PROVIDERS, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
+    PROVIDERS, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
+    SessionSpawnContextResolver,
 };
 use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
@@ -328,6 +329,17 @@ pub(super) fn one_folder_spawn_contexts(
     spawn_contexts
 }
 
+/// The provider-accounts port with [`OneFolder`] registered on it.
+pub(super) fn one_folder_provider_accounts(
+    folder: PathBuf,
+) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
+    let provider_accounts = DriverPorts::new().provider_accounts;
+    provider_accounts
+        .register(Arc::new(OneFolder(folder)) as Arc<dyn ProviderAccountReader>)
+        .expect("a fresh port registers");
+    provider_accounts
+}
+
 /// Every session runs in one folder on the person's own sign-in, whose generation is never read.
 pub(crate) struct OneFolder(pub(crate) PathBuf);
 
@@ -351,7 +363,9 @@ impl SessionSpawnContextResolver for OneFolder {
         }
         .boxed()
     }
+}
 
+impl ProviderAccountReader for OneFolder {
     fn resolve_account_folders(
         &self,
         _provider_account_id: ProviderAccountId,

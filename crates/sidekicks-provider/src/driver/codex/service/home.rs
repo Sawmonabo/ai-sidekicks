@@ -12,7 +12,7 @@ use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 
-use crate::driver::SessionSpawnContextResolver;
+use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::contract::DriverError;
@@ -90,23 +90,23 @@ impl CodexServiceKind {
 /// every other on the person's own Codex folder, which the person's terminal-reach switch decides
 /// the service of.
 pub(crate) struct CodexHomes {
-    spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     personal_home: PathBuf,
     is_terminal_reach_on: Arc<AtomicBool>,
 }
 
 impl CodexHomes {
-    /// The homes resolved through `spawn_contexts`, the person's own folder named by
+    /// The homes resolved through `provider_accounts`, the person's own folder named by
     /// `base_environment`'s `CODEX_HOME`, else `.codex` under `home_folder`; the switch reads
     /// `is_terminal_reach_on`.
     pub(crate) fn new(
-        spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+        provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
         base_environment: &[(String, String)],
         home_folder: &Path,
         is_terminal_reach_on: Arc<AtomicBool>,
     ) -> Self {
         Self {
-            spawn_contexts,
+            provider_accounts,
             personal_home: read_codex_personal_home(base_environment, home_folder),
             is_terminal_reach_on,
         }
@@ -139,7 +139,7 @@ impl CodexHomeResolver for CodexHomes {
                 return Ok(self.personal_service_home());
             };
             let folders = self
-                .spawn_contexts
+                .provider_accounts
                 .require_port()
                 .map_err(|error| DriverError::Internal(Box::new(error)))?
                 .resolve_account_folders(provider_account_id.clone())

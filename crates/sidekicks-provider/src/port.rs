@@ -18,4 +18,4 @@ pub mod session_advisor_store;
 pub mod session_inbox_address;
 pub mod session_rules;
 pub(crate) mod tool_server_route;
-pub(crate) mod usage_sink;
+pub mod usage_sink;

@@ -27,7 +27,6 @@ use tokio_util::task::TaskTracker;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::compaction_wait::PendingCompactionRegistry;
-use crate::driver::SessionSpawnContextResolver;
 use crate::driver::codex::account_home_logs::AccountHomeLogExpiry;
 use crate::driver::codex::commands::{CodexCommandSource, CodexProviderCommandCache};
 use crate::driver::codex::delivery::asks::attribution::CodexAskIntake;
@@ -73,6 +72,7 @@ use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::contract::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
+use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::run_host::RunHost;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
@@ -91,6 +91,7 @@ pub(crate) struct CodexDriver {
     base_environment: Arc<[(String, String)]>,
     reserved_names: Arc<ReservedEnvironmentNames>,
     spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     execution_postures: Arc<ExecutionPostureService>,
     attachments: Arc<dyn AttachmentResolver>,
     runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
@@ -157,7 +158,7 @@ impl CodexDriver {
         let tasks = TaskTracker::new();
         let is_terminal_reach_on = Arc::new(AtomicBool::new(false));
         let homes = Arc::new(CodexHomes::new(
-            Arc::clone(&services.ports.spawn_contexts),
+            Arc::clone(&services.ports.provider_accounts),
             &services.base_environment,
             &services.home_folder,
             Arc::clone(&is_terminal_reach_on),
@@ -201,6 +202,7 @@ impl CodexDriver {
             base_environment: Arc::clone(&services.base_environment),
             reserved_names: Arc::clone(&services.reserved_names),
             spawn_contexts: Arc::clone(&services.ports.spawn_contexts),
+            provider_accounts: Arc::clone(&services.ports.provider_accounts),
             execution_postures: Arc::clone(&services.execution_postures),
             attachments: Arc::clone(&services.attachments),
             runtime_bindings: Arc::clone(&services.runtime_bindings),
@@ -294,7 +296,7 @@ impl CodexDriver {
             },
         ));
         let rate_limits =
-            CodexRateLimitFiling::new(Arc::clone(&dispatch), Arc::clone(&self.spawn_contexts));
+            CodexRateLimitFiling::new(Arc::clone(&dispatch), Arc::clone(&self.provider_accounts));
         let recovery = Arc::new(CodexServiceRecovery::new(
             CodexServiceRecoveryDependencies {
                 slots: Arc::clone(&self.slots),

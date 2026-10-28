@@ -13,9 +13,9 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::callback_tools::host::CallbackToolHost;
-use crate::driver::SessionSpawnContextResolver;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
+use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
@@ -67,7 +67,7 @@ pub trait ProcessGoneListener: Send + Sync {
 
 /// The session directory's intake of a resume a driver started on its own, after a crash or for a
 /// move to a new build, so the daemon records the binding it minted or the failure.
-pub(crate) trait SessionRelaunchListener: Send + Sync {
+pub trait SessionRelaunchListener: Send + Sync {
     /// Records what `session_id`'s relaunch did. Fails when its binding could not be recorded,
     /// which the driver reports as a failed relaunch.
     fn session_relaunched(
@@ -93,9 +93,12 @@ pub struct SessionPlace {
 /// each registered once by the daemon's start; a driver that finds one absent refuses or waits as
 /// its own call says.
 pub struct DriverPorts {
-    /// Where each session's provider process runs, resolved at every spawn, and the accounts a
-    /// provider runs on.
-    pub(crate) spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+    /// Where each session's provider process runs, resolved at every spawn; a driver that spawns
+    /// before it is registered refuses the spawn.
+    pub spawn_contexts: Arc<PortRegistration<Arc<dyn SessionSpawnContextResolver>>>,
+    /// The reads of the accounts a provider runs on, their folders and credential generations; a
+    /// driver that reads an account before it is registered fails that read.
+    pub provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
     /// The run engine.
     pub run_engine: Arc<PortRegistration<Arc<dyn RunHost>>>,
     /// The run engine's dispatch of what a provider delivers.
@@ -111,11 +114,11 @@ pub struct DriverPorts {
     /// The run queue's intake of a handed message the provider let go unsent.
     pub message_given_back: Arc<PortRegistration<Arc<dyn MessageGivenBackListener>>>,
     /// The session directory's intake of a relaunch.
-    pub(crate) session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
+    pub session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
     pub process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
     /// The usage record.
-    pub(crate) usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
     /// The approval pipeline's intake of permission asks.
     pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
@@ -153,6 +156,7 @@ impl DriverPorts {
     pub fn new() -> Self {
         Self {
             spawn_contexts: Arc::new(PortRegistration::new("spawn contexts")),
+            provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
             run_engine: Arc::new(PortRegistration::new("run engine")),
             inbound_dispatch: Arc::new(PortRegistration::new("inbound dispatch")),
             daemon_turn_bindings: Arc::new(PortRegistration::new("daemon turn bindings")),

@@ -45,7 +45,8 @@ use crate::driver::schema::schema_parts;
 use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::driver::{
-    DriverServices, ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver,
+    DriverServices, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
+    SessionSpawnContextResolver,
 };
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
@@ -89,7 +90,9 @@ impl SessionSpawnContextResolver for FolderContexts {
         }
         .boxed()
     }
+}
 
+impl ProviderAccountReader for FolderContexts {
     fn resolve_account_folders(
         &self,
         _provider_account_id: ProviderAccountId,
@@ -243,15 +246,20 @@ impl ScriptedDriver {
         let ports = &base.ports;
         let advisors = Arc::new(RecordedAdvisors::default());
         let step_bound = Arc::new(Mutex::new(None));
+        let contexts = Arc::new(FolderContexts {
+            work: work.clone(),
+            account_folders,
+            advisors: Arc::clone(&advisors),
+            step_bound: Arc::clone(&step_bound),
+        });
         ports
             .spawn_contexts
-            .register(Arc::new(FolderContexts {
-                work: work.clone(),
-                account_folders,
-                advisors: Arc::clone(&advisors),
-                step_bound: Arc::clone(&step_bound),
-            }))
+            .register(Arc::clone(&contexts) as _)
             .expect("the spawn contexts register once");
+        ports
+            .provider_accounts
+            .register(contexts)
+            .expect("the provider accounts register once");
         let recording = Arc::new(RecordingPorts::default());
         let usage = Arc::new(RecordingUsage::default());
         let relaunches = Arc::new(RecordedRelaunches::default());
