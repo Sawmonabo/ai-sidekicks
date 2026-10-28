@@ -416,27 +416,24 @@ async fn a_read_mints_adopts_holds_or_refuses_as_the_pins_and_items_say(
     }
 }
 
-/// A store that refuses the first read as locked, then answers. The status read waits for the
-/// start's read and shows the identity key's refusal with its cause, while the channel key, read on
-/// its own, is minted. Refused again, a status read whose read of the keys is held past
-/// `MACHINE_KEY_READ_WAIT` answers `reading` while the read goes on. Once the store answers, the
-/// next status read reads the keys again and answers both held within the bound. Killed by no wait
-/// and by no re-read.
+/// A store that refuses the first read as locked, then answers. While the start's read is held
+/// past the status read's two-second bound, the status read answers `reading`; once released, the
+/// status read waits for it and shows the identity key's refusal, while the channel key, read on
+/// its own, is minted. Refused again, a status read whose read of the keys is held past the bound
+/// answers the recorded refusal, and a second status read joins that read rather than starting
+/// one. Once the store answers, the next status read reads the keys again and answers both held
+/// within the bound. Killed by no wait, by no re-read and by a second read started while one runs.
 #[tokio::test]
 async fn a_status_read_waits_for_the_key_read_and_reads_a_refused_store_again() {
     let fixture = Fixture::new((None, None)).await;
     *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
+    let first_read = fixture.keychain.read_pause.arm();
     let identity = fixture.identity();
     let locked = Some(DaemonMachineKey {
         state: DaemonMachineKeyState::NotMinted,
         cause: Some(DaemonMachineKeyCause::Locked),
     });
 
-    assert_eq!(identity.machine_key().await, locked);
-    assert_eq!(fixture.keychain.writes(), 1);
-
-    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
-    let held = fixture.keychain.read_pause.arm();
     assert_eq!(
         identity.machine_key().await,
         Some(DaemonMachineKey {
@@ -444,15 +441,49 @@ async fn a_status_read_waits_for_the_key_read_and_reads_a_refused_store_again() 
             cause: None,
         })
     );
+    first_read
+        .reached
+        .await
+        .expect("the start's read of the keys is held");
+    first_read.release.send(()).expect("the held read waits");
+    assert_eq!(identity.machine_key().await, locked);
+    assert_eq!(fixture.keychain.writes(), 1);
+
+    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
+    let reads_before = fixture.keychain.reads();
+    let held = fixture.keychain.read_pause.arm();
+    assert_eq!(identity.machine_key().await, locked);
+    assert_eq!(identity.machine_key().await, locked);
+    assert_eq!(fixture.keychain.reads(), reads_before + 1);
     held.reached
         .await
         .expect("the status read's read of the keys is held");
     held.release.send(()).expect("the held read waits");
-    identity.stop().await;
-    assert_eq!(lock(&identity.store.outcomes).machine_key(), locked);
+    assert_eq!(identity.machine_key().await, locked);
 
     assert_eq!(identity.machine_key().await, None);
     assert_eq!(fixture.keychain.writes(), 2);
+}
+
+/// A store that refuses the first read as locked, then answers: after the stop, a status read
+/// answers the recorded refusal and reads nothing, so no read outlives the stop. Killed by the stop
+/// unread.
+#[tokio::test]
+async fn a_status_read_after_the_stop_starts_no_read() {
+    let fixture = Fixture::new((None, None)).await;
+    *lock(&fixture.keychain.refused_read) = Some(KeychainRefusalCause::Locked);
+    let identity = fixture.identity();
+    let locked = Some(DaemonMachineKey {
+        state: DaemonMachineKeyState::NotMinted,
+        cause: Some(DaemonMachineKeyCause::Locked),
+    });
+    assert_eq!(identity.machine_key().await, locked);
+    identity.stop().await;
+    let reads_before = fixture.keychain.reads();
+
+    assert_eq!(identity.machine_key().await, locked);
+    assert_eq!(fixture.keychain.reads(), reads_before);
+    assert_eq!(fixture.keychain.writes(), 1);
 }
 
 /// What the channel item holds while the identity item matches its pin.

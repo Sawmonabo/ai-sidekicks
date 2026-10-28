@@ -143,9 +143,9 @@ pub enum MintAgainUnregisteredError {
     Keys(#[from] IdentityKeyError),
 }
 
-/// How long a status read waits for a running read of the keys before it answers `reading`; the
-/// read goes on in the background past it.
-pub const MACHINE_KEY_READ_WAIT: Duration = Duration::from_secs(2);
+// How long a status read waits for a running read of the keys before it answers what is
+// recorded; the read goes on in the background past it.
+const MACHINE_KEY_READ_WAIT: Duration = Duration::from_secs(2);
 
 /// This machine's two keys, each read or minted once and held for the run; see the module doc.
 /// Every read, mint and pin change runs under one lock.
@@ -153,8 +153,8 @@ pub struct MachineIdentity {
     /// The keys and what reads and writes them, shared with the background read.
     store: Arc<MachineKeyStore>,
     /// The last background read of both keys, the start's or one a status read started, until
-    /// the stop joins it.
-    background_read: Mutex<Option<BackgroundRead>>,
+    /// the stop joins it and no read starts again.
+    background_reads: Mutex<BackgroundReads>,
 }
 
 impl MachineIdentity {
@@ -199,7 +199,7 @@ impl MachineIdentity {
         let first_read = read_in_background(&store);
         Arc::new(Self {
             store,
-            background_read: Mutex::new(Some(first_read)),
+            background_reads: Mutex::new(BackgroundReads::Last(first_read)),
         })
     }
 
@@ -256,44 +256,38 @@ impl MachineIdentity {
         Ok(use_secret(channel.key.as_bytes()))
     }
 
-    /// Where the keys stand: the identity key's refusal, else the channel key's, and `None` while
-    /// both are held. A running background read is waited for up to [`MACHINE_KEY_READ_WAIT`];
-    /// with none running, a refusal by the credential store starts a read of both keys and waits
-    /// the same bound, so the state clears once the store answers. A read still running at the
-    /// bound answers `reading` and goes on in the background. Must be called inside a tokio
-    /// runtime.
+    /// Where the keys stand after waiting up to two seconds for a running read, or for one a store
+    /// refusal starts before the stop: `None` while both are held, `reading` only before the
+    /// start's read ends. Must be called inside a tokio runtime.
     pub async fn machine_key(&self) -> Option<DaemonMachineKey> {
         let mut ended = {
-            let mut background_read = lock(&self.background_read);
-            match background_read
-                .as_ref()
-                .filter(|read| !read.task.is_finished())
-            {
-                Some(running) => running.ended.clone(),
-                None => {
+            let mut background_reads = lock(&self.background_reads);
+            match &*background_reads {
+                BackgroundReads::Last(read) if !read.task.is_finished() => read.ended.clone(),
+                BackgroundReads::Last(_) => {
                     let machine_key = lock(&self.store.outcomes).machine_key();
                     if !machine_key.is_some_and(is_store_refusal) {
                         return machine_key;
                     }
                     let read = read_in_background(&self.store);
                     let ended = read.ended.clone();
-                    *background_read = Some(read);
+                    *background_reads = BackgroundReads::Last(read);
                     ended
                 }
+                BackgroundReads::Stopped => return lock(&self.store.outcomes).machine_key(),
             }
         };
-        if wait_within(pin!(ended.changed()), MACHINE_KEY_READ_WAIT, None)
-            .await
-            .is_none()
-        {
-            return Some(READING);
-        }
+        // A read still running at the bound goes on in the background.
+        wait_within(pin!(ended.changed()), MACHINE_KEY_READ_WAIT, None).await;
         lock(&self.store.outcomes).machine_key()
     }
 
-    /// Waits for the last background read to end; a later call returns at once.
+    /// Waits for the last background read to end and starts no read after it; a later call
+    /// returns at once.
     pub async fn stop(&self) {
-        let Some(background_read) = lock(&self.background_read).take() else {
+        let background_reads =
+            std::mem::replace(&mut *lock(&self.background_reads), BackgroundReads::Stopped);
+        let BackgroundReads::Last(background_read) = background_reads else {
             return;
         };
         background_read.task.await.expect(
@@ -348,7 +342,7 @@ impl MachineKeyStore {
             return Ok(Arc::clone(key));
         }
         let read = self.read_or_mint::<Key>().await;
-        self.record(Key::ROLE.into(), read.as_ref().map(|_key| ()));
+        self.record(RecordedKeys::One(Key::ROLE), read.as_ref().map(|_key| ()));
         Ok(Arc::clone(Key::cached(cached).insert(Arc::new(read?))))
     }
 
@@ -519,8 +513,8 @@ impl MachineKeyStore {
         };
         let mut outcomes = lock(&self.outcomes);
         match keys {
-            RecordedKeys::Identity => outcomes.identity = recorded,
-            RecordedKeys::Channel => outcomes.channel = recorded,
+            RecordedKeys::One(KeyRole::Identity) => outcomes.identity = recorded,
+            RecordedKeys::One(KeyRole::Channel) => outcomes.channel = recorded,
             RecordedKeys::Both => {
                 outcomes.identity = recorded;
                 outcomes.channel = recorded;
@@ -529,7 +523,7 @@ impl MachineKeyStore {
     }
 }
 
-// The status member while a background read runs.
+// The status member while the start's read has not reached both keys.
 const READING: DaemonMachineKey = DaemonMachineKey {
     state: DaemonMachineKeyState::Reading,
     cause: None,
@@ -540,6 +534,14 @@ struct BackgroundRead {
     task: AbortOnDropHandle<()>,
     /// Closed when the task ends, which wakes every status read waiting on it.
     ended: watch::Receiver<()>,
+}
+
+/// The background reads: the last one started, or none again once the stop joined it.
+enum BackgroundReads {
+    /// The start's read, or the last one a status read started.
+    Last(BackgroundRead),
+    /// The stop joined the last read, so the status read starts none.
+    Stopped,
 }
 
 // Starts a read of both keys on a task; each key's outcome is recorded, and a refusal logged,
@@ -575,8 +577,8 @@ fn is_store_refusal(machine_key: DaemonMachineKey) -> bool {
 // One log line for a refusal of `keys`, with the member's state, cause and action.
 fn log_refusal(keys: RecordedKeys, error: &IdentityKeyError, machine_key: DaemonMachineKey) {
     let keys = match keys {
-        RecordedKeys::Identity => "identity",
-        RecordedKeys::Channel => "channel",
+        RecordedKeys::One(KeyRole::Identity) => "identity",
+        RecordedKeys::One(KeyRole::Channel) => "channel",
         RecordedKeys::Both => "identity and channel",
     };
     let state: &'static str = machine_key.state.into();
@@ -615,18 +617,8 @@ enum KeyRole {
 /// The keys an outcome is recorded for: one read's key, or both for a relink.
 #[derive(Clone, Copy)]
 enum RecordedKeys {
-    Identity,
-    Channel,
+    One(KeyRole),
     Both,
-}
-
-impl From<KeyRole> for RecordedKeys {
-    fn from(role: KeyRole) -> Self {
-        match role {
-            KeyRole::Identity => Self::Identity,
-            KeyRole::Channel => Self::Channel,
-        }
-    }
 }
 
 /// The last outcome of a read, mint or relink of one key.

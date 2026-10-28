@@ -181,9 +181,10 @@ interface DaemonStatusReadResponse {
         reason?: "noSealService" | "sealFailed" | "bootBound";
       };
   // This computer's identity and channel keys, present while the service does not hold both:
-  // `reading` while a read of them still runs after this read waited 2 seconds for it, the
-  // start's or one this read started because the store refused, else why a key is not held. The
-  // action line the status prints comes from the contracts' type, one per state and cause.
+  // `reading` while the start's read of them still runs after this read waited 2 seconds for it,
+  // else why a key is not held; on a refusal by the store this read reads the keys again, waiting
+  // the same 2 seconds. The action line the status prints comes from the contracts' type, one per
+  // state and cause.
   machineKey?: {
     state: "reading" | "notMinted" | "lost" | "changed";
     cause?: "locked" | "unavailable" | "secretsFile" | "random" | "database" | "storedPin";
