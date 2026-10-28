@@ -37,6 +37,8 @@ pub(crate) struct FrameBatcher<Record: ChangeRecord> {
     is_read_due: bool,
     /// The first frame, read when the batcher opened, until it goes out.
     first_frame: Option<Vec<Record::Change>>,
+    /// When the open window closes, kept so a frame read dropped mid-window resumes it.
+    window_end: Option<Instant>,
 }
 
 impl<Record: ChangeRecord> FrameBatcher<Record> {
@@ -54,6 +56,7 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
             seen: 0,
             is_read_due: true,
             first_frame: None,
+            window_end: None,
         };
         batcher.first_frame = batcher.read().await?;
         Ok(batcher)
@@ -64,6 +67,7 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
     /// full frame), else one `STREAM_WINDOW` after the first change signaled since the last frame,
     /// or at once at the `STREAM_FRAME_MAX_CHANGES`th. `Ok(None)` once the gate reports the
     /// subscription closed (or the record's signal is gone); a read failure is the record's error.
+    /// Dropped before it resolves, it loses no change and the next call resumes an open window.
     pub(crate) async fn next_frame(
         &mut self,
         gate: &dyn SendGate,
@@ -83,6 +87,7 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
             if !self.wait_for_window().await {
                 return Ok(None);
             }
+            self.window_end = None;
             self.is_read_due = true;
         }
     }
@@ -111,10 +116,15 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
     /// opens closes or the `STREAM_FRAME_MAX_CHANGES`th change is signaled; false when the signal
     /// was gone before any change came.
     async fn wait_for_window(&mut self) -> bool {
-        if self.change_count.changed().await.is_err() {
-            return false;
-        }
-        let window_end = Instant::now() + STREAM_WINDOW;
+        let window_end = match self.window_end {
+            Some(window_end) => window_end,
+            None => {
+                if self.change_count.changed().await.is_err() {
+                    return false;
+                }
+                *self.window_end.insert(Instant::now() + STREAM_WINDOW)
+            }
+        };
         loop {
             let signaled = self
                 .change_count
@@ -309,6 +319,31 @@ mod tests {
         let frame = batcher.next_frame(&gate).await;
         assert_eq!(frame.expect("the record never fails"), Some(vec![2]));
         assert_eq!(started.elapsed(), STREAM_WINDOW, "it waited one window");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_read_dropped_mid_window_is_resumed_by_the_next_and_loses_no_change() {
+        let record = NumberedRecord::new();
+        let gate = CreditGate::with_credit(1);
+        let mut batcher = FrameBatcher::open(Arc::clone(&record), 0)
+            .await
+            .expect("the record never fails");
+        record.append(1);
+        let started = Instant::now();
+        let dropped = tokio::time::timeout(STREAM_WINDOW / 2, batcher.next_frame(&gate)).await;
+        assert!(
+            dropped.is_err(),
+            "the window was still open when the read was dropped"
+        );
+        let frame = tokio::time::timeout(STREAM_WINDOW * 4, batcher.next_frame(&gate))
+            .await
+            .expect("the change already signaled goes out without another");
+        assert_eq!(frame.expect("the record never fails"), Some(vec![1]));
+        assert_eq!(
+            started.elapsed(),
+            STREAM_WINDOW,
+            "the open window was resumed"
+        );
     }
 
     #[tokio::test(start_paused = true)]
