@@ -193,11 +193,11 @@ struct RunnerState {
     is_stopped: bool,
 }
 
-// How a retry starts: the failed warm step run again at once, or the project's steps read again
-// first.
-enum RetryStart {
-    Run(JoinHandle<WorktreeSetupStatus>),
-    ReadAgain { card_id: u64, made: MadeWorktree },
+// What a retry runs: the failed warm step, at its index, alone, or the project's steps read again
+// first, as that read answered once it ran.
+enum RetryStart<Read> {
+    Warm { failed: usize },
+    ReadAgain(Read),
 }
 
 // One tree's card. Its id tells it from a later card of the same tree, so a run of a dropped card
@@ -428,9 +428,8 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             Some(tree_path) => Some(tree_key_of(&tree_path).await),
             None => None,
         };
-        let retry = {
+        let (retry, card_id, made) = {
             let mut state = self.shared.lock();
-            let is_closing = state.is_closing(tree_key.as_deref());
             let card = state.require_card(&worktree_id)?;
             let failed = card
                 .steps
@@ -444,45 +443,43 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
             let Some(made) = card.made.clone() else {
                 return Err(WorktreeSetupError::TreeNeverMade);
             };
-            // A tree whose removal is under way is as good as retired.
-            if is_closing {
-                return Err(not_found(worktree_id));
-            }
-            match card.steps[failed].action {
+            let retry = match card.steps[failed].action {
                 StepAction::MakeTree => return Err(WorktreeSetupError::TreeNeverMade),
                 // The project's steps all succeeded, so they are not read again.
-                StepAction::Warm => {
-                    RetryStart::Run(self.shared.start_run(&mut state, worktree_id, made, failed))
-                }
+                StepAction::Warm => RetryStart::Warm { failed },
                 StepAction::ReadProjectSteps
                 | StepAction::Copy { .. }
-                | StepAction::Command { .. } => RetryStart::ReadAgain {
-                    card_id: card.id,
-                    made,
-                },
-            }
-        };
-        let (card_id, made) = match retry {
-            RetryStart::Run(run) => return run.await.map_err(WorktreeSetupError::RunEnded),
-            RetryStart::ReadAgain { card_id, made } => (card_id, made),
+                | StepAction::Command { .. } => RetryStart::ReadAgain(()),
+            };
+            (retry, card.id, made)
         };
         // The person may have fixed the step since, so the project's steps are read again.
-        let read_again = self.read_project_steps(&worktree_id).await;
-        let run = {
+        let retry = match retry {
+            RetryStart::Warm { failed } => RetryStart::Warm { failed },
+            RetryStart::ReadAgain(()) => {
+                RetryStart::ReadAgain(self.read_project_steps(&worktree_id).await)
+            }
+        };
+        let run = 'run: {
             let mut state = self.shared.lock();
             let is_closing = state.is_closing(tree_key.as_deref());
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return Err(not_found(worktree_id));
             };
+            // A tree whose removal is under way is as good as retired; every retry's run starts
+            // only past this check.
             if is_closing {
                 return Err(not_found(worktree_id));
             }
             if card.is_running || card.state != WorktreeSetupState::Failed {
                 return Ok(card.status(worktree_id));
             }
-            let read_again = match read_again {
-                Ok(read_again) => read_again,
-                Err(error) => {
+            let read_again = match retry {
+                RetryStart::Warm { failed } => {
+                    break 'run self.shared.start_run(&mut state, worktree_id, made, failed);
+                }
+                RetryStart::ReadAgain(Ok(read_again)) => read_again,
+                RetryStart::ReadAgain(Err(error)) => {
                     // The card stands failed at its read, as when the first read fails; the steps
                     // that succeeded wait off the card for the next read.
                     let succeeded = card.steps.drain(1..).filter(|entry| {
