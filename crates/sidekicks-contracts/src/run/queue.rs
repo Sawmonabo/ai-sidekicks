@@ -20,6 +20,7 @@ use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use crate::question::QuestionId;
 use crate::repo::mount::WorkspaceId;
 use crate::run::id::RunId;
+use crate::session::controls::methods::SessionReviewTarget;
 use crate::session::event_cursor::EventCursor;
 use crate::session::id::SessionId;
 use crate::trust_statement::DeviceId;
@@ -170,7 +171,10 @@ pub struct AgentQueueItemCreateRequest {
     pub skills: Option<Vec<QueuedSkillPick>>,
     /// Edits this waiting message in place: it keeps its place and the old item reads
     /// `superseded`. Naming a message not delivered, with its own words, is a retry that queues
-    /// its words and files again as a new message at the queue's end.
+    /// its words and files again as a new message at the queue's end. Naming a review not
+    /// delivered queues the same review, the words unread; carrying `attachments`, `skills`,
+    /// `answersQuestionId` or `outputSpeedForTurn` beside it is refused
+    /// `agent.queueItem.changeRefused`, `reviewExtras`.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -314,11 +318,11 @@ queue_item_event_payload! {
 /// Declares a queue item's view as a union on `state`: every arm repeats the given members, and
 /// only the `notDelivered` arm carries, and always carries, the daemon's reason.
 macro_rules! queue_item_by_state {
-    ($(#[doc = $doc:literal])+ $name:ident { $($members:tt)* }) => {
-        $(#[doc = $doc])+
+    ($(#[$meta:meta])+ $name:ident { $($members:tt)* }) => {
         #[derive(
             Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate,
         )]
+        $(#[$meta])+
         #[serde(
             tag = "state",
             rename_all = "camelCase",
@@ -386,8 +390,8 @@ macro_rules! queue_item_by_state {
 }
 
 queue_item_by_state! {
-    /// The queued message, as a send or a child's steer answers, and, when a send again under the
-    /// same key answers one whose delivery failed, the daemon's reason.
+    /// The queued item, as a send, a child's steer or a review's start answers, and, when a send
+    /// again under the same key answers one whose delivery failed, the daemon's reason.
     AgentQueueItemCreateResponse {
         /// The item.
         queue_item_id: QueueItemId,
@@ -424,16 +428,38 @@ pub struct AgentQueueItemListRequest {
     pub state: Option<QueueItemState>,
 }
 
-queue_item_by_state! {
+/// Declares one kind of queue item's view, inlined into `QueueItemSummary`'s arm: a union on
+/// `state` whose every arm repeats the members each kind carries, then the kind's own.
+macro_rules! queue_item_summary_by_state {
+    ($(#[doc = $doc:literal])+ $name:ident { $($members:tt)* }) => {
+        queue_item_by_state! {
+            $(#[doc = $doc])+
+            #[schemars(inline)]
+            $name {
+                /// The item.
+                id: QueueItemId,
+                /// Its place in its queue's order, lowest first.
+                position: SafeInt<0>,
+                $($members)*
+                /// Whether `Send now` marked it and no later order moved it off first place.
+                is_sent_now: bool,
+                /// When it was queued.
+                #[garde(dive)]
+                created_at: WireInstant,
+                /// When it last changed.
+                #[garde(dive)]
+                updated_at: WireInstant,
+            }
+        }
+    };
+}
+
+queue_item_summary_by_state! {
     /// One queued message, as a pending row draws it: its words and files, its place in its
     /// queue's order (lowest first, an edit taking the place of the message it replaced), the
     /// child whose queue holds it (absent on the lead's), and, once its delivery has failed, the
     /// daemon's reason.
-    QueueItemSummary {
-        /// The item.
-        id: QueueItemId,
-        /// Its place in its queue's order, lowest first.
-        position: SafeInt<0>,
+    QueueMessageSummary {
         /// The words.
         content: MessageContent,
         /// The message's files in staging order.
@@ -452,15 +478,28 @@ queue_item_by_state! {
         )]
         #[schemars(with = "ChildHandle")]
         child_handle: Option<ChildHandle>,
-        /// Whether `Send now` marked it and no later order moved it off first place.
-        is_sent_now: bool,
-        /// When it was queued.
-        #[garde(dive)]
-        created_at: WireInstant,
-        /// When it last changed.
-        #[garde(dive)]
-        updated_at: WireInstant,
     }
+}
+
+queue_item_summary_by_state! {
+    /// A review of the session's changes waiting on the lead's queue as the session's next item,
+    /// as a pending row draws it: what it covers, its place in the queue's order, and, once its
+    /// start has failed, the daemon's reason. Its report lands as the agent's reply.
+    QueueReviewSummary {
+        /// What the review covers.
+        target: SessionReviewTarget,
+    }
+}
+
+/// One queue item as a pending row draws it, tagged on `kind`: a message the person sent, or the
+/// provider's own review queued as the session's next item; each also tagged on `state`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum QueueItemSummary {
+    /// A message.
+    Message(#[garde(dive)] QueueMessageSummary),
+    /// A review.
+    Review(#[garde(dive)] QueueReviewSummary),
 }
 
 /// A queue's items in the daemon's order.
@@ -583,8 +622,9 @@ ts_constants! {
     /// an item of another session, or one of another queue than the change names.
     AGENT_QUEUE_ITEM_NOT_FOUND_CODE = RefusalCode::AgentQueueItemNotFound;
     /// The refusal of a change to a waiting message the agent has already taken or the provider
-    /// did not give back, a retry in other words than its own, or a reorder whose list is not
-    /// exactly the waiting items.
+    /// did not give back, a retry in other words than its own, an edit of a queued review, a
+    /// review's retry carrying a message's extras, or a reorder whose list is not exactly the
+    /// waiting items.
     AGENT_QUEUE_ITEM_CHANGE_REFUSED_CODE = RefusalCode::AgentQueueItemChangeRefused;
 }
 
@@ -598,6 +638,11 @@ pub enum AgentQueueItemChangeRefusedReason {
     NotDelivered,
     /// The reorder's list is not exactly the waiting items.
     OrderMismatch,
+    /// The edit names a queued review, which carries no words to edit.
+    ReviewItem,
+    /// A review sent again carried files, skills, an answered question or a speed, which a review
+    /// cannot take.
+    ReviewExtras,
 }
 
 /// The details an `agent.queueItem.changeRefused` refusal carries.

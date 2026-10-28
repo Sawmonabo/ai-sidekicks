@@ -222,6 +222,13 @@ impl ComposedText {
     }
 }
 
+impl<const MAX: usize> From<FreeFormText<MAX>> for ComposedText {
+    /// Free-form text is never blank, so it always holds the one code point composed text needs.
+    fn from(text: FreeFormText<MAX>) -> Self {
+        Self(BoundedText(text.0))
+    }
+}
+
 impl JsonSchema for ComposedText {
     fn inline_schema() -> bool {
         true

@@ -79,23 +79,23 @@ pub trait DamagedSessionPurge: Send + Sync {
 }
 
 /// What damaged history reads, writes and rebuilds through.
-pub(crate) struct DamagedHistoryDeps {
+pub struct DamagedHistoryDeps {
     /// The reads of a session's last good point and of its row.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The pages of a session's log, read for its first unreadable event.
-    pub(crate) session_events: Arc<SessionService>,
+    pub session_events: Arc<SessionService>,
     /// The append of the skip a continue writes.
-    pub(crate) appender: Arc<SessionEventAppender>,
+    pub appender: Arc<SessionEventAppender>,
     /// The writer a continue flushes before it reads the head, and marks a cursor stale through.
-    pub(crate) writer: Arc<DatabaseWriter>,
+    pub writer: Arc<DatabaseWriter>,
     /// The rebuilds through a last good point, and past the skip.
-    pub(crate) projection_rebuild: Arc<ProjectionRebuildService>,
+    pub projection_rebuild: Arc<ProjectionRebuildService>,
     /// What the restart left in a continued session, settled.
-    pub(crate) restart_settle: Arc<RestartSettle>,
+    pub restart_settle: Arc<RestartSettle>,
     /// The purge `Delete session` runs.
-    pub(crate) purge: Arc<dyn DamagedSessionPurge>,
+    pub purge: Arc<dyn DamagedSessionPurge>,
     /// The recovery state that says which sessions are damaged.
-    pub(crate) status: Arc<RecoveryStatusTracker>,
+    pub status: Arc<RecoveryStatusTracker>,
 }
 
 /// Finds a damaged session's last good point and rebuilds its projections through it, and runs
@@ -198,8 +198,7 @@ pub(crate) enum DamagedHistoryError {
 
 impl DamagedHistory {
     /// Damaged history over `deps`.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the daemon's start"))]
-    pub(crate) fn new(deps: DamagedHistoryDeps) -> Self {
+    pub fn new(deps: DamagedHistoryDeps) -> Self {
         Self {
             deps,
             recovery_actions: KeyedLock::new(),

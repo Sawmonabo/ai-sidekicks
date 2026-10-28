@@ -213,6 +213,13 @@ pub(crate) enum CodexServiceAvailability {
     ShutDown,
 }
 
+impl CodexServiceAvailability {
+    /// Whether the service is on its way back up: starting, reconnecting or restarting.
+    pub(crate) const fn is_coming_back(&self) -> bool {
+        matches!(self, Self::Starting | Self::Reconnecting | Self::Restarting)
+    }
+}
+
 /// One supervisor's state, its kind and its crash window.
 #[derive(Debug)]
 pub(crate) struct Supervision {
@@ -304,11 +311,12 @@ impl Supervision {
                 ));
                 (SupervisorState::Restarting { wait: ticket }, actions)
             }
+            // Published first, so a session's state reads down by the time the loop is reported.
             CrashOutcome::CrashLoop => {
-                actions.push(SupervisorAction::ReportCrashLoop(start_failure));
                 actions.push(SupervisorAction::Publish(
                     CodexServiceAvailability::CrashLoop,
                 ));
+                actions.push(SupervisorAction::ReportCrashLoop(start_failure));
                 (SupervisorState::CrashLoop, actions)
             }
         }
@@ -334,6 +342,7 @@ impl Supervision {
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
         ));
+        actions.push(SupervisorAction::ReportStoppedOnFailedStart);
         (SupervisorState::Stopped, actions)
     }
 

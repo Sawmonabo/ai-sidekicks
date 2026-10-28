@@ -97,6 +97,9 @@ pub(crate) enum SupervisorAction {
     ReportDropped,
     /// Reports a start that failed after a crash.
     ReportStartFailed(Arc<CodexError>),
+    /// Tells the session's recovery the service stays stopped after a start that failed with no
+    /// crash to count, the failure already published.
+    ReportStoppedOnFailedStart,
     /// Publishes how the service stands to the callers waiting on it.
     Publish(CodexServiceAvailability),
 }

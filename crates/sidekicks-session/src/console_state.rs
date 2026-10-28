@@ -1,9 +1,9 @@
 //! A session's own console settings, over the `session_console_state` table: the advisor a session
 //! on a provider that offers an advisor keeps from its creation or, where no one picked one, from
 //! what the provider resolved at its first start, changed only by the session's advisor command;
-//! the Build or Plan mode the provider last took; and the session's own bound on the steps one
-//! turn may take. Every process the daemon starts for the session reads the advisor at launch, a
-//! restart resumes in the mode, and `session.read` answers with the step bound.
+//! the Build or Plan mode the session was last moved to; and the session's own bound on the steps
+//! one turn may take. Every process the daemon starts for the session reads the advisor at launch,
+//! opens in the mode, and `session.read` answers with the step bound.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -140,8 +140,9 @@ impl SessionAdvisorStore for ConsoleStateAdvisors {
     }
 }
 
-/// The statement storing the mode a `session.mode.update` moved the provider to.
-pub(crate) fn session_mode_change_statement(
+/// The statement storing the mode a `session.mode.update` moved the session to, which its next
+/// process opens in.
+pub fn session_mode_change_statement(
     session_id: &SessionId,
     session_mode: SessionMode,
     updated_at: &str,

@@ -82,13 +82,13 @@ impl From<QueueError> for HandlerError {
             QueueError::Refused(refusal) => Self::Refused(refusal),
             QueueError::Driver(driver) => driver.into(),
             QueueError::RunDriver(run_driver) => run_driver.into(),
+            QueueError::ProviderSession(provider_session) => provider_session.into(),
             fault @ (QueueError::Read(_)
             | QueueError::Pool(_)
             | QueueError::Delivery(_)
             | QueueError::Write(_)
             | QueueError::Record(_)
             | QueueError::Engine(_)
-            | QueueError::ProviderSession(_)
             | QueueError::Agent(_)
             | QueueError::Gate(_)
             | QueueError::DrainEnded

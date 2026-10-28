@@ -10,7 +10,6 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::{
     AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
 };
-use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
@@ -38,8 +37,7 @@ pub enum DaemonTurnQueueError {
 /// Writes `agent.run.queued` for a daemon turn's run under a new id, naming the session's lead
 /// `agent_id` and no parent, and returns that id. Fails with [`RunRefusal::SessionTurnHeld`],
 /// writing nothing, while a lead run of the session is live, and for a turn the daemon starts while
-/// a lead message waits for the session's interrupted lead run; a turn apart from the session's
-/// process is never refused, and its run is marked apart.
+/// a lead message waits for the session's interrupted lead run.
 pub(crate) async fn queue_daemon_turn_run(
     appender: &SessionEventAppender,
     request: &DaemonTurnStartRequest,
@@ -55,17 +53,13 @@ pub(crate) async fn queue_daemon_turn_run(
         resolved_agent: None,
         parent_run_id: None,
         reached_by: None,
-        is_apart: request.is_apart.then_some(True::default()),
         effective_run_config: None,
         admitted_model_family: None,
         admitted_provider_account_id: request.admitted_provider_account_id.clone(),
     });
-    let mut guards = Vec::new();
-    if !request.is_apart {
-        guards.push(no_live_lead_run_statement(&request.session_id));
-        if !request.is_provider_started {
-            guards.push(no_continue_waiting_statement(&request.session_id));
-        }
+    let mut guards = vec![no_live_lead_run_statement(&request.session_id)];
+    if !request.is_provider_started {
+        guards.push(no_continue_waiting_statement(&request.session_id));
     }
     let guard_count = guards.len();
     let mut transactional_prelude = guards;

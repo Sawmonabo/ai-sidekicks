@@ -1,13 +1,8 @@
 use std::sync::Arc;
 
-use serde_json::{Map, Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::free_form_string::FilesystemPath;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use serde_json::{Value, json};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_contracts::wire::record::Record;
 
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
@@ -15,11 +10,10 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::test_fixture::{
-    TEST_THREAD, TestCodexSession, fork_reply, no_turns,
+    TEST_THREAD, TestCodexSession, create_session_params, fork_reply, no_turns,
 };
-use crate::driver::session_control::{CreateSessionParams, DriverResumeResult};
+use crate::driver::session_control::DriverResumeResult;
 use crate::process_identity::ProviderProcessIds as _;
-use crate::run::posture::compose_execution_posture;
 
 // Killed by dropping the profile's read-back, and by dropping the let-go of the conversation a
 // refused read-back leaves.
@@ -29,26 +23,7 @@ async fn a_start_whose_profile_reads_back_wrong_lets_its_conversation_go_and_ins
     let folder = tempfile::tempdir().expect("the test makes a folder");
     let establishment = session.establishment(folder.path());
     let session_id = SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id");
-    let params = CreateSessionParams {
-        session_id,
-        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
-        config: Map::new(),
-        model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
-        larger_window: None,
-        execution_posture: Some(compose_execution_posture(
-            PermissionLevel::Ask,
-            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
-        )),
-        output_speed: None,
-        options: Vec::new(),
-        row_values: Record::default(),
-        callback_tools: None,
-        subagent_policy: None,
-        tool_servers: None,
-        output_schema: None,
-        provider_account_id: None,
-        on_mcp_server_status: None,
-    };
+    let params = create_session_params(session_id);
 
     let created = tokio::spawn(async move { establishment.create(&params).await.map(|_| ()) });
     let script = &mut session.scripted.script;
@@ -121,7 +96,7 @@ async fn resume_on_second_service(
         resumed = resume => resumed,
         () = service_side => unreachable!("the service answers until the resume ends"),
     };
-    (second, resumed.result)
+    (second, resumed.outcome.result)
 }
 
 // Killed by dropping the release of the registration the resume made, and by moving the record

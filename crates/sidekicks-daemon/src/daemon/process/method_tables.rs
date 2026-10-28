@@ -14,16 +14,17 @@ use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
 use sidekicks_session::addresses::SessionInboxAddresses;
+use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::questions::service::QuestionsService;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
-use sidekicks_session::search::index::live::LiveIndex;
+use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::staged_attachments::StagedAttachments;
 use sidekicks_session::tags::SessionTagService;
-use sidekicks_shell::input_lookup::ShellInputLookup;
+use sidekicks_shell::table::ShellTable;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::log_service::EventLogService;
@@ -54,6 +55,8 @@ use crate::ipc::handlers::run::control::{RunControlServices, register_run_contro
 use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::ipc::handlers::run::state::register_run_state_subscribe;
+use crate::ipc::handlers::session::changes::register_session_changes;
+use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
 use crate::ipc::handlers::session::links::register_session_links;
@@ -61,8 +64,10 @@ use crate::ipc::handlers::session::list::register_session_list;
 use crate::ipc::handlers::session::read::register_session_read;
 use crate::ipc::handlers::session::recovery::register_session_recovery_methods;
 use crate::ipc::handlers::session::restart::{RestartTargetReader, register_session_restart};
+use crate::ipc::handlers::session::review_note::register_session_review_notes;
+use crate::ipc::handlers::session::search::{SessionSearchMethods, register_session_search};
 use crate::ipc::handlers::session::tags::register_session_tags;
-use crate::ipc::handlers::terminal::register_terminal_write;
+use crate::ipc::handlers::terminal::{register_terminal_methods, register_terminal_write};
 use crate::ipc::handlers::transcript::register_transcript_reads;
 
 /// Every service the method tables take, each table's own inputs where its owner bundles them.
@@ -123,12 +128,19 @@ pub(crate) struct MethodTableServices {
     pub(crate) questions: Arc<QuestionsService>,
     /// The sessions whose history is damaged.
     pub(crate) damaged_history: Arc<DamagedHistory>,
-    /// The session search index.
-    pub(crate) search_index: Arc<LiveIndex>,
     /// The code highlighter.
     pub(crate) highlighter: Arc<CodeHighlighter>,
-    /// Finds the shell a terminal write goes to.
-    pub(crate) shell_inputs: ShellInputLookup,
+    /// Each session's shells, which the terminal methods open, follow, write to and close.
+    pub(crate) shells: Arc<ShellTable>,
+    /// The sessions' renames and name pushes.
+    pub(crate) session_changes: Arc<SessionChanges>,
+    /// Each session's review notes.
+    pub(crate) review_notes: Arc<SessionReviewNoteStore>,
+    /// The session and file search methods' inputs.
+    pub(crate) session_search: SessionSearchMethods,
+    /// The session controls' inputs: the level, the mode, side questions, reviews and the
+    /// command list.
+    pub(crate) session_controls: SessionControlMethods,
     /// Lists a repository's branches.
     pub(crate) branches: Arc<BranchListReader>,
     /// Follows a session's working folder.
@@ -172,10 +184,18 @@ pub(crate) fn register_method_tables(
         services.staged_attachments,
         services.inbox_addresses,
     )?;
-    register_transcript_reads(builder, services.sessions, services.search_index)?;
+    register_transcript_reads(
+        builder,
+        services.sessions,
+        Arc::clone(&services.session_search.index),
+    )?;
     register_session_list(builder, services.list_feed)?;
     register_session_event_subscribe(builder, services.event_log)?;
     register_session_draft_update(builder, services.drafts)?;
+    register_session_changes(builder, services.session_changes)?;
+    register_session_review_notes(builder, services.review_notes)?;
+    register_session_search(builder, services.session_search)?;
+    register_session_controls(builder, services.session_controls)?;
     register_session_tags(builder, services.tags)?;
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_restart(
@@ -188,7 +208,8 @@ pub(crate) fn register_method_tables(
     register_session_recovery_methods(builder, services.damaged_history)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
-    register_terminal_write(builder, services.shell_inputs)?;
+    register_terminal_write(builder, services.shells.input_lookup())?;
+    register_terminal_methods(builder, services.shells)?;
     register_repo_branches(builder, services.branches)?;
     register_working_folder(builder, services.working_folders)
 }

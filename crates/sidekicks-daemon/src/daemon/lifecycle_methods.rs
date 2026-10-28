@@ -1,7 +1,7 @@
 //! The service's lifecycle verbs: the flush a quit sends, the stop and restart Settings › Runtime
 //! and the command line send, and the answer to main's ping on a quiet link.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -12,17 +12,48 @@ use sidekicks_contracts::daemon::lifecycle::{
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::method_descriptor::EmptyPayload;
 use sidekicks_contracts::wire::BoolLiteral;
-use sidekicks_ipc::in_flight_mutations::RecordedCallId;
+use sidekicks_ipc::in_flight_mutations::{InFlightMutations, RecordedCallId};
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 /// Resolves once every write pending at the call is durable; stops nothing. It takes the call's
 /// own in-flight record, so a wait on the pending mutations excludes the flush itself.
 pub(crate) type FlushWrites = Arc<
     dyn Fn(Option<RecordedCallId>) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync,
 >;
+
+/// The serving socket's flush: waits for every mutating call `in_flight` recorded before the
+/// flush's own, then for every write those calls sent `writer` to commit. `in_flight` is set once
+/// the socket's gate chain is built over the frozen registry, before the socket takes a call.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's start builds the lifecycle methods with it"
+    )
+)]
+pub(crate) fn flush_writes(
+    in_flight: Arc<OnceLock<Arc<InFlightMutations>>>,
+    writer: Arc<DatabaseWriter>,
+) -> FlushWrites {
+    Arc::new(move |caller| {
+        let in_flight = Arc::clone(
+            in_flight
+                .get()
+                .expect("the socket's gates are built before it takes a call"),
+        );
+        let writer = Arc::clone(&writer);
+        async move {
+            in_flight.wait_for_pending(caller).await;
+            writer.flush().await;
+            Ok(())
+        }
+        .boxed()
+    })
+}
 
 /// What the lifecycle verbs act on: the running daemon.
 #[derive(Clone)]
@@ -102,9 +133,12 @@ mod tests {
     };
     use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
     use sidekicks_std::mutex_lock::lock;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+    use sidekicks_store::events::log_service::test_fixture::open_log;
     use tokio::sync::oneshot;
 
-    use super::{LifecycleMethodsDeps, register_lifecycle_methods};
+    use super::{LifecycleMethodsDeps, flush_writes, register_lifecycle_methods};
+    use crate::daemon::schema::schema_parts;
 
     /// A method of another namespace sharing the flush's last segment.
     struct SessionFlush;
@@ -253,25 +287,20 @@ mod tests {
         assert!(lock(&lifecycle.stops).is_empty(), "a flush stops nothing");
     }
 
-    // The flush waits only for the writes recorded before it: dispatched through the in-flight
-    // record, which records it as a mutation itself, a flush alone answers at once. Killed by a
-    // handler that waits with `None` in place of its own call id, which waits on its own record.
+    // The serving socket's flush waits only for the writes recorded before it: dispatched through
+    // the in-flight record, which records it as a mutation itself, a flush alone answers at once.
+    // Killed by a flush that waits with `None` in place of its own call id, which waits on its own
+    // record.
     #[tokio::test]
     async fn a_flush_alone_never_waits_on_its_own_record() {
+        let database = TestDatabase::new(schema_parts());
+        let log = open_log(&database, None).await;
         let gate: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
-        let handler_gate = Arc::clone(&gate);
         let mut builder = MethodRegistryBuilder::new();
         register_lifecycle_methods(
             &mut builder,
             &LifecycleMethodsDeps {
-                flush: Arc::new(move |caller| {
-                    let in_flight = Arc::clone(handler_gate.get().expect("the gate is built"));
-                    async move {
-                        in_flight.wait_for_pending(caller).await;
-                        Ok(())
-                    }
-                    .boxed()
-                }),
+                flush: flush_writes(Arc::clone(&gate), log.writer),
                 accept_stop: Arc::new(|_intent| {}),
             },
         )

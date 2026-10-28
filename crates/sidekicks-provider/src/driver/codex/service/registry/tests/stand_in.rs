@@ -92,6 +92,8 @@ impl CodexServiceEvents for ExitsHeard {
 
     fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
 
+    fn start_failed(&self, _service: &Arc<CodexService>) {}
+
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 
     fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}

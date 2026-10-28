@@ -332,6 +332,7 @@ pub(crate) fn continue_request(
     start_driver: impl Fn(ExecutionPosture) -> DriverStep + Send + Sync + 'static,
 ) -> RunContinueRequest {
     let queue_item = serde_json::from_value(json!({
+        "kind": "message",
         "state": "admitted",
         "id": mint_uuid_v7().to_string(),
         "position": 0,

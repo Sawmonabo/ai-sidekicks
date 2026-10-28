@@ -3,6 +3,7 @@
 //! for this one session), a side question in a one-turn process that keeps nothing, Claude Code's
 //! own review as the session's own run, and the live command list.
 
+mod review;
 mod staged_review;
 
 use std::collections::HashMap;
@@ -10,6 +11,7 @@ use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use futures::future::BoxFuture;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::commands::ProviderCommandListResponse;
@@ -17,7 +19,7 @@ use sidekicks_contracts::session::controls::events::{
     SessionNotice, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
 };
 use sidekicks_contracts::session::controls::methods::{
-    SessionMode, SessionReviewTarget, SideQuestionId, SideQuestionText,
+    SessionMode, SideQuestionId, SideQuestionText,
 };
 use sidekicks_contracts::session::events::{
     SessionAdvisorChangedPayload, SessionOutputStyleChangedPayload,
@@ -25,7 +27,7 @@ use sidekicks_contracts::session::events::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
@@ -33,17 +35,13 @@ use tokio_util::sync::CancellationToken;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
-use crate::driver::claude::run::start::{
-    ClaudeDaemonTurnOpening, ClaudeRunStart, claude_session_unavailable,
-};
+use crate::driver::claude::run::start::ClaudeRunStart;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAnsweredCommand, ClaudeAttachedAdvisor, ClaudeCommandOutcome, answer_claude_advisor,
     answer_claude_output_style, read_claude_answered_command, read_claude_attached_advisor,
 };
 use crate::driver::claude::session::arrivals::deliver_in_session_order;
-use crate::driver::claude::session::errors::{
-    ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
-};
+use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
 use crate::driver::claude::session::permission_level::claude_permission_mode_for;
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::state::LiveClaudeSession;
@@ -61,6 +59,7 @@ use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeO
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::{DriverError, ProviderCommandsSubscription};
 use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::error_causes::side_question_refusal;
 use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
@@ -71,9 +70,6 @@ use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
 use sidekicks_std::port_registration::PortRegistration;
-
-// The bundled skill Claude Code's review runs, by the name the build's skill list gives it.
-const CLAUDE_REVIEW_SKILL_NAME: &str = "code-review";
 
 /// Reads a session's command list as the driver answers it now; `None` before it holds one.
 pub(crate) type ClaudeCommandListReader =
@@ -140,13 +136,14 @@ impl ClaudeSessionControls {
     }
 
     /// Moves the session between Build and Plan from its next turn: Plan is Claude Code's `plan`
-    /// mode and Build its level's own mode, stored once Claude Code takes it. Fails as Claude Code
-    /// refuses.
+    /// mode and Build its level's own mode, stored once Claude Code takes it. Refused
+    /// `session.mode.notOffered` in Claude Code's words when it refuses the mode; fails as the
+    /// request fails.
     pub(crate) async fn update_session_mode(
         &self,
         live: &LiveClaudeSession,
         mode: SessionMode,
-    ) -> Result<(), ClaudeSessionError> {
+    ) -> Result<(), DriverError> {
         let level = lock(&live.settings)
             .execution_posture
             .as_ref()
@@ -159,7 +156,16 @@ impl ClaudeSessionControls {
             .send_control_request(ClaudeControlRequest::SetPermissionMode {
                 mode: permission_mode,
             })
-            .await?;
+            .await
+            .map_err(|error| {
+                match error.into_refusal_as(
+                    RefusalCode::SessionModeNotOffered,
+                    "Claude Code refused the mode",
+                ) {
+                    Ok(refusal) => DriverError::Refused(refusal),
+                    Err(error) => error.into(),
+                }
+            })?;
         lock(&live.settings).session_mode = mode;
         Ok(())
     }
@@ -226,115 +232,24 @@ impl ClaudeSessionControls {
     }
 
     /// Asks `question` on the copy of the conversation `copy` composes, in a one-turn process in
-    /// plan mode that keeps nothing; returns at once. Its answer is appended as a row when it
-    /// comes, its usage metered on the session through `usage` less the copied conversation's own,
-    /// and a refusal or failure recorded.
-    pub(crate) fn ask_side_question(
-        self: &Arc<Self>,
+    /// plan mode that keeps nothing, and resolves once it is answered: the answer is appended as a
+    /// row, its usage metered on the session through `usage` less the copied conversation's own.
+    /// Refused `session.sideQuestion.refused` when the model refuses the question; fails as the
+    /// copy cannot be composed or its turn fails, and when its words cannot be stored.
+    pub(crate) async fn ask_side_question(
+        &self,
         session_id: SessionId,
         side_question_id: SideQuestionId,
         question: String,
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
-        usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
-    ) {
-        let controls = Arc::clone(self);
-        tokio::spawn(async move {
-            let reply = controls
-                .run_side_question(copy, question.clone(), &usage)
-                .await;
-            let answered = match reply {
-                Ok(reply) => side_question_row(session_id, side_question_id, question, reply),
-                Err(error) => Err(error.to_string()),
-            };
-            match answered {
-                Ok(row) => {
-                    controls
-                        .deliver(session_id, InboundDelivery::SessionEvent { row })
-                        .await;
-                }
-                Err(reason) => record_unheard_claude_failure(
-                    DriverDiagnosticKind::ProcessReportFailed,
-                    session_id,
-                    "the side question",
-                    &std::io::Error::other(reason),
-                ),
-            }
-        });
-    }
-
-    /// Starts Claude Code's own review of `target` with its bundled `code-review` skill as the
-    /// session's own run, between the `reviewStarted` and `reviewFinished` notices: a turn on the
-    /// session's process for the working tree or the branch, and for the staged set a one-turn
-    /// process in a worktree holding only the staged changes, which a stop ends. Returns once it
-    /// has started; fails `ReviewSkillAbsent` when the build lists no such skill, and as the run's
-    /// start fails.
-    pub(crate) async fn start_review(
-        self: &Arc<Self>,
-        live: &Arc<LiveClaudeSession>,
-        target: SessionReviewTarget,
+        usage: &PortRegistration<Arc<dyn UsageSink>>,
     ) -> Result<(), DriverError> {
-        let session_id = live.session_id;
-        let has_skill = self
-            .run_start
-            .handshakes
-            .held_handshake_for(session_id, &live.provider_session_id)
-            .is_some_and(|held| {
-                held.declaration
-                    .skills
-                    .iter()
-                    .any(|skill| skill == CLAUDE_REVIEW_SKILL_NAME)
-            });
-        if !has_skill {
-            return Err(claude_session_unavailable(
-                ClaudeSessionUnavailableReason::ReviewSkillAbsent,
-                session_id,
-                None,
-            )
-            .into());
-        }
-        if target == SessionReviewTarget::Staged {
-            return self.start_staged_review(live).await;
-        }
-        // Held before the turn starts, so a review whose turn ends at once still finishes.
-        self.lock()
-            .reviews
-            .insert(session_id, ClaudeReviewProgress::default());
-        let opening = ClaudeDaemonTurnOpening::Text {
-            text: OutboundText {
-                text: compose_review_command(target),
-                origin: OutboundTextOrigin::HumanText,
-            },
-            message_id: mint_uuid_v7().to_string(),
-            attachment_blocks: Vec::new(),
-        };
-        if let Err(error) = self.run_start.start_daemon_turn(session_id, opening).await {
-            self.lock().reviews.remove(&session_id);
-            return Err(error);
-        }
-        self.post_notice(
-            session_id,
-            SessionNotice::ReviewStarted { session_id, target },
-        )
-        .await;
-        // The turn may have ended while the start notice went; its finish waited for it.
-        let has_ended = {
-            let mut tables = self.lock();
-            match tables.reviews.get_mut(&session_id) {
-                Some(review) if review.has_ended => {
-                    tables.reviews.remove(&session_id);
-                    true
-                }
-                Some(review) => {
-                    review.is_started_posted = true;
-                    false
-                }
-                None => false,
-            }
-        };
-        if has_ended {
-            self.post_notice(session_id, SessionNotice::ReviewFinished { session_id })
-                .await;
-        }
+        let reply = self
+            .run_side_question(copy, question.clone(), usage)
+            .await?;
+        let row = side_question_row(session_id, side_question_id, question, reply)?;
+        self.deliver(session_id, InboundDelivery::SessionEvent { row })
+            .await;
         Ok(())
     }
 
@@ -515,8 +430,8 @@ impl ClaudeSessionControls {
         copy: BoxFuture<'static, Result<ClaudeSideQuestionCopy, Box<dyn Error + Send + Sync>>>,
         question: String,
         usage: &PortRegistration<Arc<dyn UsageSink>>,
-    ) -> Result<ClaudeOneTurnReply, Box<dyn Error + Send + Sync>> {
-        let copy = copy.await?;
+    ) -> Result<ClaudeOneTurnReply, DriverError> {
+        let copy = copy.await.map_err(DriverError::Internal)?;
         let reply = self
             .run_one_turn(
                 &copy.legs,
@@ -680,19 +595,25 @@ fn meter_side_question(
     }
 }
 
-// The answered row of a side question, or why it has none: a refusal has no answer, and its
-// reason names only the model, since a diagnostic never carries the model's own words.
+// The answered row of a side question; refused `session.sideQuestion.refused`, the refusal as the
+// provider gave it in its detail, when the model refused it, and a fault when the question or the
+// answer is blank, holds a NUL or passes the cap.
 fn side_question_row(
     session_id: SessionId,
     side_question_id: SideQuestionId,
     question: String,
     reply: ClaudeOneTurnReply,
-) -> Result<SessionScopedRow, String> {
-    if reply.refusal.is_some() {
-        return Err("The side question was refused.".to_owned());
+) -> Result<SessionScopedRow, DriverError> {
+    if let Some(cause) = reply.refusal {
+        return Err(DriverError::Refused(side_question_refusal(
+            session_id,
+            side_question_id,
+            &cause,
+        )));
     }
-    let question = FreeFormText::new(question).map_err(|error| error.to_string())?;
-    let answer = FreeFormText::new(reply.text).map_err(|error| error.to_string())?;
+    let unstorable = |error: TextError| DriverError::Internal(Box::new(error));
+    let question = FreeFormText::new(question).map_err(unstorable)?;
+    let answer = FreeFormText::new(reply.text).map_err(unstorable)?;
     Ok(SessionScopedRow::SideQuestionAnswered(
         SessionSideQuestionAnsweredPayload {
             session_id,
@@ -733,15 +654,4 @@ fn confirmed_advisor_line(
 // The output style a `get_settings` reply says is in effect.
 fn effective_output_style(reply: &ClaudeSettingsReply) -> Option<&str> {
     reply.effective.as_ref()?.get("outputStyle")?.as_str()
-}
-
-// The review command for `target`: with no words the skill reads the branch's commits ahead of
-// its upstream and every uncommitted change; the working tree alone is named in words.
-fn compose_review_command(target: SessionReviewTarget) -> String {
-    match target {
-        SessionReviewTarget::Branch => format!("/{CLAUDE_REVIEW_SKILL_NAME}"),
-        SessionReviewTarget::WorkingTree | SessionReviewTarget::Staged => {
-            format!("/{CLAUDE_REVIEW_SKILL_NAME} the uncommitted changes in the working tree")
-        }
-    }
 }

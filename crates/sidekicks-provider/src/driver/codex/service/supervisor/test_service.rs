@@ -6,7 +6,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::{SinkExt as _, StreamExt as _};
@@ -75,10 +74,23 @@ impl ScriptedCodexService {
     /// Publishes the service reconnecting, its connection set aside until [`Self::publish_up`]
     /// hands it back.
     pub(crate) fn publish_reconnecting(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.publish_disconnected(CodexServiceAvailability::Reconnecting)
+    }
+
+    /// Publishes the service down after a crash loop, its connection set aside as the reconnect
+    /// sets it aside.
+    pub(crate) fn publish_crash_loop(&self) -> Option<Arc<CodexAppServerConnection>> {
+        self.publish_disconnected(CodexServiceAvailability::CrashLoop)
+    }
+
+    // Publishes the service as `availability`, one it is not up in, its connection set aside so
+    // the script stays open.
+    fn publish_disconnected(
+        &self,
+        availability: CodexServiceAvailability,
+    ) -> Option<Arc<CodexAppServerConnection>> {
         let connection = self.service.lock_live().connection.take();
-        self.service
-            .availability
-            .send_replace(CodexServiceAvailability::Reconnecting);
+        self.service.availability.send_replace(availability);
         connection
     }
 
@@ -267,6 +279,8 @@ impl CodexServiceEvents for UnheardEvents {
     fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {}
 
     fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
+
+    fn start_failed(&self, _service: &Arc<CodexService>) {}
 
     fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
 

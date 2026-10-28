@@ -13,11 +13,11 @@ use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
-use super::CodexSideQuestions;
 use super::test_copies::{
-    ANSWER, COPY_THREAD, COPY_TURN, STORED_THREAD, accept_copy, read_only_profile,
+    ANSWER, COPY_THREAD, COPY_TURN, CopyTurnEnding, STORED_THREAD, accept_copy, read_only_profile,
     resting_question, serve_copy, serve_unended_copy,
 };
+use super::{CodexSideQuestions, wait_for_side_question_answer};
 use crate::driver::codex::permission_level::compose_codex_profile_name;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::supervisor::test_service::{
@@ -47,9 +47,13 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
     let session_id = session.task.record.session_id;
     let params = resting_question(session_id, Path::new("/"));
     let profile = read_only_profile(folder.path());
-    let served = tokio::spawn(serve_copy(listener, profile.clone()));
+    let served = tokio::spawn(serve_copy(
+        listener,
+        profile.clone(),
+        CopyTurnEnding::Answered,
+    ));
 
-    side_questions
+    let answer = side_questions
         .ask_at_rest(
             &establishment,
             params
@@ -67,6 +71,9 @@ async fn a_side_question_on_a_resting_session_forks_its_stored_conversation_and_
         .expect("the service served the copy");
     tasks.close();
     tasks.wait().await;
+    wait_for_side_question_answer(answer)
+        .await
+        .expect("the question is answered");
 
     assert_eq!(fork["threadId"], STORED_THREAD);
     assert_eq!(fork["ephemeral"], true);
@@ -129,7 +136,7 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
         read_only_profile(folder.path()),
     ));
 
-    side_questions
+    let answer = side_questions
         .ask_at_rest(
             &establishment,
             params
@@ -153,6 +160,9 @@ async fn a_resting_copy_let_go_before_its_turn_ends_has_its_turn_stopped(#[case]
     tokio::time::timeout(SERVE_WAIT, tasks.wait())
         .await
         .expect("the copy's task ends");
+    wait_for_side_question_answer(answer)
+        .await
+        .expect("a stopped copy delivers nothing");
 
     assert_eq!(interrupt["method"], "turn/interrupt");
     assert_eq!(
@@ -281,7 +291,9 @@ async fn a_resting_copy_whose_session_closes_while_it_opens_leaves_no_turn_runni
     })
     .await
     .expect("the ask ends once its copy is let go");
-    asked.expect("a copy let go before its turn asks nothing more");
+    wait_for_side_question_answer(asked.expect("a copy let go before its turn asks nothing more"))
+        .await
+        .expect("a copy let go delivers nothing");
     let later = tokio::time::timeout(SERVE_WAIT, served)
         .await
         .expect("the daemon lets the copy's connection go")
@@ -333,7 +345,9 @@ async fn a_live_copy_whose_session_closes_during_its_fork_starts_no_turn() {
     })
     .await
     .expect("the ask ends once its copy is let go");
-    asked.expect("a copy let go before its turn asks nothing more");
+    wait_for_side_question_answer(asked.expect("a copy let go before its turn asks nothing more"))
+        .await
+        .expect("a copy let go delivers nothing");
 
     assert!(
         side_questions.lock().is_empty(),
@@ -436,7 +450,7 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
     })
     .await
     .expect("the ask ends once its turn started");
-    asked.expect("the copy takes the question");
+    let answer = asked.expect("the copy takes the question");
     if let LiveTurn::Running = turn {
         tokio::time::timeout(
             SERVE_WAIT,
@@ -452,6 +466,9 @@ async fn a_live_copy_let_go_before_its_turn_ends_has_its_turn_stopped_first(
     tokio::time::timeout(SERVE_WAIT, tasks.wait())
         .await
         .expect("no copy's task is left");
+    wait_for_side_question_answer(answer)
+        .await
+        .expect("a stopped copy delivers nothing");
 
     assert!(side_questions.lock().is_empty(), "no copy is kept");
     assert!(
@@ -477,7 +494,7 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
     let params = resting_question(session_id, Path::new("/"));
 
     side_questions.stop_every_copy().await;
-    tokio::time::timeout(
+    let resting = tokio::time::timeout(
         SERVE_WAIT,
         side_questions.ask_at_rest(
             &establishment,
@@ -492,7 +509,7 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
     .await
     .expect("the resting ask answers at once")
     .expect("a stopped copy asks nothing");
-    tokio::time::timeout(
+    let live = tokio::time::timeout(
         SERVE_WAIT,
         side_questions.ask(
             &session.task.record,
@@ -505,6 +522,11 @@ async fn a_side_question_asked_after_the_driver_stopped_every_copy_forks_nothing
     .await
     .expect("the live ask answers at once")
     .expect("a stopped copy asks nothing");
+    for answer in [resting, live] {
+        wait_for_side_question_answer(answer)
+            .await
+            .expect("a stopped copy delivers nothing");
+    }
 
     assert!(
         session.scripted.script.sent.try_recv().is_err(),

@@ -12,7 +12,6 @@ use sidekicks_contracts::session::event_cursor::{
     EventCursorPositionOutOfRange, SessionEventCursorUnresolvable, decode_event_cursor,
     encode_event_cursor,
 };
-use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::transcript::limits::{
     TRANSCRIPT_READ_LIMIT_MAX, TRANSCRIPT_SEARCH_TEXT_MAX_LEN,
 };
@@ -26,26 +25,15 @@ use sidekicks_contracts::wire::text::{BoundedText, FreeFormText, TextError};
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_search::index::{
-    IndexRowKind, SearchIndex, SearchIndexError, SearchQuery, SessionFind,
-};
+use sidekicks_search::index::{SearchIndex, SearchIndexError, SearchQuery, SessionFind};
 use sidekicks_store::database::stored_column::rowid_column;
 
 use crate::search::hits::{HitLine, HitLineReader};
-use crate::search::index::columns::index_key_of;
 use crate::search::index::rows::IndexRowReader;
 use crate::search::query::parse_find_query;
 use crate::search::rowid_floors::RowidFloorLog;
 
 const SESSION_KEY_SQL: &str = "SELECT rowid FROM sessions WHERE id = ?";
-
-// The rowid of the session's newest log row before a position: one entry of the session's
-// sequence index. A deleted row's rowid can come back on a later row, but a new row is appended at
-// its session's next sequence with a rowid above every rowid then held, so within a session the
-// rows held keep rowid order and log order alike, and that row's rowid is the highest before it.
-const LAST_ROWID_BEFORE_SQL: &str = "
-  SELECT rowid FROM session_events WHERE session_id = ? AND sequence < ?
-   ORDER BY sequence DESC LIMIT 1";
 
 /// Why a `transcript.search` call failed.
 #[derive(Debug, thiserror::Error)]
@@ -135,7 +123,8 @@ fn answer(
         let Some(sequence) = sequence else {
             return Ok(0);
         };
-        let highest_key = highest_key_before(reader, &request.session_id, sequence)?;
+        let highest_key =
+            IndexRowReader::new(reader).highest_key_before(&request.session_id, sequence)?;
         Ok(highest_key.map_or(row_keys.len(), |highest_key| {
             row_keys.partition_point(|&key| key > highest_key)
         }))
@@ -218,21 +207,6 @@ fn held_matches(
         row_keys,
         match_counts,
     })
-}
-
-// The highest key a row of the session before `before_sequence` can have; `None` when it has none.
-fn highest_key_before(
-    reader: &Connection,
-    session_id: &SessionId,
-    before_sequence: i64,
-) -> rusqlite::Result<Option<u64>> {
-    let rowid = reader
-        .prepare_cached(LAST_ROWID_BEFORE_SQL)?
-        .query_row((session_id.text().as_str(), before_sequence), |row| {
-            rowid_column(row, 0)
-        })
-        .optional()?;
-    Ok(rowid.map(|rowid| index_key_of(rowid, IndexRowKind::Event)))
 }
 
 // A hit as the page shows it; `None` for a row that names no place in the session's log.

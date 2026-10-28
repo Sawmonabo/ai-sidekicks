@@ -29,14 +29,14 @@ use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_aut
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
-use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::driver::codex::model_windows::{
     join_codex_model_windows, read_codex_service_model_windows,
 };
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
+use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
@@ -61,14 +61,15 @@ const TERMINAL_REACH_ROW_LINE: &str = "Runs one Codex service while it is on, so
 
 impl CodexDriver {
     /// Moves the live conversation to another level from its next turn, once a fork onto its
-    /// changed config settled. Fails with `CodexError::Transport` with no live record, and as the
+    /// changed config and a conversation coming back settled, holding off any re-establishment
+    /// until the move is made. Fails with `CodexError::Transport` with no live record, and as the
     /// move fails.
     pub(crate) async fn update_permission_level(
         &self,
         params: UpdatePermissionLevelParams,
     ) -> Result<(), DriverError> {
         self.config_forks.join(params.session_id).await;
-        let inbound = self.slots.require_live(params.session_id)?;
+        let (inbound, _turn) = self.slots.require_live_settled(params.session_id).await?;
         call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::MoveLevel {
             params,
             reply,
@@ -84,7 +85,7 @@ impl CodexDriver {
         params: UpdateSessionModeParams,
     ) -> Result<(), DriverError> {
         self.config_forks.join(params.session_id).await;
-        let inbound = self.slots.require_live(params.session_id)?;
+        let (inbound, _turn) = self.slots.require_live_settled(params.session_id).await?;
         call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::MoveMode {
             mode: params.mode,
             reply,
@@ -94,15 +95,25 @@ impl CodexDriver {
     }
 
     /// Asks a side question on a read-only copy of the session's conversation: the live one, else
-    /// the stored one `params.resume` names, forked on the account's service. Fails with
+    /// the stored one `params.resume` names, forked on the account's service; answers once the
+    /// copy's turn ended with its answer delivered, or once a close or the shutdown stopped it.
+    /// Refused `session.sideQuestion.refused` where Codex's policy refused the turn, and
+    /// `provider.unavailable` in Codex's words where it gave no answer otherwise; fails with
     /// `CodexError::Transport` with neither a live record nor a resume handle, and as the ask
     /// fails.
     pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
     ) -> Result<(), DriverError> {
-        let inbound = match (self.slots.require_live(params.session_id), &params.resume) {
-            (Ok(inbound), _) => inbound,
+        let answer = match (self.slots.require_live(params.session_id), &params.resume) {
+            // Asked on the session's task, which reads the copy's frames; waited for off it.
+            (Ok(inbound), _) => {
+                call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::AskSideQuestion {
+                    params: Box::new(params),
+                    reply,
+                })
+                .await??
+            }
             (Err(_no_live_record), Some(resume)) => {
                 let parts = self.parts()?;
                 parts
@@ -113,17 +124,11 @@ impl CodexDriver {
                         &params,
                         Arc::clone(&parts.ports.usage),
                     )
-                    .await?;
-                return Ok(());
+                    .await?
             }
             (Err(refusal), None) => return Err(refusal.into()),
         };
-        call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::AskSideQuestion {
-            params: Box::new(params),
-            reply,
-        })
-        .await??;
-        Ok(())
+        Ok(wait_for_side_question_answer(answer).await?)
     }
 
     /// Compacts the live conversation, settling on Codex's own compaction frame.

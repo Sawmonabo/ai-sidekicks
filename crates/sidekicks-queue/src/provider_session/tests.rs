@@ -1,4 +1,5 @@
-//! A session's provider session resumed from a conversation an earlier daemon left.
+//! A session's provider session resumed from a conversation an earlier daemon left, and the
+//! controls that act on its process.
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -6,23 +7,27 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 
 use futures::FutureExt as _;
+use rstest::rstest;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::session_control::DriverResumeResult;
+use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, SessionProcessState};
+use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
 };
 use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
 use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
+use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
@@ -60,8 +65,9 @@ type ResumeHook = Box<dyn Fn() + Send + Sync>;
 type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
 
 // A session an earlier daemon ran on its binding, its provider sessions and its changes sharing
-// the transition lock, over a driver that resumes the conversation and closes at once; each event
-// changes the session's directory row, so a close leaves the session reading closed.
+// the transition lock, over a driver that resumes the conversation, the first resume on the binding
+// `relaunched_id` and each later one on a fresh one, and closes at once; each event changes the
+// session's directory row, so a close leaves the session reading closed.
 struct Opening {
     database: TestDatabase,
     session_id: SessionId,
@@ -74,9 +80,14 @@ struct Opening {
 }
 
 impl Opening {
-    // `on_resume` runs inside the driver's resume, and `on_closed_append` as the close's
-    // `session.closed` is appended, before its write is queued.
-    async fn new(on_resume: ResumeHook, on_closed_append: ClosedAppendHook) -> Self {
+    // `on_resume` runs inside the driver's resume, `on_closed_append` as the close's
+    // `session.closed` is appended, before its write is queued, and `expect` adds the test's own
+    // expectations to the driver.
+    async fn new(
+        on_resume: ResumeHook,
+        on_closed_append: ClosedAppendHook,
+        expect: impl FnOnce(&mut MockProviderDriver),
+    ) -> Self {
         let database = TestDatabase::new(schema_parts());
         let writer = Arc::new(
             DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
@@ -137,12 +148,19 @@ impl Opening {
             .id;
         let relaunched_id =
             RuntimeBindingId::new(mint_uuid_v7().to_string()).expect("a UUID is a binding id");
-        let minted = relaunched_id.clone();
+        let first_minted = Mutex::new(Some(relaunched_id.clone()));
         let mut driver = MockProviderDriver::new();
         driver.expect_resume_session().returning(move |params| {
             assert_eq!(params.resume_handle, "conversation-1");
             on_resume();
-            let binding_id = minted.clone();
+            let binding_id = first_minted
+                .lock()
+                .expect("the minted id's lock holds")
+                .take()
+                .unwrap_or_else(|| {
+                    RuntimeBindingId::new(mint_uuid_v7().to_string())
+                        .expect("a UUID is a binding id")
+                });
             async move {
                 Ok(DriverResumeResult::Resumed {
                     binding_id,
@@ -157,6 +175,7 @@ impl Opening {
         driver
             .expect_close_session()
             .returning(|_params| async { Ok(()) }.boxed());
+        expect(&mut driver);
         let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
         record_first_provider_capabilities(&providers);
         let changes = Arc::new(SessionChanges::new(
@@ -195,7 +214,7 @@ impl Opening {
 // inside the open (the test times out), or by the relaunch left unrecorded.
 #[tokio::test]
 async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {})).await;
+    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |_| {}).await;
 
     timeout(
         WAIT,
@@ -266,6 +285,7 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
                 });
             }
         }),
+        |_| {},
     )
     .await;
     let session_id = opening.session_id;
@@ -326,6 +346,7 @@ async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
                 }
             }),
             Box::new(|| {}),
+            |_| {},
         )
         .await;
         let session_id = opening.session_id;
@@ -373,4 +394,150 @@ async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
             "no process comes up for the {state:?} session"
         );
     }
+}
+
+// A mode move on a session whose process is down only stores it, leaving the driver alone; on one
+// whose process runs or whose driver brings it back, the driver moves first, and its refusal
+// leaves the stored mode as it was. Killed by storing before the move, and by a restarting process
+// that skips the driver.
+#[rstest]
+#[case::live(SessionProcessState::Live)]
+#[case::restarting(SessionProcessState::Restarting)]
+#[case::down(SessionProcessState::Down)]
+#[tokio::test]
+async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
+    #[case] state: SessionProcessState,
+) {
+    let is_down = state == SessionProcessState::Down;
+    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver| {
+        driver.expect_session_process_state().return_const(state);
+        driver
+            .expect_update_session_mode()
+            .times(usize::from(!is_down))
+            .returning(|_params| {
+                async {
+                    Err(DriverError::Refused(DomainError::new(
+                        "The provider refused the mode.",
+                        RefusalCode::SessionModeNotOffered,
+                    )))
+                }
+                .boxed()
+            });
+    })
+    .await;
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+
+    let moved = opening
+        .sessions
+        .change_mode(opening.session_id, SessionMode::Plan)
+        .await;
+
+    let stored = read_session_mode(&opening.database.reader(), &opening.session_id)
+        .expect("the stored mode reads");
+    if is_down {
+        assert!(moved.is_ok(), "{moved:?}");
+        assert_eq!(stored, SessionMode::Plan);
+    } else {
+        assert!(
+            matches!(moved, Err(ProviderSessionError::Driver(_))),
+            "{moved:?}"
+        );
+        assert_eq!(stored, SessionMode::Build);
+    }
+}
+
+// A side question's copy is forked from the session's newest conversation whether or not a
+// process runs it, and a session that never ran has none to fork. Killed by resume material only
+// for a session this daemon has not opened, and by none at all.
+#[tokio::test]
+async fn a_side_question_forks_the_newest_conversation_whatever_the_process() {
+    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver| {
+        driver
+            .expect_session_process_state()
+            .return_const(SessionProcessState::Live);
+    })
+    .await;
+    let resume_handle =
+        |resume: Option<ResumeSessionParams>| resume.map(|params| params.resume_handle);
+
+    let at_rest = opening
+        .sessions
+        .side_question_resume(opening.session_id)
+        .await
+        .expect("the resume material composes");
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+    let running = opening
+        .sessions
+        .side_question_resume(opening.session_id)
+        .await
+        .expect("the resume material composes");
+    let never_ran = test_session_id();
+    insert_session_row(
+        &opening.database.reader(),
+        never_ran.text().as_str(),
+        None,
+        None,
+    );
+    let none = opening
+        .sessions
+        .side_question_resume(never_ran)
+        .await
+        .expect("a session with no conversation reads");
+
+    assert_eq!(resume_handle(at_rest).as_deref(), Some("conversation-1"));
+    assert_eq!(resume_handle(running).as_deref(), Some("conversation-1"));
+    assert!(none.is_none());
+}
+
+// A process gone with no restart pending is forgotten, so the next admission resumes the session
+// again; one its driver brings back keeps its opening. Killed by a process gone that is not
+// forgotten (the second open resumes nothing), and by forgetting a process the driver restarts.
+#[rstest]
+#[case::down(SessionProcessState::Down, 2)]
+#[case::restarting(SessionProcessState::Restarting, 1)]
+#[tokio::test]
+async fn a_gone_process_is_forgotten_only_with_no_restart_pending(
+    #[case] state: SessionProcessState,
+    #[case] expected_resumes: usize,
+) {
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let opening = Opening::new(
+        Box::new({
+            let resumes = Arc::clone(&resumes);
+            move || {
+                resumes.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+        Box::new(|| {}),
+        |driver| {
+            driver.expect_session_process_state().return_const(state);
+        },
+    )
+    .await;
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+
+    opening
+        .sessions
+        .forget_gone_process(opening.session_id)
+        .await
+        .expect("the driver answers");
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the session opens again");
+
+    assert_eq!(resumes.load(Ordering::SeqCst), expected_resumes);
 }

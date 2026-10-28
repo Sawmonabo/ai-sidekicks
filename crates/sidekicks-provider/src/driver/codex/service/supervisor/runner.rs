@@ -237,6 +237,9 @@ impl ServiceRunner {
                     }
                 });
             }
+            SupervisorAction::ReportStoppedOnFailedStart => {
+                service.dependencies.events.start_failed(service);
+            }
             // The connection's own drop already reported it, on the reader.
             SupervisorAction::ReportDropped => {}
             SupervisorAction::ReportStartFailed(failure) => {

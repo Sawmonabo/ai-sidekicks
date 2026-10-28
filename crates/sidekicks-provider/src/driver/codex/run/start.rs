@@ -1,14 +1,15 @@
 //! Starting a Codex turn for a run: the person's words, picked skills and staged files, the turn's
-//! model, speed, mode, reviewer and output schema, and the route that lets the run's steers,
-//! interrupts and terminal find the turn. The session's task checks and records the start and
-//! reads Codex's answer; the request goes between, off the task, one turn start per session at a
-//! time. Codex runs a turn the daemon stopped until its end arrives and folds a turn sent onto a
-//! busy conversation into the running one, so no turn starts before every stopped turn ended, and
-//! every wait and the request of one start share the start's own deadline. A conversation that
-//! owes a fork onto a changed config forks before the turn, once its turns settled.
+//! model, speed, mode, reviewer and output schema, or Codex's own review of a set of changes, and
+//! the route that lets the run's steers, interrupts and terminal find the turn. The session's task
+//! checks and records the start and reads Codex's answer; the request goes between, off the task,
+//! one turn start per session at a time. Codex runs a turn the daemon stopped until its end
+//! arrives and folds a turn sent onto a busy conversation into the running one, so no turn starts
+//! before every stopped turn ended, and every wait and the request of one start share the start's
+//! own deadline. A conversation that owes a fork onto a changed config forks before the turn, once
+//! its turns settled.
 
-pub(crate) mod daemon_turns;
 pub(crate) mod record;
+mod review;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -40,8 +41,8 @@ use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInbou
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::thread::view::{TURN_START_METHOD, read_turn_id};
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
-use crate::driver::contract::StartRunParams;
-use crate::driver::run_control::DaemonTurnBindingResolver;
+use crate::driver::contract::{RunOpeningItem, StartRunParams};
+use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 
 /// How long a turn's start may take before it counts as not started. `turn/start` answers once
@@ -56,13 +57,12 @@ pub(crate) struct CodexRunStartDependencies {
     pub(crate) config_forks: Arc<CodexConfigForks>,
     /// The driver's run routes.
     pub(crate) run_routes: Arc<CodexRunRoutes>,
-    /// The run engine, which opens a turn the daemon starts as the session's own run and takes
-    /// each run's settled output speed.
+    /// The run engine, which takes each run's settled output speed.
     pub(crate) engine: Arc<dyn RunHost>,
-    /// Opens the binding of a turn the daemon starts.
-    pub(crate) daemon_turn_bindings: Arc<dyn DaemonTurnBindingResolver>,
     /// Binds a message's staged files.
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
+    /// The run engine's dispatch, which records a review's start.
+    pub(crate) dispatch: Arc<dyn InboundDispatch>,
 }
 
 /// Starts turns for runs and routes each accepted turn to its run.
@@ -97,15 +97,25 @@ impl CodexRunStart {
         }
     }
 
-    /// Starts one run's turn with its opening message on the binding the daemon opened for it,
-    /// after a config fork in flight on the session, once every turn the daemon is stopping ended,
-    /// every wait within one turn-start deadline. A run whose turn did not start keeps no route,
-    /// and the session keeps the binding it had. Fails with `CodexError::SessionTurnInFlight` when
-    /// a stopping turn outlived the deadline or a turn Codex started runs, with
-    /// `CodexError::PortFailed` when the message's files cannot be read, and as the config fork and
-    /// the request fail.
+    /// Starts one run's turn on the binding the daemon opened for it, with its opening message or
+    /// as Codex's own review of the changes it names, after a config fork in flight on the
+    /// session, once every turn the daemon is stopping ended, every wait within one turn-start
+    /// deadline. A run whose turn did not start keeps no route, and the session keeps the binding
+    /// it had. Fails with `CodexError::SessionTurnInFlight` when a stopping turn outlived the
+    /// deadline or a turn Codex started runs, with `CodexError::PortFailed` when the message's
+    /// files cannot be read, and as the config fork and the request fail.
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), CodexError> {
-        let opening = params.opening;
+        let (content, attachments, skills) = match &params.opening.item {
+            RunOpeningItem::Message {
+                content,
+                attachments,
+                skills,
+            } => (content, attachments, skills),
+            RunOpeningItem::Review { target } => {
+                return self.start_queued_review(&params, *target).await;
+            }
+        };
+        let opening = &params.opening;
         let session_id = opening.session_id;
         let run_id = params.run_id;
         // A run arriving while the conversation forks onto its new config runs on the fork.
@@ -114,9 +124,9 @@ impl CodexRunStart {
         let message = resolve_codex_turn_message(
             &*self.dependencies.attachments,
             &session_id,
-            &opening.content,
-            &opening.attachments,
-            &opening.skills,
+            content,
+            attachments,
+            skills,
         )
         .await
         .map_err(|cause| CodexError::PortFailed {
@@ -155,7 +165,14 @@ impl CodexRunStart {
                 .map(ExecutionPosture::permission_level),
         };
         let started = self
-            .start_turn(&inbound, run_id, opening.binding_id, turn, None, &deadline)
+            .start_turn(
+                &inbound,
+                run_id,
+                opening.binding_id.clone(),
+                turn,
+                None,
+                &deadline,
+            )
             .await;
         if started.is_err() {
             run_routes.forget_run(run_id);

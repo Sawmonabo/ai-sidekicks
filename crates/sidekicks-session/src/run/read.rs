@@ -141,7 +141,7 @@ static SELECT_SESSION_LIVE_RUNS_SQL: LazyLock<String> = LazyLock::new(|| {
     let readable_queued = readable_event_sql("queued");
     let readable_lifecycle = readable_event_sql("lifecycle");
     format!(
-        "SELECT run_id, parent_run_id, is_apart, state, run_version,
+        "SELECT run_id, parent_run_id, state, run_version,
     (SELECT COALESCE(json_extract(queued.payload, '$.agentId'),
                      json_extract(queued.payload, '$.resolvedAgent.agentId'))
        FROM session_events AS queued
@@ -301,17 +301,15 @@ pub fn read_run_provider(
         .optional()
 }
 
-/// One live run of a session as its `runs` row and its log answer it: who it was reached from,
-/// whether it runs apart, its state and version, its agent and its newest touch; the agent and the
-/// touch are `None` when its `agent.run.queued` is past the read bound or skipped.
+/// One live run of a session as its `runs` row and its log answer it: who it was reached from, its
+/// state and version, its agent and its newest touch; the agent and the touch are `None` when its
+/// `agent.run.queued` is past the read bound or skipped.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct SessionLiveRunRow {
     /// The run.
     pub(crate) run_id: RunId,
     /// The run it was reached from; absent on a lead run.
     pub(crate) parent_run_id: Option<RunId>,
-    /// Whether it runs apart from its parent.
-    pub(crate) is_apart: bool,
     /// Its state.
     pub(crate) state: RunState,
     /// Its version.
@@ -341,11 +339,10 @@ pub(crate) fn read_session_live_runs(
                 Ok(SessionLiveRunRow {
                     run_id: text_column(row, 0, |text| RunId::new(&text))?,
                     parent_run_id: optional_text_column(row, 1, |text| RunId::new(&text))?,
-                    is_apart: row.get(2)?,
-                    state: text_column(row, 3, closed_word)?,
-                    run_version: safe_int_column(row, 4)?,
-                    agent_id: optional_text_column(row, 5, |text| AgentId::new(&text))?,
-                    touched_at: optional_text_column(row, 6, WireInstant::try_from)?,
+                    state: text_column(row, 2, closed_word)?,
+                    run_version: safe_int_column(row, 3)?,
+                    agent_id: optional_text_column(row, 4, |text| AgentId::new(&text))?,
+                    touched_at: optional_text_column(row, 5, WireInstant::try_from)?,
                 })
             },
         )?

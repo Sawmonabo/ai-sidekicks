@@ -13,7 +13,7 @@ use crate::driver::claude::session::ultracode::{
 };
 use crate::driver::contract::{
     CompactContextParams, DriverError, ListProviderCommandsParams, RespondToRequestParams,
-    StartRunParams,
+    RunOpeningItem, StartRunParams,
 };
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
@@ -23,12 +23,20 @@ use crate::driver::run_control::{
 use crate::driver::session_control::{
     ClearSessionGoalParams, DriverGoalResult, SetSessionGoalParams,
 };
+use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 impl ClaudeDriver {
-    /// Starts one run's turn on the session's live process. A process started with another step
-    /// bound than the session's is relaunched on its conversation first, and an Ultracode value
-    /// the process does not hold is applied, both before the turn's text is written. Fails as the
-    /// relaunch or the apply fails, and as the turn's start fails.
+    /// Waits until the session's process no longer comes back on its own; see the restarts'
+    /// settle.
+    pub(crate) async fn settle_session(&self, session_id: SessionId) -> Result<(), DriverError> {
+        self.parts()?.restarts.settle(session_id).await
+    }
+
+    /// Starts one run's turn on the session's live process: a message's words as typed with its
+    /// files, or Claude Code's own review of the changes the item names. A process started with
+    /// another step bound than the session's is relaunched on its conversation, and an Ultracode
+    /// value the process does not hold is applied, both before the turn starts. Fails as the
+    /// relaunch or the apply fails, and as the turn's or the review's start fails.
     pub(crate) async fn start_run(&self, params: StartRunParams) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let session_id = params.opening.session_id;
@@ -53,7 +61,25 @@ impl ClaudeDriver {
                 settings.ultracode = reading;
             }
         }
-        parts.run_start.start_run(&params).await
+        match &params.opening.item {
+            RunOpeningItem::Message {
+                content,
+                attachments,
+                ..
+            } => {
+                let text = OutboundText {
+                    text: content.as_str().to_owned(),
+                    origin: OutboundTextOrigin::HumanText,
+                };
+                parts.run_start.start_run(&params, &text, attachments).await
+            }
+            RunOpeningItem::Review { target } => {
+                parts
+                    .session_controls
+                    .start_queued_review(&params, *target)
+                    .await
+            }
+        }
     }
 
     /// Interrupts one run.

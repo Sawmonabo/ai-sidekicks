@@ -30,6 +30,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{PathRules, Spawner};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -65,6 +66,7 @@ use crate::driver::claude::session::state::{
     ClaudeRequestedSpawn, ClaudeSessionRoutingBand, ClaudeSpawnBinding, ClaudeUsageEstablishment,
     LiveClaudeSession,
 };
+use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
@@ -138,6 +140,10 @@ pub(crate) enum ClaudeEstablishmentError {
     /// A close took the session's slot while its process came up, so the process was ended.
     #[error("the session was closed while its Claude Code process came up")]
     Closed,
+    /// Claude Code cannot run the session at its level on its model or this system
+    /// (`session.permissionLevel.notOffered`), so the process was ended.
+    #[error(transparent)]
+    LevelNotOffered(DomainError),
 }
 
 impl ClaudeEstablishmentError {
@@ -156,17 +162,20 @@ impl ClaudeEstablishmentError {
             | Self::Port(_)
             | Self::Rebind(_)
             | Self::ConversationUnreadable { .. }
-            | Self::Closed => RecoveryCondition::RecoveryNeeded,
+            | Self::Closed
+            | Self::LevelNotOffered(_) => RecoveryCondition::RecoveryNeeded,
         }
     }
 }
 
 impl From<ClaudeEstablishmentError> for DriverError {
-    /// A session's refusal or a launch failure answers as its own; anything else is internal.
+    /// A session's refusal or a launch failure answers as its own, a level the session cannot run
+    /// as `session.permissionLevel.notOffered`; anything else is internal.
     fn from(error: ClaudeEstablishmentError) -> Self {
         match error {
             ClaudeEstablishmentError::Session(error) => error.into(),
             ClaudeEstablishmentError::Launch(error) => error.into(),
+            ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::Refused(refusal),
             error @ (ClaudeEstablishmentError::Context(_)
             | ClaudeEstablishmentError::Legs(_)
             | ClaudeEstablishmentError::SessionRules(_)
@@ -365,7 +374,7 @@ impl ClaudeSessionEstablishment {
                     provider_session_id: provider_session_id.clone(),
                 },
                 (
-                    SessionMode::Build,
+                    params.mode,
                     params.output_speed.map(FreeFormText::into_string),
                 ),
                 ClaudeUsageEstablishment::Fresh,
@@ -560,6 +569,9 @@ impl ClaudeSessionEstablishment {
                     routes: Arc::clone(&self.routes),
                     session_id,
                 }),
+                // A process starts in its level's own mode, so only Plan is named.
+                permission_mode: (session_mode == SessionMode::Plan)
+                    .then_some(ClaudePermissionMode::Plan),
             })
             .await;
         let started = match started {
@@ -577,7 +589,7 @@ impl ClaudeSessionEstablishment {
                 &started,
                 &legs,
                 agent_id,
-                (session_mode, output_speed.as_deref()),
+                output_speed.as_deref(),
                 (model_check, ultracode),
             )
             .await;

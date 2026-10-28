@@ -28,7 +28,7 @@ use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, StartRunParams,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::message_handing::{HandMoment, MessageHanding};
@@ -45,7 +45,7 @@ use crate::driver::session_control::{
     CreateSessionParams, DriverAuthProbeResult, DriverGoalResult, DriverResumeResult,
     MoveSessionToForkParams, MoveSessionToForkResult, NameSessionParams, ProviderBuildChange,
     ProviderCommandsListener, ProviderSessionHandle, PurgeSessionParams, ResumeSessionParams,
-    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartReviewParams, StartingLevel,
+    RevokeRuleParams, SessionCommandAnswer, SetSessionGoalParams, StartingLevel,
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
@@ -271,6 +271,10 @@ impl ProviderDriver for ClaudeDriver {
         params: ResumeSessionParams,
     ) -> BoxFuture<'_, Result<DriverResumeResult, DriverError>> {
         self.resume_session(params).boxed()
+    }
+
+    fn settle_session(&self, session_id: SessionId) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.settle_session(session_id).boxed()
     }
 
     fn start_run(&self, params: StartRunParams) -> BoxFuture<'_, Result<(), DriverError>> {
@@ -546,6 +550,10 @@ impl ProviderDriver for ClaudeDriver {
         self.observed_options_for(*session_id)
     }
 
+    fn session_process_state(&self, session_id: &SessionId) -> SessionProcessState {
+        self.session_process_state(*session_id)
+    }
+
     fn update_session_mode(
         &self,
         params: UpdateSessionModeParams,
@@ -564,11 +572,7 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: AskSideQuestionParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(self.ask_side_question(params)).boxed()
-    }
-
-    fn start_review(&self, params: StartReviewParams) -> BoxFuture<'_, Result<(), DriverError>> {
-        self.start_review(params).boxed()
+        self.ask_side_question(params).boxed()
     }
 
     fn subscribe_provider_commands(

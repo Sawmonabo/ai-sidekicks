@@ -1,22 +1,27 @@
 //! The session controls that run beside a session's own turns, reached through the driver: a side
-//! question, the staged review, a run started through the driver interface and a fork.
+//! question, a review, a mode move, a run started through the driver interface and a fork.
 
 use std::sync::Arc;
 
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionReviewTarget, SideQuestionId,
+    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
 };
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{resume_params, start_params};
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::claude::session::scripted::channel::ScriptedChannel;
+use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
 };
@@ -30,11 +35,11 @@ use crate::driver::claude::session::transport::declarations::{
     ClaudeOfferedModel,
 };
 use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnReply;
-use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::{DriverError, ProviderDriver, RunOpeningItem};
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
-    StartReviewParams,
+    UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -69,12 +74,8 @@ fn counts(input: u64, output: u64) -> UsageAxisCounts {
     }
 }
 
-// Killed by a stop that does not reach the review's run apart from the session's process: the
-// review would go on to open its worktree and fail instead of ending interrupted.
-#[tokio::test(start_paused = true)]
-async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
-    let fixture = ScriptedDriver::new();
-    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+// Lets the session's process run Claude Code's `code-review` skill.
+fn offer_review_skill(fixture: &ScriptedDriver, session_id: SessionId) {
     let parts = fixture.driver.composed_parts().expect("composed");
     let live = parts
         .slots()
@@ -88,19 +89,26 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
             ..ClaudeHandshakeDeclaration::default()
         },
     );
+}
 
+// Killed by a stop that does not reach the review's run apart from the session's process: the
+// review would go on to open its worktree and fail instead of ending interrupted.
+#[tokio::test(start_paused = true)]
+async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
+    let fixture = ScriptedDriver::new();
+    let session_id = fixture.create(&Arc::new(ScriptedChannel::default())).await;
+    offer_review_skill(&fixture, session_id);
+
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review {
+        target: SessionReviewTarget::Staged,
+    };
     fixture
         .driver
-        .start_review(StartReviewParams {
-            session_id,
-            target: SessionReviewTarget::Staged,
-        })
+        .start_run(params)
         .await
         .expect("the review starts");
-    let run_id = fixture
-        .engine
-        .first_daemon_turn_run()
-        .expect("the review's run was started");
     fixture
         .driver
         .interrupt_run(InterruptRunRequest {
@@ -116,6 +124,82 @@ async fn a_stop_ends_the_staged_review_apart_from_the_session_process() {
         fixture.engine.moves_of_run(run_id).as_slice(),
         [RunStateEntry::Interrupted { .. }]
     ));
+}
+
+// Killed by opening a queued review's run with the message path, which writes no review command,
+// by starting the review under a run of the daemon's own instead of the queue's, by naming the
+// wrong changes, and by dropping its start notice.
+#[rstest]
+#[case::branch(SessionReviewTarget::Branch, "/code-review")]
+#[case::working_tree(
+    SessionReviewTarget::WorkingTree,
+    "/code-review the uncommitted changes in the working tree"
+)]
+#[tokio::test(start_paused = true)]
+async fn a_queued_review_runs_claude_codes_review_as_the_queues_run(
+    #[case] target: SessionReviewTarget,
+    #[case] command: &str,
+) {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let session_id = fixture.create(&channel).await;
+    offer_review_skill(&fixture, session_id);
+    let run_id = new_run_id();
+    let mut params = start_params(session_id, run_id);
+    params.opening.item = RunOpeningItem::Review { target };
+    let message_id = params.opening.message_id;
+
+    fixture
+        .driver
+        .start_run(params)
+        .await
+        .expect("the review starts");
+
+    let written = channel.user_frames();
+    assert_eq!(written.len(), 1);
+    assert_eq!(written[0]["message"]["content"], command);
+    assert_eq!(written[0]["uuid"], message_id.to_string());
+    assert_eq!(fixture.engine.first_daemon_turn_run(), None);
+    let parts = fixture.driver.composed_parts().expect("composed");
+    assert_eq!(
+        parts
+            .run_start
+            .routes
+            .lead_run_on(session_id)
+            .map(|lead| lead.run_id),
+        Some(run_id)
+    );
+    let review_starts: Vec<_> = fixture
+        .engine
+        .deliveries()
+        .into_iter()
+        .filter(|delivery| delivery.kind == "sessionNotice")
+        .filter_map(|delivery| delivery.payload)
+        .filter(|notice| notice["kind"] == "reviewStarted")
+        .collect();
+    assert_eq!(review_starts.len(), 1);
+}
+
+// Killed by answering Claude Code's refusal of a mode as an internal failure.
+#[tokio::test(start_paused = true)]
+async fn a_mode_claude_code_refuses_is_refused_as_not_offered() {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    let session_id = fixture.create(&channel).await;
+    channel.answer("set_permission_mode", ScriptedAnswer::Refused);
+
+    let moved = fixture
+        .driver
+        .update_session_mode(UpdateSessionModeParams {
+            session_id,
+            mode: SessionMode::Plan,
+        })
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = moved else {
+        panic!("a refused mode is refused, not {moved:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::SessionModeNotOffered);
 }
 
 // Killed by running a side question in the session's own posture instead of plan mode, on the
@@ -168,13 +252,15 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
     fixture
         .driver
         .ask_side_question(ask(live_session, None))
-        .expect("the live session's question is asked");
-    ScriptedDriver::wait_for(|| answered(&fixture) == 1).await;
+        .await
+        .expect("the live session's question is answered");
+    assert_eq!(answered(&fixture), 1);
     fixture
         .driver
         .ask_side_question(ask(resting_session, Some(resume_params(resting_session))))
-        .expect("the resting session's question is asked");
-    ScriptedDriver::wait_for(|| answered(&fixture) == 2).await;
+        .await
+        .expect("the resting session's question is answered");
+    assert_eq!(answered(&fixture), 2);
 
     let live_provider_session = fixture
         .driver
@@ -210,6 +296,42 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
         })
         .collect();
     assert_eq!(metered, [(resting_session, Some(50), Some(20))]);
+}
+
+// Killed by answering a side question the model refused as an internal failure.
+#[tokio::test(start_paused = true)]
+async fn a_side_question_the_model_refuses_is_refused_as_such() {
+    let fixture = ScriptedDriver::new();
+    fixture.starts.script_catalog(json!({"models": [
+        {"value": "opus", "displayName": "Opus", "resolvedModel": FULL_MODEL_ID},
+    ]}));
+    fixture.starts.script_one_turn(ClaudeOneTurnReply {
+        refusal: Some(RunFailureCause::Refused {
+            origin: RunRefusedOrigin::Provider,
+            model: FreeFormText::new(FULL_MODEL_ID.to_owned()).expect("a model id is text"),
+            sentence: None,
+            explanation: None,
+            safety_category: None,
+        }),
+        ..one_turn_reply("", None)
+    });
+    let session_id = new_session_id();
+
+    let asked = fixture
+        .driver
+        .ask_side_question(AskSideQuestionParams {
+            session_id,
+            side_question_id: SideQuestionId::try_from(mint_uuid_v7()).expect("a UUID is an id"),
+            question: "Why?".to_owned(),
+            resume: Some(resume_params(session_id)),
+        })
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = asked else {
+        panic!("a refused side question is refused, not {asked:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::SessionSideQuestionRefused);
+    assert_eq!(answered(&fixture), 0);
 }
 
 // The side questions answered so far.

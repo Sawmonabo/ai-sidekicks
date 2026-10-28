@@ -15,7 +15,7 @@ use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandBinding, ProviderCommandEntry,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::wire::text::{ComposedText, FreeFormText};
 use sidekicks_provider::port::server_prompts::ServerPromptPort;
 use sidekicks_std::mutex_lock::lock;
 
@@ -116,8 +116,9 @@ impl ServerPromptPort for McpClient {
     }
 }
 
-/// One prompt as a `/` list entry naming its server, its arguments' names as the hint; `None`
-/// for a prompt whose name or words break the entry's bounds, which the list leaves out.
+/// One prompt as a `/` list entry naming its server, with the title the server gives and its
+/// arguments' names as the hint; `None` for a prompt whose name breaks the entry's bounds, which
+/// the list leaves out. A title, description or hint that breaks its bounds is left off alone.
 fn prompt_entry(
     prompt: Prompt,
     server: &McpServerName,
@@ -144,6 +145,7 @@ fn prompt_entry(
         enabled: None,
         binding: binding.clone(),
         server: server.clone(),
+        title: prompt.title.and_then(ComposedText::new),
     })
 }
 
@@ -152,15 +154,42 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use rmcp::model::Prompt;
     use serde_json::json;
+    use sidekicks_contracts::provider::driver::commands::{
+        ProviderCommandBinding, ProviderCommandEntry,
+    };
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_contracts::wire::text::{ComposedText, FreeFormText};
     use sidekicks_provider::port::server_prompts::ServerPromptPort as _;
     use tokio::sync::mpsc;
 
+    use super::prompt_entry;
     use crate::client::test_server::{
         Reply, method_not_found, open_test_server, test_client, v1_initialize_result,
     };
+
+    // A prompt's entry carries the title its server gives, for the `/` list to show. Killed by
+    // an entry that drops the title.
+    #[test]
+    fn a_prompts_entry_carries_its_servers_title() {
+        let mut prompt = Prompt::new("review", Some("Reviews the change"), None);
+        prompt.title = Some("Review the change".to_owned());
+        let server = FreeFormText::new("github".to_owned()).expect("a server name");
+        let binding = ProviderCommandBinding {
+            provider_name: ProviderId::new("test-provider".to_owned()).expect("a provider id"),
+            provider_account_id: None,
+        };
+
+        let entry = prompt_entry(prompt, &server, &binding).expect("the prompt is in bounds");
+
+        let ProviderCommandEntry::Prompt { title, .. } = entry else {
+            panic!("a prompt's entry is a prompt, got {entry:?}");
+        };
+        assert_eq!(title, ComposedText::new("Review the change".to_owned()));
+    }
 
     // Mutation: in `connection.rs`, empty `on_prompt_list_changed`, or notify another session
     // there; or in `PromptWatchers::notify`, skip the listeners.

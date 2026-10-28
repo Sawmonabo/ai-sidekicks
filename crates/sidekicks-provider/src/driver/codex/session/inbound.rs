@@ -32,14 +32,13 @@ use crate::driver::codex::server_requests::{
 };
 use crate::driver::codex::session::calls::CodexSessionReading;
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::session::recovery::{CodexDroppedTurns, CodexInPlaceResumeCall};
 use crate::driver::codex::session::rewind::CodexMessageTurn;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::contract::DriverError;
-use crate::driver::session_control::{
-    DriverResumeResult, MoveSessionToForkParams, MoveSessionToForkResult,
-};
+use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CODEX_SESSION_INBOUND_DEPTH_MARK: usize = 512;
@@ -184,8 +183,8 @@ pub(crate) enum CodexSessionCall {
     ResumeInPlace {
         /// The resume.
         resume: Box<CodexInPlaceResumeCall>,
-        /// Where the resume's result goes.
-        reply: oneshot::Sender<DriverResumeResult>,
+        /// Where the resume's result, and why it failed where it did, goes.
+        reply: oneshot::Sender<CodexInPlaceOutcome>,
     },
     /// Cuts the conversation back to before `turn_id` with `thread/revert`, once the caller
     /// claimed the slot.

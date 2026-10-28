@@ -12,7 +12,6 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -135,11 +134,21 @@ pub(crate) struct CodexForkedResume {
     pub(crate) established: Option<CodexEstablishedSession>,
 }
 
+/// A resume in place's result, and whether it failed because its service went down under it.
+pub(crate) struct CodexInPlaceOutcome {
+    /// The result.
+    pub(crate) result: DriverResumeResult,
+    /// Whether the resume failed because its service went down under it: the service held no
+    /// connection, or its connection closed before the answer. The service's next recovery
+    /// resumes the conversation again; any other failure is the live service's refusal.
+    pub(crate) is_service_lost: bool,
+}
+
 /// A conversation resumed in place, its turns as Codex listed them, none when it failed, and the
 /// frames rebinding it released, which the session's task applies.
 pub(crate) struct CodexInPlaceResume {
-    /// The result.
-    pub(crate) result: DriverResumeResult,
+    /// The result, and why it failed where it did.
+    pub(crate) outcome: CodexInPlaceOutcome,
     /// The conversation's turns, oldest first.
     pub(crate) listed_turns: Vec<CodexListedTurn>,
     /// The frames that waited for the conversation, delivered.
@@ -234,7 +243,8 @@ impl CodexSessionEstablishment {
             turn_boundaries: Vec::new(),
             thread_settings: settings,
             execution_posture,
-            session_mode: SessionMode::Build,
+            // Every turn names its mode, so the first carries the one the session stores.
+            session_mode: params.mode,
             output_speed_request: params
                 .output_speed
                 .as_ref()
@@ -447,6 +457,7 @@ impl CodexSessionEstablishment {
         {
             Ok(resumed) => resumed,
             Err(error) => {
+                let is_service_lost = service.connection().is_err() || error.is_connection_closed();
                 let result = compose_failed_resume(Some(&service), &error).await;
                 CodexTransportDiagnostic::ConversationResumeFailed {
                     thread_id: task.record.thread_id.clone(),
@@ -454,7 +465,10 @@ impl CodexSessionEstablishment {
                 }
                 .report();
                 CodexInPlaceResume {
-                    result,
+                    outcome: CodexInPlaceOutcome {
+                        result,
+                        is_service_lost,
+                    },
                     listed_turns: Vec::new(),
                     routed: CodexRoutedFrames::default(),
                 }
@@ -503,7 +517,10 @@ impl CodexSessionEstablishment {
             .rebind_session_thread(&self.dependencies.delivery, task.record, thread_id)
             .await;
         Ok(CodexInPlaceResume {
-            result,
+            outcome: CodexInPlaceOutcome {
+                result,
+                is_service_lost: false,
+            },
             listed_turns: resumed.listed_turns,
             routed,
         })

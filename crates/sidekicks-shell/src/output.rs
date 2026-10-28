@@ -2,7 +2,7 @@
 //! questions a program asks its terminal, and the one feed each watcher reads the output through.
 
 pub(crate) mod screen;
-pub(crate) mod stream;
+pub mod stream;
 
 #[cfg(test)]
 mod tests {

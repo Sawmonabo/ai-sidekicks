@@ -1,6 +1,6 @@
 //! A run's start on Claude Code: its opening words written to the session's live process as typed,
 //! with its staged files, one turn at a time, after the output-speed level the run asks for is
-//! applied. A turn the daemon starts itself (a goal, a review, an `Allow once` with no run) or one
+//! applied. A turn the daemon starts itself (a goal, an `Allow once` with no run) or one
 //! Claude Code started by itself is started as the session's own run through the run engine before
 //! anything is written, at the session's current posture, so every row of the turn has a run.
 
@@ -8,6 +8,7 @@ use std::error::Error;
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
+use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -33,15 +34,15 @@ use crate::driver::claude::session::transport::user_message::{
 use crate::driver::claude::spawn::legs::assert_claude_spawn_bound_realization;
 use crate::driver::contract::{DriverError, StartRunParams};
 use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
-use crate::outbound_text::{OutboundText, OutboundTextOrigin};
+use crate::outbound_text::OutboundText;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::run::start_request::DaemonTurnStartRequest;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
 /// files a person's message carries, written to the session's own process under the message id a
-/// later cut names; a turn run apart from that process, started once its run is bound; or the turn
-/// Claude Code started by itself, which its run takes with nothing written.
+/// later cut names; or the turn Claude Code started by itself, which its run takes with nothing
+/// written.
 pub(crate) enum ClaudeDaemonTurnOpening {
     /// Words written to the session's process.
     Text {
@@ -51,11 +52,6 @@ pub(crate) enum ClaudeDaemonTurnOpening {
         message_id: String,
         /// The blocks of its files, in staging order.
         attachment_blocks: Vec<ClaudeUserContentBlock>,
-    },
-    /// A turn run apart from the session's process.
-    Apart {
-        /// Starts the turn once its run is bound.
-        start: Arc<dyn Fn(ClaudeBoundRun) + Send + Sync>,
     },
     /// The turn Claude Code started by itself.
     Provider,
@@ -86,13 +82,18 @@ pub(crate) struct ClaudeRunStart {
 }
 
 impl ClaudeRunStart {
-    /// Writes the run's opening words to its session's live process, as typed, with its staged
-    /// files. Claude Code takes one turn at a time, so a run already holding the turn is refused
-    /// `RunAlreadyDispatched` and one while another holds it `SessionTurnInFlight`; a run whose
-    /// last turn an interrupt is ending first waits, within the request deadline, for that turn's
-    /// end. Fails with no live session, a run the session's process cannot carry, files that
+    /// Writes the run's opening words `text` to its session's live process, with the staged files
+    /// `attachments`. Claude Code takes one turn at a time, so a run already holding the turn is
+    /// refused `RunAlreadyDispatched` and one while another holds it `SessionTurnInFlight`; a run
+    /// whose last turn an interrupt is ending first waits, within the request deadline, for that
+    /// turn's end. Fails with no live session, a run the session's process cannot carry, files that
     /// cannot be read (before anything is held), and the failed write; nothing is resent.
-    pub(crate) async fn start_run(&self, params: &StartRunParams) -> Result<(), DriverError> {
+    pub(crate) async fn start_run(
+        &self,
+        params: &StartRunParams,
+        text: &OutboundText,
+        attachments: &[ArtifactId],
+    ) -> Result<(), DriverError> {
         let opening = &params.opening;
         let session_id = opening.session_id;
         let run_id = params.run_id;
@@ -124,7 +125,7 @@ impl ClaudeRunStart {
         // Read before the turn is held, so a file that cannot be read holds nothing; a picture
         // Claude Code refuses fails the run as that refusal.
         let attachment_blocks =
-            compose_claude_attachment_blocks(&*self.attachments, &session_id, &opening.attachments)
+            compose_claude_attachment_blocks(&*self.attachments, &session_id, attachments)
                 .await
                 .map_err(|error| claude_attachment_failure(&live, error))?;
         if self
@@ -151,10 +152,7 @@ impl ClaudeRunStart {
                 run_id,
                 binding_id: opening.binding_id.clone(),
             },
-            &OutboundText {
-                text: opening.content.as_str().to_owned(),
-                origin: OutboundTextOrigin::HumanText,
-            },
+            text,
             opening.message_id.to_string(),
             attachment_blocks,
             output_speed.as_deref(),
@@ -187,7 +185,6 @@ impl ClaudeRunStart {
                     )
                 })?;
         let is_provider_started = matches!(opening, ClaudeDaemonTurnOpening::Provider);
-        let is_apart = matches!(opening, ClaudeDaemonTurnOpening::Apart { .. });
         if matches!(opening, ClaudeDaemonTurnOpening::Text { .. })
             && self.routes.is_turn_held(session_id)
         {
@@ -207,7 +204,6 @@ impl ClaudeRunStart {
             admitted_provider_account_id: live.admitted_provider_account_id.clone(),
             execution_posture,
             is_provider_started,
-            is_apart,
             start_turn: Box::new(move |run_id| {
                 let start = start.clone();
                 let opening = lock(&opening).take();
@@ -247,7 +243,6 @@ impl ClaudeRunStart {
             binding_id: binding.binding_id,
         };
         match opening {
-            Some(ClaudeDaemonTurnOpening::Apart { start }) => start(run),
             Some(ClaudeDaemonTurnOpening::Provider) => {
                 self.routes
                     .hold_turn(run_id, session_id, run.binding_id.clone())
@@ -456,9 +451,10 @@ mod tests {
     use crate::driver::claude::session::scripted::{
         SCRIPTED_PROVIDER_SESSION_ID, ScriptedSession, binding_id, settle,
     };
-    use crate::driver::contract::{DriverError, RunOpening, StartRunParams};
+    use crate::driver::contract::{DriverError, RunOpening, RunOpeningItem, StartRunParams};
     use crate::driver::run_control::{ResumeRunParams, WaitingMessage};
     use crate::driver::test_registry::new_run_id;
+    use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
     // The opening of `run_id` on `session`'s lead binding, carrying `attachments`.
     fn opening_params(
@@ -473,11 +469,13 @@ mod tests {
                 binding_id: binding_id("lead"),
                 agent_id: AgentId::new(&mint_uuid_v7().to_string())
                     .expect("a minted UUID is an agent id"),
-                content: FreeFormText::new("go on".to_owned()).expect("the words fit"),
-                attachments,
                 message_id: QueueItemId::new(&mint_uuid_v7().to_string())
                     .expect("a minted UUID is an item id"),
-                skills: Vec::new(),
+                item: RunOpeningItem::Message {
+                    content: FreeFormText::new("go on".to_owned()).expect("the words fit"),
+                    attachments,
+                    skills: Vec::new(),
+                },
             },
             conversation_history: None,
             output_speed: None,
@@ -487,6 +485,26 @@ mod tests {
             output_schema: None,
             step_bound: None,
         }
+    }
+
+    // Starts the message run `params` opens with its words as typed and its files.
+    async fn start_message(
+        session: &ScriptedSession,
+        params: &StartRunParams,
+    ) -> Result<(), DriverError> {
+        let RunOpeningItem::Message {
+            content,
+            attachments,
+            ..
+        } = &params.opening.item
+        else {
+            panic!("the test's opening is a message");
+        };
+        let text = OutboundText {
+            text: content.as_str().to_owned(),
+            origin: OutboundTextOrigin::HumanText,
+        };
+        session.start.start_run(params, &text, attachments).await
     }
 
     // Killed by answering a picture past Claude Code's limit as an internal failure, at a run's
@@ -510,10 +528,7 @@ mod tests {
         let run_id = new_run_id();
 
         let refused = if is_start {
-            session
-                .start
-                .start_run(&opening_params(&session, run_id, vec![picture]))
-                .await
+            start_message(&session, &opening_params(&session, run_id, vec![picture])).await
         } else {
             session
                 .parts
@@ -576,9 +591,7 @@ mod tests {
         let params = opening_params(&session, run_id, Vec::new());
         let message_id = params.opening.message_id;
 
-        session
-            .start
-            .start_run(&params)
+        start_message(&session, &params)
             .await
             .expect("the run starts without waiting on the session's task");
 

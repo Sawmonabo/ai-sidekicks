@@ -35,6 +35,9 @@ pub(crate) trait CodexServiceEvents: Send + Sync {
     /// `start_failure` is the failure of the restart that filled it, where a failed restart did.
     fn crash_loop(&self, service: &Arc<CodexService>, start_failure: Option<Arc<CodexError>>);
 
+    /// A start with no crash to count failed, so the service stays stopped until a call starts it.
+    fn start_failed(&self, service: &Arc<CodexService>);
+
     /// The account's rate-limit readings changed on a push from the service.
     fn rate_limits_observed(&self, service: &Arc<CodexService>);
 

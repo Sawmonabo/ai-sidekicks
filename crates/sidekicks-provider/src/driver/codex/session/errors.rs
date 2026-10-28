@@ -244,6 +244,17 @@ impl CodexError {
         self.is_invalid_request_saying(CODEX_ACTIVE_WRITER_MESSAGE)
     }
 
+    /// Whether the connection closed before this request's answer came.
+    pub(crate) fn is_connection_closed(&self) -> bool {
+        matches!(
+            self,
+            Self::Unanswered {
+                cause: CodexUnansweredCause::ConnectionClosed { .. },
+                ..
+            }
+        )
+    }
+
     /// Whether this is Codex's refusal of a catalog read that asks for the service to restart
     /// before it answers.
     pub(crate) fn asks_for_restart(&self) -> bool {
@@ -267,6 +278,25 @@ impl CodexError {
             Self::ProviderRequest { code: CODEX_INVALID_REQUEST_CODE, reason: Some(reason), .. }
                 if reason == CODEX_DRAINING_REASON
         )
+    }
+
+    /// Codex's own refusal of a request, the service neither overloaded nor draining, as the
+    /// refusal `code` in `message` with Codex's words bounded as its failure detail; any other
+    /// error is returned unchanged.
+    pub(crate) fn refused_as(self, code: RefusalCode, message: &str) -> Self {
+        let is_refusal = matches!(
+            &self,
+            Self::ProviderRequest { code: answer_code, .. } if *answer_code != CODEX_OVERLOADED_CODE
+        ) && !self.is_service_draining();
+        if !is_refusal {
+            return self;
+        }
+        Self::Driver(DriverError::Refused(provider_failure_refusal(
+            &DESCRIPTOR.provider_id(),
+            message,
+            code,
+            self,
+        )))
     }
 }
 

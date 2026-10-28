@@ -1,39 +1,41 @@
-//! A live session's close and the daemon's stop, through the driver.
+//! A live session's close, the daemon's stop and an in-place resume that failed, through the
+//! driver.
 
-use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use rstest::rstest;
 use serde_json::{Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
-use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::mutex_lock::lock;
 
-use super::super::CodexDriver;
-use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
+use super::{LiveCodexSession, TEST_TURN, answer_stopping_request, driver_holding};
 use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
-use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::test_service::{
-    ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
+    bind_test_listener, start_scripted_codex_service,
 };
-use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::side_questions::test_copies::{
-    COPY_THREAD, COPY_TURN, read_only_profile, resting_question, serve_unended_copy,
+    COPY_THREAD, COPY_TURN, CopyTurnEnding, POLICY_REFUSAL, read_only_profile, resting_question,
+    serve_copy, serve_unended_copy,
 };
-use crate::driver::codex::session::slots::closing_session_refusal;
+use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
+use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
-use crate::driver::codex::session::test_fixture::{
-    OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
-};
+use crate::driver::codex::session::test_fixture::{TEST_THREAD, turn_completed, turn_reply};
+use crate::driver::contract::{DriverError, SessionProcessState};
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::ports::ProcessGoneListener;
 use crate::driver::session_control::CloseSessionParams;
-use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
-use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
-use crate::run::posture::ExecutionPostureService;
+use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::port::run_host::test_host::EngineCall;
 
 /// How long a close may take before the test counts it as stuck.
 const CLOSE_BOUND: Duration = Duration::from_secs(10);
@@ -332,13 +334,28 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
         read_only_profile(folder.path()),
     ));
 
-    driver
-        .ask_side_question(resting_question(new_session_id(), folder.path()))
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let params = resting_question(new_session_id(), folder.path());
+    // Asked as the driver asks it, without waiting for the answer the stop drops.
+    let answer = parts
+        .side_questions
+        .ask_at_rest(
+            &parts.establishment,
+            params
+                .resume
+                .as_ref()
+                .expect("the question is asked at rest"),
+            &params,
+            Arc::clone(&parts.ports.usage),
+        )
         .await
         .expect("the copy takes the question");
     tokio::time::timeout(CLOSE_BOUND, driver.shutdown(DaemonStopIntent::Restart))
         .await
         .expect("the stop ends once the copy's turn is stopped");
+    wait_for_side_question_answer(answer)
+        .await
+        .expect("a stopped copy delivers nothing");
 
     let interrupt = tokio::time::timeout(CLOSE_BOUND, served)
         .await
@@ -350,39 +367,42 @@ async fn the_daemons_stop_stops_the_turn_of_a_resting_sessions_side_question() {
     );
 }
 
-// The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
-// session running in `folder`'s `work`, its runs on a recording engine.
-fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
-    let engine = Arc::new(RecordingRunEngine::default());
-    let mut services = test_driver_services();
-    let one_folder = Arc::new(OneFolder(folder.join("work")));
-    services
-        .ports
-        .spawn_contexts
-        .register(Arc::clone(&one_folder) as _)
-        .expect("the spawn contexts register once");
-    services
-        .ports
-        .provider_accounts
-        .register(one_folder)
-        .expect("the provider accounts register once");
-    services.execution_postures = Arc::new(ExecutionPostureService::new(
-        folder,
-        folder.join("session-token"),
+// Real time under a timeout, as above. Killed by answering the ask before the copy's turn ended,
+// which leaves the person neither an answer nor a refusal, and by failing a turn Codex's policy
+// refused as the driver's own failure.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_side_question_codexs_policy_refuses_is_refused_once_its_turn_ended() {
+    let scripted = start_scripted_codex_service();
+    let Some(listener) = bind_test_listener(scripted.service.socket_path()) else {
+        return;
+    };
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let driver = driver_holding(&scripted, folder.path());
+    let served = tokio::spawn(serve_copy(
+        listener,
+        read_only_profile(folder.path()),
+        CopyTurnEnding::RefusedByPolicy,
     ));
-    let ports = &services.ports;
-    assert!(ports.run_engine.register(Arc::clone(&engine) as _).is_ok());
-    assert!(ports.inbound_dispatch.register(engine as _).is_ok());
-    let agent_id = AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id");
-    assert!(
-        ports
-            .daemon_turn_bindings
-            .register(Arc::new(TestDaemonTurnBindings::new(agent_id)))
-            .is_ok()
-    );
-    let mut driver = CodexDriver::new(&services);
-    driver.registry = CodexServiceRegistry::holding(scripted);
-    driver
+    let params = resting_question(new_session_id(), folder.path());
+    let side_question_id = params.side_question_id;
+
+    let asked = tokio::time::timeout(CLOSE_BOUND, driver.ask_side_question(params))
+        .await
+        .expect("the ask answers once the copy's turn ended");
+    tokio::time::timeout(CLOSE_BOUND, served)
+        .await
+        .expect("the daemon lets the copy's connection go")
+        .expect("the service served the copy");
+
+    let Err(DriverError::Refused(refusal)) = asked else {
+        panic!("a refused turn refuses the question, not {asked:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::SessionSideQuestionRefused);
+    let detail = refusal.detail.expect("the refusal names its cause");
+    assert_eq!(detail["sideQuestionId"], json!(side_question_id));
+    assert_eq!(detail["cause"]["cause"], "refused");
+    assert_eq!(detail["cause"]["safetyCategory"], "cyberPolicy");
+    assert_eq!(detail["cause"]["sentence"], POLICY_REFUSAL);
 }
 
 // That `turn_id` was interrupted once, before the conversation was unsubscribed.
@@ -402,6 +422,139 @@ fn assert_interrupted_before_let_go(methods: &[Value], turn_id: &str) {
             .count(),
         1
     );
+}
+
+/// What held a gone session's slot each time the queue heard its process gone.
+struct HeardGone {
+    slots: Arc<CodexSessionSlots>,
+    holders: Mutex<Vec<Option<CodexSessionSlotState>>>,
+}
+
+impl ProcessGoneListener for HeardGone {
+    fn process_gone(&self, session_id: SessionId) {
+        lock(&self.holders).push(self.slots.describe_holder(session_id));
+    }
+}
+
+/// Why a recovery's resume in place fails.
+#[derive(Clone, Copy, Debug)]
+enum ResumeFailure {
+    /// The live service refuses it.
+    Refused,
+    /// The service went down after it came back, before the resume reached it.
+    ServiceLost,
+    /// The service's connection closed while the resume waited on its answer.
+    ConnectionClosed,
+}
+
+// Killed by a resume the live service refused that keeps the session's record, or tells the queue
+// nothing: the session reads live on a conversation its service never loaded, and the queue keeps
+// it. Killed too by letting the record go when the service went down under the resume: the
+// person's restart after the crash loop would find no conversation to resume, or when its
+// connection closed under the resume already sent: the service coming back would find none either.
+#[rstest]
+#[case::refused(ResumeFailure::Refused)]
+#[case::service_lost(ResumeFailure::ServiceLost)]
+#[case::connection_closed(ResumeFailure::ConnectionClosed)]
+#[tokio::test]
+async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: ResumeFailure) {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        mut scripted,
+        ..
+    } = LiveCodexSession::idle().await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let heard = Arc::new(HeardGone {
+        slots: Arc::clone(&parts.slots),
+        holders: Mutex::default(),
+    });
+    assert!(
+        parts
+            .ports
+            .process_gone
+            .register(Arc::clone(&heard) as Arc<dyn ProcessGoneListener>)
+            .is_ok()
+    );
+    let service = Arc::clone(&scripted.service);
+    let generation = parts.recovery.owe_resumes(&service);
+    let recovering = parts
+        .recovery
+        .recover(&service, CodexServiceRecoveryCause::Crash, generation);
+    // Held, so the script stays open while the service reads down.
+    let _set_aside = match failure {
+        ResumeFailure::Refused | ResumeFailure::ConnectionClosed => None,
+        ResumeFailure::ServiceLost => scripted.publish_crash_loop(),
+    };
+    let mut recovering = std::pin::pin!(recovering);
+    tokio::time::timeout(CLOSE_BOUND, async {
+        loop {
+            tokio::select! {
+                () = &mut recovering => return,
+                sent = scripted.script.next_sent() => match sent["method"].as_str() {
+                    Some("thread/resume") => match failure {
+                        // A close the daemon makes answers the resume waiting on the connection,
+                        // and tells the service nothing, so the service still holds it.
+                        ResumeFailure::ConnectionClosed => {
+                            service
+                                .connection()
+                                .expect("the service holds its connection")
+                                .close()
+                                .await
+                                .expect("the scripted connection closes");
+                            break;
+                        }
+                        ResumeFailure::Refused | ResumeFailure::ServiceLost => {
+                            scripted.script.send(&json!({
+                                "jsonrpc": "2.0",
+                                "id": sent["id"],
+                                "error": {
+                                    "code": -32600,
+                                    "message": "no rollout found for the thread",
+                                },
+                            }));
+                        }
+                    },
+                    Some("thread/unsubscribe") => {
+                        scripted
+                            .script
+                            .answer(&sent, &json!({"status": "unsubscribed"}));
+                    }
+                    Some("account/rateLimits/read") => {
+                        scripted.script.answer(&sent, &json!({"rateLimits": null}));
+                    }
+                    _ => scripted.script.answer(&sent, &json!({})),
+                },
+            }
+        }
+        // The closed connection sends nothing more to the script.
+        (&mut recovering).await;
+    })
+    .await
+    .expect("the recovery ends");
+
+    let is_attached = service
+        .attached_sessions()
+        .iter()
+        .any(|inbound| inbound.session_id() == session_id);
+    match failure {
+        ResumeFailure::Refused => {
+            assert_eq!(*lock(&heard.holders), [None]);
+            assert!(!is_attached, "a refused resume lets the record go");
+        }
+        ResumeFailure::ServiceLost | ResumeFailure::ConnectionClosed => {
+            assert_eq!(*lock(&heard.holders), [Some(CodexSessionSlotState::Live)]);
+            assert!(is_attached, "the record stays for the next resume");
+        }
+    }
+    // The closed connection's service reads up until its supervisor hears the drop, which a close
+    // the daemon makes never reports.
+    if !matches!(failure, ResumeFailure::ConnectionClosed) {
+        assert_eq!(
+            driver.session_process_state(session_id),
+            SessionProcessState::Down
+        );
+    }
 }
 
 // A one-message turn.

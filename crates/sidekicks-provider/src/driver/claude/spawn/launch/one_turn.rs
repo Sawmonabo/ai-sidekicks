@@ -117,8 +117,8 @@ pub(crate) async fn run_claude_one_turn(
             },
             listener,
             turn_holds: None,
+            permission_mode: request.permission_mode,
         },
-        request.permission_mode,
     )
     .await?;
     let process = brought_up.process;

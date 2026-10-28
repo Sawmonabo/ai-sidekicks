@@ -218,7 +218,7 @@ impl RunEngine {
         }
     }
 
-    /// Starts a turn the daemon starts on a session itself, such as a goal or a review, as the
+    /// Starts a turn the daemon starts on a session itself, such as a goal, as the
     /// session's own run: `agent.run.queued` naming the session's lead and no parent, then the
     /// start [`RunEngine::start_run`] makes, its setup gates given no queue item, and returns the
     /// new run's id once it is `running`. Refuses with [`RunRefusal::SessionTurnHeld`], writing
@@ -311,7 +311,6 @@ impl RunEngine {
                     resolved_agent: None,
                     parent_run_id: Some(parent_run_id),
                     reached_by: Some(ChildRunProvenance::ProviderSubagent),
-                    is_apart: None,
                     effective_run_config: None,
                     admitted_model_family: None,
                     admitted_provider_account_id: None,

@@ -1,11 +1,12 @@
 //! The run queue's tests, over a test database holding a session whose lead is bound to the
 //! table's first provider, whose driver is a stand-in that records what it is asked: a send to a
 //! session that takes no change and the removal of a queued run's last message here; sends,
-//! run ends and the interrupts' queue in the modules below.
+//! starts, run ends and the interrupts' queue in the modules below.
 
 mod interrupt;
 mod run_ends;
 mod sends;
+mod starts;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -31,7 +32,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::PROVIDERS;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, RunOpeningItem};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterventionResultStatus,
@@ -43,8 +44,8 @@ use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
-    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
-    insert_queue_item_statement,
+    NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
+    RecordedQueueItemState, insert_queue_item_statement,
 };
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::{
@@ -83,12 +84,16 @@ const HELD_WATCH: Duration = Duration::from_millis(200);
 /// What the stand-in driver was asked, in order, and how it answers.
 #[derive(Default)]
 struct DriverCalls {
-    /// Each run start or continue, with the message it opened with.
+    /// Each run start or continue, with the item it opened with.
     starts: Mutex<Vec<(RunId, QueueItemId)>>,
+    /// What each start or continue opened its turn with, in the order of `starts`.
+    opening_items: Mutex<Vec<RunOpeningItem>>,
     /// Each steer, with whether it was marked priority.
     steers: Mutex<Vec<(QueueItemId, bool)>>,
     /// Each resume, with the messages it carried.
     resumes: Mutex<Vec<(RunId, Vec<QueueItemId>)>>,
+    /// Holds a settle of the session's process before it answers.
+    settle_pause: PausePoint,
     /// Holds a start before it answers.
     start_pause: PausePoint,
     /// Holds a steer before it answers.
@@ -104,6 +109,10 @@ struct DriverCalls {
 impl DriverCalls {
     fn starts(&self) -> Vec<(RunId, QueueItemId)> {
         lock(&self.starts).clone()
+    }
+
+    fn opening_items(&self) -> Vec<RunOpeningItem> {
+        lock(&self.opening_items).clone()
     }
 
     fn steers(&self) -> Vec<(QueueItemId, bool)> {
@@ -149,12 +158,24 @@ fn recording_driver(calls: &Arc<DriverCalls>) -> MockProviderDriver {
         }
         .boxed()
     });
+    let settling = Arc::clone(calls);
+    driver
+        .expect_settle_session()
+        .returning(move |_session_id| {
+            let calls = Arc::clone(&settling);
+            async move {
+                calls.settle_pause.pass().await;
+                Ok(())
+            }
+            .boxed()
+        });
     let starting = Arc::clone(calls);
     driver.expect_start_run().returning(move |params| {
         let calls = Arc::clone(&starting);
         async move {
             calls.start_pause.pass().await;
             lock(&calls.starts).push((params.run_id, params.opening.message_id));
+            lock(&calls.opening_items).push(params.opening.item);
             if take_one(&calls.start_failures_left) {
                 return Err(DriverError::Internal("the test's start fails".into()));
             }
@@ -367,17 +388,17 @@ impl Fixture {
         let item = NewQueueItem {
             id: item_id,
             session_id: self.session_id,
-            body: QueueItemBody {
+            body: QueueItemBody::Message(QueueMessageBody {
                 content: FreeFormText::new("Look again".to_owned()).expect("a test message"),
                 attachments: None,
                 skills: None,
                 answers_question_id: None,
                 output_speed_for_turn: None,
                 workspace_id: None,
-            },
+            }),
             target_run_id: run_id,
             device_id: None,
-            client_idempotency_key: client_key(),
+            client_idempotency_key: Some(client_key()),
             replaces_queue_item_id: None,
             now: WireInstant::now(),
         };

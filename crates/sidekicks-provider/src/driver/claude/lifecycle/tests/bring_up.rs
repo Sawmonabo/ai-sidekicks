@@ -6,6 +6,9 @@ use std::sync::Arc;
 use rstest::rstest;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
 use super::resume_params;
 use crate::driver::claude::session::scripted::channel::{
@@ -15,6 +18,7 @@ use crate::driver::claude::session::scripted::driver::{ScriptedDriver, create_pa
 use crate::driver::claude::session::scripted::{
     SCRIPTED_PROVIDER_SESSION_ID, hand_scripted_frame, settle,
 };
+use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
@@ -22,6 +26,7 @@ use crate::driver::contract::DriverError;
 use crate::driver::error_causes::ProviderAxis;
 use crate::driver::session_control::{CloseSessionParams, CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::new_session_id;
+use crate::run::posture::compose_execution_posture;
 
 // Killed by a failed bring-up leaving its claim behind, which refuses the next create, and by a
 // close that finds a bring-up in flight returning before it settles, which leaves its process
@@ -213,4 +218,64 @@ async fn a_resumed_conversation_reads_no_handshake_until_its_new_process_declare
     assert!(handshakes.held_handshake_for(session_id, &handle).is_none());
     hand_scripted_frame(&*second.listener, routes, session_id, &init);
     assert!(handshakes.held_handshake_for(session_id, &handle).is_some());
+}
+
+// Killed by starting every process in its level's own mode, which drops a stored Plan until a
+// later move, and by naming Plan for a session in Build.
+#[rstest]
+#[case::plan(SessionMode::Plan, Some(ClaudePermissionMode::Plan))]
+#[case::build(SessionMode::Build, None)]
+#[tokio::test(start_paused = true)]
+async fn a_new_session_starts_in_the_mode_it_stores(
+    #[case] mode: SessionMode,
+    #[case] permission_mode: Option<ClaudePermissionMode>,
+) {
+    let fixture = ScriptedDriver::new();
+    let channel = Arc::new(ScriptedChannel::default());
+    fixture.starts.script_session(Arc::clone(&channel));
+
+    fixture
+        .driver
+        .create_session(CreateSessionParams {
+            mode,
+            ..create_params(new_session_id())
+        })
+        .await
+        .expect("the session opens");
+
+    assert_eq!(fixture.next_start().await.permission_mode, permission_mode);
+    let mode_requests = channel
+        .control_requests()
+        .iter()
+        .filter(|request| request["subtype"] == "set_permission_mode")
+        .count();
+    assert_eq!(mode_requests, 0);
+}
+
+// Killed by answering a level the started process cannot run as an internal failure, or by
+// adopting the process at it.
+#[tokio::test(start_paused = true)]
+async fn a_new_session_at_a_level_its_model_cannot_run_is_refused_as_not_offered() {
+    let fixture = ScriptedDriver::new();
+    let session_id = new_session_id();
+    fixture
+        .starts
+        .script_session(Arc::new(ScriptedChannel::default()));
+
+    let created = fixture
+        .driver
+        .create_session(CreateSessionParams {
+            execution_posture: Some(compose_execution_posture(
+                PermissionLevel::Reviewed,
+                FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+            )),
+            ..create_params(session_id)
+        })
+        .await;
+
+    let Err(DriverError::Refused(refusal)) = created else {
+        panic!("a level the model cannot run is refused, not {created:?}");
+    };
+    assert_eq!(refusal.code, RefusalCode::SessionPermissionLevelNotOffered);
+    assert!(fixture.driver.starts_process(session_id));
 }

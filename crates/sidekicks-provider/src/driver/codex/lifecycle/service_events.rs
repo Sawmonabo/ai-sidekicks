@@ -1,7 +1,8 @@
 //! What each Codex service's events do through the session pieces: a process's end ends the turns
 //! of the sessions on it, a service back resumes their conversations, a crash loop tells them it
-//! stays down, a rate-limit push is filed and a terminal service's planned restart moves them. Each
-//! event runs off the service's runner, on the driver's tasks.
+//! stays down, a failed start tells the queue their processes are gone, a rate-limit push is filed
+//! and a terminal service's planned restart moves them. Each event runs off the service's runner,
+//! on the driver's tasks.
 
 use std::sync::Arc;
 
@@ -34,16 +35,21 @@ impl CodexDriverServiceEvents {
         Acting: Future<Output = ()> + Send + 'static,
     {
         let Some(parts) = self.link.parts() else {
-            tracing::debug!(
-                codex_home = %service.home().codex_home.display(),
-                event,
-                "a codex service event came before any session, with nothing to act on"
-            );
+            log_event_before_any_session(service, event);
             return;
         };
         let tasks = parts.tasks.clone();
         tasks.spawn(act(parts, Arc::clone(service)));
     }
+}
+
+// Logs a service event that came before any session composed the pieces.
+fn log_event_before_any_session(service: &CodexService, event: &'static str) {
+    tracing::debug!(
+        codex_home = %service.home().codex_home.display(),
+        event,
+        "a codex service event came before any session, with nothing to act on"
+    );
 }
 
 impl CodexServiceEvents for CodexDriverServiceEvents {
@@ -60,11 +66,17 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
     }
 
     fn recovered(&self, service: &Arc<CodexService>, cause: CodexServiceRecoveryCause) {
-        if let Some(parts) = self.link.parts() {
-            parts.recovery.forget_exit(service);
-        }
-        self.spawn(service, "recovered", move |parts, service| async move {
-            parts.recovery.recover(&service, cause).await;
+        let Some(parts) = self.link.parts() else {
+            log_event_before_any_session(service, "recovered");
+            return;
+        };
+        // Marked here, in the service's own event order, before the service reads as up.
+        parts.recovery.forget_exit(service);
+        let generation = parts.recovery.owe_resumes(service);
+        let tasks = parts.tasks.clone();
+        let service = Arc::clone(service);
+        tasks.spawn(async move {
+            parts.recovery.recover(&service, cause, generation).await;
         });
     }
 
@@ -74,6 +86,12 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
                 .recovery
                 .crash_loop(&service, start_failure.as_deref())
                 .await;
+        });
+    }
+
+    fn start_failed(&self, service: &Arc<CodexService>) {
+        self.spawn(service, "start failed", |parts, service| async move {
+            parts.recovery.start_failed(&service);
         });
     }
 

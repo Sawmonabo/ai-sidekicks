@@ -170,7 +170,7 @@ pub(crate) struct ProjectionRebuildResponse {
 
 /// Rebuilds sessions' projections from their logs, and lists the sessions that need it. Every
 /// failure is told to the damage watch on its way out, which counts only a damaged file.
-pub(crate) struct ProjectionRebuildService {
+pub struct ProjectionRebuildService {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
     session_events: Arc<SessionService>,
@@ -210,14 +210,7 @@ impl ProjectionRebuildService {
     /// The service reading cursors and heads through `pool`, the log's pages through
     /// `session_events`, writing through `writer` and telling `damage` of each store failure;
     /// `projections` are the ones a rebuild replaces, in the order their statements run.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the daemon's start, which hands it the projections a rebuild replaces"
-        )
-    )]
-    pub(crate) fn new(
+    pub fn new(
         pool: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
         session_events: Arc<SessionService>,

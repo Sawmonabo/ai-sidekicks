@@ -34,6 +34,7 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::sync::{Notify, OwnedRwLockReadGuard, RwLock, watch};
 use tokio::task::JoinError;
 use tokio::time::Instant;
@@ -153,6 +154,26 @@ impl From<LiveIndexSearchError<TranscriptSearchError>> for HandlerError {
     }
 }
 
+impl From<LiveIndexSearchError<SessionSearchError>> for HandlerError {
+    /// A cursor that continues no held search answers `session.search.cursorUnresolvable`; an
+    /// index that cannot answer or a failed read is a fault in the daemon.
+    fn from(error: LiveIndexSearchError<SessionSearchError>) -> Self {
+        match error {
+            LiveIndexSearchError::Search(SessionSearchError::Refused(refusal)) => {
+                Self::Refused(refusal)
+            }
+            LiveIndexSearchError::Search(
+                fault @ (SessionSearchError::Database(_)
+                | SessionSearchError::Index(_)
+                | SessionSearchError::HitPosition(_)),
+            ) => Self::Internal(Box::new(fault)),
+            fault @ (LiveIndexSearchError::Closed
+            | LiveIndexSearchError::Failed(_)
+            | LiveIndexSearchError::Pool(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
+}
+
 // Where the live index stands; searches wait while it opens.
 enum LiveIndexState {
     Opening,
@@ -245,15 +266,13 @@ impl LiveIndex {
         Arc::clone(failure)
     }
 
-    /// One page of a `session.search`, once the index is open. Fails as the search does, or with
-    /// the live index's failure or close.
-    #[expect(
-        dead_code,
-        reason = "the daemon's session.search handler, registered at its start"
-    )]
-    pub(crate) async fn search_sessions(
+    /// One page of a `session.search`, once the index is open; a session
+    /// `read_damaged_from_sequence` names a damaged point for shows no log hit at or past it.
+    /// Fails as the search does, or with the live index's failure or close.
+    pub async fn search_sessions(
         &self,
         request: SessionSearchRequest,
+        read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
     ) -> Result<SessionSearchResponse, LiveIndexSearchError<SessionSearchError>> {
         let shared = Arc::clone(&self.shared);
         let answer = self
@@ -262,6 +281,7 @@ impl LiveIndex {
                     connection,
                     index,
                     &request,
+                    &*read_damaged_from_sequence,
                     applied_floor_position,
                     SystemTime::now(),
                 )

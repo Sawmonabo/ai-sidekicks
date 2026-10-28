@@ -323,13 +323,6 @@ pub(crate) enum CodexTransportDiagnostic {
         /// The read's failure.
         error: DiagnosticCause,
     },
-    /// A side question's throwaway turn ended without an answer.
-    SideQuestionUnanswered {
-        /// The session.
-        session_id: SessionId,
-        /// Why no answer came.
-        error: DiagnosticCause,
-    },
     /// A frame the driver reads only into the service log, by its method.
     ProviderNoticeLogged {
         /// The frame's method.
@@ -588,11 +581,6 @@ impl CodexTransportDiagnostic {
                 session_id = %session_id,
                 error = &**error as &(dyn Error + 'static),
                 "a Codex session's command list could not be read"
-            ),
-            Self::SideQuestionUnanswered { session_id, error } => tracing::warn!(
-                session_id = %session_id,
-                error = &**error as &(dyn Error + 'static),
-                "a Codex side question ended without an answer"
             ),
             Self::ProviderNoticeLogged { method, session_id } => tracing::info!(
                 method = method.as_str(),

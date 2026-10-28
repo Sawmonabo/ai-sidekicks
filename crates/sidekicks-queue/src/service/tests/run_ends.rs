@@ -1,17 +1,27 @@
 //! What a run's end does with the lead's messages still waiting for it: rest with them and
 //! continue, move them to the run before it, to the live run or to a next run; rest until a send
-//! when a limit ended it; a start that failed; and the queue's stop waiting for a start a run's
-//! end made meanwhile and the hand that start's drain made after it.
+//! when a limit ended it; a start that failed; a process gone for good after its restart; and the
+//! queue's stop waiting for a start a run's end made meanwhile and the hand that start's drain made
+//! after it.
 
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 
+use futures::FutureExt as _;
 use rstest::rstest;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_provider::driver::contract::SessionProcessState;
+use sidekicks_provider::driver::session_control::DriverResumeResult;
 use sidekicks_provider::driver::test_registry::bind_run_to_first_provider;
 use sidekicks_provider::process_identity::TEST_PROVIDER_PROCESS;
+use sidekicks_provider::runtime_binding::test_store::spawned_build;
 use sidekicks_session::queue_store::RecordedQueueItemState;
+use sidekicks_std::mutex_lock::lock;
 use tokio::time::{sleep, timeout};
 
 use super::{DriverCalls, Fixture, HELD_WATCH, WAIT, fixture, recording_driver};
@@ -153,6 +163,70 @@ async fn a_message_a_gone_process_kept_moves_on_once_a_driver_tells_of_it() {
         .expect("the message waits for a run");
     assert_ne!(next_run_id, run_id);
     assert!(calls.starts().is_empty(), "{:?}", calls.starts());
+}
+
+// A process whose driver brings it back keeps the session open through the notice of its end,
+// and once the restart gives up, the driver's second notice, read as down, forgets it, so the next
+// send opens the session again by resuming its conversation. Killed by a process-gone notice that
+// does not forget a down process, which leaves the next run on the gone process's opening.
+#[tokio::test]
+async fn a_restart_that_ends_down_leaves_the_next_send_to_resume_the_session() {
+    let calls = Arc::new(DriverCalls::default());
+    let mut driver = recording_driver(&calls);
+    let state = Arc::new(Mutex::new(SessionProcessState::Live));
+    let reading = Arc::clone(&state);
+    driver
+        .expect_session_process_state()
+        .returning(move |_session_id| *lock(&reading));
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let resuming = Arc::clone(&resumes);
+    driver.expect_resume_session().returning(move |_params| {
+        resuming.fetch_add(1, Ordering::SeqCst);
+        async {
+            Ok(DriverResumeResult::Resumed {
+                binding_id: RuntimeBindingId::new(mint_uuid_v7().to_string())
+                    .expect("a UUID is a binding id"),
+                session_position: SafeInt::new(1).expect("a position"),
+                resume_handle: NonEmptyText::new("conversation-1".to_owned())
+                    .expect("a resume handle"),
+                spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+            })
+        }
+        .boxed()
+    });
+    let fixture = fixture(driver).await;
+    timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers")
+        .expect("the send is saved");
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the send's run starts");
+    let [(first_run_id, _)] = calls.starts()[..] else {
+        panic!("one run started: {:?}", calls.starts());
+    };
+    fixture.set_run_state(first_run_id, "completed");
+
+    for gone_as in [SessionProcessState::Restarting, SessionProcessState::Down] {
+        *lock(&state) = gone_as;
+        fixture
+            .queue
+            .process_gone_listener()
+            .process_gone(fixture.session_id);
+        timeout(WAIT, fixture.queue.stop())
+            .await
+            .expect("the gone process settles");
+    }
+    timeout(WAIT, fixture.send())
+        .await
+        .expect("the send answers")
+        .expect("the send is saved");
+    timeout(WAIT, fixture.queue.stop())
+        .await
+        .expect("the send's run starts");
+
+    assert_eq!(resumes.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.starts().len(), 2, "{:?}", calls.starts());
 }
 
 // A run a limit interrupted rests with its message waiting: its end continues nothing, and a send

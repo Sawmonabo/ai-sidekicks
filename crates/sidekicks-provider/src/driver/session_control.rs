@@ -29,7 +29,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
+    PermissionLevel, SessionMode, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -66,6 +66,9 @@ pub struct CreateSessionParams {
     pub larger_window: Option<SafeInt<1>>,
     /// How the session may touch the machine.
     pub execution_posture: Option<ExecutionPosture>,
+    /// Build or Plan, as the session stores it, which the new provider runs in from its first
+    /// turn.
+    pub mode: SessionMode,
     /// The agent's accepted output-speed level (gated on `outputSpeed`), sent when the process
     /// starts and never refused: a level the model does not list runs at standard. The provider's
     /// declared state is read through `observed_output_speed_for`, never written back here.
@@ -321,9 +324,9 @@ pub struct PurgeSessionParams {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UpdateSessionModeParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The mode it moves to.
-    pub(crate) mode: SessionMode,
+    pub mode: SessionMode,
 }
 
 /// Params of `ask_side_question`: a question asked on a throwaway copy of the conversation,
@@ -332,24 +335,14 @@ pub struct UpdateSessionModeParams {
 #[derive(Clone)]
 pub struct AskSideQuestionParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
     /// The id the answer carries.
-    pub(crate) side_question_id: SideQuestionId,
+    pub side_question_id: SideQuestionId,
     /// The question.
-    pub(crate) question: String,
-    /// The session's resume material when it has no live process, composed as a resume's is, which
-    /// the copy is forked from; `None` while a process runs it.
-    pub(crate) resume: Option<ResumeSessionParams>,
-}
-
-/// Params of `start_review`: the provider's own review of `target`, bracketed by the
-/// `reviewStarted` and `reviewFinished` notices.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StartReviewParams {
-    /// The session.
-    pub(crate) session_id: SessionId,
-    /// What the review covers.
-    pub(crate) target: SessionReviewTarget,
+    pub question: String,
+    /// The session's newest resume material, composed as a resume's is, which the copy is forked
+    /// from when no live process runs the session; `None` for a session with no conversation yet.
+    pub resume: Option<ResumeSessionParams>,
 }
 
 /// Params of `answer_session_command`: the text the person sent, before any run is made for it.
@@ -379,7 +372,7 @@ pub enum SessionCommandAnswer {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SubscribeProviderCommandsParams {
     /// The session.
-    pub(crate) session_id: SessionId,
+    pub session_id: SessionId,
 }
 
 /// Receives each new command list a session's provider and its tool servers offer.

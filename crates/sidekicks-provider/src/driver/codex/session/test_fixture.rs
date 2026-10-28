@@ -9,8 +9,9 @@ use std::sync::{Arc, Mutex};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::value::RawValue;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
+use sidekicks_contracts::agent::definition::binding::ProviderToken;
 use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
@@ -19,6 +20,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::record::Record;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use tokio::sync::{mpsc, oneshot};
@@ -81,6 +83,7 @@ use crate::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, RunToolBoundary,
 };
 use crate::driver::schema::schema_parts;
+use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{RecordedQueue, new_session_id};
 use crate::driver::{
     PROVIDERS, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
@@ -220,9 +223,8 @@ impl TestCodexSession {
             config_forks,
             run_routes: Arc::clone(&run_routes),
             engine: Arc::clone(&engine) as _,
-            daemon_turn_bindings: Arc::clone(&daemon_turn_bindings)
-                as Arc<dyn DaemonTurnBindingResolver>,
             attachments: Arc::new(NoAttachments),
+            dispatch: Arc::clone(&engine) as _,
         }));
         let self_started = CodexSelfStartedTurnDependencies {
             engine: Arc::clone(&engine) as _,
@@ -567,6 +569,32 @@ pub(crate) fn fork_reply(thread_id: &str, settings: &CodexThreadSettings) -> Val
             "id": compose_codex_profile_name(settings.level, &settings.profile_folders),
         },
     })
+}
+
+/// A create of `session_id` on `gpt-5` at Ask over the whole disk, in Build, on the person's own
+/// sign-in.
+pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParams {
+    CreateSessionParams {
+        session_id,
+        agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        config: Map::new(),
+        model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
+        larger_window: None,
+        execution_posture: Some(compose_execution_posture(
+            PermissionLevel::Ask,
+            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+        )),
+        mode: SessionMode::Build,
+        output_speed: None,
+        options: Vec::new(),
+        row_values: Record::default(),
+        callback_tools: None,
+        subagent_policy: None,
+        tool_servers: None,
+        output_schema: None,
+        provider_account_id: None,
+        on_mcp_server_status: None,
+    }
 }
 
 /// Answers, as the service, a fork of [`TEST_THREAD`] onto `fork_thread_id` under `settings`

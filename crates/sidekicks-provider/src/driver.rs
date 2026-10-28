@@ -166,6 +166,11 @@ pub(crate) fn shell_prefix_command_of(provider_id: &str) -> Option<&'static Shel
 }
 
 impl ProviderDescriptor {
+    /// The variables a Terminal pane's shell is given while `Simplify for a screen reader` is on.
+    pub fn screen_reader_environment_names(&self) -> &'static [&'static str] {
+        self.screen_reader_environment_names
+    }
+
     /// The provider's id as the wire carries it; the table's build check holds its pattern.
     pub(crate) fn provider_id(&self) -> ProviderId {
         ProviderId::new(self.id.to_owned()).expect("a table id matches the provider id pattern")

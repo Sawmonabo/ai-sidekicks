@@ -16,17 +16,19 @@
 //! - The repository there may have moved or gone only when its git folder or a linked tree's
 //!   `.git` pointer changes, or the tree's root goes, so only those reach the repository-change
 //!   receivers.
+//! - Every folder's changes, its watch's start and its end also reach the folder-change
+//!   receivers by its key, whether or not a session subscribes, with how its tree is followed.
 
 use std::collections::HashMap;
 use std::io;
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Duration;
 
 use notify::{RecommendedWatcher, Watcher};
 use sidekicks_contracts::place::Place;
-use sidekicks_contracts::repo::git_reads::WorkingTreeChange;
+use sidekicks_contracts::repo::git_reads::{WorkingTreeChange, WorkingTreeChangeMode};
 use sidekicks_contracts::repo::mount::RepoMountId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::registry::HandlerError;
@@ -61,12 +63,51 @@ pub const SLOW_TICK_INTERVAL: Duration = Duration::from_secs(180);
 // probing every mount.
 const REPOSITORY_CHANGE_CAPACITY: usize = 16;
 
+/// Folder changes a receiver may fall behind before it reads a lag, which it answers by opening
+/// the feed again, since a change was missed.
+pub const FOLDER_CHANGE_CAPACITY: usize = 16;
+
 /// Reads the machine's ceiling on the watches one person's programs hold together; `None` where
 /// the machine watches a tree whole, so no folder is too large.
 pub(crate) type ReadWatchCeiling = fn() -> io::Result<Option<u64>>;
 
 /// What a subscriber is called with on each change of its session's folder.
 pub(crate) type WorkingTreeChangeListener = Arc<dyn Fn(WorkingTreeChange) + Send + Sync>;
+
+/// One change the working-folder watch tells of a folder, by the folder's key.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FolderWatchChange {
+    /// The folder's key, as [`canonical_folder_path`] gives it.
+    pub key: PathBuf,
+    /// What happened to the folder.
+    pub kind: FolderWatchChangeKind,
+}
+
+/// What happened to a watched folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FolderWatchChangeKind {
+    /// The folder's watch started, its tree changed, or the way its tree is followed changed;
+    /// `mode` is how its tree is followed from now on.
+    Changed {
+        /// A file watch, which tells a change at once, or the slow tick, which tells it minutes
+        /// late.
+        mode: WorkingTreeChangeMode,
+    },
+    /// The watch no longer follows the folder.
+    Unwatched,
+}
+
+/// What a folder-change receiver starts from: how the watch follows each folder whose watch has
+/// started, read together with the receiver, and each change after.
+pub struct FolderChangeFeed {
+    /// How each started folder's tree is followed, by the folder's key.
+    pub modes: HashMap<PathBuf, WorkingTreeChangeMode>,
+    /// Each change after `modes` was read.
+    pub changes: broadcast::Receiver<FolderWatchChange>,
+}
+
+/// Opens a [`FolderChangeFeed`] each time it is called; `None` once the watch is gone.
+pub type OpenFolderChangeFeed = Arc<dyn Fn() -> Option<FolderChangeFeed> + Send + Sync>;
 
 /// A folder to keep watched: where it is, the repository mount it belongs to, and the place every
 /// git call on it runs.
@@ -164,6 +205,7 @@ struct WatcherShared {
     deps: WorkingFolderWatcherDeps,
     state: Mutex<WatcherState>,
     repository_changes: broadcast::Sender<PathBuf>,
+    folder_changes: broadcast::Sender<FolderWatchChange>,
     tasks: TaskTracker,
 }
 
@@ -189,6 +231,8 @@ struct FolderEntry {
     signals: Arc<FolderSignals>,
     // The watches its tree watch holds, counted in `held_watches`.
     tree_watch_count: u64,
+    // How its tree is followed, once its watch started.
+    mode: Option<WorkingTreeChangeMode>,
     #[cfg(test)]
     feeds: tests::FolderFeeds,
 }
@@ -249,6 +293,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
                 deps,
                 state: Mutex::new(WatcherState::default()),
                 repository_changes: broadcast::channel(REPOSITORY_CHANGE_CAPACITY).0,
+                folder_changes: broadcast::channel(FOLDER_CHANGE_CAPACITY).0,
                 tasks: TaskTracker::new(),
             }),
             backend: PhantomData,
@@ -367,6 +412,18 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
         self.shared.repository_changes.subscribe()
     }
 
+    /// Opens, on each call, a receiver of each watched folder's changes, its watch's start and its
+    /// end, with how the watch follows each folder at that moment; a receiver that lags opens the
+    /// feed again, since a change was missed. The opener holds the watch weakly.
+    pub fn folder_change_feed(&self) -> OpenFolderChangeFeed {
+        let shared = Arc::downgrade(&self.shared);
+        Arc::new(move || {
+            shared
+                .upgrade()
+                .map(|shared| shared.open_folder_change_feed())
+        })
+    }
+
     /// Stops every folder's watches and drops every subscription, then waits for the folders'
     /// tasks to end; a later hold or subscription fails with [`WorkingFolderError::Stopped`].
     pub async fn stop(&self) {
@@ -440,6 +497,7 @@ impl<W: Watcher + Send + 'static> WorkingFolderWatcher<W> {
                 started: started.clone(),
                 signals: Arc::clone(&signals),
                 tree_watch_count: 0,
+                mode: None,
                 #[cfg(test)]
                 feeds: tests::FolderFeeds::default(),
             },
@@ -509,6 +567,34 @@ impl WatcherShared {
         if let Some(entry) = state.folders.remove(&folder.key) {
             state.held_watches -= entry.tree_watch_count;
             entry.signals.close.cancel();
+            // Sent under the lock, so no change the folder's task sends can follow it.
+            self.send_folder_change(&folder.key, FolderWatchChangeKind::Unwatched);
+        }
+    }
+
+    // A receiver and every started folder's mode, read under the state's lock, which every folder
+    // change is sent under, so the receiver holds each change after the modes and none before.
+    fn open_folder_change_feed(&self) -> FolderChangeFeed {
+        let state = self.lock_state();
+        let changes = self.folder_changes.subscribe();
+        let modes = state
+            .folders
+            .iter()
+            .filter_map(|(key, entry)| entry.mode.map(|mode| (key.clone(), mode)))
+            .collect();
+        FolderChangeFeed { modes, changes }
+    }
+
+    // Tells the folder-change receivers of `kind` at the folder `key`; its callers hold the
+    // state's lock, which orders a folder's changes before its end.
+    fn send_folder_change(&self, key: &Path, kind: FolderWatchChangeKind) {
+        let change = FolderWatchChange {
+            key: key.to_path_buf(),
+            kind,
+        };
+        // No receiver is listening when nothing keeps what it read of a folder.
+        if self.folder_changes.send(change).is_err() {
+            tracing::debug!("a working folder changed with no receiver listening");
         }
     }
 

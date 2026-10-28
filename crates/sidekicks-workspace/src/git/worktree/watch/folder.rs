@@ -1,6 +1,7 @@
 //! One watched folder's task: it starts the folder's watches, picks the tree's mode (a watch, or
 //! the slow tick where the machine's watch limit has no room), reads every notice, tick and raise
-//! one at a time, sends one change per burst, and writes a changed branch back.
+//! one at a time, sends one change per burst, and writes a changed branch back. The folder-change
+//! receivers hear each change, the watch's start and each fall to the slow tick, with the mode.
 
 use std::collections::HashSet;
 use std::error::Error;
@@ -23,7 +24,10 @@ use super::ignored_paths::{
     git_folder_roots, is_git_pointer, may_move_head, read_ignored_paths,
 };
 use super::slow_tick::{StatusEntry, read_status_digest};
-use super::{FolderKey, FolderSignals, FolderStartError, StartOutcome, WatchTarget, WatcherShared};
+use super::{
+    FolderKey, FolderSignals, FolderStartError, FolderWatchChangeKind, StartOutcome, WatchTarget,
+    WatcherShared, WatcherState,
+};
 use crate::file_watch::{FileWatch, FileWatchError, FileWatchNotice, WatchedRoot};
 use crate::git::process::{GitError, read_git_common_folder};
 use crate::git::worktree::reads::read_tree_git_folder;
@@ -62,6 +66,7 @@ pub(super) async fn run_folder<W: Watcher + Send + 'static>(
     let has_started = outcome.is_ok();
     started.send_replace(Some(outcome.map_err(Arc::new)));
     if has_started {
+        watched.announce_mode(&mut watched.shared.lock_state());
         tokio::select! {
             biased;
             () = close.cancelled() => {}
@@ -492,7 +497,11 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
     }
 
     fn start_slow_tick(&mut self) {
-        self.mode = WorkingTreeChangeMode::SlowTick;
+        if self.mode == WorkingTreeChangeMode::Watch {
+            self.mode = WorkingTreeChangeMode::SlowTick;
+            // A change the slow tick finds reaches its receivers minutes late, so they hear now.
+            self.announce_mode(&mut self.shared.lock_state());
+        }
         if self.tick.is_some() {
             return;
         }
@@ -534,17 +543,19 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
         }
     }
 
-    // Sends one change to each subscriber on the folder.
+    // Sends one change to each subscriber on the folder and to the folder-change receivers.
     fn send_change(&mut self) {
         self.is_raise_pending = false;
-        let listeners: Vec<_> = self
-            .shared
-            .lock_state()
-            .subscriptions
-            .values()
-            .filter(|subscription| subscription.folder.as_ref() == Some(&self.folder))
-            .map(|subscription| (subscription.session_id, Arc::clone(&subscription.on_change)))
-            .collect();
+        let listeners: Vec<_> = {
+            let mut state = self.shared.lock_state();
+            self.announce_mode(&mut state);
+            state
+                .subscriptions
+                .values()
+                .filter(|subscription| subscription.folder.as_ref() == Some(&self.folder))
+                .map(|subscription| (subscription.session_id, Arc::clone(&subscription.on_change)))
+                .collect()
+        };
         let changed_at = WireInstant::now();
         for (session_id, on_change) in listeners {
             on_change(WorkingTreeChange {
@@ -553,6 +564,24 @@ impl<W: Watcher + Send + 'static> WatchedFolder<W> {
                 mode: self.mode,
             });
         }
+    }
+
+    // Records how the folder's tree is followed and tells the folder-change receivers that the
+    // folder changed, with that mode; a folder already released tells nothing, so no change
+    // follows its end.
+    fn announce_mode(&self, state: &mut WatcherState) {
+        let Some(entry) = state
+            .folders
+            .get_mut(&self.folder.key)
+            .filter(|entry| entry.id == self.folder.id)
+        else {
+            return;
+        };
+        entry.mode = Some(self.mode);
+        self.shared.send_folder_change(
+            &self.folder.key,
+            FolderWatchChangeKind::Changed { mode: self.mode },
+        );
     }
 
     fn announce_repository_change(&self) {

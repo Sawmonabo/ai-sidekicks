@@ -17,9 +17,11 @@ use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::commands::ProviderCommandEntry;
 use crate::provider::id::ProviderId;
+use crate::run::queue::AgentQueueItemCreateResponse;
 use crate::session::cost::{SessionBudgetState, TokensPerRun, UsdMicros};
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
+use crate::wire::id::ClientUuid;
 use crate::wire::integer::SafeInt;
 use crate::wire::named_scalar;
 use crate::wire::number::number;
@@ -390,13 +392,18 @@ pub enum SessionReviewTarget {
     Branch,
 }
 
-/// Starts the provider's own review; its report lands as the agent's reply.
+/// Starts the provider's own review as the session's next queued item: admitted at once on an
+/// idle session, behind a running turn otherwise, and waking a session with no process as a
+/// message does. Answers the queued item as a send answers it; its report lands as the agent's
+/// reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct SessionCodeReviewStartRequest {
     /// The session.
     pub session_id: SessionId,
+    /// A start again under the same key answers the review the first queued.
+    pub client_idempotency_key: ClientUuid,
     /// What the review covers.
     pub target: SessionReviewTarget,
 }
@@ -505,14 +512,30 @@ methods! {
             mutating: true,
             params: SessionPermissionLevelUpdateRequest,
             result: SessionPermissionLevelUpdateResponse,
-            refusals: [SessionNotFound, ProviderUnavailable, SessionPermissionLevelNotOffered],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SessionPermissionLevelNotOffered,
+            ],
         },
         /// Sets the session's mode.
         SessionModeUpdate = mutation "session.mode.update" {
             mutating: true,
             params: SessionModeUpdateRequest,
             result: SessionModeUpdateResponse,
-            refusals: [SessionNotFound, ProviderUnavailable],
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SessionModeNotOffered,
+            ],
         },
         /// Sets or clears the session's auto-compact bound.
         SessionAutoCompactUpdate = mutation "session.autoCompact.update" {
@@ -549,21 +572,39 @@ methods! {
             params: SessionAddressedRequest,
             result: SubscribeAcknowledgmentResponse,
             emission: SessionProviderCommandList,
-            refusals: [SessionNotFound, ProviderUnavailable, ProviderCapabilityUnsupported],
+            refusals: [
+                SessionNotFound,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderCapabilityUnsupported,
+            ],
         },
         /// Asks a side question.
         SessionSideQuestionAsk = mutation "session.sideQuestion.ask" {
             mutating: true,
             params: SessionSideQuestionAskRequest,
             result: SessionSideQuestionAskResponse,
-            refusals: [SessionNotFound, ProviderUnavailable],
+            refusals: [
+                SessionNotFound,
+                ProviderNotFound,
+                ProviderUnavailable,
+                ProviderTimeout,
+                SessionSideQuestionRefused,
+            ],
         },
-        /// Starts the provider's own review.
+        /// Queues the provider's own review and answers the queued item.
         SessionCodeReviewStart = mutation "session.codeReview.start" {
             mutating: true,
             params: SessionCodeReviewStartRequest,
-            result: SessionAcknowledgment,
-            refusals: [SessionNotFound, ProviderUnavailable],
+            result: AgentQueueItemCreateResponse,
+            refusals: [
+                SessionNotFound,
+                SessionAlreadyClosed,
+                SessionChangeRefused,
+                ProviderNotFound,
+                AgentQueueItemPersistenceUnavailable,
+                AgentQueueItemRunChanged,
+            ],
         },
         /// Reopens the conversation to take new definitions.
         SessionDefinitionReload = mutation "session.definition.reload" {

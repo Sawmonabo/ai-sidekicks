@@ -26,10 +26,13 @@ use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
 use crate::driver::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
     ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs,
 };
-use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
+use crate::driver::claude::session::errors::{
+    ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
+};
 use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::driver::claude::session::permission_level::{
@@ -40,7 +43,9 @@ use crate::driver::claude::session::permissions::{
     ClaudeProjectRuleRemoval, read_claude_session_rules, resend_claude_permissions,
     revoke_claude_project_rule,
 };
+use crate::driver::claude::session::restart::ClaudeSessionStanding;
 use crate::driver::claude::session::settings_file::read_claude_settings_file;
+use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::readings::ClaudeSessionFolderReadRequest;
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::{claude_session_options, observe_claude_options};
@@ -60,9 +65,9 @@ use crate::driver::ports::SessionPlace;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
     DriverAuthProbeStatus, ProviderCommandsListener, ResumeSessionParams, RevokeRuleParams,
-    SessionCommandAnswer, StartReviewParams, StartingLevel, StartingLevelParams,
-    SubscribeProviderCommandsParams, UpdatePermissionLevelParams, UpdateSessionModeParams,
-    build_auth_probe_result,
+    SessionCommandAnswer, StartingLevel, StartingLevelParams, SubscribeProviderCommandsParams,
+    UpdatePermissionLevelParams, UpdateSessionModeParams, build_auth_probe_result,
+    permission_level_not_offered,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use sidekicks_std::port_registration::PortRegistration;
@@ -139,33 +144,113 @@ impl ClaudeDriver {
         })
     }
 
-    /// Moves the live session to another level from its next request, with its rules in force.
+    /// Moves the session to another level from its next request, with its rules in force: a live
+    /// process at once, and one the driver brings back from the settings it starts with. Refused
+    /// `session.permissionLevel.notOffered` for a level the model or this system cannot run, and
+    /// `NoLiveSession` when no process serves the session or comes back; fails as the move fails.
     pub(crate) async fn update_permission_level(
         &self,
         params: UpdatePermissionLevelParams,
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
-        let live = parts.run_start.live_session(params.session_id)?;
-        let legs = &live.spawn_bound_legs;
-        let (can_run_sandbox, session_rules) = tokio::join!(
-            read_claude_sandbox_support(
-                &self.sources.spawner,
-                &legs.spawn_environment,
-                &legs.working_directory,
-                Some(params.session_id),
-            ),
-            read_claude_session_rules(&self.sources.ports.session_rules, params.session_id),
-        );
-        let session_rules = session_rules.map_err(DriverError::Internal)?;
-        move_claude_permission_level(
-            &live,
-            &params,
-            can_run_sandbox,
-            &session_rules,
-            PathRules::NATIVE,
+        let level = params.execution_posture.permission_level();
+        let params = &params;
+        self.move_session_setting(
+            params.session_id,
+            |live| async move {
+                let legs = &live.spawn_bound_legs;
+                let (can_run_sandbox, session_rules) = tokio::join!(
+                    read_claude_sandbox_support(
+                        &self.sources.spawner,
+                        &legs.spawn_environment,
+                        &legs.working_directory,
+                        Some(params.session_id),
+                    ),
+                    read_claude_session_rules(&self.sources.ports.session_rules, params.session_id),
+                );
+                let session_rules = session_rules.map_err(DriverError::Internal)?;
+                move_claude_permission_level(
+                    &live,
+                    params,
+                    can_run_sandbox,
+                    &session_rules,
+                    PathRules::NATIVE,
+                )
+                .await?;
+                Ok(())
+            },
+            |ended| async move {
+                let legs = &ended.spawn_bound_legs;
+                let can_run_sandbox = read_claude_sandbox_support(
+                    &self.sources.spawner,
+                    &legs.spawn_environment,
+                    &legs.working_directory,
+                    Some(params.session_id),
+                )
+                .await;
+                let is_runnable = can_run_claude_level(
+                    level,
+                    &lock(&ended.settings).running_model,
+                    &ended.initialize.auto_mode_models,
+                    can_run_sandbox,
+                );
+                if !is_runnable {
+                    return Err(DriverError::Refused(permission_level_not_offered(level)));
+                }
+                Ok(parts.restarts.write_held_settings(&ended, |settings| {
+                    settings.execution_posture = Some(params.execution_posture.clone());
+                }))
+            },
         )
-        .await?;
-        Ok(())
+        .await
+    }
+
+    // Moves the session's level or mode wherever its process stands: `move_live` on a live
+    // process, and again on the one a relaunch begun meanwhile brings up; `write_held` into the
+    // settings a restart composes its start from, answering `false` once it composed; a bring-up
+    // in flight is waited out first. Refuses `NoLiveSession` when no process serves the session or
+    // comes back.
+    async fn move_session_setting<MoveLive, WriteHeld>(
+        &self,
+        session_id: SessionId,
+        move_live: impl Fn(Arc<LiveClaudeSession>) -> MoveLive,
+        write_held: impl Fn(Arc<LiveClaudeSession>) -> WriteHeld,
+    ) -> Result<(), DriverError>
+    where
+        MoveLive: Future<Output = Result<(), DriverError>>,
+        WriteHeld: Future<Output = Result<bool, DriverError>>,
+    {
+        let parts = self.parts()?;
+        let mut moved: Option<Arc<LiveClaudeSession>> = None;
+        loop {
+            match parts.restarts.standing(session_id) {
+                ClaudeSessionStanding::Live(live) => {
+                    if moved.as_ref().is_some_and(|done| Arc::ptr_eq(done, &live)) {
+                        return Ok(());
+                    }
+                    move_live(Arc::clone(&live)).await?;
+                    moved = Some(live);
+                }
+                ClaudeSessionStanding::Held { ended, .. } => {
+                    if write_held(ended).await? {
+                        return Ok(());
+                    }
+                }
+                ClaudeSessionStanding::Settling(settled) => {
+                    settled.wait().await;
+                }
+                // A process moved before it went down took the move with it.
+                ClaudeSessionStanding::Down if moved.is_some() => return Ok(()),
+                ClaudeSessionStanding::Down => {
+                    return Err(claude_session_unavailable(
+                        ClaudeSessionUnavailableReason::NoLiveSession,
+                        session_id,
+                        None,
+                    )
+                    .into());
+                }
+            }
+        }
     }
 
     /// Takes a revoked rule out of force: a project rule out of the folder's local settings, a
@@ -353,17 +438,31 @@ impl ClaudeDriver {
             .observed_output_speed_for(session_id, &live.provider_session_id)
     }
 
-    /// Moves the live session between Build and Plan from its next turn.
+    /// Moves the session between Build and Plan from its next turn: a live process at once, and
+    /// one the driver brings back from the settings it starts with. Refused
+    /// `session.mode.notOffered` when Claude Code refuses the mode, and `NoLiveSession` when no
+    /// process serves the session or comes back.
     pub(crate) async fn update_session_mode(
         &self,
         params: UpdateSessionModeParams,
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
-        let live = parts.run_start.live_session(params.session_id)?;
-        Ok(parts
-            .session_controls
-            .update_session_mode(&live, params.mode)
-            .await?)
+        let mode = params.mode;
+        self.move_session_setting(
+            params.session_id,
+            |live| async move {
+                parts
+                    .session_controls
+                    .update_session_mode(&live, mode)
+                    .await
+            },
+            |ended| async move {
+                Ok(parts.restarts.write_held_settings(&ended, |settings| {
+                    settings.session_mode = mode;
+                }))
+            },
+        )
+        .await
     }
 
     /// Answers `/output-style`, `/advisor` and an owned `/config` for this session alone.
@@ -380,9 +479,9 @@ impl ClaudeDriver {
     }
 
     /// Asks a side question on a copy of the conversation: the live process's own, else the one
-    /// the session's resume material names; resolves once it is asked. Fails `NoLiveSession` for a
-    /// session at rest asked with no resume material.
-    pub(crate) fn ask_side_question(
+    /// the session's resume material names; resolves once it is answered. Fails `NoLiveSession`
+    /// for a session at rest asked with no resume material, and as the question's turn fails.
+    pub(crate) async fn ask_side_question(
         &self,
         params: AskSideQuestionParams,
     ) -> Result<(), DriverError> {
@@ -405,23 +504,15 @@ impl ClaudeDriver {
                 None => return Err(no_live_session.into()),
             },
         };
-        parts.session_controls.ask_side_question(
-            session_id,
-            params.side_question_id,
-            params.question,
-            copy,
-            Arc::clone(&self.sources.ports.usage),
-        );
-        Ok(())
-    }
-
-    /// Starts Claude Code's own review; resolves once it has started.
-    pub(crate) async fn start_review(&self, params: StartReviewParams) -> Result<(), DriverError> {
-        let parts = self.parts()?;
-        let live = parts.run_start.live_session(params.session_id)?;
         parts
             .session_controls
-            .start_review(&live, params.target)
+            .ask_side_question(
+                session_id,
+                params.side_question_id,
+                params.question,
+                copy,
+                &self.sources.ports.usage,
+            )
             .await
     }
 

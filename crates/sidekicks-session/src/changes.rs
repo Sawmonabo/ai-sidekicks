@@ -200,14 +200,7 @@ impl SessionChanges {
     /// provider that ran the session on a task of its own, a failed telling logged once and never
     /// failing the rename. Refused as [`SessionChangeError::Refused`] says; fails with the read or
     /// append that failed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session rename handler answers a person's rename through it"
-        )
-    )]
-    pub(crate) async fn rename(
+    pub async fn rename(
         &self,
         request: SessionRenameRequest,
     ) -> Result<SessionRenameResponse, SessionChangeError> {
@@ -288,11 +281,7 @@ impl SessionChanges {
     /// Moves an active session into the archived ones, leaving its provider process as it was.
     /// Refuses a session still `provisioning` with `session.changeRefused`, else as
     /// [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session archive handler answers a person's archive through it"
-    )]
-    pub(crate) async fn archive(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn archive(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.archive_in_state(session_id, false).await
     }
 
@@ -336,11 +325,7 @@ impl SessionChanges {
 
     /// Returns an archived session to the live list; any other session it leaves as it is.
     /// Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session reactivate handler answers a person's reactivate through it"
-    )]
-    pub(crate) async fn reactivate(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn reactivate(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         let _hold = self.lock.acquire(session_id).await;
         self.change(session_id, None, |facts| {
             refuse_unchangeable_session(&session_id, facts.state)?;
@@ -403,41 +388,22 @@ impl SessionChanges {
 
     /// Pins the session to the top of its group; a pinned session keeps its first pin time.
     /// Refused as [`SessionChangeError::Refused`] says.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the session pin handler answers a person's pin through it"
-        )
-    )]
-    pub(crate) async fn pin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn pin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Pin, true).await
     }
 
     /// Unpins the session. Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session unpin handler answers a person's unpin through it"
-    )]
-    pub(crate) async fn unpin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn unpin(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Pin, false).await
     }
 
     /// Mutes the session's notifications. Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session mute handler answers a person's mute through it"
-    )]
-    pub(crate) async fn mute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn mute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Mute, true).await
     }
 
     /// Unmutes the session's notifications. Refused as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "the session unmute handler answers a person's unmute through it"
-    )]
-    pub(crate) async fn unmute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
+    pub async fn unmute(&self, session_id: SessionId) -> Result<(), SessionChangeError> {
         self.set_mark(session_id, SessionMark::Mute, false).await
     }
 

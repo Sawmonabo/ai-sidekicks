@@ -96,6 +96,16 @@ impl ClaudeSessionSlots {
         lock(&self.table).by_session.keys().copied().collect()
     }
 
+    /// The settle cell of the bring-up holding the session's slot; `None` unless one is in flight.
+    pub(crate) fn establishing_settled(&self, session_id: SessionId) -> Option<ClaudeSlotSettled> {
+        match lock(&self.table).by_session.get(&session_id)? {
+            ClaudeSessionSlot::Establishing { settled, .. } => Some(Arc::clone(settled)),
+            ClaudeSessionSlot::Live { .. }
+            | ClaudeSessionSlot::Closing { .. }
+            | ClaudeSessionSlot::Quarantined { .. } => None,
+        }
+    }
+
     /// Whether the session holds a slot, in any state.
     pub(crate) fn holds_slot(&self, session_id: SessionId) -> bool {
         lock(&self.table).by_session.contains_key(&session_id)

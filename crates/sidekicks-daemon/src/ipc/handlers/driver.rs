@@ -60,9 +60,13 @@ pub(crate) struct DriverMethodSources {
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
 }
 
-/// A read the driver methods make did not run: a fault in the daemon.
+/// Why a driver method's read of a session did not answer: a refusal the caller reads by its code,
+/// or a read that did not run, a fault in the daemon.
 #[derive(Debug, thiserror::Error)]
-enum DriverMethodReadError {
+pub(crate) enum DriverMethodReadError {
+    /// The session is not one the daemon holds, or no driver answers its provider.
+    #[error(transparent)]
+    Refused(#[from] DomainError),
     /// SQLite refused the read, or a stored value does not read as its type.
     #[error("a driver method's read failed")]
     Read(#[from] rusqlite::Error),
@@ -73,7 +77,12 @@ enum DriverMethodReadError {
 
 impl From<DriverMethodReadError> for HandlerError {
     fn from(error: DriverMethodReadError) -> Self {
-        Self::Internal(Box::new(error))
+        match error {
+            DriverMethodReadError::Refused(refusal) => Self::Refused(refusal),
+            fault @ (DriverMethodReadError::Read(_) | DriverMethodReadError::Pool(_)) => {
+                Self::Internal(Box::new(fault))
+            }
+        }
     }
 }
 
@@ -739,19 +748,21 @@ mod tests {
         for index in 0..2 {
             live_run_of_agent(&fixture, &agent_id, index);
         }
-        fixture
-            .sources
-            .providers
-            .record_capabilities(
-                &provider(0),
-                DriverCapabilities {
-                    flags: DriverCapabilityFlags::from_fn(|flag| {
-                        flag == DriverCapabilityFlag::ProviderCommands
-                    }),
-                    contract_version: FreeFormText::new("1".to_owned()).expect("valid text"),
-                },
-            )
-            .expect("the first provider is registered");
+        for (index, offers_commands) in [(0, true), (1, false)] {
+            fixture
+                .sources
+                .providers
+                .record_capabilities(
+                    &provider(index),
+                    DriverCapabilities {
+                        flags: DriverCapabilityFlags::from_fn(|flag| {
+                            offers_commands && flag == DriverCapabilityFlag::ProviderCommands
+                        }),
+                        contract_version: FreeFormText::new("1".to_owned()).expect("valid text"),
+                    },
+                )
+                .expect("the provider is registered");
+        }
 
         let listed = list_provider_commands(
             &fixture.sources,

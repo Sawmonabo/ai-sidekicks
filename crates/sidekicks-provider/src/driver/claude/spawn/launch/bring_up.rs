@@ -77,6 +77,9 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
     /// The session turn its reader releases at a turn-ending lead `result`; `None` for a process
     /// that holds no session turn.
     pub(crate) turn_holds: Option<ClaudeTurnHolds>,
+    /// The mode it starts in in place of its level's own, as `--permission-mode` names it; `None`
+    /// starts in the level's.
+    pub(crate) permission_mode: Option<ClaudePermissionMode>,
 }
 
 /// What a `get_settings` reply says the process runs with.
@@ -103,14 +106,13 @@ pub(crate) struct ClaudeBroughtUp {
 }
 
 /// Brings one session process up on `executable`, the build resolved at this spawn, so a relaunch
-/// runs whatever the command names now, in `permission_mode` where given and else its level's own
-/// mode. Fails with the settings' composition error, the start's
-/// error, or a request's failure or refusal, the process then terminated.
+/// runs whatever the command names now, in the request's mode where given and else its level's
+/// own. Fails with the settings' composition error, the start's error, or a request's failure or
+/// refusal, the process then terminated.
 pub(crate) async fn bring_up_claude_process(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
     request: ClaudeBringUpRequest<'_>,
-    permission_mode: Option<ClaudePermissionMode>,
 ) -> Result<ClaudeBroughtUp, ClaudeLaunchError> {
     let spawn = request.spawn;
     let legs = spawn.legs;
@@ -129,7 +131,7 @@ pub(crate) async fn bring_up_claude_process(
     let has_managed_mcp_file = has_readable_managed_mcp_file().await;
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
         model: &legs.model,
-        permission_mode: permission_mode.unwrap_or_else(|| {
+        permission_mode: request.permission_mode.unwrap_or_else(|| {
             claude_permission_mode_for(
                 legs.execution_posture
                     .as_ref()

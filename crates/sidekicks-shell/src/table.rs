@@ -2,15 +2,16 @@
 //! record holds its control lease, its flow control, its screen copy and its ordered input, and a
 //! task per running shell takes its terminal's output and exit.
 //!
-//! A request naming a shell its session does not have is refused `terminal.notFound`, and a take or
-//! a write naming an output subscription that is not the calling connection's own open
-//! subscription to that shell is refused `terminal.output.subscriptionNotFound` before the lease
-//! reads it. A connection's end releases its bindings on every shell before its subscriptions end,
-//! so a hold that ends with it is released as a disconnect. A shell keeps running until it is
-//! closed, its program exits or its session is deleted; an exited shell keeps its record and its
-//! scrollback. Each shell's screen copy answers what its program asks the terminal, its colors and
-//! cell size from the pane holding it, which a change of holder forgets, or else from the console
-//! theme the desktop last reported for every shell.
+//! A request naming a shell refuses a session this daemon does not hold `session.notFound` and a
+//! shell its session does not have `terminal.notFound`, and a take or a write naming an output
+//! subscription that is not the calling connection's own open subscription to that shell is
+//! refused `terminal.output.subscriptionNotFound` before the lease reads it. A connection's end
+//! releases its bindings on every shell before its subscriptions end, so a hold that ends with it
+//! is released as a disconnect. A shell keeps running until it is closed, its program exits or
+//! its session is deleted; an exited shell keeps its record and its scrollback. Each shell's screen
+//! copy answers what its program asks the terminal, its colors and cell size from the pane holding
+//! it, which a change of holder forgets, or else from the console theme the desktop last reported
+//! for every shell.
 
 mod end;
 mod open;
@@ -58,55 +59,55 @@ use crate::resize::{ShellResizeError, ShellSize};
 
 /// Reads a session's shape and working folder; refuses a session this daemon does not hold
 /// `session.notFound`.
-pub(crate) type ReadSessionWorkingFolder = Arc<
+pub type ReadSessionWorkingFolder = Arc<
     dyn Fn(SessionId) -> BoxFuture<'static, Result<SessionWorkingFolder, HandlerError>>
         + Send
         + Sync,
 >;
 
 /// Reads, at each shell's start, what the shell takes from the machine's settings file.
-pub(crate) type ReadShellSettings =
+pub type ReadShellSettings =
     Arc<dyn Fn(SessionId) -> BoxFuture<'static, Result<ShellSettings, HandlerError>> + Send + Sync>;
 
 /// What a session's shell takes from the machine's settings file, read at its start.
-pub(crate) struct ShellSettings {
+pub struct ShellSettings {
     /// Whether `Simplify for a screen reader` is on.
-    pub(crate) is_screen_reader_mode_on: bool,
+    pub is_screen_reader_mode_on: bool,
     /// The `Every project` rows.
-    pub(crate) every_project_rows: Vec<EnvironmentRow>,
+    pub every_project_rows: Vec<EnvironmentRow>,
     /// The session's project's rows.
-    pub(crate) project_rows: Vec<EnvironmentRow>,
+    pub project_rows: Vec<EnvironmentRow>,
 }
 
 /// What the shell table is built from.
-pub(crate) struct ShellTableDeps {
+pub struct ShellTableDeps {
     /// The daemon's terminals.
-    pub(crate) terminals: Arc<Terminals>,
+    pub terminals: Arc<Terminals>,
     /// This machine's own device id, which a run's hold names.
-    pub(crate) machine_device_id: DeviceId,
+    pub machine_device_id: DeviceId,
     /// What each shell's terminal answers a program asking its name and version.
-    pub(crate) terminal_version: String,
+    pub terminal_version: String,
     /// Appends one change of a shell's holder to its session's event log.
-    pub(crate) append_control_change: LeaseBroadcast,
+    pub append_control_change: LeaseBroadcast,
     /// Reads a session's shape and working folder.
-    pub(crate) read_working_folder: ReadSessionWorkingFolder,
+    pub read_working_folder: ReadSessionWorkingFolder,
     /// Reads what a shell takes from the machine's settings file.
-    pub(crate) read_shell_settings: ReadShellSettings,
+    pub read_shell_settings: ReadShellSettings,
     /// The login shell's environment captured at the daemon's start.
-    pub(crate) base_environment: Vec<(String, String)>,
+    pub base_environment: Vec<(String, String)>,
     /// The names a person's row may not set.
-    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
+    pub reserved_names: Arc<ReservedEnvironmentNames>,
     /// The variables each provider reads as the screen-reader switch.
-    pub(crate) screen_reader_environment_names: Vec<&'static str>,
+    pub screen_reader_environment_names: Vec<&'static str>,
     /// The folders every shell's start writes its scripts and nonce file in.
-    pub(crate) startup_folders: ShellStartupFolders,
+    pub startup_folders: ShellStartupFolders,
     /// The daemon's `shell` mode with its arguments.
-    pub(crate) shell_mode: CommandLine,
+    pub shell_mode: CommandLine,
     /// The registry of terminal children a crash could leave behind.
-    pub(crate) orphan_guard: Arc<OrphanGuard>,
+    pub orphan_guard: Arc<OrphanGuard>,
     /// The daemon's runtime, which every task a shell starts runs on, so work started from a drop
     /// after the runtime stopped is dropped rather than panicking.
-    pub(crate) runtime: Handle,
+    pub runtime: Handle,
 }
 
 /// One session's shells, in tab order, and who follows its list.
@@ -132,13 +133,9 @@ pub struct ShellTable {
     shared: Arc<TableShared>,
 }
 
-#[expect(
-    dead_code,
-    reason = "the daemon's start builds the shell table and the terminal methods call it"
-)]
 impl ShellTable {
     /// The table over `deps`, holding no shell.
-    pub(crate) fn new(deps: ShellTableDeps) -> Self {
+    pub fn new(deps: ShellTableDeps) -> Self {
         let record_deps = Arc::new(ShellRecordDeps {
             terminals: Arc::clone(&deps.terminals),
             machine_device_id: deps.machine_device_id.clone(),
@@ -158,7 +155,7 @@ impl ShellTable {
 
     /// Follows a session's shells: `outlet` gets the whole list now and after every change.
     /// Refuses a session this daemon does not hold `session.notFound`. Answers the unfollow.
-    pub(crate) async fn follow_list(
+    pub async fn follow_list(
         &self,
         session_id: SessionId,
         outlet: LatestValueOutlet<TerminalListUpdate>,
@@ -185,10 +182,7 @@ impl ShellTable {
     /// Puts the named shells first in the given order; any it does not name keep theirs after.
     /// Refuses a session this daemon does not hold `session.notFound` and a shell the session
     /// does not have `terminal.notFound`, changing nothing.
-    pub(crate) async fn reorder(
-        &self,
-        request: &TerminalReorderRequest,
-    ) -> Result<(), HandlerError> {
+    pub async fn reorder(&self, request: &TerminalReorderRequest) -> Result<(), HandlerError> {
         let named: Vec<TerminalId> = request.terminal_ids.as_slice().to_vec();
         let missing = {
             let mut sessions = self.shared.lock_sessions();
@@ -224,6 +218,10 @@ impl ShellTable {
 
     /// Whether the shell reports its prompt and command marks: false until its first prompt mark
     /// carrying its nonce arrives. Refuses a shell the session does not have `terminal.notFound`.
+    #[expect(
+        dead_code,
+        reason = "a run's take of a shell reads whether it reports its marks"
+    )]
     pub(crate) fn is_reporting_marks(
         &self,
         session_id: &SessionId,
@@ -237,6 +235,10 @@ impl ShellTable {
 
     /// Whether a device typed into the shell since its last prompt mark, so a run takes only a
     /// shell sitting idle at its prompt. Refuses as [`Self::is_reporting_marks`] does.
+    #[expect(
+        dead_code,
+        reason = "a run's take of a shell reads whether it sits idle"
+    )]
     pub(crate) fn has_input_since_prompt(
         &self,
         session_id: &SessionId,
@@ -249,16 +251,16 @@ impl ShellTable {
     }
 
     /// The lease of the shell the caller's output subscription streams, for a take through that
-    /// pane. Refuses a shell the session does not have `terminal.notFound`, and a subscription
-    /// that is not the calling connection's own open one to it
-    /// `terminal.output.subscriptionNotFound`.
-    pub(crate) fn lease_for_output_subscription(
+    /// pane. Refuses a session this daemon does not hold `session.notFound`, a shell the session
+    /// does not have `terminal.notFound`, and a subscription that is not the calling connection's
+    /// own open one to it `terminal.output.subscriptionNotFound`.
+    pub async fn lease_for_output_subscription(
         &self,
         session_id: &SessionId,
         terminal_id: &TerminalId,
         caller: &ShellLeaseCaller,
-    ) -> Result<Arc<ShellControlLease>, DomainError> {
-        let shell = self.shared.find_shell(session_id, terminal_id)?;
+    ) -> Result<Arc<ShellControlLease>, HandlerError> {
+        let shell = self.shared.requested_shell(session_id, terminal_id).await?;
         let is_own = shell.streams().contains(&(
             caller.output_subscription_id,
             caller.connection.transport_id,
@@ -267,14 +269,15 @@ impl ShellTable {
             return Err(crate::refusals::output_subscription_not_found(
                 terminal_id,
                 &caller.output_subscription_id,
-            ));
+            )
+            .into());
         }
         Ok(Arc::clone(&shell.lease))
     }
 
     /// The lookup `terminal.write` finds each write's shell input through, refusing a write
     /// naming no shell as [`Self::reorder`] does.
-    pub(crate) fn input_lookup(&self) -> ShellInputLookup {
+    pub fn input_lookup(&self) -> ShellInputLookup {
         let table = Arc::downgrade(&self.shared);
         Arc::new(move |session_id, terminal_id| {
             let Some(table) = table.upgrade() else {
@@ -289,16 +292,18 @@ impl ShellTable {
     }
 
     /// Sizes a shell from a connection its hold is bound to; answers once the terminal has this
-    /// size or a newer one. Refuses as the lease does, and a shell the session does not have
-    /// `terminal.notFound`; fails as a fault when the terminal refused the size.
-    pub(crate) async fn resize(
+    /// size or a newer one. Refuses a session this daemon does not hold `session.notFound`, a
+    /// shell the session does not have `terminal.notFound`, and as the lease does; fails as a
+    /// fault when the terminal refused the size.
+    pub async fn resize(
         &self,
         request: &TerminalResizeRequest,
         caller: &ShellConnection,
     ) -> Result<(), HandlerError> {
         let shell = self
             .shared
-            .find_shell(&request.session_id, &request.terminal_id)?;
+            .requested_shell(&request.session_id, &request.terminal_id)
+            .await?;
         let size = ShellSize {
             columns: u16::try_from(request.columns.get()).unwrap_or(u16::MAX),
             rows: u16::try_from(request.rows.get()).unwrap_or(u16::MAX),
@@ -318,11 +323,11 @@ impl ShellTable {
     /// Keeps the appearance a shell's program is answered from: the console theme's colors for
     /// every shell, or the colors and cell size of the pane holding one shell, which only a
     /// connection its hold is bound to may report. A pane's report refuses as a resize does.
-    pub(crate) async fn report_terminal_appearance(
+    pub async fn report_terminal_appearance(
         &self,
         request: TerminalAppearanceReportRequest,
         caller: &ShellConnection,
-    ) -> Result<(), DomainError> {
+    ) -> Result<(), HandlerError> {
         match request {
             TerminalAppearanceReportRequest::ConsoleTheme { colors } => {
                 *self.shared.lock_console_colors() = Some(Arc::new(colors));
@@ -334,7 +339,10 @@ impl ShellTable {
                 colors,
                 cell_size,
             } => {
-                let shell = self.shared.find_shell(&session_id, &terminal_id)?;
+                let shell = self
+                    .shared
+                    .requested_shell(&session_id, &terminal_id)
+                    .await?;
                 shell
                     .lease
                     .admit_from_holding_connection(caller, || {
@@ -343,31 +351,45 @@ impl ShellTable {
                             cell_size: Some(cell_size),
                         });
                     })
-                    .await
+                    .await?;
+                Ok(())
             }
         }
     }
 
     /// Records whether a connection has fallen behind on a shell; its streams that missed output
     /// reseed from the scrollback once it caught up. Naming a shell the session does not have, or
-    /// one that no longer runs, changes nothing, since the call may race a closing shell.
-    pub(crate) fn declare_flow_control(
+    /// one that no longer runs, changes nothing, since the call may race a closing shell; naming
+    /// a session this daemon does not hold is refused `session.notFound`.
+    pub async fn declare_flow_control(
         &self,
         request: &TerminalFlowControlUpdateRequest,
         transport_id: TransportId,
-    ) {
-        if let Ok(shell) = self
+    ) -> Result<(), HandlerError> {
+        match self
             .shared
-            .find_shell(&request.session_id, &request.terminal_id)
-            && shell.handle().is_some()
+            .held_shell(&request.session_id, &request.terminal_id)
         {
-            shell.declare_flow_control(transport_id, request.paused);
+            Some(shell) => {
+                if shell.handle().is_some() {
+                    shell.declare_flow_control(transport_id, request.paused);
+                }
+                Ok(())
+            }
+            // Only the session's read refuses: a shell gone from a held session is no refusal.
+            None => (self.shared.deps.read_working_folder)(request.session_id)
+                .await
+                .map(|_| ()),
         }
     }
 
     /// Ends a closed connection's bindings on every shell's hold, a hold ending with its last as a
     /// disconnect. Called before the connection's subscriptions end, so their ends find nothing
     /// left; a release that cannot be appended goes to the service log.
+    #[expect(
+        dead_code,
+        reason = "the gateway's connection end releases the connection's holds"
+    )]
     pub(crate) fn release_connection(&self, transport_id: TransportId) {
         for shell in self.shared.every_shell() {
             self.shared.deps.runtime.spawn(async move {
@@ -428,6 +450,14 @@ impl TableShared {
         }
     }
 
+    // The held shell, refused `terminal.notFound` when the table does not hold it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "a run's take of a shell reads whether it reports its marks and sits idle"
+        )
+    )]
     fn find_shell(
         &self,
         session_id: &SessionId,
@@ -446,6 +476,19 @@ impl TableShared {
             .get(session_id)
             .and_then(|session| session.shells.get(terminal_id))
             .cloned()
+    }
+
+    /// The shell a request names, refused as [`Self::refuse_missing_shell`] answers when the table
+    /// does not hold it; the session is read only on that miss.
+    async fn requested_shell(
+        &self,
+        session_id: &SessionId,
+        terminal_id: &TerminalId,
+    ) -> Result<Arc<ShellRecord>, HandlerError> {
+        match self.held_shell(session_id, terminal_id) {
+            Some(shell) => Ok(shell),
+            None => Err(self.refuse_missing_shell(session_id, terminal_id).await),
+        }
     }
 
     /// The refusal of a request naming `terminal_id`, which the table does not hold:

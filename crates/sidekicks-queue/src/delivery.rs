@@ -2,7 +2,7 @@
 //! says its provider takes them: at once, the provider holding each to its own next step, or at
 //! the turn's next tool boundary, the daemon holding them until then. A message sent while the run
 //! waits on the person's input goes as the next turn instead, except while the provider holds a
-//! credits choice, which the message settles.
+//! credits choice, which the message settles. A review is never handed: it opens a run of its own.
 //!
 //! A handed message stays `queued` until the provider's record shows it took it, the run's end or
 //! a withdraw settles it. Until then no edit, removal or reorder moves it, except by a withdraw,
@@ -720,7 +720,7 @@ impl QueueDelivery {
     ) -> Result<(Vec<QueueItemRecord>, MutexGuard<'_, DeliveryState>), DeliveryError> {
         loop {
             let forgotten = self.lock_state().forgotten_hands();
-            let lead_waiting = self.lead_waiting(self.read_waiting(run_id).await?, false);
+            let lead_waiting = self.lead_messages(self.read_waiting(run_id).await?);
             let state = self.lock_state();
             if state.forgotten_hands() == forgotten {
                 return Ok((lead_waiting, state));
@@ -772,6 +772,15 @@ impl QueueDelivery {
             .filter(|item| {
                 item.child_handle.is_none() && (keeps_openings || !openings.is_opening(item))
             })
+            .collect()
+    }
+
+    // The lead's messages among `waiting` that a hand sends, less the openings of runs being
+    // started: a review opens a run of its own, so no hand takes it into a turn.
+    fn lead_messages(&self, waiting: Vec<QueueItemRecord>) -> Vec<QueueItemRecord> {
+        self.lead_waiting(waiting, false)
+            .into_iter()
+            .filter(|item| item.body.as_message().is_some())
             .collect()
     }
 
@@ -831,14 +840,18 @@ fn steer_of(
     run_version: i64,
     is_priority: bool,
 ) -> ApplyInterventionParams {
+    let message = item
+        .body
+        .as_message()
+        .expect("a hand gathers only messages, so a review is never steered");
     ApplyInterventionParams::Steer {
         target_run_id: run_id,
         expected_run_version: safe_run_version(run_version),
         client_idempotency_key: item.id,
         payload: SteerPayload {
-            content: item.body.content.clone(),
-            attachments: item.body.attachment_ids(),
-            skills: item.body.skills.clone().unwrap_or_default(),
+            content: message.content.clone(),
+            attachments: message.attachment_ids(),
+            skills: message.skills.clone().unwrap_or_default(),
             expected_turn_id: None,
             is_priority,
         },

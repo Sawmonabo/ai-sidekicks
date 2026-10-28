@@ -5,8 +5,6 @@
 
 use std::sync::Arc;
 
-use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use tokio::sync::oneshot;
 
@@ -54,18 +52,13 @@ pub(crate) struct CodexSessionCallDependencies {
     pub(crate) runs: CodexRunCallDependencies,
 }
 
-/// What a turn the daemon starts and `Allow once` read of a session: the connection its
-/// conversation is on, the conversation, the account and posture a turn runs at, and the state of
-/// its turns.
+/// What a goal's turn, a rewind and `Allow once` read of a session: the connection its
+/// conversation is on, the conversation, and the state of its turns.
 pub(crate) struct CodexSessionReading {
     /// The connection, or why the service has none.
     pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
     /// The session's conversation.
     pub(crate) thread_id: String,
-    /// The account the conversation runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
-    /// The session's level and roots as they stand now.
-    pub(crate) execution_posture: ExecutionPosture,
     /// Whether a turn runs, starts or still ends, so a turn the daemon starts would fold into it.
     pub(crate) is_turn_in_flight: bool,
     /// The runs whose turns are live, one entry per live turn.
@@ -270,14 +263,12 @@ pub(crate) async fn wait_for_codex_turns(
     }
 }
 
-// What the session's task reads for a turn the daemon starts or an `Allow once`.
+// What the session's task reads for a goal's turn, a rewind or an `Allow once`.
 fn read_codex_session(task: &CodexSessionTask<'_>, thread_id: Option<&str>) -> CodexSessionReading {
     let record = &*task.record;
     CodexSessionReading {
         connection: record.service.connection(),
         thread_id: record.thread_id.clone(),
-        provider_account_id: record.provider_account_id.clone(),
-        execution_posture: record.execution_posture.clone(),
         is_turn_in_flight: record.is_turn_in_flight(None),
         live_turn_runs: record
             .active_turns

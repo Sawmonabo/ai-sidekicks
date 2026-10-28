@@ -138,7 +138,8 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     vec![at_once(|_| SupervisorEvent::Start), at_once(|_| start_failed(1))],
     "Stopped",
     &["TearDown { ticket: 1, end: Stop }",
-        "Publish(StartFailed(Transport { detail: \"refused\", cause: None }))"],
+        "Publish(StartFailed(Transport { detail: \"refused\", cause: None }))",
+        "ReportStoppedOnFailedStart"],
 )]
 #[case::a_drop_after_a_short_uptime_keeps_the_grown_count(
     CodexServiceKind::Account,
@@ -188,6 +189,30 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     "Starting { launch: 2, recovery: Some(Crash) }",
     &["Disconnect { is_process_gone: true }", "ReportProcessExited", "Launch { launch: 2 }",
         "Publish(Starting)"],
+)]
+// The two recoveries report before the service reads up, so a session owed a resume is marked
+// before a settle can see the service up. Killed by publishing `Up` ahead of the report.
+#[case::a_crash_restart_that_comes_up_reports_its_recovery_before_it_reads_up(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, true)),
+        boxed(started(2, CodexServiceKind::Account)),
+    ],
+    "Up { launch: 2, dial: 2, attempt: 0, up for: 0ns, draining: None }",
+    &["AdoptStart { launch: 2 }", "ReportRecovered(Crash)", "Publish(Up)"],
+)]
+#[case::a_redial_that_reconnects_reports_its_recovery_before_it_reads_up(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, false)),
+        boxed(reconnected(2, 20)),
+    ],
+    "Up { launch: 1, dial: 2, attempt: 1, up for: 20s, draining: None }",
+    &["AdoptDial { dial: 2 }", "ReportRecovered(Reconnect)", "Publish(Up)"],
 )]
 #[case::a_joined_service_whose_process_ended_is_redialed(
     CodexServiceKind::Joined,

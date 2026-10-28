@@ -1,30 +1,22 @@
 //! The session controls Codex carries on the conversation itself: its permission level, moved
 //! from its next turn; Build or Plan as its collaboration mode, sent with the session's model and
-//! the effort Codex last reported; its own review of a set of changes; and `Allow once` on a
-//! block its reviewer made at Reviewed. A review starts a turn, so it is started as the session's
-//! own run. An `Allow once` starts none: Codex adds the approval to the turn running on the
-//! conversation or, with none running, to the conversation's history.
+//! the effort Codex last reported; and `Allow once` on a block its reviewer made at Reviewed,
+//! which starts no turn: Codex adds the approval to the turn running on the conversation or, with
+//! none running, to the conversation's history.
 
 use std::sync::Arc;
 
-use futures::FutureExt as _;
 use serde::Deserialize;
 use serde_json::Value;
 use serde_json::value::RawValue;
-use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
-use sidekicks_contracts::session::controls::methods::{SessionMode, SessionReviewTarget};
-use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::session::controls::methods::SessionMode;
 
-use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::{
-    ReviewStartParams, ReviewTarget, ThreadApproveGuardianDeniedActionParams, ThreadResumeParams,
+    ThreadApproveGuardianDeniedActionParams, ThreadResumeParams,
 };
 use crate::driver::codex::event_normalizer::CODEX_THREAD_SETTINGS_UPDATED_METHOD;
 use crate::driver::codex::permission_level::compose_codex_level_settings;
-use crate::driver::codex::run::start::CodexRunStart;
-use crate::driver::codex::run::start::daemon_turns::{
-    CodexDaemonTurnError, CodexDaemonTurnOpening,
-};
 use crate::driver::codex::run::turn_end_waiters::{CodexTurnEndDeadline, CodexTurnWait};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
@@ -35,16 +27,11 @@ use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::settings::{
     CodexThreadSettingsUpdateParams, compose_codex_collaboration_mode, compose_codex_level_config,
 };
-use crate::driver::codex::thread::view::read_turn_id;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
 use crate::driver::run_control::OverrideDenialParams;
-use crate::driver::session_control::{StartReviewParams, UpdatePermissionLevelParams};
-use crate::port::inbound_dispatch::InboundDispatch;
-use crate::run::delivery::InboundDelivery;
+use crate::driver::session_control::UpdatePermissionLevelParams;
 
 const THREAD_SETTINGS_UPDATE_METHOD: &str = "thread/settings/update";
-const REVIEW_START_METHOD: &str = "review/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";
 const APPROVE_GUARDIAN_DENIED_ACTION_METHOD: &str = "thread/approveGuardianDeniedAction";
 
@@ -81,7 +68,10 @@ pub(crate) async fn update_codex_session_mode(
 /// Moves `record`'s conversation to the level of `params.execution_posture` from its next turn
 /// through `thread/settings/update`, its profile noted as asked for first; the record then runs at
 /// that posture as handed in, and owes a fork onto the level's config where that changed, since
-/// only a fork carries it. Fails as the request fails, the level left as it was.
+/// only a fork carries it. On a service on its way back nothing is sent: its resume carries the
+/// level the record holds, and the fork waits for the next turn. Refused
+/// `session.permissionLevel.notOffered` when Codex refuses the level; fails as the request fails,
+/// the level left as it was.
 pub(crate) async fn move_codex_permission_level(
     record: &mut CodexSessionRecord,
     config_forks: &Arc<CodexConfigForks>,
@@ -92,28 +82,41 @@ pub(crate) async fn move_codex_permission_level(
     let posture = compose_codex_level_settings(level, folders);
     let config_before = compose_codex_level_config(record.thread_settings.level, folders);
     let config_after = compose_codex_level_config(level, folders);
-    record.permission_profiles.note_asked(&posture.permissions);
-    record
-        .service
-        .connection()?
-        .request(
-            THREAD_SETTINGS_UPDATE_METHOD,
-            &CodexThreadSettingsUpdateParams {
-                thread_id: record.thread_id.clone(),
-                collaboration_mode: None,
-                permissions: Some(posture.permissions),
-                approval_policy: Some(posture.approval_policy.into()),
-                approvals_reviewer: Some(posture.approvals_reviewer.into()),
-                service_tier: None,
-            },
-        )
-        .await?;
+    let is_coming_back = record.service.is_coming_back();
+    if !is_coming_back {
+        record.permission_profiles.note_asked(&posture.permissions);
+        record
+            .service
+            .connection()?
+            .request(
+                THREAD_SETTINGS_UPDATE_METHOD,
+                &CodexThreadSettingsUpdateParams {
+                    thread_id: record.thread_id.clone(),
+                    collaboration_mode: None,
+                    permissions: Some(posture.permissions),
+                    approval_policy: Some(posture.approval_policy.into()),
+                    approvals_reviewer: Some(posture.approvals_reviewer.into()),
+                    service_tier: None,
+                },
+            )
+            .await
+            .map_err(|error| {
+                error.refused_as(
+                    RefusalCode::SessionPermissionLevelNotOffered,
+                    "Codex refused the permission level",
+                )
+            })?;
+    }
     // A resume after a crash sends the level the record holds, and a turn the daemon starts runs
     // at its posture.
     record.thread_settings.level = level;
     record.execution_posture = params.execution_posture.clone();
     if config_before != config_after {
-        config_forks.owe(record);
+        if is_coming_back {
+            record.is_config_fork_owed = true;
+        } else {
+            config_forks.owe(record);
+        }
     }
     Ok(())
 }
@@ -153,61 +156,15 @@ struct EffortSettings {
     effort: Option<String>,
 }
 
-/// Starts Codex's own reviews and sends `Allow once` on its reviewer's blocks.
+/// Sends `Allow once` on the blocks Codex's reviewer made.
 pub(crate) struct CodexSessionControls {
     slots: Arc<CodexSessionSlots>,
-    run_start: Arc<CodexRunStart>,
-    dispatch: Arc<dyn InboundDispatch>,
 }
 
 impl CodexSessionControls {
-    /// Controls reaching each session through `slots`, starting turns through `run_start` and
-    /// recording a review's start through `dispatch`.
-    pub(crate) fn new(
-        slots: Arc<CodexSessionSlots>,
-        run_start: Arc<CodexRunStart>,
-        dispatch: Arc<dyn InboundDispatch>,
-    ) -> Self {
-        Self {
-            slots,
-            run_start,
-            dispatch,
-        }
-    }
-
-    /// Starts Codex's own review of `params.target` in the session's conversation as the
-    /// session's own run and records its start; the review's end is recorded when Codex leaves
-    /// review mode. Fails as the run's start fails.
-    pub(crate) async fn start_review(
-        &self,
-        params: StartReviewParams,
-    ) -> Result<(), CodexDaemonTurnError> {
-        let session_id = params.session_id;
-        let target = params.target;
-        let dispatch = Arc::clone(&self.dispatch);
-        let opening: CodexDaemonTurnOpening = Arc::new(move |connection, thread_id, timeout| {
-            let dispatch = Arc::clone(&dispatch);
-            async move {
-                let reply = connection
-                    .request_within(
-                        REVIEW_START_METHOD,
-                        &ReviewStartParams {
-                            delivery: None,
-                            target: compose_review_target(target),
-                            thread_id,
-                        },
-                        timeout,
-                    )
-                    .await?;
-                record_review_started(&*dispatch, session_id, target).await;
-                read_turn_id(&reply, REVIEW_START_METHOD)
-            }
-            .boxed()
-        });
-        self.run_start
-            .start_daemon_turn(session_id, opening)
-            .await
-            .map(drop)
+    /// Controls reaching each session through `slots`.
+    pub(crate) fn new(slots: Arc<CodexSessionSlots>) -> Self {
+        Self { slots }
     }
 
     /// Sends `Allow once` for a block Codex's reviewer made, with the review Codex sent as the
@@ -314,47 +271,6 @@ fn compose_bare_resume(thread_id: String) -> ThreadResumeParams {
     }
 }
 
-// What each review target asks Codex for. Codex names no staged set and the daemon holds no base
-// branch for the session, so both are asked in words with the git command that reads them.
-fn compose_review_target(target: SessionReviewTarget) -> ReviewTarget {
-    match target {
-        SessionReviewTarget::WorkingTree => ReviewTarget::UncommittedChanges,
-        SessionReviewTarget::Staged => ReviewTarget::Custom {
-            instructions: "Review the changes staged for commit, as `git diff --cached` shows \
-                           them."
-                .to_owned(),
-        },
-        SessionReviewTarget::Branch => ReviewTarget::Custom {
-            instructions: "Review the commits on the current branch that its upstream does not \
-                           have, as `git diff @{upstream}...HEAD` shows them."
-                .to_owned(),
-        },
-    }
-}
-
-async fn record_review_started(
-    dispatch: &dyn InboundDispatch,
-    session_id: SessionId,
-    target: SessionReviewTarget,
-) {
-    Box::pin(dispatch_delivery(
-        dispatch,
-        DeliveryOrigin {
-            provider: DESCRIPTOR.provider_id(),
-            provider_account_id: None,
-            raw_wire_type: Some(REVIEW_START_METHOD),
-        },
-        InboundDelivery::SessionNotice {
-            session_id,
-            notice: SessionNoticePostedPayload::Notice(SessionNotice::ReviewStarted {
-                session_id,
-                target,
-            }),
-        },
-    ))
-    .await;
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -424,11 +340,7 @@ mod tests {
     #[tokio::test]
     async fn allow_once_reaches_the_blocked_conversation_and_starts_no_turn() {
         let mut session = TestCodexSession::start().await;
-        let controls = CodexSessionControls::new(
-            Arc::clone(&session.slots),
-            Arc::clone(&session.run_start),
-            Arc::clone(&session.engine) as _,
-        );
+        let controls = CodexSessionControls::new(Arc::clone(&session.slots));
         let denial = json!({
             "threadId": "thread-left",
             "turnId": "turn-3",
