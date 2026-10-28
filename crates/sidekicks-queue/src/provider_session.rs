@@ -62,8 +62,8 @@ pub mod test_opening;
 mod tests;
 
 /// The statements the provider sessions' reads prepare: a session's state, its runs, their
-/// bindings, its mode and its level.
-pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 5;
+/// bindings, its mode, its level and its kept schedules.
+pub const PROVIDER_SESSIONS_STATEMENT_CAPACITY: usize = 6;
 
 /// What a session's provider session opens with, composed from the session's lead as its log
 /// stands now.
@@ -239,7 +239,7 @@ pub enum ProviderSessionError {
         moved_back: DriverError,
     },
     /// SQLite refused a read, or a stored value does not read as its type.
-    #[error("a read of the session's bindings, mode or level failed")]
+    #[error("a read of the session's bindings, mode, level or kept schedules failed")]
     Read(#[from] rusqlite::Error),
     /// The read pool did not run a read.
     #[error("a read of the session's bindings, mode or level did not reach the database")]

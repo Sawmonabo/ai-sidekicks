@@ -41,6 +41,7 @@ use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::driver::idle_sleep::KeptSchedule;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 
 /// The longest account or plan descriptor an authentication probe keeps, in code points; a longer
@@ -138,6 +139,9 @@ pub struct ResumeSessionParams {
     pub provider_account_id: ProviderAccountId,
     /// The status sink, bound to the resumed leg, through which it reports its census again.
     pub on_mcp_server_status: Option<McpServerStatusProducer>,
+    /// The timed fires the idle sleep stored for the session, its wake-ups and session-only
+    /// scheduled jobs, which a fresh process does not keep; the resumed process takes them back.
+    pub kept_schedules: Vec<KeptSchedule>,
 }
 
 /// Asks a driver to close one session.

@@ -519,6 +519,11 @@ interface ResumeSessionParams {
   // re-injected census sink, pre-bound to the resumed leg's identity — the resumed leg re-emits its
   // init census through it
   onMcpServerStatus?: McpServerStatusProducer;
+  // The timed fires the idle sleep stored for the session — its wake-ups and the scheduled jobs
+  // that live only in the session's process — read from the daemon's store by the session's key
+  // on every resume, empty for a session with none. A fresh process holds none of them, so a
+  // session the idle sleep put to sleep, woken after a daemon restart, takes them back here.
+  keptSchedules: KeptSchedule[];
 }
 
 interface StartRunParams {

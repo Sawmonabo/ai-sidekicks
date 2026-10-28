@@ -16,8 +16,9 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::idle_sleep::KeptSchedule;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
-use sidekicks_provider::driver::session_control::DriverResumeResult;
+use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
 use sidekicks_provider::runtime_binding::test_store::{
@@ -30,6 +31,7 @@ use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -57,8 +59,11 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How long a resume that would land inside a close is given to land there.
 const CLOSE_HELD: Duration = Duration::from_millis(500);
 
-/// What runs inside the fixture's driver resume.
-type ResumeHook = Box<dyn Fn() + Send + Sync>;
+/// The recurring job the wake's test stores for the session.
+const CRON: &str = "0 9 * * 1";
+
+/// What runs inside the fixture's driver resume, given the params it was handed.
+type ResumeHook = Box<dyn Fn(&ResumeSessionParams) + Send + Sync>;
 
 /// What runs as the close's `session.closed` is appended, before its write is queued.
 type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
@@ -146,7 +151,7 @@ impl Opening {
         let mut driver = MockProviderDriver::new();
         driver.expect_resume_session().returning(move |params| {
             assert_eq!(params.resume_handle, "conversation-1");
-            on_resume();
+            on_resume(&params);
             let binding_id = minted.clone();
             async move {
                 Ok(DriverResumeResult::Resumed {
@@ -203,7 +208,7 @@ impl Opening {
 // inside the open (the test times out), or by the relaunch left unrecorded.
 #[tokio::test]
 async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {})).await;
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {})).await;
 
     timeout(
         WAIT,
@@ -244,23 +249,37 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
     );
 }
 
-// The idle sleep's wake of a session no process holds resumes its conversation once and records
-// it as the session's opening, so the next admission binds its run to that process and resumes
-// nothing. Killed by the wake no longer recording the opening (the open resumes a second time),
-// and by an opening not telling the idle sleep (the session is not followed awake).
+// The idle sleep's wake of a session no process holds, as after a daemon restart, resumes its
+// conversation once with the timed fires the idle sleep stored for it and no other session's, and
+// records it as the session's opening, so the next admission binds its run to that process and
+// resumes nothing. Killed by a resume composed without the stored fires, by the wake no longer
+// recording the opening (the open resumes a second time), and by an opening not telling the idle
+// sleep (the session is not followed awake).
 #[tokio::test]
-async fn a_wake_resumes_a_sleeping_session_once_and_the_next_open_reuses_it() {
-    let resumes = Arc::new(AtomicUsize::new(0));
+async fn a_wake_resumes_a_sleeping_session_once_with_its_kept_schedules() {
+    let resumes = Arc::new(Mutex::new(Vec::new()));
     let opening = Opening::new(
         Box::new({
             let resumes = Arc::clone(&resumes);
-            move || {
-                resumes.fetch_add(1, Ordering::SeqCst);
+            move |params| {
+                lock(&resumes).push(params.kept_schedules.clone());
             }
         }),
         Box::new(|| {}),
     )
     .await;
+    for (stored_session_id, cron) in [(opening.session_id, CRON), (test_session_id(), "0 0 * * *")]
+    {
+        opening
+            .database
+            .reader()
+            .execute(
+                "INSERT INTO session_kept_schedules (session_id, position, cron) \
+                 VALUES (?1, 0, ?2)",
+                [stored_session_id.text().as_str(), cron],
+            )
+            .expect("the test stores a kept schedule");
+    }
 
     let woken = timeout(WAIT, opening.sessions.wake_process(opening.session_id))
         .await
@@ -276,9 +295,12 @@ async fn a_wake_resumes_a_sleeping_session_once_and_the_next_open_reuses_it() {
     .expect("the run binds to the woken process");
 
     assert_eq!(
-        resumes.load(Ordering::SeqCst),
-        1,
-        "one process comes up for the session"
+        *lock(&resumes),
+        [vec![KeptSchedule::Recurring {
+            cron: CRON.to_owned(),
+            next_fire_at: None,
+        }]],
+        "one process comes up for the session, with its own kept schedules"
     );
     assert_eq!(
         opening.following.followed(),
@@ -304,7 +326,7 @@ async fn an_open_or_a_wake_waiting_out_a_close_is_refused_and_starts_no_process(
         Box::new({
             let resumes = Arc::clone(&resumes);
             let resumed = Arc::clone(&resumed);
-            move || {
+            move |_| {
                 resumes.fetch_add(1, Ordering::SeqCst);
                 resumed.notify_one();
             }
@@ -393,7 +415,7 @@ async fn an_ended_session_is_refused_an_opening_a_binding_and_a_level_change() {
         let opening = Opening::new(
             Box::new({
                 let resumes = Arc::clone(&resumes);
-                move || {
+                move |_| {
                     resumes.fetch_add(1, Ordering::SeqCst);
                 }
             }),

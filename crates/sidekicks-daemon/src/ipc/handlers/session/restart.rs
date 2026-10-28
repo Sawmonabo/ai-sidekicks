@@ -281,6 +281,7 @@ mod tests {
                     output_schema: None,
                     provider_account_id: test_provider_account_id(),
                     on_mcp_server_status: None,
+                    kept_schedules: Vec::new(),
                 },
                 record: Box::new(|_| async { Ok(()) }.boxed()),
             });

@@ -18,6 +18,7 @@ use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::runtime_binding::resume::compose_resume_session_params;
 use sidekicks_provider::runtime_binding::store::{RuntimeBinding, RuntimeBindingRelaunch};
 use sidekicks_session::console_state::read_session_mode;
+use sidekicks_session::idle_sleep::kept_schedules::read_session_schedules;
 use sidekicks_session::idle_sleep::openings::SessionProcessWaker;
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -52,8 +53,9 @@ pub struct ResumedLeg {
 
 impl ProviderSessions {
     /// The resume of `session_id`'s conversation from its stored `leg`, composed from the
-    /// session's lead as it stands now on the account the leg ran on, at its mode and level. Fails
-    /// as the composition, the posture or the mode's read fails, and with
+    /// session's lead as it stands now on the account the leg ran on, at its mode and level, with
+    /// the timed fires the idle sleep stored for it. Fails as the composition, the posture or the
+    /// read of the mode or the timed fires fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
         &self,
@@ -65,11 +67,14 @@ impl ProviderSessions {
             .compose(session_id, leg.spawn_config.provider_account_id.clone())
             .await?;
         let execution_posture = posture_of(session_id, &opening)?;
-        let mode = self
+        let (mode, kept_schedules) = self
             .deps
             .pool
             .read(ReadLength::Short, move |reader| {
-                Ok::<_, ProviderSessionError>(read_session_mode(reader, &session_id)?)
+                Ok::<_, ProviderSessionError>((
+                    read_session_mode(reader, &session_id)?,
+                    read_session_schedules(reader, session_id)?,
+                ))
             })
             .await?;
         let params = compose_resume_session_params(
@@ -83,6 +88,7 @@ impl ProviderSessions {
             opening.create_params.options.clone(),
             opening.create_params.row_values.clone(),
             (opening.function_legs_for)(&leg.id),
+            kept_schedules,
         )?;
         Ok(ComposedResume {
             params,
