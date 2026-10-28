@@ -417,11 +417,14 @@ interface CreateSessionParams {
   // StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Plan-013 orchestration
   // reads
   outputSchema?: Record<string, unknown>;
-  // Provider-account identity at spawn (Plan-003 T3.45). OPAQUE TO THE DRIVER — never parsed, never
-  // used to locate credential material: the driver receives the already-constructed spawn
-  // environment, and pinning the account's credential home into it (and denying the ambient names a
-  // bound leg must not read) are obligations on the spawn path — Plan-023's fail-closed binding,
-  // consumed per CP-003-7 — not properties this member carries. RESOLVED BY THE DAEMON AND NEVER
+  // Provider-account identity at spawn (Plan-003 T3.45), REQUIRED on every create and resume.
+  // OPAQUE TO THE DRIVER — never parsed, and never used by the driver to read credential material
+  // itself: the driver hands it back to the daemon, the Claude Code driver to receive the account's
+  // spawn environment with its credential home pinned in (and the ambient names a bound leg must
+  // not read denied), the Codex driver to receive the account's Codex home, whose app-server
+  // service runs the session. That pinning is an obligation on the spawn path — Plan-023's
+  // fail-closed binding, consumed per CP-003-7 — not a property this member carries. RESOLVED BY
+  // THE DAEMON AND NEVER
   // SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps it here — the account
   // pinned by the run's saved agent definition or workflow step where one pins, and otherwise the
   // provider's current account, the one carrying the mark on the provider surface when the run
