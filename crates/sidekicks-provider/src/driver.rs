@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
@@ -16,6 +17,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
@@ -27,7 +29,7 @@ use crate::background_work::BackgroundWorkForms;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
-use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::{DriverError, ProviderDriver};
 use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
 use crate::process_registry::ProviderProcessRegistry;
@@ -46,6 +48,7 @@ pub(crate) mod delivery_dispatch;
 pub mod diagnostics;
 pub mod error_causes;
 pub(crate) mod hook_pauses;
+pub mod idle_sleep;
 pub(crate) mod mcp_server_status;
 pub mod message_handing;
 pub mod ports;
@@ -57,6 +60,7 @@ pub mod run_control;
 pub mod schema;
 pub mod session_control;
 pub(crate) mod streamed_text;
+pub mod task_list;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_registry;
 pub(crate) mod unified_diff;
@@ -484,9 +488,8 @@ pub struct SessionSpawnContext {
     pub every_project_rows: Vec<EnvironmentRow>,
     /// The session's project's own environment rows, which win over an `Every project` row.
     pub project_rows: Vec<EnvironmentRow>,
-    /// The folders of the account the process runs on, where the app manages its home; `None` on
-    /// the person's own sign-in.
-    pub account_folders: Option<ProviderAccountFolders>,
+    /// The folders of the account the process runs on.
+    pub account_folders: ProviderAccountFolders,
     /// The session's own bound on the steps one turn may take; `None` where the person set none.
     pub step_bound: Option<SafeInt<1>>,
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
@@ -498,8 +501,8 @@ pub struct SessionSpawnContext {
     pub advisor_model: Option<Option<String>>,
 }
 
-/// The folders of an account whose home the app manages, each absolute: the configuration folder a
-/// session reads and the account's own credential store, kept apart from it.
+/// The folders of an account's home, which the app manages for every account, each absolute: the
+/// configuration folder a session reads and the account's own credential store, kept apart from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderAccountFolders {
     /// The configuration folder.
@@ -511,25 +514,31 @@ pub struct ProviderAccountFolders {
 /// Resolves where a session's provider process runs. The daemon registers it on
 /// [`DriverPorts::spawn_contexts`].
 pub trait SessionSpawnContextResolver: Send + Sync {
-    /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
-    /// sign-in when `None`. Fails when the session or its folders cannot be read.
+    /// The context `session_id` runs in on `provider_account_id`'s account. Fails when the
+    /// session or its account's folders cannot be read.
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>>;
 }
 
 /// Reads the accounts a provider runs on: an account's folders before any session runs on it, and
 /// its credential generation. The daemon registers it on [`DriverPorts::provider_accounts`].
 pub trait ProviderAccountReader: Send + Sync {
-    /// The folders of `provider_account_id`'s account where the app manages its home, `None`
-    /// where it does not; read with no session, before one exists. Fails when the account or its
-    /// folders cannot be read.
+    /// The folders of `provider_account_id`'s account, read with no session, before one exists.
+    /// Fails as [`AccountFoldersError`] says.
     fn resolve_account_folders(
         &self,
         provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>>;
+
+    /// The account `provider_id`'s runs start on when no account is named: its current account,
+    /// or why it has none. Fails when the accounts cannot be read.
+    fn current_account(
+        &self,
+        provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>>;
 
     /// The current credential generation of `provider_account_id`'s account, from the accounts
     /// store, which a reading of the account carries so one from before a sign-in again reads as
@@ -538,6 +547,52 @@ pub trait ProviderAccountReader: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
+}
+
+/// Why an account's folders could not be resolved: the account is not registered, its home is not
+/// there to run in, or the accounts could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum AccountFoldersError {
+    /// No account of that id is registered.
+    #[error("the account is not registered")]
+    NotFound,
+    /// The account's credential home is missing or cannot be used.
+    #[error("the account's credential home is unavailable")]
+    CredentialHomeUnavailable,
+    /// The accounts could not be read.
+    #[error("the account's folders could not be read")]
+    Read(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<AccountFoldersError> for DriverError {
+    /// An account that is not registered refuses `provider.account.notFound`, a home that cannot
+    /// be used `provider.account.credentialHome.unavailable`, and a failed read is the driver's
+    /// own failure.
+    fn from(error: AccountFoldersError) -> Self {
+        match error {
+            AccountFoldersError::NotFound => Self::Refused(DomainError::new(
+                "The provider account is not registered",
+                RefusalCode::ProviderAccountNotFound,
+            )),
+            AccountFoldersError::CredentialHomeUnavailable => Self::Refused(DomainError::new(
+                "The provider account's credential home is unavailable",
+                RefusalCode::ProviderAccountCredentialHomeUnavailable,
+            )),
+            AccountFoldersError::Read(cause) => Self::Internal(cause),
+        }
+    }
+}
+
+/// The account a provider's runs start on when none is named, or why there is none: no account of
+/// the provider is registered, or none of its registered accounts is current.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CurrentProviderAccount {
+    /// The provider's current account.
+    Current(ProviderAccountId),
+    /// No account of the provider is registered.
+    NoneRegistered,
+    /// Accounts of the provider are registered and none is current.
+    NoneCurrent,
 }
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared

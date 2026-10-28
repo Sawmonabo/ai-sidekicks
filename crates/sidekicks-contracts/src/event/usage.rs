@@ -18,9 +18,9 @@ use crate::event::envelope::{
 use crate::event::version::EVENT_FIELD_MAX_LEN;
 use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use crate::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
-use crate::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use crate::provider::id::ProviderId;
 use crate::run::id::RunId;
+use crate::run::subagent::SubagentId;
 use crate::session::cost::UsdMicros;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
@@ -128,8 +128,8 @@ pub struct UsageTokenCountRecordedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub subagent_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "SubagentId")]
+    pub subagent_id: Option<SubagentId>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(
@@ -187,8 +187,8 @@ pub struct UsageCostUpdatedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub subagent_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "SubagentId")]
+    pub subagent_id: Option<SubagentId>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(
@@ -268,8 +268,8 @@ pub struct UsageContextWindowUpdatedPayload {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
-    pub subagent_id: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
+    #[schemars(with = "SubagentId")]
+    pub subagent_id: Option<SubagentId>,
     /// The execution epoch a late row is attributed to; comes with `sourcePosition` and
     /// `runId`.
     #[serde(

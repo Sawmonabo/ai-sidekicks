@@ -19,6 +19,7 @@ use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -329,6 +330,22 @@ pub struct RunToolBoundary {
     pub session_id: SessionId,
     /// The run.
     pub run_id: RunId,
+}
+
+/// The reason a helper reads when its next tool use is refused at its token limit.
+pub const HELPER_TOKEN_LIMIT_REASON: &str =
+    "You have reached your token limit. Report what you completed and what remains.";
+
+/// Params of `stop_helper_at_token_limit`: the helper whose own run passed its token limit, which
+/// stops alone while its lead goes on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HelperTokenLimitParams {
+    /// The session.
+    pub session_id: SessionId,
+    /// The helper's own run.
+    pub run_id: RunId,
+    /// The provider's id of the helper on its lead's run.
+    pub subagent_id: SubagentId,
 }
 
 /// The binding a turn the daemon starts on a session itself runs on, and the session's agent.

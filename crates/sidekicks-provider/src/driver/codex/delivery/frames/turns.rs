@@ -119,7 +119,11 @@ impl CodexFrameDelivery {
         match self
             .dependencies
             .engine
-            .start_turn(turn_run.run_id, turn_run.binding.step_bound)
+            .start_turn(
+                turn_run.run_id,
+                ProviderTurnId::new(turn_id.to_owned()).ok(),
+                turn_run.binding.step_bound,
+            )
             .await
         {
             Ok(Some(started)) => {

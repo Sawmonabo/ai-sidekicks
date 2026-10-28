@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use crate::machine::schema::MACHINE_SCHEMA_SQL;
 
+mod compaction_calibrations;
 mod daemon_configuration;
 mod event_log;
 mod provider_accounts;
@@ -96,7 +97,8 @@ impl DatabaseSchema {
 }
 
 /// The store's own parts: the event log, the session directory, this machine, the daemon's
-/// configuration, the recovery's records and the provider accounts, in foreign-key order.
+/// configuration, the recovery's records, the provider accounts and the compaction calibrations,
+/// in foreign-key order.
 pub fn schema_parts() -> SchemaParts {
     SchemaParts::default()
         .with_part(SchemaPart::new(
@@ -116,5 +118,9 @@ pub fn schema_parts() -> SchemaParts {
         .with_part(SchemaPart::new(
             "provider_accounts",
             provider_accounts::provider_accounts_schema_sql(),
+        ))
+        .with_part(SchemaPart::new(
+            "compaction_calibrations",
+            compaction_calibrations::COMPACTION_CALIBRATIONS_SCHEMA_SQL,
         ))
 }

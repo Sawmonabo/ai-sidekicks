@@ -25,6 +25,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
+use crate::command::running_set::RunningCommandSets;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
@@ -39,7 +40,6 @@ use crate::driver::run_control::RunToolBoundary;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
-use crate::port::running_command_publisher::RunningCommandPublisher;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -82,8 +82,8 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// The approval service's intake of the reviewer's blocks.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
-    /// The running-commands stream's live output; absent, a command's output is dropped.
-    pub(crate) command_output: Arc<PortRegistration<Arc<dyn RunningCommandPublisher>>>,
+    /// The running commands of every session; absent, a command's output is dropped.
+    pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
     /// The compaction waits, which a compaction's own turn ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
     /// What the rest of the driver does for a frame.

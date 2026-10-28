@@ -9,9 +9,9 @@ use std::time::Duration;
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -86,7 +86,7 @@ pub(crate) struct CodexChildRun {
     /// The binding the helper's deliveries go on.
     pub(crate) binding_id: RuntimeBindingId,
     /// Codex's id for the helper.
-    pub(crate) subagent_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    pub(crate) subagent_id: SubagentId,
     /// The tool call that spawned it, where one did.
     pub(crate) parent_tool_call_id: Option<String>,
 }

@@ -7,7 +7,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
+use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -99,7 +99,7 @@ impl CodexFrameDelivery {
         subagent_id: &str,
     ) {
         // A helper id the transcript cannot hold names no helper a row could show.
-        let Ok(subagent_id) = FreeFormText::new(subagent_id.to_owned()) else {
+        let Ok(subagent_id) = SubagentId::new(subagent_id.to_owned()) else {
             return;
         };
         let spawn_call = record

@@ -13,9 +13,11 @@ use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::callback_tools::host::CallbackToolHost;
+use crate::command::running_set::RunningCommandSets;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
@@ -27,7 +29,9 @@ use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_rules::SessionRulePort;
+use crate::port::session_wake::SessionWaker;
 use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 use sidekicks_std::port_registration::PortRegistration;
 
@@ -117,8 +121,23 @@ pub struct DriverPorts {
     pub session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
     pub process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
-    /// The usage record.
+    /// The usage record. Until it is registered a session's readings meter from a zero base and
+    /// each metered change and quota window is dropped, where every other port refuses: the
+    /// provider's stream never waits on the record.
     pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The running commands of every session, which each driver reports its agent's commands to
+    /// and follows each command's channel into; a command reported before it is registered is
+    /// dropped.
+    pub command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    /// The turn readings each run's working line reads; a reading made before it is registered is
+    /// dropped.
+    pub turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
+    /// The context reading each session's ring and `Context` section read; a reading made before
+    /// it is registered is dropped.
+    pub context_readings: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
+    /// The idle sleep's wake of a sleeping session for a message its inbox received; a driver that
+    /// finds it unregistered refuses the message.
+    pub session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
     /// The approval pipeline's intake of permission asks.
     pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
@@ -167,6 +186,10 @@ impl DriverPorts {
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
+            command_output: Arc::new(PortRegistration::new("command output")),
+            turn_readings: Arc::new(PortRegistration::new("turn readings")),
+            context_readings: Arc::new(PortRegistration::new("context readings")),
+            session_wakes: Arc::new(PortRegistration::new("session wakes")),
             permission_asks: Arc::new(PortRegistration::new("permission asks")),
             questions: Arc::new(PortRegistration::new("questions")),
             plans: Arc::new(PortRegistration::new("plans")),

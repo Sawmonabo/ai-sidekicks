@@ -6,8 +6,7 @@
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
-use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 
 use super::{
     ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
@@ -73,7 +72,7 @@ impl ClaudeDeliveryStream {
                 );
             }
         }
-        let Ok(subagent_id) = FreeFormText::new(emission.subagent_id.clone()) else {
+        let Ok(subagent_id) = SubagentId::new(emission.subagent_id.clone()) else {
             return;
         };
         let payload = SubagentLifecyclePayload {

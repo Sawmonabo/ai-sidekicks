@@ -28,6 +28,7 @@ use crate::driver::diagnostics::{
 };
 use crate::driver::run_control::RunToolBoundary;
 use crate::driver::streamed_text::StreamedTextCompletion;
+use crate::port::running_command_publisher::RunningCommandPublisher;
 use crate::record_readers::{read_count, read_non_empty_string};
 use crate::run::delivery::InboundDelivery;
 

@@ -273,6 +273,14 @@ pub use posix::command_wrapper::{
     signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
     take_inherited_secret, wait_for_terminal_command,
 };
+/// Whether an agent's shell commands run under the command wrapper and its askpass here, so a
+/// driver sets the wrapper's prefix and askpass variables only where they run.
+#[cfg(unix)]
+pub const RUNS_COMMAND_WRAPPER: bool = true;
+/// Whether an agent's shell commands run under the command wrapper and its askpass here, so a
+/// driver sets the wrapper's prefix and askpass variables only where they run.
+#[cfg(target_os = "windows")]
+pub const RUNS_COMMAND_WRAPPER: bool = false;
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]

@@ -85,7 +85,8 @@ impl ClaudeDeliveryStream {
         let started = match self
             .dependencies
             .engine
-            .start_turn(lead.run_id, session.step_bound)
+            // Claude Code names no turn of its own at the turn's first frame.
+            .start_turn(lead.run_id, None, session.step_bound)
             .await
         {
             Ok(started) => started,

@@ -31,13 +31,14 @@ use crate::driver::contract::{
     RespondToRequestParams, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
+    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
@@ -49,6 +50,7 @@ use crate::driver::session_control::{
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
+use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::driver::{
     BackgroundWork, CommandSandboxNeeds, DriverServices, InstallFolder, InstallFolderBase,
     ProviderCommand, ProviderCommandLookup, ProviderDescriptor, ProviderMemoryEstimates,
@@ -355,7 +357,7 @@ impl ProviderDriver for ClaudeDriver {
     fn starts_process(
         &self,
         session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, bool> {
         ready(self.starts_process(session_id)).boxed()
     }
@@ -365,7 +367,7 @@ impl ProviderDriver for ClaudeDriver {
     fn resolve_skill_picks(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>> {
         ready(Ok(picks.into_iter().map(picked_skill_of).collect())).boxed()
@@ -472,8 +474,11 @@ impl ProviderDriver for ClaudeDriver {
         self.get_capabilities().boxed()
     }
 
-    fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
-        self.probe_auth().boxed()
+    fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
+        self.probe_auth(provider_account_id).boxed()
     }
 
     fn compact_context(
@@ -509,6 +514,38 @@ impl ProviderDriver for ClaudeDriver {
             command_act_unsupported(&params.command.command_id).into()
         ))
         .boxed()
+    }
+
+    fn idle_sleep_holds(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
+        self.idle_sleep_holds(session_id).boxed()
+    }
+
+    fn sleep_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
+        self.sleep_session(session_id).boxed()
+    }
+
+    fn wake_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>> {
+        self.wake_session(session_id).boxed()
+    }
+
+    fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
+        self.task_list_change(call)
+    }
+
+    fn stop_helper_at_token_limit(
+        &self,
+        params: HelperTokenLimitParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>> {
+        self.stop_helper_at_token_limit(params).boxed()
     }
 
     fn observed_output_speed_for(

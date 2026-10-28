@@ -264,8 +264,7 @@ impl CodexDriver {
             dispatch: Arc::clone(&dispatch),
             run_routes: Arc::clone(&self.run_routes),
             reviewer_denials: Arc::clone(&ports.reviewer_denials),
-            // The running-commands stream registers on no driver port yet.
-            command_output: Arc::new(PortRegistration::new("command output")),
+            command_output: Arc::clone(&ports.command_output),
             pending_compactions: self.pending_compactions.clone(),
             effects,
         }));

@@ -46,18 +46,10 @@ pub(crate) use feed::{next_sent_frame, next_sent_set_where};
 mod tests;
 
 /// The binding a session runs on now, where it has one.
-pub(crate) type SessionBindingLookup =
-    Arc<dyn Fn(&SessionId) -> Option<RuntimeBindingId> + Send + Sync>;
+pub type SessionBindingLookup = Arc<dyn Fn(&SessionId) -> Option<RuntimeBindingId> + Send + Sync>;
 
 /// Where a command's ending is appended: the session's event log, through the binding it runs on.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start hands the running set its ending appender"
-    )
-)]
-pub(crate) trait CommandEndingAppender: Send + Sync {
+pub trait CommandEndingAppender: Send + Sync {
     /// Appends `ending` on `binding_id`, `summary` as its body; a failure is logged, since the
     /// provider's stream cannot take it back.
     fn append(
@@ -243,14 +235,7 @@ enum RowEnd {
 impl RunningCommandSets {
     /// Running sets that append each ending through `endings` on the binding `binding_of` answers
     /// for its session when the command ends.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the daemon's start builds the one running set")
-    )]
-    pub(crate) fn new(
-        binding_of: SessionBindingLookup,
-        endings: Arc<dyn CommandEndingAppender>,
-    ) -> Self {
+    pub fn new(binding_of: SessionBindingLookup, endings: Arc<dyn CommandEndingAppender>) -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
             binding_of,

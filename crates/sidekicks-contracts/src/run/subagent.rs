@@ -12,7 +12,12 @@ use crate::provider::tool_call::ToolCallId;
 use crate::run::id::RunId;
 use crate::session::id::SessionId;
 use crate::typescript::{Definition, TypeScriptModule};
-use crate::wire::text::FreeFormText;
+use crate::wire::text::branded_free_form_text;
+
+branded_free_form_text! {
+    /// A provider's own id of one helper, unique within its provider's run.
+    pub struct SubagentId(PROVIDER_WIRE_HANDLE_MAX_LEN);
+}
 
 /// The `agent.subagent.started` and `agent.subagent.completed` payload: a helper the provider
 /// started under the run `run_id`, by the provider's own id, and the tool call it was opened under
@@ -31,7 +36,7 @@ pub struct SubagentLifecyclePayload {
     /// The provider.
     pub provider: ProviderId,
     /// The provider's own id for the helper.
-    pub subagent_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    pub subagent_id: SubagentId,
     /// The tool call the helper was opened under, where the provider names one.
     #[serde(
         default,
@@ -65,7 +70,10 @@ pub struct SubagentLifecyclePayload {
 pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
     path: "run/subagent",
     doc: "The payload of a provider's own subagent starting and finishing under a run.",
-    definitions: &[Definition::read::<SubagentLifecyclePayload>().checked()],
+    definitions: &[
+        Definition::read::<SubagentId>(),
+        Definition::read::<SubagentLifecyclePayload>().checked(),
+    ],
     constants: &[],
     method_tables: &[],
 };

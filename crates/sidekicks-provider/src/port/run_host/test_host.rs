@@ -288,6 +288,7 @@ impl RunHost for RecordingRunEngine {
     fn start_turn(
         &self,
         run_id: RunId,
+        _provider_turn_id: Option<ProviderTurnId>,
         _step_bound: Option<SafeInt<1>>,
     ) -> BoxFuture<'_, Result<Option<StartedTurn>, RunHostError>> {
         self.record(EngineCall::StartTurn(run_id));
