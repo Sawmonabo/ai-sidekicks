@@ -167,8 +167,10 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn a_folder_that_takes_no_link_fails_a_missing_link_and_keeps_a_stale_one() {
-        use std::os::unix::fs::PermissionsExt as _;
-
+        // Root writes to a folder whatever its mode, so it has nothing to show.
+        if crate::is_superuser() {
+            return;
+        }
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let program = scratch.path().join("program");
         let links = scratch.path().join("bin");
@@ -176,13 +178,11 @@ mod tests {
         let stale = links.join("stale-link");
         fs::write(&program, b"this build").expect("the program is written");
         fs::write(&stale, b"an older build").expect("a stale link is there");
-        fs::set_permissions(&links, fs::Permissions::from_mode(0o555))
-            .expect("the link folder is made read-only");
 
+        let unwritable = crate::make_unwritable(&links).expect("the link folder is made read-only");
         let missing = link_program(&program, &links.join("missing-link"));
         let kept = link_program(&program, &stale);
-        fs::set_permissions(&links, fs::Permissions::from_mode(0o755))
-            .expect("the link folder is made writable again");
+        drop(unwritable);
 
         assert!(
             matches!(missing, Err(ProgramLinkError::Missing(_))),
