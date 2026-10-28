@@ -378,12 +378,9 @@ impl ProviderSessions {
             Some(leg) => {
                 self.resume_leg(session_id, leg).await?;
                 // The resumed leg sits on the run it was first opened for; this run gets its own.
-                // A run left unbound forgets the opening, so the next admission opens again; the
-                // session is not closed, so the idle sleep keeps its timed fires.
-                if let Err(error) = self.bind_run(&hold, run_id).await {
-                    self.lock_opened().remove(&session_id);
-                    return Err(error);
-                }
+                // A failed binding fails this run alone: the resumed process stays opened and
+                // recorded, so the next admission binds to it and resumes none.
+                self.bind_run(&hold, run_id).await?;
             }
         }
         Ok(())

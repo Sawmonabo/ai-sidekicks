@@ -249,6 +249,61 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
     );
 }
 
+// A run whose binding fails after its open resumed the session's conversation fails alone: the
+// resumed process stays opened, so the next message binds its run to it and resumes nothing.
+// Killed by a failed binding that forgets the opening (the next open resumes a second process).
+#[tokio::test]
+async fn a_failed_binding_after_a_resume_leaves_one_process_for_the_next_message() {
+    let resumes = Arc::new(AtomicUsize::new(0));
+    let opening = Opening::new(
+        Box::new({
+            let resumes = Arc::clone(&resumes);
+            move |_| {
+                resumes.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+        Box::new(|| {}),
+    )
+    .await;
+    let reader = opening.database.reader();
+    reader
+        .execute_batch(&format!(
+            "CREATE TRIGGER refuse_the_runs_binding BEFORE INSERT ON runtime_bindings
+               WHEN NEW.run_id = '{}'
+             BEGIN SELECT RAISE(ABORT, 'the test refuses the binding'); END;",
+            opening.run_id.text().as_str()
+        ))
+        .expect("the test refuses the run's binding");
+
+    let failed = timeout(
+        WAIT,
+        opening.sessions.open(opening.session_id, opening.run_id),
+    )
+    .await
+    .expect("the open takes its own lock once");
+    reader
+        .execute_batch("DROP TRIGGER refuse_the_runs_binding")
+        .expect("the test lets the binding through");
+    let next_run_id = new_run_id();
+    insert_running_run(&opening.database, opening.session_id, next_run_id);
+    timeout(WAIT, opening.sessions.open(opening.session_id, next_run_id))
+        .await
+        .expect("the open takes its own lock once")
+        .expect("the next run opens on the resumed process");
+    let next_binding = timeout(
+        WAIT,
+        opening
+            .sessions
+            .open_run_binding(next_run_id, opening.session_id),
+    )
+    .await
+    .expect("the binding takes its own lock once");
+
+    assert!(failed.is_err(), "the run whose binding failed fails");
+    assert!(next_binding.is_ok(), "{next_binding:?}");
+    assert_eq!(resumes.load(Ordering::SeqCst), 1, "one process comes up");
+}
+
 // The idle sleep's wake of a session no process holds, as after a daemon restart, resumes its
 // conversation once with the timed fires the idle sleep stored for it and no other session's, and
 // records it as the session's opening, so the next admission binds its run to that process and
