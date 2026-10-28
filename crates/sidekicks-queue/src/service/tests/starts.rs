@@ -48,16 +48,24 @@ impl Fixture {
 
 // A process that never settles fails the start once the delivery timeout passed: the driver is
 // never handed the run, the run fails `provider.unavailable`, its message reads not delivered and
-// its place at the gate is given back. Killed by a settle waited on with no bound.
-#[tokio::test(start_paused = true)]
+// its place at the gate is given back. Killed by a settle waited on with no bound. The clock is
+// paused only to step past the bound, as the store's writes run on threads of their own.
+#[tokio::test]
 async fn a_process_that_never_settles_fails_the_start_after_the_delivery_timeout() {
     let calls = Arc::new(DriverCalls::default());
     let fixture = fixture(recording_driver(&calls)).await;
     // Held and never released: the session's process stays on its way back.
-    let _never_settled = calls.settle_pause.arm();
+    let never_settled = calls.settle_pause.arm();
 
     let item_id = fixture.send().await.expect("the send is saved");
-    timeout(QUEUE_DELIVERY_TIMEOUT * 2, fixture.queue.stop())
+    timeout(WAIT, never_settled.reached)
+        .await
+        .expect("the start settles the process")
+        .expect("the settle reports its arrival");
+    tokio::time::pause();
+    tokio::time::advance(QUEUE_DELIVERY_TIMEOUT).await;
+    tokio::time::resume();
+    timeout(WAIT, fixture.queue.stop())
         .await
         .expect("the start ends at the delivery timeout");
 

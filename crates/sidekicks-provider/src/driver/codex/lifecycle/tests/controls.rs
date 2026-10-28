@@ -108,6 +108,14 @@ async fn a_settle_waits_until_its_session_came_back_live(#[case] coming_back: Co
         ..
     } = LiveCodexSession::idle().await;
     let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    // The session's task shows its record once it first runs.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while driver.session_process_state(session_id) != SessionProcessState::Live {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the session reads live once its task ran");
     let (establishing, connection) = match coming_back {
         ComingBack::Establishment => (
             Some(

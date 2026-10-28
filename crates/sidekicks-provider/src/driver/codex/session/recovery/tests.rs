@@ -305,6 +305,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
 async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failure() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut session = TestCodexSession::start().await;
+        session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session));
         let recovery = test_recovery(&session, folder.path(), &steps);
@@ -388,6 +389,7 @@ async fn a_crash_loop_while_resumes_are_owed_reads_down_at_the_notice() {
 async fn a_recovery_s_end_leaves_the_resumes_a_later_recovery_owes() {
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut session = TestCodexSession::start().await;
+        session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
         let steps = Arc::new(Steps::new(&session));
         let recovery = test_recovery(&session, folder.path(), &steps);

@@ -47,11 +47,10 @@ use crate::driver::codex::session::calls::{CodexSessionTask, run_codex_session_c
 use crate::driver::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
-use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
-    CodexSessionInboundSender, drain_codex_session_inbound,
+    drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::{CodexCompactionReading, CodexLifecycleCall};
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
