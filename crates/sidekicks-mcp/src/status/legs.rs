@@ -96,8 +96,8 @@ struct BindingStatus {
 pub(super) enum ChangeOrigin {
     /// A live leg's own status changed.
     SessionFeed(LegId),
-    /// A leg left the binding's aggregate: retired, or now serving the server from another
-    /// binding.
+    /// A leg left the binding's aggregate: retired, now serving the server from another binding,
+    /// or the server switched off for it.
     SessionEnded(LegId),
     /// The machine probe's reading changed.
     MachineProbe,
@@ -184,10 +184,10 @@ impl McpLegs {
     }
 
     /// Applies one server's reading from a leg, `binding` being the effective binding the leg
-    /// serves it from. A notice goes out when the leg's own status changed; a switch-off changes
-    /// no status, so it only takes the leg out of the aggregate. A leg that now serves the name
-    /// from another binding leaves the old one with a `sessionEnded`. A retired leg's reading
-    /// changes nothing.
+    /// serves it from. A notice goes out when the leg's own status changed. A switch-off takes the
+    /// leg out of the aggregate with a `sessionEnded`, its last status kept, and a leg that now
+    /// serves the name from another binding leaves the old one the same way. A retired leg's
+    /// reading changes nothing.
     pub(super) fn observe(
         &mut self,
         binding: &McpServerBindingRef,
@@ -215,35 +215,40 @@ impl McpLegs {
                 observed_at.clone(),
             )
         };
-        // The leg's status on this binding before the reading, `None` when the leg had none; and
-        // the binding the leg served the name from before, when it moved.
-        let (previous, moved_from, is_new_on_binding) = match leg.servers.entry(update.server_name)
-        {
-            Entry::Occupied(mut held) if held.get().binding_key == key => {
-                let server = held.get_mut();
-                let previous = server.status;
-                match update.reading {
-                    McpServerReading::Observed(status) => {
-                        server.status = Some(status);
-                        server.is_switched_off = false;
-                        // The newest text, so a later notice this leg decides quotes it.
-                        server.failure_text = update.failure_text.clone();
+        // The leg's status on this binding before the reading, `None` when the leg had none; the
+        // binding the leg served the name from before, when it moved; and whether a switch-off
+        // took the leg out of this binding's aggregate.
+        let (previous, moved_from, is_new_on_binding, has_left_aggregate) =
+            match leg.servers.entry(update.server_name) {
+                Entry::Occupied(mut held) if held.get().binding_key == key => {
+                    let server = held.get_mut();
+                    let previous = server.status;
+                    let was_in_aggregate = !server.is_switched_off;
+                    match update.reading {
+                        McpServerReading::Observed(status) => {
+                            server.status = Some(status);
+                            server.is_switched_off = false;
+                            // The newest text, so a later notice this leg decides quotes it.
+                            server.failure_text = update.failure_text.clone();
+                        }
+                        // The last status and its text stay; the leg only leaves the aggregate.
+                        McpServerReading::SwitchedOff => server.is_switched_off = true,
                     }
-                    // The last status and its text stay; the leg only leaves the aggregate.
-                    McpServerReading::SwitchedOff => server.is_switched_off = true,
+                    server.observed_at = observed_at;
+                    let has_left_aggregate = was_in_aggregate && server.is_switched_off;
+                    (previous, None, false, has_left_aggregate)
                 }
-                server.observed_at = observed_at;
-                (previous, None, false)
-            }
-            Entry::Occupied(mut held) => {
-                let moved_from = mem::replace(held.get_mut(), new_entry());
-                (None, Some(moved_from.binding_key), true)
-            }
-            Entry::Vacant(vacant) => {
-                vacant.insert(new_entry());
-                (None, None, true)
-            }
-        };
+                // On a binding new to the leg, a switch-off never joined the aggregate, so it
+                // leaves nothing.
+                Entry::Occupied(mut held) => {
+                    let moved_from = mem::replace(held.get_mut(), new_entry());
+                    (None, Some(moved_from.binding_key), true, false)
+                }
+                Entry::Vacant(vacant) => {
+                    vacant.insert(new_entry());
+                    (None, None, true, false)
+                }
+            };
         if let Some(moved_from) = moved_from {
             if let Some(binding_status) = self.bindings.get_mut(&moved_from) {
                 binding_status.legs.remove(&leg_id);
@@ -262,7 +267,14 @@ impl McpLegs {
                 .insert(leg_id.clone());
             outcome.observed_binding = Some(binding.clone());
         }
-        self.refold(&key);
+        let aggregate = self.refold(&key);
+        if has_left_aggregate {
+            outcome.changes.extend(
+                aggregate.map(|fold| {
+                    fold.change(key.clone(), ChangeOrigin::SessionEnded(leg_id.clone()))
+                }),
+            );
+        }
         if let McpServerReading::Observed(status) = update.reading
             && previous != Some(status)
         {

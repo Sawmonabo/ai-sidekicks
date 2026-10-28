@@ -89,10 +89,11 @@ status_notice! {
             /// The live leg.
             binding_id: RuntimeBindingId,
         },
-        /// A session ended and its live leg left the aggregate; a page drops that leg and reads
-        /// nothing again.
+        /// A session's leg left the aggregate: the session closed, its driver exited, the leg
+        /// moved to another binding or the server was switched off for it; a page drops that leg
+        /// and reads nothing again.
         SessionEnded {
-            /// The session that ended.
+            /// The session whose leg left.
             session_id: SessionId,
             /// The leg that left.
             binding_id: RuntimeBindingId,

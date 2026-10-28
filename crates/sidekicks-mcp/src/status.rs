@@ -459,14 +459,14 @@ mod tests {
         Unknown, 0, 1,
     )]
     // `SwitchedOff` held in the aggregate: the switched-off failed leg would keep it `failed` when
-    // the other leg ends. A switch-off changes no leg's status, so it sends nothing, and the leg's
-    // same status again brings it back into the aggregate without a notice.
-    #[case::a_switched_off_leg_leaves_the_aggregate_until_it_reports_again(
+    // the other leg ends. With nothing sent at the switch-off, a page would keep the leg's line
+    // beside the live leg. The leg's same status again brings it back into the aggregate.
+    #[case::a_switched_off_leg_leaves_the_aggregate_with_a_session_ended_notice(
         vec![Step::Open("leg-a"), Step::Open("leg-b"), observe("leg-a", Failed),
              observe("leg-b", Connected), switch_off("leg-a"), Step::Retire("leg-b"),
              observe("leg-a", Failed)],
         vec![feed("leg-a", Unknown, Failed), feed("leg-b", Unknown, Connected),
-             ended("leg-b", Connected, Unknown)],
+             ended("leg-a", Failed, Connected), ended("leg-b", Connected, Unknown)],
         Failed, 1, 2,
     )]
     // A probe reading used beside a live leg would make the aggregate `needsAuth` before the
