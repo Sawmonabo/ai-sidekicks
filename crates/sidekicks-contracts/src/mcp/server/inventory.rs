@@ -7,7 +7,9 @@ use serde_json::json;
 use strum::{IntoStaticStr, VariantArray};
 
 use crate::mcp::server::config::McpServerConfigView;
-use crate::mcp::server::{McpApprovalMode, McpServerStatus, McpToolName, binding_addressed};
+use crate::mcp::server::{
+    McpApprovalMode, McpServerBindingId, McpServerStatus, McpToolName, binding_addressed,
+};
 use crate::place::PlacedPath;
 use crate::provider::driver::runtime_binding::RuntimeBindingId;
 use crate::schema::{push_all_of, required_member};
@@ -270,6 +272,8 @@ macro_rules! inventory_entry {
         binding_addressed! {
             $(#[$meta])+
             pub enum $name in every scope {
+                /// The binding's id, which places a status notice on this row.
+                server_binding_id: McpServerBindingId,
                 /// The redacted declaration.
                 config: McpServerConfigView,
                 /// The status folded over the legs.

@@ -5,7 +5,9 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock};
 
-use sidekicks_contracts::mcp::server::{McpBindingScope, McpServerBindingRef, McpServerName};
+use sidekicks_contracts::mcp::server::{
+    McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName,
+};
 use sidekicks_contracts::place::WslPlace;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
@@ -113,6 +115,24 @@ impl McpBindingKey {
             scope_place,
             server_name: server_name.clone(),
         }
+    }
+
+    /// The binding's id on the wire: the lowercase hex of a `blake3` hash over the key's parts,
+    /// each after its length so no two keys share one, holding no path and the same in every run.
+    pub(crate) fn server_binding_id(&self) -> McpServerBindingId {
+        let mut hasher = blake3::Hasher::new();
+        for part in [
+            self.provider.as_str(),
+            <&'static str>::from(self.scope),
+            &self.scope_ref,
+            &self.scope_place,
+            self.server_name.as_str(),
+        ] {
+            hasher.update(&(part.len() as u64).to_le_bytes());
+            hasher.update(part.as_bytes());
+        }
+        McpServerBindingId::new(hasher.finalize().to_hex().to_string())
+            .expect("a blake3 hash's hex is 64 lowercase hex digits")
     }
 }
 

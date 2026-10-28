@@ -73,6 +73,14 @@ interface McpServerBindingAuditRef {
   serverName: string;
 }
 
+// The binding's id on the wire: opaque and path-free, the lowercase hex of a blake3 hash over the
+// binding's whole key (provider, scope, scopeRef, the root's distribution, serverName), so it is the
+// same on the binding's mcp.server.list entry and on every status notice about it, and across the
+// daemon's runs. The audit ref names a binding to a person; this id places a status notice on its
+// row, where two bindings share an audit ref (two project roots with a `github` server, or one root
+// in two WSL 2 distributions). A page never re-reads the list to place a notice.
+type McpServerBindingId = string; // 64 lowercase hex digits
+
 // Effective-binding derivation output (Plan-022 T22.4.5). NOT a carrier threaded in from another plan — Plan-022 derives this
 // in-plan from the session sets it builds (T22.3.3, T22.3.8). `null` is a first-class answer meaning the tool
 // resolved from NO governed binding: a provider built-in, or a tool served by the daemon's own
@@ -188,6 +196,7 @@ interface McpServerLegStatus {
 // daemon's enabled overlay live in the unreachable store).
 // All mutations fail closed while degraded.
 type McpServerInventoryEntry = McpServerBindingRef & {
+  serverBindingId: McpServerBindingId; // the id every status notice about this binding carries
   config: McpServerConfigView; // the redacted normalized declaration (see above)
   status: McpServerStatus; // deterministic aggregate over legs[]: most severe current live-leg status (failed > needsAuth > unknown > starting > connected — a live leg whose observation source is lost reports "unknown": lost observability outranks known-healthy states, never a concrete failure), else newest machine-probe observation, else "unknown" — never fabricated
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
@@ -394,11 +403,13 @@ interface McpRegistryServer {
 
 // ---- The status notice and the event payload mirror (Spec-005 §MCP Governance) ----
 // Each embeds the PATH-FREE binding identity via intersection with McpServerBindingAuditRef
-// (provider, scope, serverName) — never the raw scopeRef (see the audit-ref comment above). A
+// (provider, scope, serverName) — never the raw scopeRef (see the audit-ref comment above); the
+// status notice also carries the binding's path-free serverBindingId, which places it on its row. A
 // status change is a live notice on mcp.subscribe and is written to no log; a settled sign-in is a
 // durable row, and Spec-024 forbids filesystem paths in both.
 type McpServerStatusChangedNotice = McpServerBindingAuditRef & {
   type: "mcp.server.status.changed";
+  serverBindingId: McpServerBindingId; // places the notice on its mcp.server.list row
   // "sessionFeed": the leg's own status before and now, so a page updates that leg's line; "sessionEnded": the aggregate before the leg left and over the legs that remain; "machineProbe": the probe's own reading before and now
   previousStatus: McpServerStatus;
   status: McpServerStatus;

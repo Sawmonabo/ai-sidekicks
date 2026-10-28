@@ -182,6 +182,7 @@ impl McpServerStatusTracker {
         let provider = binding_key.provider.clone();
         let server_name = binding_key.server_name.clone();
         let scope = binding_key.scope;
+        let server_binding_id = binding_key.server_binding_id();
         let failure_reason = failure_text
             .filter(|_| status == McpServerStatus::Failed)
             .map(|text| sanitize_failure_reason(&text, ERROR_MESSAGE_MAX_LEN));
@@ -193,6 +194,7 @@ impl McpServerStatusTracker {
                     provider,
                     scope,
                     server_name,
+                    server_binding_id,
                     previous_status,
                     status,
                     failure_reason,
@@ -210,6 +212,7 @@ impl McpServerStatusTracker {
                     provider,
                     scope,
                     server_name,
+                    server_binding_id,
                     previous_status,
                     status,
                     failure_reason,
@@ -227,6 +230,7 @@ impl McpServerStatusTracker {
                     provider,
                     scope,
                     server_name,
+                    server_binding_id,
                     previous_status,
                     status,
                     failure_reason,
@@ -292,13 +296,13 @@ mod tests {
     use futures::FutureExt as _;
     use rstest::rstest;
     use sidekicks_contracts::mcp::server::McpBindingScope::{self, Managed, User};
-    use sidekicks_contracts::mcp::server::McpServerName;
     use sidekicks_contracts::mcp::server::McpServerStatus::{
         Connected, Failed, NeedsAuth, Starting, Unknown,
     };
+    use sidekicks_contracts::mcp::server::{McpServerBindingId, McpServerName};
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_ipc::stream::feed::{CreditGate, Feed as _};
+    use sidekicks_ipc::stream::feed::{CreditGate, Feed};
     use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
     use sidekicks_provider::driver::mcp_server_status::McpServerReading;
 
@@ -424,6 +428,95 @@ mod tests {
         }
     }
 
+    /// A tracker over a fresh board, with a feed reading the board's notices and the feed its
+    /// first observations go to, which is kept open so the tracker can hand bindings to it.
+    async fn tracker_and_subscriber() -> (
+        Arc<McpServerStatusTracker>,
+        impl Feed<Emission = McpSubscribeEmission>,
+        impl Feed<Emission = McpServerBindingRef>,
+    ) {
+        let board = Arc::new(McpNoticeBoard::default());
+        let subscriber_board = Arc::clone(&board);
+        let subscriber = KeyedLatestValueFeed::open(move |outlet| {
+            let id = subscriber_board.attach(outlet);
+            std::future::ready(Ok(move || subscriber_board.detach(id)))
+        })
+        .await
+        .expect("the board's follow succeeds");
+        let mut first_observations = None;
+        let first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
+            first_observations = Some(outlet);
+            std::future::ready(Ok(|| {}))
+        })
+        .await
+        .expect("the follow succeeds");
+        let tracker = Arc::new(McpServerStatusTracker::new(
+            board,
+            first_observations.expect("the follow kept the outlet"),
+        ));
+        (tracker, subscriber, first_observation_feed)
+    }
+
+    /// The status notices waiting on `subscriber`, in the order it reads them.
+    fn waiting_notices(
+        subscriber: &mut impl Feed<Emission = McpSubscribeEmission>,
+    ) -> Vec<McpServerStatusChangedNotice> {
+        let gate = CreditGate::with_credit(1);
+        let mut notices = Vec::new();
+        while let Some(read) = subscriber.next(&gate).now_or_never() {
+            let Some(emission) = read.expect("the board never fails") else {
+                break;
+            };
+            let notice = match emission {
+                McpSubscribeEmission::StatusChanged(notice) => Some(notice),
+                McpSubscribeEmission::ConfigChanged(_)
+                | McpSubscribeEmission::GovernanceEvent(_) => None,
+            }
+            .expect("the tracker sends only status notices");
+            notices.push(notice);
+        }
+        notices
+    }
+
+    /// Two project bindings sharing a provider, scope and name in two roots: each notice carries
+    /// its own binding's id, so a page places it on that binding's row. Killed by the id hashed
+    /// from the provider, scope and name alone.
+    #[tokio::test]
+    async fn a_notice_carries_the_id_of_its_own_binding() {
+        let (tracker, mut subscriber, _first_observation_feed) = tracker_and_subscriber().await;
+        let bindings = ["/work/one", "/work/two"].map(|root| {
+            serde_json::from_value::<McpServerBindingRef>(serde_json::json!({
+                "provider": "provider-a",
+                "scope": "project",
+                "scopeRef": root,
+                "serverName": "github",
+            }))
+            .expect("the test writes a binding ref")
+        });
+
+        tracker.record_probe(&bindings[0], Failed, None);
+        tracker.record_probe(&bindings[1], Connected, None);
+
+        let ids: Vec<McpServerBindingId> = waiting_notices(&mut subscriber)
+            .into_iter()
+            .map(|notice| match notice {
+                McpServerStatusChangedNotice::MachineProbe {
+                    server_binding_id, ..
+                } => server_binding_id,
+                McpServerStatusChangedNotice::SessionFeed { .. }
+                | McpServerStatusChangedNotice::SessionEnded { .. } => {
+                    panic!("the probe sends only probe notices")
+                }
+            })
+            .collect();
+        let expected: Vec<McpServerBindingId> = bindings
+            .iter()
+            .map(|binding| McpBindingKey::of(binding).server_binding_id())
+            .collect();
+        assert_eq!(ids, expected);
+        assert_ne!(ids[0], ids[1]);
+    }
+
     // Each case's comment names the mistake it catches. A `sessionFeed` notice carries its leg's
     // own statuses; a `sessionEnded` one the binding's aggregate before and after the leg left.
     #[rstest]
@@ -540,26 +633,7 @@ mod tests {
             provider,
             server_name: server_name.clone(),
         };
-        let board = Arc::new(McpNoticeBoard::default());
-        let subscriber_board = Arc::clone(&board);
-        let mut subscriber = KeyedLatestValueFeed::open(move |outlet| {
-            let id = subscriber_board.attach(outlet);
-            std::future::ready(Ok(move || subscriber_board.detach(id)))
-        })
-        .await
-        .expect("the board's follow succeeds");
-        let mut first_observations = None;
-        let _first_observation_feed = KeyedLatestValueFeed::open(|outlet| {
-            first_observations = Some(outlet);
-            std::future::ready(Ok(|| {}))
-        })
-        .await
-        .expect("the follow succeeds");
-        let tracker = Arc::new(McpServerStatusTracker::new(
-            Arc::clone(&board),
-            first_observations.expect("the follow kept the outlet"),
-        ));
-        let gate = CreditGate::with_credit(1);
+        let (tracker, mut subscriber, _first_observation_feed) = tracker_and_subscriber().await;
 
         let mut sessions: HashMap<&str, SessionId> = HashMap::new();
         let mut sinks: HashMap<&str, Vec<McpLegStatusSink>> = HashMap::new();
@@ -613,18 +687,11 @@ mod tests {
             }
             // Read after each step, so each notice is seen before a later one under its key
             // replaces it.
-            while let Some(read) = subscriber.next(&gate).now_or_never() {
-                let Some(emission) = read.expect("the board never fails") else {
-                    break;
-                };
-                let notice = match emission {
-                    McpSubscribeEmission::StatusChanged(notice) => Some(notice),
-                    McpSubscribeEmission::ConfigChanged(_)
-                    | McpSubscribeEmission::GovernanceEvent(_) => None,
-                }
-                .expect("the tracker sends only status notices");
-                notices.push(read_notice(notice));
-            }
+            notices.extend(
+                waiting_notices(&mut subscriber)
+                    .into_iter()
+                    .map(read_notice),
+            );
         }
 
         assert_eq!(notices, expected_notices);

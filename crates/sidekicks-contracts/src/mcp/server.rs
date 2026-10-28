@@ -20,7 +20,7 @@ use crate::provider::driver::length_limits::{
 };
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::literal;
-use crate::wire::text::FreeFormText;
+use crate::wire::text::{FreeFormText, pattern_text};
 
 pub mod config;
 pub mod inventory;
@@ -69,6 +69,13 @@ pub type McpServerName = FreeFormText<PROVIDER_MCP_SERVER_NAME_MAX_LEN>;
 
 /// A tool's name as an override and a reading carry it.
 pub type McpToolName = FreeFormText<PROVIDER_TOOL_NAME_MAX_LEN>;
+
+pattern_text! {
+    /// The id of a server binding, the same on its `mcp.server.list` entry and on every status
+    /// notice about it and across the daemon's runs: a page places a notice on its row by it. It
+    /// holds no path, and is opaque to every client.
+    pub struct McpServerBindingId("^[0-9a-f]{64}$") branded;
+}
 
 /// When and where a mutation took effect: in the live sessions now, in the provider's config store
 /// for later runs, in the next run's composed config, or at the daemon's decision layer at once.
@@ -333,6 +340,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<McpApplicationGrade>(),
         Definition::read::<McpApprovalMode>(),
         Definition::read::<McpBindingScope>(),
+        Definition::read::<McpServerBindingId>().checked(),
         Definition::read::<McpWritableBindingRef>(),
         Definition::read::<McpServerBindingRef>().checked(),
         Definition::read::<McpServerConfigChangedNotice>().checked(),

@@ -1,6 +1,7 @@
 //! The `mcp.*` method table, the status notice and the sign-in event payload. A notice or a payload
-//! names a binding by its provider, scope and server name, never its folder, which is a path on
-//! this machine.
+//! names a binding to a person by its provider, scope and server name, never its folder, which is
+//! a path on this machine; a status notice also carries the binding's path-free id, which places
+//! it on its `mcp.server.list` row.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,7 +15,9 @@ use crate::mcp::server::requests::{
     McpServerSignInResponse, McpServerSignOutRequest, McpServerUpsertRequest,
     McpToolOverrideClearRequest, McpToolOverrideMutationResponse, McpToolOverrideUpdateRequest,
 };
-use crate::mcp::server::{McpBindingScope, McpServerBindingRef, McpServerName, McpServerStatus};
+use crate::mcp::server::{
+    McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName, McpServerStatus,
+};
 use crate::method::methods;
 use crate::method_descriptor::EmptyPayload;
 use crate::provider::driver::runtime_binding::RuntimeBindingId;
@@ -56,6 +59,9 @@ macro_rules! status_notice {
                 scope: McpBindingScope,
                 /// The server's name.
                 server_name: McpServerName,
+                /// The binding's id, the same as on its `mcp.server.list` entry, which places the
+                /// notice on that row where two bindings share a provider, scope and name.
+                server_binding_id: McpServerBindingId,
                 /// The status before.
                 previous_status: McpServerStatus,
                 /// The status now.
@@ -76,11 +82,11 @@ macro_rules! status_notice {
 
 status_notice! {
     /// `mcp.server.status.changed`, the live notice of a status change on `mcp.subscribe`,
-    /// written to no log, tagged on `origin`: a `sessionFeed` notice names the session and the live
-    /// leg whose own status changed, its two statuses that leg's, so a page updates that leg's
-    /// line; a `sessionEnded` notice names the session whose leg left, its `status` the aggregate
-    /// over the legs that remain; a `machineProbe` notice carries the probe's own readings and
-    /// names neither.
+    /// written to no log, tagged on `origin`, placed on its row by `serverBindingId`: a
+    /// `sessionFeed` notice names the session and the live leg whose own status changed, its two
+    /// statuses that leg's, so a page updates that leg's line; a `sessionEnded` notice names the
+    /// session whose leg left, its `status` the aggregate over the legs that remain; a
+    /// `machineProbe` notice carries the probe's own readings and names neither.
     pub enum McpServerStatusChangedNotice {
         /// A session's live leg's own status changed.
         SessionFeed {

@@ -84,6 +84,7 @@ async fn the_stream_reads_what_is_sent_after_the_acknowledgment_and_nothing_stor
         "provider": "provider-a",
         "scope": "user",
         "serverName": "github",
+        "serverBindingId": "0".repeat(64),
         "previousStatus": "unknown",
         "status": "connected",
     }))

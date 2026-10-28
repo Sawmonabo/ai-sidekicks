@@ -18,6 +18,7 @@ ignored = [
 doctest = false
 
 [dependencies]
+blake3.workspace = true
 bytes.workspace = true
 futures.workspace = true
 jwt-simple.workspace = true
