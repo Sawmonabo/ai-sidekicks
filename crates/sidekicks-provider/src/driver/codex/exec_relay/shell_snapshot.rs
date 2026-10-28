@@ -1,7 +1,8 @@
 //! A conversation's shell snapshot, as Codex's local path takes it and the executor's path does
 //! not: the person's login shell started once per conversation, shell and folder, its functions,
-//! options, aliases and the exports Codex's default environment policy admits written to a file
-//! every relayed command of that shell sources first.
+//! options and aliases written to a file every relayed command of that shell sources first. Like
+//! Codex's own under the conversation's policy, which inherits nothing, it keeps no export, so a
+//! command's environment is the conversation's alone.
 
 mod capture_scripts;
 pub(super) mod wrap;
@@ -21,7 +22,6 @@ use tokio::io::{AsyncRead, AsyncReadExt as _};
 use tokio::sync::OnceCell;
 
 use self::capture_scripts::capture_script;
-use self::wrap::is_non_inheritable;
 
 /// The folder under the daemon's data folder that holds every relay's snapshots.
 const SNAPSHOTS_FOLDER: &str = "codex-shell-snapshots";
@@ -38,14 +38,8 @@ const ERROR_TAIL_MAX_BYTES: u64 = 4 << 10;
 /// The variable naming a command's call, which a capture never carries.
 const TOOL_CALL_ID_VARIABLE: &str = "CODEX_TOOL_CALL_ID";
 
-/// The exports each command's start supplies itself, which a snapshot never keeps.
-const START_SUPPLIED_EXPORTS: [&str; 2] = ["CODEX_THREAD_ID", TOOL_CALL_ID_VARIABLE];
-
 /// The line that opens a capture's state.
 const SNAPSHOT_MARKER: &[u8] = b"# Snapshot file";
-
-/// The line ahead of the exports a snapshot keeps.
-const EXPORTS_HEADING: &str = "# exports (native declarations)\n";
 
 /// A shell whose state a snapshot captures.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -188,7 +182,7 @@ impl ShellSnapshots {
                 working_folder,
             )
             .await?;
-        let snapshot = render_snapshot(snapshot_shell, &captured).ok_or_else(|| {
+        let snapshot = render_snapshot(&captured).ok_or_else(|| {
             io::Error::new(ErrorKind::InvalidData, "the shell's capture is no snapshot")
         })?;
         self.sweep
@@ -327,10 +321,9 @@ async fn read_bounded(stream: impl AsyncRead + Unpin, limit: u64) -> io::Result<
     Ok(read)
 }
 
-/// The snapshot a `shell` capture's output holds: its state from the marker, its aliases, then the
-/// exports heading and every export Codex's default environment policy admits, those each start
-/// supplies itself left out; `None` for output that is no whole capture.
-pub(super) fn render_snapshot(shell: SnapshotShell, captured: &[u8]) -> Option<String> {
+/// The snapshot a capture's output holds: its state from the marker, then its aliases; `None` for
+/// output that is no whole capture.
+fn render_snapshot(captured: &[u8]) -> Option<String> {
     let mut records = captured.split(|byte| *byte == 0);
     let state = records.next()?;
     let start = state
@@ -338,51 +331,7 @@ pub(super) fn render_snapshot(shell: SnapshotShell, captured: &[u8]) -> Option<S
         .position(|window| window == SNAPSHOT_MARKER)?;
     let state = std::str::from_utf8(&state[start..]).ok()?;
     let aliases = std::str::from_utf8(records.next()?).ok()?;
-    let mut exports = String::new();
-    let mut keep = |name: &str, declaration: &str| {
-        if !START_SUPPLIED_EXPORTS.contains(&name) && !is_non_inheritable(name) {
-            exports.push_str(declaration);
-        }
-    };
-    loop {
-        let name = records.next()?;
-        if name.is_empty() {
-            break;
-        }
-        let name = std::str::from_utf8(name).ok()?;
-        let declaration = String::from_utf8_lossy(records.next()?);
-        keep(name, &declaration);
-    }
-    if shell == SnapshotShell::Sh {
-        loop {
-            let entry = records.next()?;
-            if entry.is_empty() {
-                break;
-            }
-            let Some(equals) = entry.iter().position(|byte| *byte == b'=') else {
-                continue;
-            };
-            let Ok(name) = std::str::from_utf8(&entry[..equals]) else {
-                continue;
-            };
-            if !is_exportable_name(name) {
-                continue;
-            }
-            let value = String::from_utf8_lossy(&entry[equals + 1..]);
-            let declaration = format!("export {name}={}\n", shlex::try_quote(&value).ok()?);
-            keep(name, &declaration);
-        }
-    }
-    Some(format!("{state}{aliases}{EXPORTS_HEADING}{exports}"))
-}
-
-// Whether `name` is a variable a snapshot keeps: a shell identifier, and no working folder.
-fn is_exportable_name(name: &str) -> bool {
-    !name.is_empty()
-        && !matches!(name, "PWD" | "OLDPWD")
-        && name.bytes().enumerate().all(|(index, byte)| {
-            byte == b'_' || byte.is_ascii_alphabetic() || index > 0 && byte.is_ascii_digit()
-        })
+    Some(format!("{state}{aliases}"))
 }
 
 #[cfg(test)]

@@ -1,9 +1,7 @@
 //! The scripts a login shell runs to print its state for a snapshot, as Codex's own capture writes
 //! them for a snapshot replayed by sourcing it whole: the shell's interactive startup file read
-//! first, then its functions and options, a NUL, its aliases and a NUL, then each export as its
-//! name, a NUL, its native declaration and a NUL, closed by one more NUL. The POSIX shell, whose
-//! declarations carry no value, prints only its unset exports there and then its whole environment
-//! as NUL-ended entries, closed by an empty one.
+//! first, then its functions and options, a NUL, its aliases and a NUL. No export is captured: a
+//! conversation's commands inherit nothing, so Codex's own snapshot keeps none.
 
 use crate::driver::codex::exec_relay::shell_snapshot::SnapshotShell;
 
@@ -16,80 +14,6 @@ const COMMAND_HELPER: &str = r#"__codex_snapshot_command() {
     command -p "$@"
   fi
 }"#;
-
-/// The POSIX shell's environment, each entry NUL-ended.
-const ENVIRONMENT_ENTRIES: &str = r#"if command -v env >/dev/null 2>&1; then
-  "env" -0
-else
-  # Resolve the fallback separately: Bash's command -p changes the utility's PATH.
-  "$(PATH="$(command -p getconf PATH)" command -v env)" -0
-fi
-"#;
-
-/// Bash's exports, each by its native declaration.
-const BASH_EXPORTS: &str = r#"(
-  while IFS= read -r __codex_snapshot_export_name; do
-    case "$__codex_snapshot_export_name" in
-      ""|[0-9]*|*[!A-Za-z0-9_]*|PWD|OLDPWD) continue ;;
-    esac
-    RECORD_START
-    declare -xp "$__codex_snapshot_export_name" 2>/dev/null || true
-    RECORD_END
-  done < <(compgen -e)
-)
-"#;
-
-/// Zsh's exports, each by its native declaration, read-only ones left out.
-const ZSH_EXPORTS: &str = r#"(
-  unsetopt rcquotes
-  # Some Zsh builds do not include the zsh/parameter module.
-  for __codex_snapshot_export_name in ${(f)"$(typeset +x)"}; do
-    case "$__codex_snapshot_export_name" in
-      ""|[0-9]*|*[!A-Za-z0-9_]*|PWD|OLDPWD) continue ;;
-    esac
-    case "${(tP)__codex_snapshot_export_name}" in
-      *readonly*) continue ;;
-      *export*) ;;
-      *) continue ;;
-    esac
-    RECORD_START
-    typeset -xp "$__codex_snapshot_export_name"
-    RECORD_END
-  done
-)
-"#;
-
-/// The POSIX shell's exports that hold no value, which its environment entries cannot show.
-const SH_EXPORTS: &str = r#"if export -p >/dev/null 2>&1; then
-export -p | __codex_snapshot_command awk '
-/^(export|declare -x|typeset -x) [A-Za-z_][A-Za-z0-9_]*$/ {
-  name=$0
-  sub(/^(export|declare -x|typeset -x) /, "", name)
-  if (name ~ /^(PWD|OLDPWD)$/) {
-    next
-  }
-  if (!seen[name]++) {
-    print name
-  }
-}' | while IFS= read -r __codex_snapshot_export_name; do
-  # Only the validated identifier enters eval. Set values come from the bulk environment.
-  if eval '[ "${'"$__codex_snapshot_export_name"'+x}" = x ]'; then
-    continue
-  fi
-  # Only preserve an unset export if the native shell confirms it already exists.
-  if (
-    set +a
-    set -- "$__codex_snapshot_export_name" "$(export -p)"
-    export "$1"
-    [ "$2" = "$(export -p)" ]
-  ); then
-    RECORD_START
-    printf 'export %s\n' "$__codex_snapshot_export_name"
-    RECORD_END
-  fi
-done
-fi
-"#;
 
 /// Zsh's interactive startup file, read before the capture.
 const ZSH_STARTUP: &str = r#"if [[ -n "${ZDOTDIR-}" ]]; then
@@ -213,8 +137,6 @@ print "# aliases $alias_count"
 \alias -L
 print ''
 printf '\0'
-EXPORTS
-printf '\0'
 "##;
 
 const BASH_STATE: &str = r##"echo '# Snapshot file'
@@ -237,8 +159,6 @@ alias_count=$(\alias -p | __codex_snapshot_command wc -l | __codex_snapshot_comm
 echo "# aliases $alias_count"
 \alias -p
 echo ''
-printf '\0'
-EXPORTS
 printf '\0'
 "##;
 
@@ -278,28 +198,17 @@ else
   echo '# aliases 0'
 fi
 printf '\0'
-EXPORTS
-printf '\0'
-ENVIRONMENT_ENTRIES
-printf '\0'
 "##;
 
-/// The script `shell` runs, as a login shell, to print its state, aliases and exports.
+/// The script `shell` runs, as a login shell, to print its state and aliases.
 pub(super) fn capture_script(shell: SnapshotShell) -> String {
-    let (startup, state, exports) = match shell {
-        SnapshotShell::Zsh => (ZSH_STARTUP, ZSH_STATE, ZSH_EXPORTS),
-        SnapshotShell::Bash => (BASH_STARTUP, BASH_STATE, BASH_EXPORTS),
-        SnapshotShell::Sh => (SH_STARTUP, SH_STATE, SH_EXPORTS),
+    let (startup, state) = match shell {
+        SnapshotShell::Zsh => (ZSH_STARTUP, ZSH_STATE),
+        SnapshotShell::Bash => (BASH_STARTUP, BASH_STATE),
+        SnapshotShell::Sh => (SH_STARTUP, SH_STATE),
     };
-    let exports = exports
-        .replace(
-            "RECORD_START",
-            "printf '%s\\0' \"$__codex_snapshot_export_name\"",
-        )
-        .replace("RECORD_END", "printf '\\0'");
-    let state = state
-        .replace("COMMAND_HELPER", COMMAND_HELPER)
-        .replace("ENVIRONMENT_ENTRIES", ENVIRONMENT_ENTRIES)
-        .replace("EXPORTS", &exports);
-    format!("{startup}{state}")
+    format!(
+        "{startup}{}",
+        state.replace("COMMAND_HELPER", COMMAND_HELPER)
+    )
 }

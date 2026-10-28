@@ -13,19 +13,19 @@ fn words(argv: &[&str]) -> Vec<String> {
     argv.iter().map(|word| (*word).to_owned()).collect()
 }
 
-// A relayed `-lc` start runs Codex's local snapshot form on the capture's own output: the
-// profile's exports reach the command through the snapshot, a variable Codex never lets a command
-// inherit and the start's own runtime variable do not come from it, and the command's shell runs
-// its line with the start's words.
+// A relayed `-lc` start runs Codex's local snapshot form on the capture's own output, under the
+// conversation's policy, which inherits nothing: no profile export reaches the command, a key the
+// conversation sets keeps the conversation's value, and the command's shell runs its line with the
+// start's words. Killed by a snapshot that keeps the profile's exports.
 #[tokio::test]
-async fn runs_a_login_start_with_the_profiles_exports_from_its_capture() {
+async fn runs_a_login_start_with_the_conversations_environment_alone() {
     let folder = tempfile::tempdir().expect("a test folder");
     let home = folder.path().join("home");
     std::fs::create_dir(&home).expect("the home is made");
     std::fs::write(
         home.join(".bashrc"),
-        "export SNAPSHOT_EXPORTED=from-profile\nexport NODE_REPL_AUTH_TOKEN=from-profile\n\
-         export CODEX_THREAD_ID=stale\n",
+        "export SNAPSHOT_EXPORTED=from-profile\nexport CONVERSATION_SET=from-profile\n\
+         greet() { echo hello; }\n",
     )
     .expect("the rc is written");
     let spawner = Spawner::new(Handle::current()).expect("a spawner");
@@ -40,8 +40,8 @@ async fn runs_a_login_start_with_the_profiles_exports_from_its_capture() {
         .expect("the snapshot is taken");
     let mut environment = Map::new();
     environment.insert("CODEX_THREAD_ID".to_owned(), json!("thread-1"));
-    let line =
-        r#"echo "${SNAPSHOT_EXPORTED-unset}:${NODE_REPL_AUTH_TOKEN-unset}:$CODEX_THREAD_ID:$0:$1""#;
+    environment.insert("CONVERSATION_SET".to_owned(), json!("from-conversation"));
+    let line = r#"echo "${SNAPSHOT_EXPORTED-unset}:$CONVERSATION_SET:$(greet):$0:$1""#;
     let argv = words(&["/bin/bash", "-lc", line, "first", "second"]);
 
     let wrapped = wrap_with_snapshot(&argv, &snapshot, &environment).expect("a login start");
@@ -51,13 +51,14 @@ async fn runs_a_login_start_with_the_profiles_exports_from_its_capture() {
         .args(&wrapped[1..])
         .env_clear()
         .env("CODEX_THREAD_ID", "thread-1")
+        .env("CONVERSATION_SET", "from-conversation")
         .env("PATH", "/usr/bin:/bin")
         .output()
         .expect("the wrapped start runs");
     assert!(output.status.success(), "{output:?}");
     assert_eq!(
         String::from_utf8_lossy(&output.stdout),
-        "from-profile:unset:thread-1:first:second\n"
+        "unset:from-conversation:hello:first:second\n"
     );
 }
 

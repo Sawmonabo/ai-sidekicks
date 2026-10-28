@@ -124,7 +124,7 @@ elif [ -n \"$__CODEX_SNAPSHOT_PROXY_GIT_SSH_COMMAND_AFTER_MARKED\" ]; then
 fi";
 
 /// Whether a command's shell never inherits `name`, matched without case.
-pub(in crate::driver::codex::exec_relay) fn is_non_inheritable(name: &str) -> bool {
+fn is_non_inheritable(name: &str) -> bool {
     NON_INHERITABLE
         .iter()
         .any(|denied| denied.eq_ignore_ascii_case(name))
