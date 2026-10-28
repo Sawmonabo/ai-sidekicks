@@ -24,13 +24,6 @@ use crate::table::end::{close_terminal, let_shell_go};
 use crate::table::output::drain_output;
 use crate::table::{ShellTable, TableShared, log_failure};
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the shell table and the terminal methods call it"
-    )
-)]
 impl ShellTable {
     /// Starts a shell for the session, or answers the shell a retry with the same key already
     /// started, waiting for an open of that key under way. Refuses a chat session
@@ -40,7 +33,7 @@ impl ShellTable {
     /// the system will not start gives way to the platform's default shell inside the `shell`
     /// mode, and a shell whose terminal fails to start keeps its record as `didNotStart` with the
     /// daemon's words for why. Fails as a fault when the start cannot be prepared.
-    pub(crate) async fn open(
+    pub async fn open(
         &self,
         request: TerminalOpenRequest,
     ) -> Result<TerminalOpenResponse, HandlerError> {

@@ -34,26 +34,22 @@ impl Drop for SessionShellsClosed {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the shell table and the terminal methods call it"
-    )
-)]
 impl ShellTable {
     /// Ends a shell and removes it, ending its subscriptions and releasing the holds they
-    /// carried; refused while a run holds it, and while another device holds it unless `force`.
-    /// Of two closes of one shell, the second is refused `terminal.notFound`. Answers once the
-    /// terminal has let the shell go, and fails as a fault when its program outlives its kill.
-    pub(crate) async fn close(
+    /// carried; refused `terminal.control.heldByOther` while a run holds it, even with `force`,
+    /// and while another device holds it unless `force`. Refuses a session this daemon does not
+    /// hold `session.notFound` and a shell the session does not have `terminal.notFound`, so of
+    /// two closes of one shell the second is refused. Answers once the terminal has let the
+    /// shell go, and fails as a fault when its program outlives its kill.
+    pub async fn close(
         &self,
         request: &TerminalCloseRequest,
         device_id: &DeviceId,
     ) -> Result<(), HandlerError> {
         let shell = self
             .shared
-            .find_shell(&request.session_id, &request.terminal_id)?;
+            .requested_shell(&request.session_id, &request.terminal_id)
+            .await?;
         let ending = shell
             .lease
             .admit_close(device_id, request.force == Some(true), || {

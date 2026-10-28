@@ -12,7 +12,7 @@ pub(crate) mod integration;
 pub(crate) mod list;
 pub mod mode;
 pub mod orphan;
-pub(crate) mod output;
+pub mod output;
 pub mod paste;
 pub(crate) mod record;
 pub mod refusals;
