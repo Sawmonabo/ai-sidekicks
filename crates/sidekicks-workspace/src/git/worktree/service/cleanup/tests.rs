@@ -25,8 +25,8 @@ use crate::git::process::{
 };
 use crate::git::worktree::event_emitter::WorktreeEventEmitter;
 use crate::git::worktree::occupancy::MountOccupancyReader;
-use crate::git::worktree::removal::FolderProcessOwner;
 use crate::git::worktree::removal::test_owner::{FolderSighting, RecordingOwner};
+use crate::git::worktree::removal::{FolderProcessHold, FolderProcessOwner};
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::schema::schema_parts;
 use crate::git::worktree::service::{WorktreeService, WorktreeServiceDeps};
@@ -48,8 +48,10 @@ impl RetiredWorktreeKeeper for RecordingKeeper {
     fn keep_retired_aside<'a>(
         &'a self,
         row: &'a WorktreeRow,
+        process_holds: Vec<FolderProcessHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
+            let _process_holds = process_holds;
             self.kept.lock().expect("the keeper's list").push(row.id);
             self.owner_at_keep
                 .lock()

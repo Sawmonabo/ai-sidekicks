@@ -38,7 +38,7 @@ use crate::git::worktree::naming::is_named_worktree_folder;
 use crate::git::worktree::occupancy::OccupancyReadError;
 use crate::git::worktree::reads::{LinkedTreeRecordError, read_linked_tree_record};
 use crate::git::worktree::removal::{
-    FolderProcessOwner, FolderProcessesEndError, end_processes_in_folder,
+    FolderProcessHold, FolderProcessOwner, FolderProcessesEndError, end_processes_in_folder,
 };
 use crate::git::worktree::risks::{
     RemovalRiskReadError, has_something_to_lose, read_removal_risk_reading,
@@ -118,10 +118,13 @@ const MARK_CLEANUP_STARTED_SQL: &str = "UPDATE worktrees
 /// Keeps a retired tree whose folder holds what the person could lose, for them to decide on.
 pub trait RetiredWorktreeKeeper: Send + Sync {
     /// Moves the retired tree aside whole as a kept copy the removed list shows, its row stamped
-    /// cleaned in the write that lists the copy. Fails with the move's or the write's failure.
+    /// cleaned in the write that lists the copy, keeping `process_holds`, the holds of the owners
+    /// whose processes in the folder were ended, until the move lands, even after its caller stops
+    /// waiting. Fails with the move's or the write's failure.
     fn keep_retired_aside<'a>(
         &'a self,
         row: &'a WorktreeRow,
+        process_holds: Vec<FolderProcessHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
@@ -312,10 +315,9 @@ impl WorktreeService {
         if !retired.is_cleanup_started || record_folder.is_some() {
             if is_folder_present && self.holds_something_new(retired).await? {
                 if retired.is_mount_attached {
-                    // Held until the tree is kept aside.
-                    let _process_holds = end_processes_in_folder(owners, folder).await?;
+                    let process_holds = end_processes_in_folder(owners, folder).await?;
                     keeper
-                        .keep_retired_aside(row)
+                        .keep_retired_aside(row, process_holds)
                         .await
                         .map_err(WorktreeCleanupError::KeepAside)?;
                 } else {

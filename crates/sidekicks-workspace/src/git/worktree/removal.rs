@@ -8,12 +8,15 @@
 //! finds holding something new is kept aside the same way.
 //!
 //! Every path that moves or deletes a tree's folder first ends the processes the daemon started
-//! in it, the owners of those processes all together. A discard's move and its record run on the
-//! kept copy's lock in a task of their own, so a caller that stops waiting never leaves half of
-//! one done; the lock is the one the removed list's put-back and deletion take. A tree's sessions
-//! are swept once the lock is let go, since the sweep takes the workspace locks, which come before
-//! it. The discards a crash cut short are put right first, by the repair. One tree's removals and
-//! keepings aside take turns, so the second of two pressed together finds the tree retired.
+//! in it, the owners of those processes all together. One tree's removals and keepings aside take
+//! turns, each run in a task of its own that holds the tree's turn and the owners' holds until it
+//! ends, so a caller that stops waiting never leaves half of one done, lets no second removal in
+//! and lets no process start in the folder before its move lands; the second of two pressed
+//! together finds the tree retired. A discard's move and its record run on the kept copy's lock,
+//! the one the removed list's put-back and deletion take. A tree's sessions are swept once that
+//! lock is let go, since the sweep takes the workspace locks, which come before it, and while the
+//! folder's opens are still held. The discards a crash cut short are put right first, by the
+//! repair.
 
 mod repair;
 
@@ -145,8 +148,9 @@ pub struct WorktreeSweep {
 /// Moves every session out of a removed tree.
 pub trait WorktreeSessionSweep: Send + Sync {
     /// Moves every session standing in the swept folder to the repository's own checkout, clears
-    /// every pending move to it, and records one `session.swept_to_repo_root` per session. Fails
-    /// with the move's failure; a later sweep of the same tree finishes it.
+    /// every pending move to it, and records one `session.swept_to_repo_root` per session. It runs
+    /// while the folder's opens are held, so it never waits on an open in the folder. Fails with
+    /// the move's failure; a later sweep of the same tree finishes it.
     fn sweep_to_repo_root<'a>(
         &'a self,
         sweep: &'a WorktreeSweep,
@@ -209,11 +213,11 @@ pub enum WorktreeRemovalError {
     /// A read, a write, a git call or a file step failed.
     #[error(transparent)]
     Failed(Box<dyn Error + Send + Sync>),
-    /// The task that ran the discard under the kept copy's lock ended before it finished.
-    #[error("the discard ended before it finished")]
+    /// The task that ran the removal or the keeping aside ended before it finished.
+    #[error("the removal ended before it finished")]
     Interrupted(#[source] JoinError),
-    /// The discard under the kept copy's lock ended without an answer.
-    #[error("the discard ended without an answer")]
+    /// The removal or the keeping aside ended without an answer.
+    #[error("the removal ended without an answer")]
     Unanswered,
 }
 
@@ -290,11 +294,11 @@ pub struct WorktreeRemoval {
     shared: Arc<RemovalShared>,
 }
 
-// What the removal and the work it runs under the kept copy's lock share.
+// What the removal and the work it runs in its own task share.
 struct RemovalShared {
     deps: WorktreeRemovalDeps,
-    // Held per tree across a removal or a keeping aside, from its first read to its answer.
-    retirements: KeyedLock<WorktreeId>,
+    // Held per tree by the task of a removal or a keeping aside, from its first read to its end.
+    retirements: Arc<KeyedLock<WorktreeId>>,
 }
 
 // git's record of a moved tree that could not be removed, kept to report once the tree's sessions
@@ -307,7 +311,7 @@ impl WorktreeRemoval {
         Self {
             shared: Arc::new(RemovalShared {
                 deps,
-                retirements: KeyedLock::new(),
+                retirements: Arc::new(KeyedLock::new()),
             }),
         }
     }
@@ -319,25 +323,72 @@ impl WorktreeRemoval {
     /// nothing. A discard whose copy across volumes could not remove the original refuses
     /// `worktree.retireIncomplete`, its copy listed and the tree left live. A tree already retired
     /// has its sessions swept again, so the second of two removals of one tree, which take turns,
-    /// answers it retired.
+    /// answers it retired. Runs whole in a task of its own once the tree's turn comes, even after
+    /// its caller stops waiting.
     pub async fn retire(
         &self,
         request: &WorktreeRetireRequest,
     ) -> Result<WorktreeRetireResponse, WorktreeRemovalError> {
-        let shared = &self.shared;
-        let _retiring = shared.retirements.acquire(request.worktree_id).await;
-        let worktrees = &shared.deps.worktrees;
+        let shared = Arc::clone(&self.shared);
+        let held_request = request.clone();
+        let landed = self
+            .shared
+            .retirements
+            .run_held(
+                request.worktree_id,
+                async move { shared.retire(&held_request).await },
+                log_landed_late("removing the worktree", request.worktree_id),
+            )
+            .await;
+        held_answer(landed)
+    }
+}
+
+impl RetiredWorktreeKeeper for WorktreeRemoval {
+    // Runs whole in a task of its own once the tree's turn comes, which holds `process_holds`
+    // until it ends, even after its caller stops waiting.
+    fn keep_retired_aside<'a>(
+        &'a self,
+        row: &'a WorktreeRow,
+        process_holds: Vec<FolderProcessHold>,
+    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
+        let shared = Arc::clone(&self.shared);
+        let held_row = row.clone();
+        Box::pin(async move {
+            let landed = self
+                .shared
+                .retirements
+                .run_held(
+                    row.id,
+                    async move {
+                        let _process_holds = process_holds;
+                        shared.keep_retired_aside(&held_row).await
+                    },
+                    log_landed_late("keeping the retired worktree aside", row.id),
+                )
+                .await;
+            Ok(held_answer(landed)?)
+        })
+    }
+}
+
+impl RemovalShared {
+    // The removal `WorktreeRemoval::retire` describes, run in the tree's turn.
+    async fn retire(
+        self: &Arc<Self>,
+        request: &WorktreeRetireRequest,
+    ) -> Result<WorktreeRetireResponse, WorktreeRemovalError> {
+        let worktrees = &self.deps.worktrees;
         let (row, _) = worktrees
             .require_worktree_at_place(&request.worktree_id)
             .await?;
-        shared.finish_interrupted_discards_in(&row.fs_root).await?;
+        self.finish_interrupted_discards_in(&row.fs_root).await?;
         // Read again: the repair may have retired it.
         let (row, place) = worktrees
             .require_worktree_at_place(&request.worktree_id)
             .await?;
         if row.state == WorktreeState::Retired {
-            shared
-                .sweep(&row)
+            self.sweep(&row)
                 .await
                 .map_err(WorktreeRemovalError::Sweep)?;
             return Ok(retired(row.id, None));
@@ -358,8 +409,8 @@ impl WorktreeRemoval {
         }
         let has_folder = has_folder.map_err(WorktreeRemovalError::Folder)?;
         if !request.discard && has_folder {
-            let occupying = shared.read_occupying(&row, &folder).await?;
-            let risks = read_removal_risks(&shared.deps.git, place.as_ref(), &folder, occupying)
+            let occupying = self.read_occupying(&row, &folder).await?;
+            let risks = read_removal_risks(&self.deps.git, place.as_ref(), &folder, occupying)
                 .await
                 .map_err(|failure| WorktreeRemovalError::Failed(Box::new(failure)))?;
             if has_something_to_lose(&risks) {
@@ -372,43 +423,35 @@ impl WorktreeRemoval {
                 .into());
             }
         }
-        // Held until this answers, past the move or the sweep.
+        // Held until this task ends, past the move or the sweep.
         let _process_holds = if has_folder {
-            end_processes_in_folder(&shared.deps.process_owners, &folder).await?
+            end_processes_in_folder(&self.deps.process_owners, &folder).await?
         } else {
             Vec::new()
         };
         if !request.discard || !has_folder {
-            shared.record_plain_retirement(&row).await?;
-            shared
-                .sweep(&row)
+            self.record_plain_retirement(&row).await?;
+            self.sweep(&row)
                 .await
                 .map_err(WorktreeRemovalError::Sweep)?;
             return Ok(retired(row.id, None));
         }
 
         let mount = worktrees.require_attached_mount(&row.repo_mount_id).await?;
-        stop_file_watch(&shared.deps.git, mount.place.as_ref(), &folder)
+        stop_file_watch(&self.deps.git, mount.place.as_ref(), &folder)
             .await
             .map_err(file_watch_stop_failed)?;
         let removed_worktree_id = new_removed_worktree_id();
-        let held = Arc::clone(shared);
-        let held_row = row.clone();
-        let landed = shared
-            .deps
-            .removed_worktrees
-            .kept_copy_lock()
-            .run_held(
-                removed_worktree_id,
-                async move {
-                    held.discard_held(&held_row, &mount, removed_worktree_id)
-                        .await
-                },
-                log_landed_late("discarding the worktree", removed_worktree_id),
-            )
-            .await;
-        let record_removal = held_answer(landed)?;
-        shared.sweep_after_record(&row, record_removal).await?;
+        let record_removal = {
+            let _kept_copy = self
+                .deps
+                .removed_worktrees
+                .kept_copy_lock()
+                .acquire(removed_worktree_id)
+                .await;
+            self.discard_held(&row, &mount, removed_worktree_id).await?
+        };
+        self.sweep_after_record(&row, record_removal).await?;
         Ok(retired(
             row.id,
             Some(KeptWorktree {
@@ -416,18 +459,7 @@ impl WorktreeRemoval {
             }),
         ))
     }
-}
 
-impl RetiredWorktreeKeeper for WorktreeRemoval {
-    fn keep_retired_aside<'a>(
-        &'a self,
-        row: &'a WorktreeRow,
-    ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
-        Box::pin(async move { Ok(self.shared.keep_retired_aside(row).await?) })
-    }
-}
-
-impl RemovalShared {
     // Keeps a retired tree aside whole, as a discard would, listing it with its row stamped cleaned
     // in one write; the cleanup ended its processes first. A keeping aside of this tree a crash cut
     // short is put right first and its failure answered, so the tree is never kept aside twice. A
@@ -437,7 +469,6 @@ impl RemovalShared {
         self: &Arc<Self>,
         row: &WorktreeRow,
     ) -> Result<(), WorktreeRemovalError> {
-        let _retiring = self.retirements.acquire(row.id).await;
         let worktrees = &self.deps.worktrees;
         let folder = PathBuf::from(row.fs_root.as_str());
         if self.finish_interrupted_discards_in(&row.fs_root).await? {
@@ -455,22 +486,13 @@ impl RemovalShared {
             .await
             .map_err(file_watch_stop_failed)?;
         let removed_worktree_id = new_removed_worktree_id();
-        let held = Arc::clone(self);
-        let held_row = row.clone();
-        let landed = self
+        let _kept_copy = self
             .deps
             .removed_worktrees
             .kept_copy_lock()
-            .run_held(
-                removed_worktree_id,
-                async move {
-                    held.keep_aside_held(&held_row, &mount, removed_worktree_id)
-                        .await
-                },
-                log_landed_late("keeping the retired worktree aside", removed_worktree_id),
-            )
+            .acquire(removed_worktree_id)
             .await;
-        held_answer(landed)
+        self.keep_aside_held(row, &mount, removed_worktree_id).await
     }
 
     // A discard's work under the kept copy's lock: the move, the retirement with the finished

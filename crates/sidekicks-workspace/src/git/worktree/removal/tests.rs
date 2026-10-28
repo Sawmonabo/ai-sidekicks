@@ -38,6 +38,7 @@ use crate::git::worktree::removed_store::kept_folder_for;
 use crate::git::worktree::removed_store::rows::KeptWorktreeRecord;
 use crate::git::worktree::removed_store::test_fixture::KeptCopyFixture;
 use crate::git::worktree::rows::WorktreeRow;
+use crate::git::worktree::service::cleanup::RetiredWorktreeKeeper;
 use crate::git::worktree::test_rows::store_run_inside;
 
 // A session sweep that records each tree it swept.
@@ -433,8 +434,9 @@ async fn the_second_of_two_discards_pressed_together_answers_the_tree_retired() 
     );
 }
 
-// Kills running the move and its record outside the kept copy's lock's own task, where a caller
-// that stops waiting cuts it part way.
+// Kills running the move and its record outside a task of their own, where a caller that stops
+// waiting cuts it part way, and a tree's turn or process holds dropped with that caller, which lets
+// a second removal in and a process start in the folder before the tree moves.
 #[tokio::test]
 async fn a_discard_whose_caller_stops_waiting_mid_move_lands_whole() {
     let fixture = RemovalFixture::new().await;
@@ -454,6 +456,19 @@ async fn a_discard_whose_caller_stops_waiting_mid_move_lands_whole() {
         tokio::task::yield_now().await;
     };
     drop(retiring);
+    assert!(
+        fixture
+            .removal
+            .shared
+            .retirements
+            .try_acquire(tree.id)
+            .is_err(),
+        "the tree's turn is held while the move runs"
+    );
+    assert!(
+        fixture.owner.released().is_empty(),
+        "the folder's processes are held off while the move runs"
+    );
 
     // The key is free only once the held work has ended.
     drop(
@@ -463,6 +478,15 @@ async fn a_discard_whose_caller_stops_waiting_mid_move_lands_whole() {
             .kept_copy_lock()
             .acquire(removed_worktree_id)
             .await,
+    );
+    drop(fixture.removal.shared.retirements.acquire(tree.id).await);
+    assert_eq!(
+        fixture.owner.released(),
+        [FolderSighting {
+            folder: PathBuf::from(tree.fs_root.as_str()),
+            was_present: false,
+        }],
+        "the hold drops only once the tree has moved"
     );
 
     assert_eq!(
@@ -486,6 +510,74 @@ async fn a_discard_whose_caller_stops_waiting_mid_move_lands_whole() {
             .join(".git")
             .exists(),
         "the tree is kept whole"
+    );
+}
+
+// Kills a keeping aside whose tree's turn or process holds drop with a caller that stops waiting
+// mid-move, which lets a second removal of the tree in and a process start in its folder before
+// it moves.
+#[tokio::test]
+async fn a_keeping_aside_whose_caller_stops_waiting_holds_the_tree_s_turn_until_it_moves() {
+    let fixture = RemovalFixture::new().await;
+    let tree = fixture.kept.add_tree("kept", "kept").await;
+    let folder = PathBuf::from(tree.fs_root.as_str());
+    fixture
+        .removal
+        .retire(&retire_request(&tree, false))
+        .await
+        .expect("the plain removal succeeds");
+    let released_before = fixture.owner.released().len();
+    let process_holds = vec![
+        fixture
+            .owner
+            .end_processes_in_folder(&folder)
+            .await
+            .expect("the owner ends its processes"),
+    ];
+    // Boxed, so dropping it drops the call, as a cleanup that stops waiting does.
+    let mut keeping = Box::pin(fixture.removal.keep_retired_aside(&tree, process_holds));
+    let removed_worktree_id = loop {
+        if let Some(removed_worktree_id) = fixture.first_kept_copy() {
+            break removed_worktree_id;
+        }
+        assert!(
+            futures::poll!(keeping.as_mut()).is_pending(),
+            "the keeping aside ended before its kept copy's row could be seen"
+        );
+        tokio::task::yield_now().await;
+    };
+    drop(keeping);
+    assert!(
+        fixture
+            .removal
+            .shared
+            .retirements
+            .try_acquire(tree.id)
+            .is_err(),
+        "the tree's turn is held while the move runs"
+    );
+    assert_eq!(
+        fixture.owner.released().len(),
+        released_before,
+        "the folder's processes are held off while the move runs"
+    );
+
+    drop(
+        fixture
+            .kept
+            .store
+            .kept_copy_lock()
+            .acquire(removed_worktree_id)
+            .await,
+    );
+    drop(fixture.removal.shared.retirements.acquire(tree.id).await);
+    assert_eq!(
+        fixture.owner.released()[released_before..],
+        [FolderSighting {
+            folder,
+            was_present: false,
+        }],
+        "the hold drops only once the tree has moved"
     );
 }
 

@@ -29,6 +29,7 @@ use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{
     PutBackAtFreeNameInput, PutBackBranchChoice, put_worktree_back_at_free_name,
 };
+use crate::git::worktree::removal::FolderProcessHold;
 use crate::git::worktree::removal::tests::RemovalFixture;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::cleanup::RetiredWorktreeKeeper;
@@ -44,6 +45,7 @@ impl RetiredWorktreeKeeper for RecordingKeeper {
     fn keep_retired_aside<'a>(
         &'a self,
         row: &'a WorktreeRow,
+        _process_holds: Vec<FolderProcessHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         Box::pin(async move {
             self.kept.lock().expect("the keeper's list").push(row.id);
