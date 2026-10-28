@@ -61,6 +61,9 @@ const COPY_THREAD: &str = "thread-copy";
 const CALL: &str = "call-1";
 const EXECUTOR_PROCESS: &str = "7-0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d";
 
+/// How long a test watches for a line the relay must hold back.
+const HELD_QUIET: Duration = Duration::from_millis(200);
+
 // The executor's far side: the lines the relay wrote to it, and its output the test writes.
 struct FakeExecutor {
     sent: Lines<BufReader<DuplexStream>>,
@@ -623,11 +626,20 @@ async fn a_terminate_asks_the_paired_wrapper_first_and_passes_on_at_the_commands
     );
     wait_until(|| sets.paired_wrapper(session_id, &command_id()) == Some(party)).await;
 
-    let terminate = json!({ "id": 4, "method": "process/terminate", "params": { "processId": EXECUTOR_PROCESS } });
+    let terminate = json!({
+        "id": 4,
+        "method": "process/terminate",
+        "params": { "processId": EXECUTOR_PROCESS },
+    });
     let terminating = tokio::spawn(
         Arc::clone(&relay).forward_terminate(Arc::clone(&executor), terminate.to_string()),
     );
     wait_until(|| !sent_requests(&channel.channel).is_empty()).await;
+    // Held while the command runs: nothing reaches the executor before its end. `next_line` is
+    // cancel-safe, so the wait loses no line.
+    let sent_early = tokio::time::timeout(HELD_QUIET, fake.next_sent()).await;
+    assert!(sent_early.is_err(), "sent before the end: {sent_early:?}");
+    assert!(!terminating.is_finished());
     fake.write(&exited(EXECUTOR_PROCESS)).await;
     assert_eq!(fake.next_sent().await, terminate);
     terminating.await.expect("the terminate passed on");

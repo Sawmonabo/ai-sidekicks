@@ -293,7 +293,7 @@ impl CodexExecRelay {
         let Some(channel) = channel.and_then(|cell| cell.get().cloned()) else {
             return Ok(());
         };
-        channel.channel.close().await?;
+        close_unless_closed(&channel.channel).await?;
         let session_folder = compose_codex_command_channel_folder(
             &self.dependencies.command_channel_root,
             session_id,
@@ -447,27 +447,23 @@ impl CodexExecRelay {
             return Ok(None);
         };
         let cell = Arc::clone(lock(&self.channels).entry(session_id).or_default());
-        let channel = cell
-            .get_or_try_init(|| async {
-                let opened = self
-                    .open_session_channel(session_id, sets, process_id)
-                    .await?;
-                // A session forgotten while its channel opened keeps none, so nothing would close
-                // it.
-                let is_kept = lock(&self.channels)
-                    .get(&session_id)
-                    .is_some_and(|kept| Arc::ptr_eq(kept, &cell));
-                if is_kept {
-                    return Ok(opened);
-                }
-                opened.channel.close().await?;
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "the session closed while its command channel opened",
-                ))
-            })
-            .await?;
-        Ok(Some(Arc::clone(channel)))
+        let channel = Arc::clone(
+            cell.get_or_try_init(|| self.open_session_channel(session_id, sets, process_id))
+                .await?,
+        );
+        // Read once the cell holds the channel: a session forgotten before then keeps none, so
+        // nothing else would close it.
+        let is_kept = lock(&self.channels)
+            .get(&session_id)
+            .is_some_and(|kept| Arc::ptr_eq(kept, &cell));
+        if is_kept {
+            return Ok(Some(channel));
+        }
+        close_unless_closed(&channel.channel).await?;
+        Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "the session closed while its command channel opened",
+        ))
     }
 
     // Opens `session_id`'s channel for the executor `process_id` and follows its records into
@@ -564,6 +560,15 @@ fn one_line(text: String) -> String {
         text.replace(['\n', '\r'], " ")
     } else {
         text
+    }
+}
+
+// Closes `channel`, which a session's close and an open that found its session gone can both
+// reach; a folder the other already removed is no failure.
+async fn close_unless_closed(channel: &CommandChannel) -> std::io::Result<()> {
+    match channel.close().await {
+        Err(error) if error.kind() != ErrorKind::NotFound => Err(error),
+        Err(_) | Ok(()) => Ok(()),
     }
 }
 
