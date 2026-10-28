@@ -420,19 +420,19 @@ interface CreateSessionParams {
   // Provider-account identity at spawn (Plan-003 T3.45), REQUIRED on every create and resume.
   // OPAQUE TO THE DRIVER — never parsed, and never used by the driver to read credential material
   // itself: the driver hands it back to the daemon, the Claude Code driver to receive the account's
-  // spawn environment with its credential home pinned in (and the ambient names a bound leg must
+  // spawn environment with its credential store pinned in (and the ambient names a bound leg must
   // not read denied), the Codex driver to receive the account's Codex home, whose app-server
   // service runs the session. That pinning is an obligation on the spawn path — Plan-023's
   // fail-closed binding, consumed per CP-003-7 — not a property this member carries. RESOLVED BY
-  // THE DAEMON AND NEVER
-  // SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps it here — the account
-  // pinned by the run's saved agent definition or workflow step where one pins, and otherwise the
-  // provider's current account, the one carrying the mark on the provider surface when the run
-  // starts (provider-account-payloads.md §Plan-023 — Provider Accounts And Credential Homes). No
-  // wire request carries an account per session or per run, so there is no override to authorize
-  // and no client-supplied value to reconcile against the resolution. Spawn-bound because a run's
-  // paying account is bound for the run's LIFETIME — `ResumeSessionParams` re-realizes it below
-  // from the durable record rather than re-resolving whichever account is current at the resume.
+  // THE DAEMON AND NEVER SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps
+  // it here — the account pinned by the run's saved agent definition or workflow step where one
+  // pins, and otherwise the provider's current account, the one carrying the mark on the provider
+  // surface when the run starts (provider-account-payloads.md §Plan-023 — Provider Accounts And
+  // Credential Homes). No wire request carries an account per session or per run, so there is no
+  // override to authorize and no client-supplied value to reconcile against the resolution.
+  // Spawn-bound because a run's paying account is bound for the run's LIFETIME —
+  // `ResumeSessionParams` re-realizes it below from the durable record rather than re-resolving
+  // whichever account is current at the resume.
   // A provider with no account to resolve refuses the run before spawn
   // (`provider.account.notRegistered`, `provider.account.current.notSet`).
   providerAccountId: string;
