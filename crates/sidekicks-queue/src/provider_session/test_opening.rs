@@ -23,7 +23,6 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::CreateSessionParams;
 use sidekicks_provider::run::posture::compose_execution_posture;
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
-use sidekicks_provider::runtime_binding::test_store::spawned_build;
 
 use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
 
@@ -62,7 +61,6 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                     provider_account_id: None,
                     on_mcp_server_status: None,
                 },
-                spawned_version: spawned_build("1.0.0", "/opt/provider/bin"),
                 function_legs_for: Arc::new(|_| ResumeFunctionLegs::default()),
             })
         }

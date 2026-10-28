@@ -12,6 +12,7 @@ use rusqlite::{Connection, params};
 use serde_json::json;
 use sidekicks_approval::rules::{APPROVAL_RULES_STATEMENT_CAPACITY, ApprovalRules};
 use sidekicks_artifact::payload_store::PayloadStore;
+use sidekicks_artifact::plans::store::StoredPlanHolds;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_contracts::event::envelope::DAEMON_SCOPE_SENTINEL_SESSION_ID;
 use sidekicks_contracts::machine::id::MachineId;
@@ -30,6 +31,7 @@ use sidekicks_session::conversation_purge::{
     CONVERSATION_PURGE_STATEMENT_CAPACITY, ConversationPurge, ConversationPurgeError,
 };
 use sidekicks_session::directory::list_feed::SessionListFeed;
+use sidekicks_session::directory::run_activity::ProjectSessionActivityReader;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::live_count::test_log::counted_log;
@@ -58,6 +60,8 @@ use sidekicks_workspace::git::turn_snapshot::service::{
 };
 use sidekicks_workspace::git::worktree::test_rows::insert_worktree_rows;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
+use sidekicks_workspace::project::records::ProjectRecords;
 use sidekicks_workspace::repo::mount::service::{
     REPO_MOUNT_SERVICE_STATEMENT_CAPACITY, RepoMountService,
 };
@@ -185,6 +189,11 @@ pub(crate) async fn test_purge(
         Arc::new(ShellLineReadingBound::new(1024)),
     ));
     let truncation = Arc::new(WriteAheadLogTruncation::new(Arc::clone(&log.writer)));
+    // Nothing subscribes to the project list, so it reads nothing.
+    let projects = ProjectRecords::new(
+        Arc::clone(&reads),
+        Arc::new(ProjectSessionActivityReader::new(&StoredPlanHolds)),
+    );
     let purge = SessionPurge::new(SessionPurgeDeps {
         writer: Arc::clone(&log.writer),
         reads: Arc::clone(&reads),
@@ -201,6 +210,7 @@ pub(crate) async fn test_purge(
         )),
         project_rules,
         list_feed,
+        project_list_feed: Arc::new(ProjectListFeed::new(Arc::new(projects), &log.followers)),
         ranking: Arc::new(SessionRelatedRanking::new(
             Arc::clone(&reads),
             Arc::clone(&log.writer),
@@ -496,38 +506,26 @@ async fn a_purge_leaves_nothing_of_the_session_readable_in_the_file_or_its_log()
         0,
         "the purge's commit uncounts the run"
     );
-    for table in ["workflow_steps", "human_phase_form_state", "workflow_runs"] {
-        let column = if table == "workflow_runs" {
-            "id"
-        } else {
-            "workflow_run_id"
-        };
+    let lead_run_text = lead_run_id.text();
+    let (run, lead_run) = (run_id.as_str(), lead_run_text.as_str());
+    for (rows, id) in [
+        ("workflow_steps WHERE workflow_run_id = ?1", run),
+        ("human_phase_form_state WHERE workflow_run_id = ?1", run),
+        ("workflow_runs WHERE id = ?1", run),
+        // An unsettled release, and a key a `Send now` spent.
+        (
+            "interventions WHERE target_run_id = ?1 AND unreleased_choice IS NOT NULL",
+            lead_run,
+        ),
+        ("send_now_requests WHERE target_run_id = ?1", lead_run),
+    ] {
         let left: i64 = reader
-            .query_row(
-                &format!("SELECT COUNT(*) FROM {table} WHERE {column} = ?1"),
-                [&run_id],
-                |row| row.get(0),
-            )
-            .expect("the test counts the run's rows");
-        assert_eq!(left, 0, "{table} keeps none of the run's rows");
+            .query_row(&format!("SELECT COUNT(*) FROM {rows}"), [id], |row| {
+                row.get(0)
+            })
+            .expect("the test counts the rows left");
+        assert_eq!(left, 0, "no row of {rows} outlives its session");
     }
-    let unreleased: i64 = reader
-        .query_row(
-            "SELECT COUNT(*) FROM interventions WHERE unreleased_choice IS NOT NULL",
-            [],
-            |row| row.get(0),
-        )
-        .expect("the test counts the unsettled releases");
-    assert_eq!(unreleased, 0, "no unsettled release outlives its session");
-    let send_now_keys: i64 = reader
-        .query_row("SELECT COUNT(*) FROM send_now_requests", [], |row| {
-            row.get(0)
-        })
-        .expect("the test counts the spent `Send now` keys");
-    assert_eq!(
-        send_now_keys, 0,
-        "no spent `Send now` key outlives its session"
-    );
     let snapshot_refs = git
         .run(
             None,

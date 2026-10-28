@@ -16,9 +16,10 @@
 //!   with `secure_delete` on, so a freed page is overwritten.
 //! - After the commit the recovery state forgets the session's damage, the session reads let go of
 //!   its block cuts, the project's other sessions are handed their rules again, the live list
-//!   loses the session, and each stored payload no surviving manifest names is unlinked. Once
-//!   every session is done the sessions they were linked to are scored again, and the
-//!   write-ahead log is truncated, tried again until it succeeds, even when nothing was deleted.
+//!   loses the session, the project list counts it no more, and each stored payload no surviving
+//!   manifest names is unlinked. Once every session is done the sessions they were linked to are
+//!   scored again, and the write-ahead log is truncated, tried again until it succeeds, even when
+//!   nothing was deleted.
 
 pub(crate) mod rows;
 #[cfg(test)]
@@ -75,6 +76,7 @@ use sidekicks_workspace::git::turn_snapshot::service::{
     TurnSnapshotPruneFailure, TurnSnapshotPruneOutcome, TurnSnapshotService,
 };
 use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorkspaceService};
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
 use crate::data_acts::purge::rows::{
     MARKED_GUARD_INDEX, PurgeCaller, PurgeReadError, UPPER_BOUND_GUARD_INDEX, gone_worktree_ids,
@@ -201,6 +203,9 @@ pub(crate) struct SessionPurgeDeps {
     pub(crate) project_rules: Arc<ApprovalRules>,
     /// The live sessions list, told of each session marked and removed.
     pub(crate) list_feed: Arc<SessionListFeed>,
+    /// The project list, told of each session marked and removed, whose project it holds from
+    /// its last read once the session's rows are gone.
+    pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// Scores again the related lists of the sessions a purged one was linked to.
     pub(crate) ranking: Arc<SessionRelatedRanking>,
     /// The stored payloads a purged session's manifests named.
@@ -292,6 +297,7 @@ impl SessionPurge {
         let _transition = deps.transition_lock.acquire(session_id).await;
         self.mark(session_id, caller).await?;
         deps.list_feed.refresh([session_id]);
+        deps.project_list_feed.refresh_sessions(&[session_id]);
         let targets = deps
             .reads
             .read(ReadLength::Long, move |connection| {
@@ -339,6 +345,7 @@ impl SessionPurge {
         deps.recovery.mark_session_healthy(&session_id);
         deps.sessions.forget_session_block_cuts(&session_id);
         deps.list_feed.refresh([session_id]);
+        deps.project_list_feed.refresh_sessions(&[session_id]);
         let hand_out_failure = deps
             .project_rules
             .hand_out_after_purge(withdrawn)

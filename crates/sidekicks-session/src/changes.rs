@@ -7,6 +7,8 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde_json::json;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -44,6 +46,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventLinkage,
 };
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::project::service::ForgottenProjectSessions;
 use tokio_util::task::TaskTracker;
 
 use crate::run::ids::read_session_run_ids;
@@ -285,20 +288,6 @@ impl SessionChanges {
         self.archive_in_state(session_id, false).await
     }
 
-    /// Archives a session of a project being forgotten: an active one as
-    /// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come
-    /// now. Refuses a closed or purging session as [`SessionChangeError::Refused`] says.
-    #[expect(
-        dead_code,
-        reason = "forgetting a project archives each of its sessions through it"
-    )]
-    pub(crate) async fn archive_of_forgotten_project(
-        &self,
-        session_id: SessionId,
-    ) -> Result<(), SessionChangeError> {
-        self.archive_in_state(session_id, true).await
-    }
-
     async fn archive_in_state(
         &self,
         session_id: SessionId,
@@ -469,6 +458,23 @@ impl SessionChanges {
 
     async fn read_facts(&self, session_id: SessionId) -> Result<SessionFacts, SessionChangeError> {
         read_session_facts(&self.pool, session_id).await
+    }
+}
+
+/// Archives a session of a project being forgotten: an active one as
+/// [`SessionChanges::archive`] does, and one still `provisioning`, whose bind can never come now; a
+/// closed or purging session is refused as [`SessionChangeError::Refused`] says.
+impl ForgottenProjectSessions for SessionChanges {
+    fn archive_of_forgotten_project(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.archive_in_state(session_id, true)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
     }
 }
 

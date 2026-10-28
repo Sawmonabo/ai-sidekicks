@@ -40,8 +40,8 @@ use sidekicks_provider::runtime_binding::resume::{
     ResumeFunctionLegs, RuntimeBindingNotResumable, compose_resume_session_params,
 };
 use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingPatch, RuntimeBindingRelaunch,
-    RuntimeBindingSpawnConfig, RuntimeBindingStore, RuntimeBindingStoreError,
+    CreateRuntimeBindingInput, RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingSpawnConfig,
+    mint_runtime_binding_id,
 };
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::console_state::read_session_mode;
@@ -76,9 +76,6 @@ pub struct ProviderSessionOpening {
     /// The create's data legs, its posture the one of the level the session stands at; its
     /// function legs are left out and bound to the binding once it is minted.
     pub create_params: CreateSessionParams,
-    /// The build the session's process spawns, which its binding records: the version it reports
-    /// and the executable it resolved to, from one reading.
-    pub spawned_version: SpawnedVersionBindingCarriers,
     /// The callbacks a process of the leg a binding id names is handed, bound to that leg.
     pub function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
@@ -100,9 +97,8 @@ pub struct ProviderSessionsDeps {
     pub pool: Arc<DatabaseReadPool>,
     /// The writer a level or mode move is stored through.
     pub writer: Arc<DatabaseWriter>,
-    /// The binding rows an opening completes or removes.
-    pub runtime_bindings: Arc<RuntimeBindingStore>,
-    /// Records each binding a run opens on, or a resume minted, with its epoch cursor open.
+    /// Records each binding with its epoch cursor open: a new session's, opened before its
+    /// provider runs, a run's on the session's leg, and the one a resume minted.
     pub binding_cursors: Arc<RunBindingCursors>,
     /// The drivers, and the contract version each declares.
     pub providers: Arc<ProviderRegistry>,
@@ -170,28 +166,6 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
     },
-    /// The driver's create failed, and the binding recorded for it could not be removed.
-    #[error("the provider session of session {session_id} was not created ({create}), and its \
-             binding {} could not be removed", .binding_id.as_str())]
-    CreateLeftBinding {
-        /// The session.
-        session_id: SessionId,
-        /// The binding left.
-        binding_id: RuntimeBindingId,
-        /// Why the create failed.
-        create: DriverError,
-        /// Why the removal failed.
-        #[source]
-        delete: RuntimeBindingStoreError,
-    },
-    /// The binding the opening recorded is gone before its conversation was named on it.
-    #[error("the binding {} of session {session_id}'s opening is gone", .binding_id.as_str())]
-    BindingGone {
-        /// The session.
-        session_id: SessionId,
-        /// The binding.
-        binding_id: RuntimeBindingId,
-    },
     /// The session has no provider session open in this daemon.
     #[error("session {session_id} has no provider session open")]
     NotOpen {
@@ -207,9 +181,6 @@ pub enum ProviderSessionError {
     /// The binding or its cursor was not recorded.
     #[error(transparent)]
     Cursor(#[from] RunBindingCursorError),
-    /// A binding row was not written.
-    #[error(transparent)]
-    Store(#[from] RuntimeBindingStoreError),
     /// The level the session moved to was not stored, and a process it runs moved back.
     #[error("the level session {session_id} moved to was not stored")]
     LevelNotStored {
@@ -292,12 +263,9 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NoContractVersion { .. }
             | ProviderSessionError::ResumeRefused { .. }
             | ProviderSessionError::NotResumable(_)
-            | ProviderSessionError::CreateLeftBinding { .. }
-            | ProviderSessionError::BindingGone { .. }
             | ProviderSessionError::NotOpen { .. }
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
-            | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {
                 cause: SessionWriteError::Write(_),
                 ..
@@ -475,6 +443,7 @@ impl ProviderSessions {
             .deps
             .binding_cursors
             .create(CreateRuntimeBindingInput {
+                id: mint_runtime_binding_id(),
                 run_id,
                 provider_name: current.provider_name,
                 contract_version: current.contract_version,
@@ -490,6 +459,10 @@ impl ProviderSessions {
         Ok(binding.id)
     }
 
+    // A new session's first process. Its binding's cursor opens before the provider runs, since
+    // the provider delivers under the binding at once, and its row is written once the create
+    // answers, with the build that process reported and the conversation it opened; a failed
+    // create leaves neither.
     async fn create(
         &self,
         session_id: SessionId,
@@ -501,7 +474,6 @@ impl ProviderSessions {
             provider,
             git_folder,
             mut create_params,
-            spawned_version,
             function_legs_for,
         } = opening;
         // A mode moved before the first process is the one it opens in.
@@ -514,52 +486,40 @@ impl ProviderSessions {
             .ok_or_else(|| ProviderSessionError::NoContractVersion {
                 provider: provider.clone(),
             })?;
-        let binding = self
-            .deps
+        let spawn_config = spawn_config_of(&create_params);
+        let binding_id = mint_runtime_binding_id();
+        self.deps
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
+            .open_binding(
+                binding_id.clone(),
                 run_id,
-                provider_name: provider.clone(),
-                contract_version,
-                spawned_version,
-                resume_handle: None,
-                spawn_config: spawn_config_of(&create_params),
-                runtime_metadata: Map::new(),
-            })
+                provider.clone(),
+                create_params.provider_account_id.clone(),
+            )
             .await?;
-        let legs = function_legs_for(&binding.id);
+        let legs = function_legs_for(&binding_id);
         create_params.on_mcp_server_status = legs.on_mcp_server_status;
         let handle = match driver.create_session(create_params).await {
             Ok(handle) => handle,
             // A run whose session never opened keeps no binding.
             Err(create) => {
-                return Err(match self.deps.runtime_bindings.delete(&binding.id).await {
-                    Ok(_) => create.into(),
-                    Err(delete) => ProviderSessionError::CreateLeftBinding {
-                        session_id,
-                        binding_id: binding.id,
-                        create,
-                        delete,
-                    },
-                });
+                self.deps.binding_cursors.forget_binding(&binding_id);
+                return Err(create.into());
             }
         };
-        let patch = RuntimeBindingPatch {
-            resume_handle: Some(handle.resume_handle),
-            ..RuntimeBindingPatch::default()
-        };
-        if self
-            .deps
-            .runtime_bindings
-            .update(&binding.id, patch, Vec::new())
-            .await?
-            .is_none()
-        {
-            return Err(ProviderSessionError::BindingGone {
-                session_id,
-                binding_id: binding.id,
-            });
-        }
+        self.deps
+            .binding_cursors
+            .record_opened_binding(CreateRuntimeBindingInput {
+                id: binding_id,
+                run_id,
+                provider_name: provider.clone(),
+                contract_version,
+                spawned_version: handle.spawned_version,
+                resume_handle: Some(handle.resume_handle),
+                spawn_config,
+                runtime_metadata: Map::new(),
+            })
+            .await?;
         Ok(OpenedSession {
             provider,
             execution_posture,

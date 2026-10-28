@@ -22,7 +22,9 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, SessionProcessState};
-use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use sidekicks_provider::driver::session_control::{
+    DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
+};
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::store::{
     CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
@@ -35,6 +37,7 @@ use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
@@ -77,6 +80,7 @@ struct Opening {
     run_id: RunId,
     predecessor_id: RuntimeBindingId,
     relaunched_id: RuntimeBindingId,
+    epochs: Arc<Mutex<ExecutionEpochs>>,
     sessions: Arc<ProviderSessions>,
     changes: Arc<SessionChanges>,
 }
@@ -126,16 +130,16 @@ impl Opening {
             )),
             read_damaged_from_sequence: None,
         }));
-        let runtime_bindings = Arc::new(RuntimeBindingStore::new(
-            Arc::clone(&pool),
-            Arc::clone(&writer),
-        ));
+        let epochs = Arc::new(Mutex::new(ExecutionEpochs::new(
+            NonZeroUsize::new(8).expect("the cap is not zero"),
+        )));
         let binding_cursors = Arc::new(RunBindingCursors::new(
             Arc::clone(&pool),
-            Arc::clone(&runtime_bindings),
-            Arc::new(Mutex::new(ExecutionEpochs::new(
-                NonZeroUsize::new(8).expect("the cap is not zero"),
-            ))),
+            Arc::new(RuntimeBindingStore::new(
+                Arc::clone(&pool),
+                Arc::clone(&writer),
+            )),
+            Arc::clone(&epochs),
         ));
         let predecessor_id = binding_cursors
             .create(CreateRuntimeBindingInput {
@@ -191,7 +195,6 @@ impl Opening {
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             writer,
-            runtime_bindings,
             binding_cursors,
             providers,
             compose_opening: test_opening_composer(),
@@ -204,6 +207,7 @@ impl Opening {
             run_id,
             predecessor_id,
             relaunched_id,
+            epochs,
             sessions,
             changes,
         }
@@ -250,6 +254,77 @@ async fn open_resumes_a_conversation_and_binds_the_run_under_its_own_hold() {
                 && bound_run_id == opening.run_id.text().as_str()),
         "the opening run has its own binding: {bindings:?}"
     );
+}
+
+// A session with no conversation yet is created: the row of the binding its process runs under
+// names the build and the conversation the create reported, with its cursor open, and a failed
+// create leaves no row. Killed by the row written before the create (a failed one keeps it), and by
+// a version or handle the create did not report.
+#[rstest]
+#[case::created(true)]
+#[case::refused(false)]
+#[tokio::test]
+async fn a_create_records_what_its_process_reported_and_a_failed_one_nothing(
+    #[case] is_created: bool,
+) {
+    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver| {
+        driver.expect_create_session().returning(move |_params| {
+            async move {
+                if !is_created {
+                    return Err(DriverError::Internal("the test's create fails".into()));
+                }
+                Ok(ProviderSessionHandle {
+                    provider_session_id: "provider-session".to_owned(),
+                    resume_handle: "conversation-2".to_owned(),
+                    spawned_version: spawned_build("2.0.0", "/opt/provider/bin"),
+                })
+            }
+            .boxed()
+        });
+    })
+    .await;
+    let reader = opening.database.reader();
+    reader
+        .execute("DELETE FROM runtime_bindings", [])
+        .expect("the session is left with no conversation");
+
+    let opened = opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await;
+
+    let rows: Vec<(String, String, String)> = reader
+        .prepare(
+            "SELECT id, cli_version_raw, resume_handle FROM runtime_bindings WHERE run_id = ?1",
+        )
+        .expect("the test reads the bindings")
+        .query_map([opening.run_id.text().as_str()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .expect("the bindings read")
+        .collect::<Result<_, _>>()
+        .expect("each binding reads");
+    if is_created {
+        assert!(opened.is_ok(), "{opened:?}");
+        let [(id, version, handle)] = rows.as_slice() else {
+            panic!("one binding is recorded: {rows:?}");
+        };
+        assert_eq!(
+            (version.as_str(), handle.as_str()),
+            ("2.0.0", "conversation-2")
+        );
+        let binding_id = RuntimeBindingId::new(id.clone()).expect("a stored binding id");
+        assert!(
+            lock(&opening.epochs).binding(&binding_id).is_ok(),
+            "the binding's cursor is open"
+        );
+    } else {
+        assert!(
+            matches!(opened, Err(ProviderSessionError::Driver(_))),
+            "{opened:?}"
+        );
+        assert_eq!(rows, Vec::new());
+    }
 }
 
 // A run admitted before a close, whose open waits out the close, is refused once the close's

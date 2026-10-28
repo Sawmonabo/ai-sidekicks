@@ -22,6 +22,7 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::writer::repack::RepackJobDeps;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
+use sidekicks_workspace::project::list_feed::ProjectListFeed;
 
 use crate::daemon::backup::run::{BACKUP_BUDGET, Backups};
 use crate::daemon::configuration::ConfigurationStore;
@@ -49,6 +50,8 @@ pub(crate) struct StoredDataMethodsStart<'start> {
     pub(crate) payloads: Arc<PayloadStore>,
     /// The terminals' shells, which a purge ends.
     pub(crate) shells: Arc<ShellTable>,
+    /// The project list, which a purge tells of each session it marks and removes.
+    pub(crate) project_list_feed: Arc<ProjectListFeed>,
     /// Every driver, through which a purge deletes the provider's copy of each conversation.
     pub(crate) providers: Arc<ProviderRegistry>,
     /// This machine, named in each purge's receipt.
@@ -96,6 +99,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         session_services,
         payloads,
         shells,
+        project_list_feed,
         providers,
         machine_id,
         configuration,
@@ -121,6 +125,7 @@ pub(crate) fn build_stored_data_methods(start: StoredDataMethodsStart<'_>) -> St
         snapshots: Arc::clone(&repo.snapshots),
         project_rules: Arc::clone(&session_services.approvals.rules),
         list_feed: Arc::clone(&session_services.list_feed),
+        project_list_feed,
         ranking: Arc::clone(&session_services.related_ranking),
         payloads,
         truncation: Arc::clone(&database.truncation),
