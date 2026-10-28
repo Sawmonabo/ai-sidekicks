@@ -1,5 +1,6 @@
 //! Paths held in use, each counted once per hold standing on it, so dropping one of two holds of a
-//! path keeps the other: the names the folder moves are using, and the folders a removal is closing.
+//! path keeps the other: the names the folder moves are using, and the folders a removal is
+//! closing.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
