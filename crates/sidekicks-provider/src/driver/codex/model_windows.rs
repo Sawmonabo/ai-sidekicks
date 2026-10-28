@@ -167,8 +167,8 @@ impl CodexModelWindowCache {
         );
         self.compaction_limits.calibrate_catalog(
             service,
-            provider_version,
-            CodexCatalogReading {
+            &provider_version,
+            &CodexCatalogReading {
                 dump: Arc::from(dump),
                 windows: Arc::clone(&windows),
             },

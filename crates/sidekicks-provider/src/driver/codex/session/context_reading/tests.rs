@@ -4,6 +4,7 @@ use std::sync::Mutex;
 use sidekicks_contracts::context_window::ContextWindowSource;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::inspector::SessionContextReading;
+use sidekicks_contracts::wire::number::Percent;
 
 use super::{
     CodexContextWindowReading, CodexReadingSettings, CodexSessionContextReadings,
@@ -79,10 +80,7 @@ fn a_reading_before_any_report_carries_the_catalogs_usable_window(
     let top_stop = top_stop_tokens as f64 * 100.0 / window_tokens as f64;
     assert!((reading.compaction.top_stop_percent.get() - top_stop).abs() < 1e-9);
     assert_eq!(
-        reading
-            .compaction
-            .bottom_stop_percent
-            .map(|bottom| bottom.get()),
+        reading.compaction.bottom_stop_percent.map(Percent::get),
         Some(20.0),
         "the fixed start of a tenth plus a tenth of headroom"
     );

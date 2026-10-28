@@ -175,17 +175,16 @@ impl CodexDriver {
         let Some(project_folder) = &params.project_folder else {
             return Ok(());
         };
-        let codex_home = match self.views.conversation(params.session_id) {
-            Some(conversation) => conversation.service.home().codex_home.clone(),
-            None => {
-                let Some(leg) = self.read_session_leg(params.session_id).await? else {
-                    return Ok(());
-                };
-                self.homes
-                    .codex_home_for(&leg.spawn_config.provider_account_id)
-                    .await?
-                    .codex_home
-            }
+        let codex_home = if let Some(conversation) = self.views.conversation(params.session_id) {
+            conversation.service.home().codex_home.clone()
+        } else {
+            let Some(leg) = self.read_session_leg(params.session_id).await? else {
+                return Ok(());
+            };
+            self.homes
+                .codex_home_for(&leg.spawn_config.provider_account_id)
+                .await?
+                .codex_home
         };
         self.project_rules
             .revoke(&codex_home, project_folder, &params.rule)

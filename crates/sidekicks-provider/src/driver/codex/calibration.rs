@@ -117,17 +117,17 @@ impl CodexCompactionLimits {
     pub(crate) fn calibrate_catalog(
         self: &Arc<Self>,
         service: &Arc<CodexService>,
-        provider_version: String,
-        catalog: CodexCatalogReading,
+        provider_version: &str,
+        catalog: &CodexCatalogReading,
     ) {
         let digest = blake3::hash(catalog.dump.as_bytes());
         let is_catalog_changed = lock(&self.catalog_digests)
-            .insert(provider_version.clone(), digest)
+            .insert(provider_version.to_owned(), digest)
             .is_some_and(|before| before != digest);
         let mut limits = lock(&self.limits);
         let due = select_due_limits(
             &limits,
-            list_catalog_keys(&provider_version, &catalog),
+            list_catalog_keys(provider_version, catalog),
             is_catalog_changed,
         );
         for key in &due {
