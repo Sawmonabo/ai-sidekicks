@@ -11,6 +11,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::callback_tools::host::CallbackToolHost;
 use crate::driver::run_control::DaemonTurnBindingResolver;
@@ -29,7 +30,6 @@ use crate::port::session_advisor_store::SessionAdvisorStore;
 use crate::port::session_rules::SessionRulePort;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::usage_sink::UsageSink;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub trait MessageTakenListener: Send + Sync {

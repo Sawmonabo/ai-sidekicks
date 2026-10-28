@@ -11,12 +11,12 @@ use futures::FutureExt;
 use futures::future::BoxFuture;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::contract::DriverError;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The person's own Codex folder under their home, where `CODEX_HOME` names none.
 const CODEX_PERSONAL_HOME_FOLDER_NAME: &str = ".codex";

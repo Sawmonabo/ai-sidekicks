@@ -17,6 +17,7 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::SetOnce;
 
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
@@ -37,7 +38,6 @@ use crate::thread_frame_router::{
     RoutableProviderFrame, ThreadFrameFamilyClass, ThreadFrameRouter, ThreadFrameRouterConfig,
 };
 use crate::usage_delta_accountant::UsageDeltaAccountant;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The router's bounds. The hold covers a helper's frames arriving ahead of its start; the short
 /// timeout means a frame held longer names a helper never announced.

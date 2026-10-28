@@ -22,6 +22,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::SkillsListParams;
@@ -35,7 +36,6 @@ use crate::driver::diagnostics::{
 use crate::driver::run_control::PickedSkill;
 use crate::driver::session_control::ProviderCommandsListener;
 use crate::port::server_prompts::ServerPromptPort;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The provider's live skill listing.
 const CODEX_SKILLS_LIST_METHOD: &str = "skills/list";

@@ -25,6 +25,7 @@ use sidekicks_platforms::resolve_path_against;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_policy::shell_commands::unwrap_shell_command_line;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
@@ -41,7 +42,6 @@ use crate::port::permission_ask::{
     ProviderPermissionAskWithdrawal,
 };
 use crate::port::session_rules::SessionRulePort;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The tool Codex names a shell command by at its hooks.
 const CODEX_HOOK_SHELL_TOOL: &str = "Bash";

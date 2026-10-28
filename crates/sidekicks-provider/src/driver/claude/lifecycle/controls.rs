@@ -20,6 +20,7 @@ use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedStat
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
 use super::{ClaudeDriver, internal, person_settings_folder};
 use crate::driver::claude::DESCRIPTOR;
@@ -70,7 +71,6 @@ use crate::driver::session_control::{
     permission_level_not_offered,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The model a read of the build's own choices runs on: Claude Code's pointer to its recommended
 /// model, which every account's catalog lists.

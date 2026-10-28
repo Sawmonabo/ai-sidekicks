@@ -24,6 +24,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
@@ -79,7 +80,6 @@ use crate::port::question::{
 };
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome};
-use sidekicks_std::port_registration::PortRegistration;
 
 // The decision reason of an ask an ask rule sent to the host.
 const CLAUDE_RULE_DECISION: &str = "rule";

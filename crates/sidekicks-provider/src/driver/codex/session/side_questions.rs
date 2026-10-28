@@ -28,6 +28,7 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::sync::{mpsc, oneshot};
 use tokio_util::sync::CancellationToken;
@@ -71,7 +72,6 @@ use crate::run::delivery::{InboundDelivery, SessionScopedRow};
 use crate::usage_delta_accountant::{
     MeteredUsageDelta, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
-use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 

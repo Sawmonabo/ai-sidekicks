@@ -30,6 +30,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tokio_util::sync::CancellationToken;
 
@@ -69,7 +70,6 @@ use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
 };
-use sidekicks_std::port_registration::PortRegistration;
 
 /// Reads a session's command list as the driver answers it now; `None` before it holds one.
 pub(crate) type ClaudeCommandListReader =

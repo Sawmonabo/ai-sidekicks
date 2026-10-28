@@ -22,6 +22,7 @@ use std::time::Duration;
 
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::service_log_folder;
 use tokio_util::task::TaskTracker;
 
@@ -78,7 +79,6 @@ use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::spawn_environment::ReservedEnvironmentNames;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// The folder under the daemon's data folder that holds each session's helper role files.
 const CODEX_HELPER_ROLES_FOLDER_NAME: &str = "codex-helper-roles";

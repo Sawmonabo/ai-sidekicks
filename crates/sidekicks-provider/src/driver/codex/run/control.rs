@@ -22,6 +22,7 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::attachments::AttachmentResolver;
@@ -58,7 +59,6 @@ use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
-use sidekicks_std::port_registration::PortRegistration;
 
 /// What run control acts through.
 pub(crate) struct CodexRunControlDependencies {

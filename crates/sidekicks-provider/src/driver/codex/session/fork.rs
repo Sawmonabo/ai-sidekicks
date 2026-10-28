@@ -13,6 +13,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
@@ -44,7 +45,6 @@ use crate::left_conversations::LeftConversation;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
-use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 

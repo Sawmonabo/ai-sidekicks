@@ -13,6 +13,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::time::Instant;
 
 use super::{ClaudeRoutedFrame, ClaudeSessionArrival, ClaudeSessionArrivalHandler};
@@ -50,7 +51,6 @@ use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
-use sidekicks_std::port_registration::PortRegistration;
 
 /// What every session's task shares.
 pub(crate) struct ClaudeSessionTaskServices {

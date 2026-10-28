@@ -17,6 +17,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_platforms::PathRules;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::SessionSpawnContextResolver;
@@ -73,7 +74,6 @@ use crate::spawn_environment::{
 };
 use crate::spawned_version::to_binding_version_carriers;
 use crate::usage_delta_accountant::{ThreadBaseEstablishment, UsageAxisCounts};
-use sidekicks_std::port_registration::PortRegistration;
 
 const THREAD_START_METHOD: &str = "thread/start";
 const THREAD_RESUME_METHOD: &str = "thread/resume";

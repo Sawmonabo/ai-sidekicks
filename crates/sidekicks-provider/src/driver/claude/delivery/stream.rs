@@ -29,6 +29,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::{MAX_SAFE_INTEGER, SafeInt};
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::time::Instant;
 
 use self::daemon_ends::ClaudeStreamDialogPorts;
@@ -70,7 +71,6 @@ use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow, RunMarker};
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::thread_frame_router::ThreadFrameRoute;
-use sidekicks_std::port_registration::PortRegistration;
 
 /// Reports that Claude Code took a message the daemon handed: the session, the message's own id
 /// and the run it was taken by.
