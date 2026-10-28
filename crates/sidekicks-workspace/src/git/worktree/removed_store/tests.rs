@@ -1,5 +1,5 @@
 //! The store's tests: a refused put-back keeps the copy, `Delete now` deletes it while no cleanup
-//! pass does, and a put-back a crash cut short is undone.
+//! pass does, and what a put-back or a discard a crash cut short left is undone or removed.
 
 use std::error::Error;
 use std::fs;
@@ -21,11 +21,13 @@ use super::put_back_copy;
 use super::restore::KeptCopyPutBackMarks;
 use super::test_fixture::KeptCopyFixture;
 use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
+use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{
     PutBackAtFreeNameInput, PutBackBranchChoice, put_worktree_back_at_free_name,
 };
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::cleanup::RetiredWorktreeKeeper;
+use crate::git::worktree::stale_record::StaleRecordTools;
 
 // A keeper that records each tree a cleanup pass asks it to keep aside.
 #[derive(Default)]
@@ -264,4 +266,46 @@ async fn a_cleanup_removes_a_crash_left_record_with_its_refs_in_a_refs_payload()
 
     assert!(!record.exists(), "the record is left");
     assert!(!refs_folder.exists(), "the tree's refs are left");
+}
+
+// A crash after a put-back took its names and before its mark leaves an empty folder at the
+// copy's original path and a record holding only git's `initializing` lock. Kills a cleanup that
+// leaves either, and one that takes them while a put-back under way holds them.
+#[tokio::test]
+async fn a_cleanup_removes_the_names_a_put_back_cut_short_before_its_mark_left() {
+    let fixture = KeptCopyFixture::new().await;
+    let tree = fixture.add_tree("fix", "fix").await;
+    let removed_worktree_id = fixture.discard(&tree).await;
+    let original_path = Path::new(tree.fs_root.as_str());
+    let records_folder = fixture.common_folder().join("worktrees");
+    let record = records_folder.join("fix");
+    fs::create_dir(original_path).expect("the crash left the empty folder");
+    fs::create_dir(&record).expect("the crash left the record");
+    fs::write(record.join("locked"), "initializing\n").expect("the record is locked");
+    let tools = StaleRecordTools {
+        claims: &fixture.store.claims,
+        leftover_names: &fixture.store.deps.leftover_names,
+    };
+
+    let holds = [
+        tools.leftover_names.hold(original_path),
+        tools.leftover_names.hold(&record),
+    ];
+    remove_unmarked_names(tools, original_path, &records_folder)
+        .await
+        .expect("the names a put-back holds are skipped");
+    assert!(
+        original_path.is_dir() && record.join("locked").is_file(),
+        "a put-back under way keeps its names"
+    );
+    drop(holds);
+
+    fixture
+        .store
+        .remove_stale_record_of(removed_worktree_id)
+        .await
+        .expect("the cleanup removes what the crash left");
+
+    assert!(!original_path.exists(), "the empty folder is left");
+    assert!(!record.exists(), "the locked record is left");
 }

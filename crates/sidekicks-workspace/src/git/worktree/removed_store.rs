@@ -69,6 +69,7 @@ use crate::git::worktree::kept_copy::{
 };
 use crate::git::worktree::naming::REMOVED_WORKTREES_FOLDER_NAME;
 use crate::git::worktree::put_back::undo::undo_put_back;
+use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{PutBackTools, UnsoundTreeError, require_sound_restored_tree};
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::{WorktreeRowsReadError, WorktreeService};
@@ -324,7 +325,8 @@ impl RemovedWorktreeStore {
     }
 
     /// Removes a kept copy's old tree record when it is still the copy's own, under the copy's
-    /// lock, so git never counts it a duplicate of a tree put back; once a run per copy. Fails as
+    /// lock, so git never counts it a duplicate of a tree put back, then the names a put-back cut
+    /// short before its mark left; once a run per copy. Fails as
     /// the removal does, the copy looked at again next time.
     pub(crate) async fn remove_stale_record_of(
         &self,
@@ -651,25 +653,35 @@ impl RemovedWorktreeStore {
     }
 
     // Removes the tree's old record when it is still the copy's own, and its refs in a refs payload,
-    // under the copy's lock.
+    // then the names a put-back of a copy of that tree took before a crash cut it short, under the
+    // copy's lock.
     async fn remove_stale_record(
         &self,
         kept: &RemovedWorktreeRow,
     ) -> Result<(), RemovedWorktreeStoreError> {
+        let tools = StaleRecordTools {
+            claims: &self.claims,
+            leftover_names: &self.deps.leftover_names,
+        };
+        let record_folder = Path::new(kept.record_folder.as_str());
+        let original_path = Path::new(kept.original_path.as_str());
         remove_stale_record_and_refs(
-            StaleRecordTools {
-                claims: &self.claims,
-                leftover_names: &self.deps.leftover_names,
-            },
+            tools,
             &self.deps.git,
             kept.place.as_ref(),
             Path::new(kept.kept_path.as_str()),
-            Path::new(kept.record_folder.as_str()),
-            Path::new(kept.original_path.as_str()),
+            record_folder,
+            original_path,
         )
         .await
-        .map(drop)
-        .map_err(RemovedWorktreeStoreError::failed)
+        .map_err(RemovedWorktreeStoreError::failed)?;
+        // A record's folder always sits in its repository's records folder.
+        let records_folder = record_folder
+            .parent()
+            .expect("a record's folder sits in the records folder");
+        remove_unmarked_names(tools, original_path, records_folder)
+            .await
+            .map_err(RemovedWorktreeStoreError::failed)
     }
 
     // The listed kept copy, or `worktree.removed.notFound`.

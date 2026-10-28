@@ -1,7 +1,8 @@
 //! Putting a kept copy back where its tree lived. A put-back takes its folder's name by making that
 //! folder empty, and git's record by git's own name rule and counter, locking the record at once so
 //! no prune takes it half written; then it has the caller mark the kept copy's row with what it is
-//! doing, so one a crash cut short is undone from that mark. A new branch is made next, git
+//! doing, so one a crash cut short is undone from that mark; the names a crash before the mark
+//! leaves are the cleanup's to remove. A new branch is made next, git
 //! refusing a name another branch took; a folder or branch name taken this way moves to the next
 //! number. Its steps then run side by side and all settle: the tree by one rename (across volumes a
 //! copy, which leaves the kept tree whole) and its `.git` file; the record copied from the kept
@@ -16,6 +17,7 @@ mod flush;
 mod objects;
 mod record;
 pub(crate) mod undo;
+pub(crate) mod unmarked_names;
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -504,9 +506,13 @@ async fn put_worktree_back(
         .file_name()
         .expect("a tree's folder ends in its name")
         .to_string_lossy();
-    // The names are taken before the mark names them, so two put-backs never take one name. A
-    // crash between leaves an empty folder, which git does not list; the next put-back takes the
-    // next number.
+    // The names are taken before the mark names them, so two put-backs never take one name, and
+    // held until this answers, so the cleanup never takes them meanwhile. A crash between leaves
+    // an empty folder and a record holding only the lock, which the cleanup removes.
+    let _target_hold = tools
+        .stale_record()
+        .leftover_names
+        .hold(input.target_folder);
     match tokio::fs::create_dir(input.target_folder).await {
         Ok(()) => {}
         Err(failure) if failure.kind() == io::ErrorKind::AlreadyExists => {
@@ -533,6 +539,10 @@ async fn put_worktree_back(
             ));
         }
     };
+    let _record_hold = tools
+        .stale_record()
+        .leftover_names
+        .hold(&record.record_folder);
     let mut progress = PutBackProgress {
         mark: PutBackMark {
             kept_folder: input.kept_folder.to_path_buf(),

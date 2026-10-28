@@ -1,8 +1,9 @@
 //! Putting right what a crash cut short. A discard whose kept copy's row has no `removed_at` is
 //! undone when its tree never moved, and otherwise finished: the copy is listed, and a tree whose
 //! row is still live is retired with it. Then, at every cleanup, interrupted put-backs are undone,
-//! restored copies deleted, listed copies' stale records removed and leftover copies a crash left
-//! in the worktrees folder removed. Each step's failure is kept for the next pass and stops no
+//! restored copies deleted, listed copies' stale records removed with the empty folder and the
+//! record holding only git's `initializing` lock that a put-back cut short before its mark left,
+//! and leftover copies a crash left in the worktrees folder removed. Each step's failure is kept for the next pass and stops no
 //! other.
 
 use std::path::{Path, PathBuf};

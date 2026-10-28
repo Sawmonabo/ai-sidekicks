@@ -30,8 +30,8 @@ use crate::git::worktree::service::remove_folder;
 // The random bytes a leftover's name ends in, written as twice as many hex digits.
 const LEFTOVER_SUFFIX_BYTES: usize = 16;
 
-/// The names of the leftover folders this daemon is making or removing now: copies in flight and
-/// records set aside. Made once and shared by `Arc` with everything that makes or sweeps one.
+/// The names of the leftover folders this daemon is making or removing now: copies in flight,
+/// records set aside, and the folder and record a put-back is taking. Made once and shared by `Arc` with everything that makes or sweeps one.
 #[derive(Debug, Default)]
 pub struct LeftoverNamesInUse {
     names: Mutex<HashSet<PathBuf>>,
