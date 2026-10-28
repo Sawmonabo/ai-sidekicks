@@ -1,6 +1,8 @@
 //! `session.event.subscribe`: a session's events, caught up from after `afterCursor` (from the
 //! start of its log when absent) and then followed, in batched frames, each change carrying its
-//! cursor and, for an event of a run, the run stamp its transcript row carries. The stream reads
+//! cursor and, for an event of a run, the run stamp its transcript row carries. A tool call the
+//! session's driver reads as a change to the agent's task list is left out, as the transcript
+//! leaves it, and the stream reads on past it. The stream reads
 //! its first frame when the call is taken and every later one from the log at its cursor only once
 //! the subscription's lane has credit and the connection has room, so the catch-up goes at the
 //! connection's pace and nothing is dropped. A session the daemon does not hold, a cursor it cannot
@@ -8,7 +10,7 @@
 //! fails later ends the subscription with the failure.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -29,10 +31,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::registry::{HandlerContext, MethodRegistryBuilder, RegistrationError};
 use sidekicks_ipc::stream::feed::{ChangeRecord, Feed, RecordPage};
 use sidekicks_ipc::stream::frame_batcher::ChangeFeed;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::registry::ProviderRegistry;
+use sidekicks_session::run::agent::read_lead_binding;
 use sidekicks_session::transcript::block_cut::{BlockParse, MARKDOWN_PARSE};
 use sidekicks_session::transcript::stream_state::{
     StreamedPiece, TranscriptStreamState, load_piece_texts, read_streamed_pieces,
 };
+use sidekicks_session::transcript::task_list_call::is_task_list_call;
 use sidekicks_session::transcript::turn_attribution::{
     RunTurnReads, SessionTurnAttribution, TurnAttributionError,
 };
@@ -49,12 +55,14 @@ use tokio::sync::watch;
 pub(crate) fn register_session_event_subscribe(
     registry: &mut MethodRegistryBuilder,
     log: Arc<EventLogService>,
+    providers: Arc<ProviderRegistry>,
 ) -> Result<(), RegistrationError> {
     registry.register_subscription::<SessionEventSubscribe, _>(
         move |request: SessionEventSubscribeRequest,
               _context: HandlerContext,
               subscription_id: SubscriptionId| {
             let log = Arc::clone(&log);
+            let providers = Arc::clone(&providers);
             async move {
                 let start = request
                     .after_cursor
@@ -62,6 +70,7 @@ pub(crate) fn register_session_event_subscribe(
                 let cursor = log.read_follow_start(request.session_id, start).await?;
                 let record = Arc::new(SessionEventRecord::new(
                     log,
+                    providers,
                     request.session_id,
                     MARKDOWN_PARSE,
                 ));
@@ -102,7 +111,11 @@ impl From<DatabaseReadError> for SessionEventStreamError {
 /// stored in are no events, so the log's reads never hand them to the stream.
 struct SessionEventRecord {
     log: Arc<EventLogService>,
+    providers: Arc<ProviderRegistry>,
     session_id: SessionId,
+    /// The driver that reads the session's task-list calls, resolved once the session's lead is
+    /// read; `None` inside when no driver answers its provider, which keeps every call.
+    task_list_driver: Arc<OnceLock<Option<Arc<dyn ProviderDriver>>>>,
     /// The stream's attribution, fed every page in order; it holds one fold per run until the
     /// run's terminal event.
     attribution: Arc<Mutex<SessionTurnAttribution>>,
@@ -114,10 +127,17 @@ struct SessionEventRecord {
 }
 
 impl SessionEventRecord {
-    fn new(log: Arc<EventLogService>, session_id: SessionId, parse: BlockParse) -> Self {
+    fn new(
+        log: Arc<EventLogService>,
+        providers: Arc<ProviderRegistry>,
+        session_id: SessionId,
+        parse: BlockParse,
+    ) -> Self {
         Self {
             log,
+            providers,
             session_id,
+            task_list_driver: Arc::new(OnceLock::new()),
             attribution: Arc::new(Mutex::new(SessionTurnAttribution::new(session_id))),
             rows: Arc::new(Mutex::new(TranscriptStreamState::new(parse))),
             left_pieces: Arc::new(Mutex::new(HashMap::new())),
@@ -134,8 +154,11 @@ impl ChangeRecord for SessionEventRecord {
         &self,
         cursor: &EventCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<RecordPage<SessionStreamChange>, SessionEventStreamError>> {
+    ) -> BoxFuture<'_, Result<RecordPage<EventCursor, SessionStreamChange>, SessionEventStreamError>>
+    {
         let cursor = cursor.clone();
+        let providers = Arc::clone(&self.providers);
+        let task_list_driver = Arc::clone(&self.task_list_driver);
         let attribution = Arc::clone(&self.attribution);
         let rows = Arc::clone(&self.rows);
         let left_pieces = Arc::clone(&self.left_pieces);
@@ -153,12 +176,22 @@ impl ChangeRecord for SessionEventRecord {
                             None => {
                                 return Ok(RecordPage {
                                     changes: Vec::new(),
-                                    is_cut_by_size: false,
+                                    read_through: None,
+                                    is_cut_short: false,
                                 });
                             }
                         };
                         let read_bound =
                             session_read_bound(read_damaged_from_sequence, &session_id, None);
+                        let task_list_driver = match task_list_driver.get() {
+                            Some(resolved) => resolved.clone(),
+                            None => match read_lead_binding(connection, &session_id, read_bound)? {
+                                Some((provider, _)) => task_list_driver
+                                    .get_or_init(|| providers.lookup(&provider).ok())
+                                    .clone(),
+                                None => None,
+                            },
+                        };
                         let sequences: Vec<i64> = page
                             .events
                             .iter()
@@ -202,7 +235,10 @@ impl ChangeRecord for SessionEventRecord {
                         // folded once.
                         let kept =
                             count_changes_fitting_one_frame(&page.events, &contents, &stored);
-                        let is_cut_by_size = kept < page.events.len();
+                        let is_cut_short = page.events.len() == max || kept < page.events.len();
+                        let read_through =
+                            encode_event_cursor(i64::from(page.events[kept - 1].sequence))
+                                .map_err(EventLogReadError::from)?;
                         for event in &page.events[kept..] {
                             let sequence = i64::from(event.sequence);
                             if let Some(piece) = stored.remove(&sequence) {
@@ -212,7 +248,18 @@ impl ChangeRecord for SessionEventRecord {
                         drop(left_pieces);
                         let mut changes = Vec::with_capacity(kept);
                         for (event, content) in page.events.into_iter().zip(contents).take(kept) {
+                            // Every event read is folded once, a left-out one too, as the
+                            // transcript's window folds the whole log.
                             let attributed = attribution.attribute(&reads, &event)?;
+                            let is_left_out = task_list_driver.as_deref().is_some_and(|driver| {
+                                let body = stored
+                                    .get(&i64::from(event.sequence))
+                                    .and_then(StreamedPiece::body_text);
+                                is_task_list_call(driver, &event, body)
+                            });
+                            if is_left_out {
+                                continue;
+                            }
                             let cursor = encode_event_cursor(i64::from(event.sequence))
                                 .map_err(EventLogReadError::from)?;
                             let Some(attributed) = attributed else {
@@ -253,17 +300,14 @@ impl ChangeRecord for SessionEventRecord {
                         }
                         Ok(RecordPage {
                             changes,
-                            is_cut_by_size,
+                            read_through: Some(read_through),
+                            is_cut_short,
                         })
                     },
                 )
                 .await
         }
         .boxed()
-    }
-
-    fn cursor_of(change: &SessionStreamChange) -> EventCursor {
-        change.cursor.clone()
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {
@@ -318,12 +362,16 @@ mod tests {
     use sidekicks_ipc::call_fixtures::{context, request};
     use sidekicks_ipc::registry::{Dispatch as _, EncodedFeed, Reply};
     use sidekicks_ipc::stream::feed::CreditGate;
+    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::task_list::TaskListChange;
+    use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+    use sidekicks_session::run::engine::test_fixture::insert_running_run;
     use sidekicks_session::transcript::test_log::{
         STALLING_TEXT, stalling_parse, wire_block_starts, wire_message,
     };
     use sidekicks_session::transcript::window::read_transcript_window;
     use sidekicks_store::database::writer::test_file::{
-        TestDatabase, test_envelope, test_session_id,
+        TestDatabase, insert_lead, test_envelope, test_session_id,
     };
     use sidekicks_store::events::log_service::EventLogAppendOptions;
     use sidekicks_store::events::log_service::test_fixture::open_log;
@@ -333,6 +381,13 @@ mod tests {
 
     /// Long enough for a frame that is coming to come, many windows over.
     const QUIET: Duration = Duration::from_millis(250);
+
+    /// A table of providers no session in these tests runs on.
+    fn no_drivers() -> Arc<ProviderRegistry> {
+        Arc::new(registry_of_first_provider(Arc::new(
+            MockProviderDriver::new(),
+        )))
+    }
 
     async fn pin(log: &EventLogService, session_id: SessionId) {
         let pinned = serde_json::from_value(json!({
@@ -374,7 +429,7 @@ mod tests {
             pin(&log, session_id).await;
         }
         let mut builder = MethodRegistryBuilder::new();
-        register_session_event_subscribe(&mut builder, Arc::clone(&log))
+        register_session_event_subscribe(&mut builder, Arc::clone(&log), no_drivers())
             .expect("the method registers");
         let reply = builder
             .freeze()
@@ -454,7 +509,9 @@ mod tests {
     }
 
     /// Each change's piece, as its row's id, its offset and its inline text.
-    fn pieces_of(page: &RecordPage<SessionStreamChange>) -> Vec<(String, u64, serde_json::Value)> {
+    fn pieces_of(
+        page: &RecordPage<EventCursor, SessionStreamChange>,
+    ) -> Vec<(String, u64, serde_json::Value)> {
         page.changes
             .iter()
             .map(|change| {
@@ -493,13 +550,14 @@ mod tests {
             (row_id.clone(), offset, json!(body))
         };
 
-        let record = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let record =
+            SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, MARKDOWN_PARSE);
         let first = record
             .read_after(&start, 64)
             .await
             .expect("the frame reads");
         let kept = first.changes.len();
-        assert!(first.is_cut_by_size);
+        assert!(first.is_cut_short);
         assert!(kept > 0 && kept < piece_count);
         assert_eq!(pieces_of(&first), (0..kept).map(placed).collect::<Vec<_>>());
         let last_cursor = first.changes[kept - 1].cursor.clone();
@@ -509,7 +567,8 @@ mod tests {
             .expect("the frame reads");
         assert_eq!(pieces_of(&next)[0], placed(kept));
 
-        let opened_inside = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let opened_inside =
+            SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, MARKDOWN_PARSE);
         let inside = opened_inside
             .read_after(&first.changes[2].cursor, 1)
             .await
@@ -562,7 +621,8 @@ mod tests {
             .await
             .expect("the session's start reads");
 
-        let record = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let record =
+            SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, MARKDOWN_PARSE);
         let page = record
             .read_after(&start, 64)
             .await
@@ -614,7 +674,8 @@ mod tests {
             .await
             .expect("the session's start reads");
 
-        let record = SessionEventRecord::new(Arc::clone(&log), session_id, stalling_parse);
+        let record =
+            SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, stalling_parse);
         let page = record
             .read_after(&start, 64)
             .await
@@ -669,7 +730,9 @@ mod tests {
     }
 
     /// Every start the changes of `page` send, by row id, in the order sent.
-    fn streamed_starts(page: &RecordPage<SessionStreamChange>) -> HashMap<String, Vec<u32>> {
+    fn streamed_starts(
+        page: &RecordPage<EventCursor, SessionStreamChange>,
+    ) -> HashMap<String, Vec<u32>> {
         let mut starts: HashMap<String, Vec<u32>> = HashMap::new();
         for change in &page.changes {
             let (change, attachments) = wire_message(change);
@@ -715,7 +778,8 @@ mod tests {
             .read_follow_start(session_id, FollowStart::StartOfLog)
             .await
             .expect("the session's start reads");
-        let record = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let record =
+            SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, MARKDOWN_PARSE);
         let before = record
             .read_after(&start, 64)
             .await
@@ -734,7 +798,8 @@ mod tests {
             .read_after(between_cursor, 64)
             .await
             .expect("the frame reads");
-        let opened_between = SessionEventRecord::new(Arc::clone(&log), session_id, MARKDOWN_PARSE);
+        let opened_between =
+            SessionEventRecord::new(Arc::clone(&log), no_drivers(), session_id, MARKDOWN_PARSE);
         let inside = opened_between
             .read_after(between_cursor, 64)
             .await
@@ -783,5 +848,73 @@ mod tests {
             joined, read_ended[&message_row],
             "a stream opened after a read sends only what it left"
         );
+    }
+
+    // A read whose records end in a task-list call sends the events before it and reads through
+    // it, so the stream never reads it again, and a read whose records are all task-list calls
+    // sends nothing, reads through them and leaves the next read due. Killed by a cursor moved
+    // only past the changes sent, by a task-list call sent as a change, and by a read full by its
+    // count of records left waiting for the next change.
+    #[tokio::test]
+    async fn a_read_ending_in_a_task_list_call_reads_through_it() {
+        let database = TestDatabase::new(schema_parts());
+        let log = open_log(&database, None).await.service;
+        let session_id = test_session_id();
+        let run_id = new_run_id();
+        let providers = {
+            let mut driver = MockProviderDriver::new();
+            driver.expect_task_list_change().returning(|call| {
+                (call.tool_name == "task-list").then_some(TaskListChange::Nothing)
+            });
+            Arc::new(registry_of_first_provider(Arc::new(driver)))
+        };
+        let provider = providers
+            .drivers()
+            .next()
+            .map(|(provider, _)| provider.clone())
+            .expect("the table has a provider");
+        insert_lead(&database, session_id, provider.as_str());
+        insert_running_run(&database, session_id, run_id);
+        pin(&log, session_id).await;
+        let task_list_call = serde_json::from_value(json!({
+            "type": "agent.toolCall.invoked",
+            "payload": {
+                "sessionId": session_id,
+                "runId": run_id,
+                "toolName": "task-list",
+                "toolCallId": "task-list-call",
+            },
+        }))
+        .expect("the test writes a task-list call");
+        log.append(
+            test_envelope(session_id, &task_list_call),
+            EventLogAppendOptions::default(),
+        )
+        .await
+        .expect("the append commits");
+        let start = log
+            .read_follow_start(session_id, FollowStart::StartOfLog)
+            .await
+            .expect("the session's start reads");
+        // The lead's creation, the pin, then the call.
+        let through_task_list = encode_event_cursor(2).expect("a sequence is a cursor");
+        let record = SessionEventRecord::new(log, providers, session_id, MARKDOWN_PARSE);
+
+        let whole = record.read_after(&start, 64).await.expect("the page reads");
+        let tail = record
+            .read_after(&whole.changes[whole.changes.len() - 1].cursor, 1)
+            .await
+            .expect("the page reads");
+
+        let sent: Vec<&str> = whole
+            .changes
+            .iter()
+            .map(|change| change.event.event_type.as_str())
+            .collect();
+        assert_eq!(sent, ["session.created", "session.pinned"]);
+        assert_eq!(whole.read_through, Some(through_task_list.clone()));
+        assert!(tail.changes.is_empty());
+        assert_eq!(tail.read_through, Some(through_task_list));
+        assert!(tail.is_cut_short);
     }
 }

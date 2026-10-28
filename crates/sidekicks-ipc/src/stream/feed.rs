@@ -34,17 +34,15 @@ pub trait ChangeRecord: Send + Sync {
     /// Why a read failed.
     type Error: Error + Send + Sync + 'static;
 
-    /// At most `max` changes after `cursor`, oldest first; empty when none is stored yet, and the
-    /// record's error when the read failed. Its implementer runs its database read through
-    /// `spawn_blocking`.
+    /// The changes among at most `max` stored records after `cursor`, oldest first, with the
+    /// cursor after the last record read, which a record that is no change moves too; empty when
+    /// none is stored yet, and the record's error when the read failed. Its implementer runs its
+    /// database read through `spawn_blocking`.
     fn read_after(
         &self,
         cursor: &Self::Cursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<RecordPage<Self::Change>, Self::Error>>;
-
-    /// The cursor that resumes after `change`.
-    fn cursor_of(change: &Self::Change) -> Self::Cursor;
+    ) -> BoxFuture<'_, Result<RecordPage<Self::Cursor, Self::Change>, Self::Error>>;
 
     /// The change signal: a count of the changes appended to the record, which grows by one per
     /// change once that change is readable, so a reader can count the changes signaled since it
@@ -56,14 +54,17 @@ pub trait ChangeRecord: Send + Sync {
     fn is_store_closed(error: &Self::Error) -> bool;
 }
 
-/// One read of a change record: its changes, and whether the read stopped short of its count
-/// because the changes it holds already fill one frame's bytes while more are stored.
+/// One read of a change record: its changes, where it read through, and whether it stopped at its
+/// count or at one frame's bytes, so more may be stored.
 #[derive(Debug)]
-pub struct RecordPage<Change> {
+pub struct RecordPage<Cursor, Change> {
     /// The changes, oldest first.
     pub changes: Vec<Change>,
-    /// Whether a frame's byte budget cut the read before more stored changes.
-    pub is_cut_by_size: bool,
+    /// The cursor after the last record read, a record that is no change among them; `None` when
+    /// the read found none.
+    pub read_through: Option<Cursor>,
+    /// Whether the read stopped at its count or at a frame's byte budget, so the next one is due.
+    pub is_cut_short: bool,
 }
 
 /// A subscription's typed emissions: what a subscribe handler answers.

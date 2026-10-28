@@ -148,9 +148,8 @@ pub(crate) struct MethodTableServices {
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
 /// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
-/// the repositories. The handshake, the
-/// subscriptions' cancel and the artifact store's table are registered by the start beside them.
-/// Fails when a method is registered twice.
+/// the repositories. The handshake, the subscriptions' cancel and the artifact store's table are
+/// registered by the start beside them. Fails when a method is registered twice.
 #[expect(
     dead_code,
     reason = "the daemon's start registers the tables through it"
@@ -188,7 +187,7 @@ pub(crate) fn register_method_tables(
     )?;
     register_transcript_reads(builder, services.sessions, services.search_index)?;
     register_session_list(builder, services.list_feed)?;
-    register_session_event_subscribe(builder, services.event_log)?;
+    register_session_event_subscribe(builder, services.event_log, Arc::clone(&services.providers))?;
     register_session_draft_update(builder, services.drafts)?;
     register_session_tags(builder, services.tags)?;
     register_session_links(builder, services.links, services.related_ranking)?;
