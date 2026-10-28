@@ -6,6 +6,7 @@ pub(crate) mod artifact;
 pub(crate) mod command;
 pub(crate) mod driver;
 pub(crate) mod highlight;
+pub(crate) mod mcp;
 pub(crate) mod question;
 pub(crate) mod repo;
 pub(crate) mod run;
