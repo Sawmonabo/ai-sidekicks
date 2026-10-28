@@ -33,7 +33,7 @@ async fn run_trimmed(git: &GitRunner, call: GitCall) -> String {
 
 /// Makes the repository `name` in `parent` on branch `main`, with the test's author in its config
 /// and one empty commit, and answers its folder. Panics when git fails.
-pub(crate) async fn make_test_repository(git: &GitRunner, parent: &Path, name: &str) -> PathBuf {
+pub async fn make_test_repository(git: &GitRunner, parent: &Path, name: &str) -> PathBuf {
     git_in(
         git,
         parent,
@@ -54,7 +54,7 @@ pub(crate) async fn make_test_repository(git: &GitRunner, parent: &Path, name: &
 
 /// Commits what is staged in `folder` with `message`, unsigned, even when nothing is. Panics when
 /// git fails.
-pub(crate) async fn commit_empty(git: &GitRunner, folder: &Path, message: &str) {
+pub async fn commit_empty(git: &GitRunner, folder: &Path, message: &str) {
     git_in(
         git,
         folder,

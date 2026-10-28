@@ -457,7 +457,6 @@ fn line_text_of(line: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
 
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::repo::git_reads::GitObjectId;

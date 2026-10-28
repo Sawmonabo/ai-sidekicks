@@ -18,8 +18,8 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_envelope, 
 use sidekicks_store::events::log_service::EventLogAppendOptions;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
+use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::git_in;
-use sidekicks_workspace::git::process::{GitRunner, test_git_runner};
 use sidekicks_workspace::git::worktree::event_emitter::WorktreeEventEmitter;
 use sidekicks_workspace::git::worktree::fetch::{BackgroundFetch, BackgroundFetchDeps};
 use sidekicks_workspace::git::worktree::occupancy::MountOccupancyReader;
