@@ -89,12 +89,17 @@ pub(crate) enum SupervisorAction {
     ReportProcessExited,
     /// Tells the session's recovery the daemon ended the process for answering nothing for the
     /// whole silence limit.
-    ReportSilentEnd,
-    /// Watches the service's silence under `ticket`, reporting `SilenceElapsed` once the limit
-    /// passes; a watch already running is ended.
+    ReportSilentEnd {
+        /// How long the service had answered nothing when the watch ran out.
+        silent_for: Duration,
+    },
+    /// Watches the service's silence under `ticket`, `silent_for` into the limit already,
+    /// reporting `SilenceElapsed` once the limit passes; a watch already running is ended.
     WatchSilence {
         /// The watch's ticket.
         ticket: u64,
+        /// How long the service has answered nothing so far.
+        silent_for: Duration,
     },
     /// Ends the silence watch running, the service having answered or left the state that
     /// watched it.

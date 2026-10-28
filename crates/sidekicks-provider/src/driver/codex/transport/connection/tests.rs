@@ -27,7 +27,7 @@ use crate::driver::error_causes::RequestUnanswered;
 struct RecordedEvents {
     dropped: Mutex<Vec<String>>,
     held_requests_dropped: Mutex<Vec<CodexForgottenRequest>>,
-    silence: Mutex<Vec<&'static str>>,
+    silence: Mutex<Vec<String>>,
 }
 
 impl CodexConnectionEvents for RecordedEvents {
@@ -49,18 +49,18 @@ impl CodexConnectionEvents for RecordedEvents {
 
     fn service_draining(&self, _message: &str) {}
 
-    fn request_timed_out(&self) {
+    fn request_timed_out(&self, silent_for: Duration) {
         self.silence
             .lock()
             .expect("no test thread panicked")
-            .push("timed out");
+            .push(format!("timed out after {silent_for:?}"));
     }
 
     fn answered_after_timeout(&self) {
         self.silence
             .lock()
             .expect("no test thread panicked")
-            .push("answered");
+            .push("answered".to_owned());
     }
 }
 
@@ -166,8 +166,30 @@ async fn a_timeout_is_reported_once_until_the_service_next_sends_anything() {
     }
     let _third = connection.request("thread/read", &params).await;
 
-    assert_eq!(after_two_timeouts, ["timed out"]);
-    assert_eq!(silence(), ["timed out", "answered", "timed out"]);
+    assert_eq!(after_two_timeouts, ["timed out after 60s"]);
+    assert_eq!(
+        silence(),
+        ["timed out after 60s", "answered", "timed out after 60s"]
+    );
+}
+
+// Kills: the silence counted from the send of the request that timed out, when an older one
+// still waits, which lets a service answer nothing past the limit.
+#[tokio::test(start_paused = true)]
+async fn a_timeout_counts_the_silence_from_the_oldest_unanswered_send() {
+    let (connection, _service, events) = connect(usize::MAX, None);
+    let params = json!({});
+    let older = connection.request_within("thread/read", &params, Duration::from_mins(5));
+    tokio::pin!(older);
+    assert!(poll!(older.as_mut()).is_pending());
+    tokio::time::advance(Duration::from_secs(30)).await;
+
+    let _timed_out = connection.request("thread/read", &params).await;
+
+    assert_eq!(
+        *events.silence.lock().expect("no test thread panicked"),
+        ["timed out after 90s"]
+    );
 }
 
 // Kills: a close after the write mapped back to `Transport`, which a caller would send again

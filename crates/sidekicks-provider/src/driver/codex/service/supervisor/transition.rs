@@ -115,13 +115,18 @@ impl Supervision {
         self.silent_ends.clear();
     }
 
-    // A silence watch for a service the daemon started; one it joined is never ended.
-    fn watch_silence(&mut self, actions: &mut Vec<SupervisorAction>) -> Option<u64> {
+    // A silence watch, `silent_for` into its limit already, for a service the daemon started; one
+    // it joined is never ended.
+    fn watch_silence(
+        &mut self,
+        actions: &mut Vec<SupervisorAction>,
+        silent_for: Duration,
+    ) -> Option<u64> {
         if !self.kind.is_daemons_own() {
             return None;
         }
         let ticket = self.mint_ticket();
-        actions.push(SupervisorAction::WatchSilence { ticket });
+        actions.push(SupervisorAction::WatchSilence { ticket, silent_for });
         Some(ticket)
     }
 
@@ -155,13 +160,12 @@ impl Supervision {
         &mut self,
         at: Option<SystemTime>,
         start_failure: Option<Arc<CodexError>>,
-        is_silent: bool,
+        silent_for: Option<Duration>,
         mut actions: Vec<SupervisorAction>,
     ) -> (SupervisorState, Vec<SupervisorAction>) {
-        actions.push(if is_silent {
-            SupervisorAction::ReportSilentEnd
-        } else {
-            SupervisorAction::ReportProcessExited
+        actions.push(match silent_for {
+            Some(silent_for) => SupervisorAction::ReportSilentEnd { silent_for },
+            None => SupervisorAction::ReportProcessExited,
         });
         if self.is_replaced {
             actions.push(SupervisorAction::RetireRecord);
@@ -172,7 +176,7 @@ impl Supervision {
             return self.start(Some(CodexServiceRecoveryCause::Crash), actions);
         };
         let mut outcome = self.crash_window.record_crash(at);
-        if is_silent && self.silent_ends.record_crash(at) == CrashOutcome::CrashLoop {
+        if silent_for.is_some() && self.silent_ends.record_crash(at) == CrashOutcome::CrashLoop {
             outcome = CrashOutcome::CrashLoop;
         }
         match outcome {
@@ -209,7 +213,7 @@ impl Supervision {
             Some(CodexServiceRecoveryCause::Crash | CodexServiceRecoveryCause::PersonRestart)
         ) {
             actions.push(SupervisorAction::ReportStartFailed(Arc::clone(&failure)));
-            return self.crash(Some(at), Some(failure), false, actions);
+            return self.crash(Some(at), Some(failure), None, actions);
         }
         actions.push(SupervisorAction::Publish(
             CodexServiceAvailability::StartFailed(failure),
@@ -478,7 +482,7 @@ impl Supervision {
                     return self.crash(
                         None,
                         None,
-                        false,
+                        None,
                         vec![Action::Disconnect {
                             is_process_gone: true,
                         }],
@@ -495,7 +499,7 @@ impl Supervision {
                 // then.
                 let silence = match silence {
                     Some(ticket) => Some(ticket),
-                    None => self.watch_silence(&mut actions),
+                    None => self.watch_silence(&mut actions, Duration::ZERO),
                 };
                 self.redial(
                     launch,
@@ -510,7 +514,7 @@ impl Supervision {
                 self.crash(
                     Some(at),
                     None,
-                    false,
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -540,8 +544,9 @@ impl Supervision {
                 },
                 Vec::new(),
             ),
-            // A request went unanswered on the open connection: the silence watch starts, unless
-            // one already runs, so a later request's timeout never pushes its end out.
+            // A request went unanswered on the open connection: the silence watch starts from the
+            // send of the oldest request still unanswered, unless one already runs, so a later
+            // request's timeout never pushes its end out.
             (
                 State::Up {
                     launch,
@@ -551,10 +556,13 @@ impl Supervision {
                     draining,
                     silence: None,
                 },
-                Event::RequestTimedOut { dial: timed_out },
+                Event::RequestTimedOut {
+                    dial: timed_out,
+                    silent_for,
+                },
             ) if timed_out == dial => {
                 let mut actions = Vec::new();
-                let silence = self.watch_silence(&mut actions);
+                let silence = self.watch_silence(&mut actions, silent_for);
                 (
                     State::Up {
                         launch,
@@ -602,10 +610,14 @@ impl Supervision {
                     silence: Some(watched),
                     ..
                 },
-                Event::SilenceElapsed { ticket, at },
+                Event::SilenceElapsed {
+                    ticket,
+                    at,
+                    silent_for,
+                },
             ) if ticket == watched => Self::stop(
                 launch,
-                StoppingThen::SilentEnd { at },
+                StoppingThen::SilentEnd { at, silent_for },
                 LastingServiceEnd::Stop,
                 vec![Action::CancelPending],
             ),
@@ -699,7 +711,7 @@ impl Supervision {
                 (CodexServiceKind::Account | CodexServiceKind::Terminal, true) => self.crash(
                     None,
                     None,
-                    false,
+                    None,
                     vec![Action::Disconnect {
                         is_process_gone: true,
                     }],
@@ -725,7 +737,7 @@ impl Supervision {
                 self.crash(
                     Some(at),
                     None,
-                    false,
+                    None,
                     vec![
                         Action::CancelPending,
                         Action::Disconnect {
@@ -794,7 +806,9 @@ impl Supervision {
                         vec![Action::Publish(CodexServiceAvailability::Stopped)],
                     ),
                     StoppingThen::Starting => self.start(None, Vec::new()),
-                    StoppingThen::SilentEnd { at } => self.crash(Some(at), None, true, Vec::new()),
+                    StoppingThen::SilentEnd { at, silent_for } => {
+                        self.crash(Some(at), None, Some(silent_for), Vec::new())
+                    }
                     StoppingThen::ShutDown => (
                         State::ShutDown,
                         vec![Action::Publish(CodexServiceAvailability::ShutDown)],

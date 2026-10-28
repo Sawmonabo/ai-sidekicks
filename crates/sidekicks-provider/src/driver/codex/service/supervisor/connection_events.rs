@@ -2,7 +2,7 @@
 //! that belongs to no session.
 
 use std::sync::{Arc, Weak};
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use serde_json::value::RawValue;
 
@@ -59,9 +59,12 @@ impl CodexConnectionEvents for ServiceConnectionEvents {
         }
     }
 
-    fn request_timed_out(&self) {
+    fn request_timed_out(&self, silent_for: Duration) {
         if let Some(service) = self.service.upgrade() {
-            service.send(SupervisorEvent::RequestTimedOut { dial: self.dial });
+            service.send(SupervisorEvent::RequestTimedOut {
+                dial: self.dial,
+                silent_for,
+            });
         }
     }
 
@@ -94,7 +97,7 @@ impl CodexConnectionEvents for DetachedConnectionEvents {
     fn service_draining(&self, _message: &str) {}
 
     // Its read fails at its own deadline; the service's silence is watched on its own connection.
-    fn request_timed_out(&self) {}
+    fn request_timed_out(&self, _silent_for: Duration) {}
 
     fn answered_after_timeout(&self) {}
 }

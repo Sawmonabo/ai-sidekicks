@@ -2,7 +2,7 @@
 //! did, each carrying the instants the transition reads.
 
 use std::sync::Arc;
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::session::errors::CodexError;
@@ -88,6 +88,8 @@ pub(crate) enum SupervisorEvent {
     RequestTimedOut {
         /// The connection's ticket.
         dial: u64,
+        /// How long since the oldest request still unanswered on it was sent.
+        silent_for: Duration,
     },
     /// The service sent something on connection `dial` after a request on it went unanswered.
     Answered {
@@ -100,6 +102,8 @@ pub(crate) enum SupervisorEvent {
         ticket: u64,
         /// When it ran out, on the wall clock.
         at: SystemTime,
+        /// How long the service had answered nothing then.
+        silent_for: Duration,
     },
     /// Codex's own managed daemon this supervisor joined is free, and the runner stopped it.
     JoinedServiceFreed {

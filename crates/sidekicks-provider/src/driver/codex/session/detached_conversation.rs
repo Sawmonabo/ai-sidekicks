@@ -65,7 +65,7 @@ impl CodexConnectionEvents for CodexDetachedFrames {
     fn service_draining(&self, _message: &str) {}
 
     // The pass's request fails at its own deadline, and nothing ends the service for it.
-    fn request_timed_out(&self) {}
+    fn request_timed_out(&self, _silent_for: Duration) {}
 
     fn answered_after_timeout(&self) {}
 }

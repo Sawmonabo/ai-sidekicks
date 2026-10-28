@@ -1,6 +1,6 @@
 //! Where one service's supervisor stands, and what follows a stop under way.
 
-use std::time::{Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::transition::action::LastingServiceEnd;
@@ -31,12 +31,12 @@ pub(crate) enum SupervisorState {
         /// Codex's words once it answered that it drains toward its exit: new work is refused,
         /// reads and interrupts go on.
         draining: Option<String>,
-        /// The ticket of the silence watch running since a request on the connection went
-        /// unanswered, until the service sends anything.
+        /// The ticket of the silence watch running since the send of a request the connection
+        /// left unanswered, until the service sends anything.
         silence: Option<u64>,
     },
-    /// The connection dropped while the service runs; a redial is waiting or under way, and it
-    /// never gives up.
+    /// The connection dropped while the service runs; a redial is waiting or under way, until
+    /// it reconnects or the silence watch ends the service.
     Reconnecting {
         /// The ticket of the start whose process runs.
         launch: u64,
@@ -83,6 +83,8 @@ pub(crate) enum StoppingThen {
     SilentEnd {
         /// When the silence ran out, on the wall clock.
         at: SystemTime,
+        /// How long the service had answered nothing then.
+        silent_for: Duration,
     },
 }
 

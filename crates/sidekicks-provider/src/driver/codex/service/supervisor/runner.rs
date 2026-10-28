@@ -199,19 +199,21 @@ impl ServiceRunner {
                     }
                 });
             }
-            SupervisorAction::WatchSilence { ticket } => {
+            SupervisorAction::WatchSilence { ticket, silent_for } => {
                 self.silence.cancel();
                 self.silence = CancellationToken::new();
                 let watching = Arc::downgrade(service);
                 let cancel = self.silence.clone();
                 tokio::spawn(async move {
+                    let watched = tokio::time::Instant::now();
                     tokio::select! {
                         () = cancel.cancelled() => {}
-                        () = tokio::time::sleep(SERVICE_SILENCE_LIMIT) => {
+                        () = tokio::time::sleep(SERVICE_SILENCE_LIMIT.saturating_sub(silent_for)) => {
                             if let Some(watching) = watching.upgrade() {
                                 watching.send(SupervisorEvent::SilenceElapsed {
                                     ticket,
                                     at: SystemTime::now(),
+                                    silent_for: silent_for + watched.elapsed(),
                                 });
                             }
                         }
@@ -245,9 +247,9 @@ impl ServiceRunner {
                     .events
                     .process_exited(service, exit.as_ref());
             }
-            SupervisorAction::ReportSilentEnd => {
+            SupervisorAction::ReportSilentEnd { silent_for } => {
                 // The stop's own exit, where it came first, gives only the lines printed.
-                let exit = silent_exit(self.last_exit.take());
+                let exit = silent_exit(self.last_exit.take(), silent_for);
                 service
                     .dependencies
                     .events
@@ -573,8 +575,9 @@ fn check_joined_service_free(service: &Arc<CodexService>, dial: u64) {
     });
 }
 
-// The end of a service the daemon stopped for its silence, with the lines the stop's exit read.
-fn silent_exit(stopped: Option<ProcessExit>) -> ProcessExit {
+// The end of a service the daemon stopped after `silent_for` of silence, with the lines the stop's
+// exit read.
+fn silent_exit(stopped: Option<ProcessExit>, silent_for: Duration) -> ProcessExit {
     let output_tail = match stopped {
         Some(ProcessExit::Code(ended)) => ended.output_tail,
         Some(ProcessExit::Signal(ended)) => ended.output_tail,
@@ -583,8 +586,8 @@ fn silent_exit(stopped: Option<ProcessExit>) -> ProcessExit {
             .expect("an empty tail reads as a short, non-blank phrase"),
     };
     ProcessExit::Silent(ProcessExitAfterSilence {
-        silent_seconds: SafeInt::new(SERVICE_SILENCE_LIMIT.as_secs())
-            .expect("the silence limit is a positive number of seconds"),
+        silent_seconds: SafeInt::new(silent_for.as_secs())
+            .expect("a watch runs out at its limit or later, far below 2^53 seconds"),
         exit_code: None,
         signal: None,
         output_tail,
