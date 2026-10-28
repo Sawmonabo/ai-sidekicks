@@ -148,7 +148,6 @@ pub enum LinkedTreeRecordError {
 /// [`GitRunner::run`] does, with `PathText` for a path this system
 /// cannot name and `Read` for a record git printed without its folder or with a quote it never
 /// writes.
-#[cfg_attr(not(test), expect(dead_code, reason = "the worktree service's reads"))]
 pub(crate) async fn read_listed_worktrees(
     git: &GitRunner,
     place: Option<&Place>,

@@ -73,13 +73,6 @@ const GIT_LOCK_CLAUSE_PREFIX: &str = "cannot lock ref '";
 
 /// An attached project as the clash check reads it: where its repository is, where it runs, and
 /// whether it keeps a pattern of its own.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the machine settings and project pattern saves check a pattern through it"
-    )
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct BranchPatternProject {
     /// The project, named by the refusal a clash in its repository raises.
@@ -100,13 +93,6 @@ pub(crate) struct BranchPatternProject {
 /// caller runs it only when the change carries a pattern. `{session}` is filled with a sample id,
 /// so a clash on a real session's id, and one in a project attached after the save, are refused
 /// by git when the worktree is made. Fails as [`find_project_branch_pattern_refusal`] does.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the machine settings and project pattern saves check a pattern through it"
-    )
-)]
 pub(crate) async fn find_machine_branch_pattern_refusal(
     git: &GitRunner,
     pattern: &BranchNamePattern,
@@ -127,10 +113,6 @@ pub(crate) async fn find_machine_branch_pattern_refusal(
 /// id is refused by git when the worktree is made. A project still cloning, one with no commit and
 /// one whose folder is gone or holds no repository are not checked for a clash, the last logged.
 /// Fails when git could not run, a WSL 2 place among the reasons, which is never read as a refusal.
-#[expect(
-    dead_code,
-    reason = "the machine settings and project pattern saves check a pattern through it"
-)]
 pub(crate) async fn find_project_branch_pattern_refusal(
     git: &GitRunner,
     pattern: &BranchNamePattern,
