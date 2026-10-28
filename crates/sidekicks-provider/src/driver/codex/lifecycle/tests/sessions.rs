@@ -443,19 +443,21 @@ enum ResumeFailure {
     Refused,
     /// The service went down after it came back, before the resume reached it.
     ServiceLost,
+    /// The service's connection closed while the resume waited on its answer.
+    ConnectionClosed,
 }
 
 // Killed by a resume the live service refused that keeps the session's record, or tells the queue
 // nothing: the session reads live on a conversation its service never loaded, and the queue keeps
 // it. Killed too by letting the record go when the service went down under the resume: the
-// person's restart after the crash loop would find no conversation to resume.
+// person's restart after the crash loop would find no conversation to resume, or when its
+// connection closed under the resume already sent: the service coming back would find none either.
 #[rstest]
 #[case::refused(ResumeFailure::Refused)]
 #[case::service_lost(ResumeFailure::ServiceLost)]
+#[case::connection_closed(ResumeFailure::ConnectionClosed)]
 #[tokio::test]
-async fn a_conversation_not_resumed_in_place_reads_down_and_tells_the_queue(
-    #[case] failure: ResumeFailure,
-) {
+async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: ResumeFailure) {
     let LiveCodexSession {
         driver,
         session_id,
@@ -481,20 +483,38 @@ async fn a_conversation_not_resumed_in_place_reads_down_and_tells_the_queue(
         .recover(&service, CodexServiceRecoveryCause::Crash, generation);
     // Held, so the script stays open while the service reads down.
     let _set_aside = match failure {
-        ResumeFailure::Refused => None,
+        ResumeFailure::Refused | ResumeFailure::ConnectionClosed => None,
         ResumeFailure::ServiceLost => scripted.publish_crash_loop(),
     };
     let mut recovering = std::pin::pin!(recovering);
     tokio::time::timeout(CLOSE_BOUND, async {
         loop {
             tokio::select! {
-                () = &mut recovering => break,
+                () = &mut recovering => return,
                 sent = scripted.script.next_sent() => match sent["method"].as_str() {
-                    Some("thread/resume") => scripted.script.send(&json!({
-                        "jsonrpc": "2.0",
-                        "id": sent["id"],
-                        "error": {"code": -32600, "message": "no rollout found for the thread"},
-                    })),
+                    Some("thread/resume") => match failure {
+                        // A close the daemon makes answers the resume waiting on the connection,
+                        // and tells the service nothing, so the service still holds it.
+                        ResumeFailure::ConnectionClosed => {
+                            service
+                                .connection()
+                                .expect("the service holds its connection")
+                                .close()
+                                .await
+                                .expect("the scripted connection closes");
+                            break;
+                        }
+                        ResumeFailure::Refused | ResumeFailure::ServiceLost => {
+                            scripted.script.send(&json!({
+                                "jsonrpc": "2.0",
+                                "id": sent["id"],
+                                "error": {
+                                    "code": -32600,
+                                    "message": "no rollout found for the thread",
+                                },
+                            }));
+                        }
+                    },
                     Some("thread/unsubscribe") => {
                         scripted
                             .script
@@ -507,6 +527,8 @@ async fn a_conversation_not_resumed_in_place_reads_down_and_tells_the_queue(
                 },
             }
         }
+        // The closed connection sends nothing more to the script.
+        (&mut recovering).await;
     })
     .await
     .expect("the recovery ends");
@@ -520,15 +542,19 @@ async fn a_conversation_not_resumed_in_place_reads_down_and_tells_the_queue(
             assert_eq!(*lock(&heard.holders), [None]);
             assert!(!is_attached, "a refused resume lets the record go");
         }
-        ResumeFailure::ServiceLost => {
+        ResumeFailure::ServiceLost | ResumeFailure::ConnectionClosed => {
             assert_eq!(*lock(&heard.holders), [Some(CodexSessionSlotState::Live)]);
-            assert!(is_attached, "the record stays for the person's restart");
+            assert!(is_attached, "the record stays for the next resume");
         }
     }
-    assert_eq!(
-        driver.session_process_state(session_id),
-        SessionProcessState::Down
-    );
+    // The closed connection's service reads up until its supervisor hears the drop, which a close
+    // the daemon makes never reports.
+    if !matches!(failure, ResumeFailure::ConnectionClosed) {
+        assert_eq!(
+            driver.session_process_state(session_id),
+            SessionProcessState::Down
+        );
+    }
 }
 
 // A one-message turn.
