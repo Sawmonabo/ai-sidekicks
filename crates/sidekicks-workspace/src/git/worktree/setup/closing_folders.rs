@@ -19,8 +19,9 @@ use crate::trust_envelope::is_contained_within;
 
 impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
     /// Ends every running setup command whose tree is `folder` or inside it: each is asked to
-    /// stop and ended after a grace, its step failing as removed; answers once each has exited,
-    /// with a hold under which no step starts in the folder and a retry there is refused
+    /// stop and ended after a grace, its step failing as removed; answers once each has exited and
+    /// every other step in flight there has ended, with a hold under which no step starts in the
+    /// folder and a retry there is refused
     /// `worktree.notFound`. Run before the folder is moved or deleted, the hold kept until that
     /// lands. Fails with `Folder` when `folder` cannot be resolved, and with `CommandsNotEnded`
     /// naming each command that could not be ended.
@@ -28,30 +29,39 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
         let folder_key = canonical_folder_path(folder)
             .await
             .map_err(WorktreeSetupError::Folder)?;
-        // Marked under the lock the commands are read under, so a command either is read here or
-        // sees the mark before it starts.
+        // Marked under the lock the commands and steps are read under, so a step either is read
+        // here or sees the mark before it starts.
         let (hold, running) = {
             let state = self.shared.lock();
             let hold = state.closing_folders.hold(&folder_key);
-            let running: Vec<(PathBuf, Arc<RunningCommand>)> = state
+            let running: Vec<RunningStep> = state
                 .cards
                 .values()
                 .filter_map(|card| {
-                    Some((
-                        card.made.as_ref()?.tree_path.clone(),
-                        Arc::clone(card.running_command.as_ref()?),
-                    ))
+                    Some(RunningStep {
+                        tree_path: card.made.as_ref()?.tree_path.clone(),
+                        command: card.running_command.clone(),
+                        step_running: card.step_in_flight.clone()?,
+                    })
                 })
                 .collect();
             (hold, running)
         };
         let mut in_folder = Vec::new();
-        for (tree_path, command) in running {
-            if is_contained_within(&tree_key_of(&tree_path).await, &folder_key) {
-                in_folder.push(command);
+        for step in running {
+            if is_contained_within(&tree_key_of(&step.tree_path).await, &folder_key) {
+                in_folder.push(step);
             }
         }
-        end_all(&in_folder, REMOVED_END_REASON, REMOVAL_END_GRACE).await?;
+        let commands: Vec<Arc<RunningCommand>> = in_folder
+            .iter()
+            .filter_map(|step| step.command.clone())
+            .collect();
+        end_all(&commands, REMOVED_END_REASON, REMOVAL_END_GRACE).await?;
+        // The step's sender drops as it ends.
+        for mut step in in_folder {
+            while step.step_running.changed().await.is_ok() {}
+        }
         Ok(hold)
     }
 }
@@ -67,6 +77,14 @@ impl<W: Watcher + Send + 'static> FolderProcessOwner for WorktreeSetupRunner<W> 
             Ok(Box::new(hold) as FolderProcessHold)
         })
     }
+}
+
+// A card's step in flight: its tree, its command if it runs one, and the reader that closes once
+// the step ends.
+struct RunningStep {
+    tree_path: PathBuf,
+    command: Option<Arc<RunningCommand>>,
+    step_running: tokio::sync::watch::Receiver<()>,
 }
 
 /// The key a tree's folder is compared by: resolved, or as written when it cannot be resolved,

@@ -216,6 +216,9 @@ struct Card {
     listeners: HashMap<u64, WorktreeSetupListener>,
     is_running: bool,
     running_command: Option<Arc<RunningCommand>>,
+    // The step running now, which closes once it ends, so a folder close waits for a copy or a
+    // warm step already in flight.
+    step_in_flight: Option<tokio::sync::watch::Receiver<()>>,
     watch_hold: Option<WatchHold>,
 }
 
@@ -290,6 +293,7 @@ impl<W: Watcher + Send + 'static> WorktreeSetupRunner<W> {
                 listeners: HashMap::new(),
                 is_running: false,
                 running_command: None,
+                step_in_flight: None,
                 watch_hold: None,
             },
         );
@@ -644,7 +648,7 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
         let tree_key = tree_key_of(&made.tree_path).await;
         let mut index = first_index;
         loop {
-            let action = {
+            let (action, step_done) = {
                 let mut state = self.lock();
                 let is_stopped = state.is_stopped;
                 let is_closing = state.closing_folders.is_held_within(&tree_key);
@@ -662,11 +666,15 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
                 let action = entry.action.clone();
                 card.emit(worktree_id);
                 if is_stopped {
-                    Err(STOPPED_END_REASON)
+                    (Err(STOPPED_END_REASON), None)
                 } else if is_closing {
-                    Err(REMOVED_END_REASON)
+                    (Err(REMOVED_END_REASON), None)
                 } else {
-                    Ok(action)
+                    // Kept on the card under the lock the closing mark is read under, so a close
+                    // either is seen here or sees the step.
+                    let (step_done, step_running) = tokio::sync::watch::channel(());
+                    card.step_in_flight = Some(step_running);
+                    (Ok(action), Some(step_done))
                 }
             };
             let started_at = Instant::now();
@@ -677,10 +685,12 @@ impl<W: Watcher + Send + 'static> RunnerShared<W> {
                 }
                 Err(reason) => StepOutcome::failed(reason),
             };
+            drop(step_done);
             let mut state = self.lock();
             let Some(card) = state.held_card(&worktree_id, card_id) else {
                 return dropped_status(worktree_id);
             };
+            card.step_in_flight = None;
             let entry = &mut card.steps[index];
             entry.step.elapsed_ms = Some(elapsed_ms_since(started_at));
             if let Some(error) = outcome.error {
