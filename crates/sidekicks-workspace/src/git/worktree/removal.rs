@@ -799,4 +799,4 @@ impl From<HeldWorkEnd> for WorktreeRemovalError {
 #[cfg(test)]
 pub(crate) mod test_owner;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

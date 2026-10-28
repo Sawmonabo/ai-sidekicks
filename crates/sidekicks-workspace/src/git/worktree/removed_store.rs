@@ -15,8 +15,8 @@
 //! failure goes to the service log and the next cleanup tries again. Until then it is listed only
 //! while it is the one source to rebuild a live tree put back that git cannot read.
 //!
-//! One lock per kept copy, shared with the removal, runs its discard, its repair, its put-back and
-//! its deletion one at a time, so each reads the row as the one before left it. The size reads and
+//! One lock per kept copy, shared with the removal, runs its discard, its repair, its put-back, its
+//! size read and its deletion one at a time, so each reads the row as the one before left it. The size reads and
 //! the restored copies' deletions run in the background after their call answered, one size read
 //! at a time, and [`RemovedWorktreeStore::settle`] waits for them.
 
@@ -376,8 +376,9 @@ impl RemovedWorktreeStore {
     }
 
     /// Reads the kept copy's size once, after the discard has answered, so the press waits on no
-    /// walk of the tree; one read runs at a time. A failed read leaves the size unknown and is
-    /// written to the service log.
+    /// walk of the tree; one read runs at a time, under the copy's lock, so no put-back or deletion
+    /// moves the copy mid-walk, and none runs once the copy is no longer listed. A failed read
+    /// leaves the size unknown and is written to the service log.
     pub(crate) fn measure_later(
         self: &Arc<Self>,
         removed_worktree_id: RemovedWorktreeId,
@@ -485,12 +486,16 @@ impl RemovedWorktreeStore {
         }))
     }
 
-    // Measures the kept copy and records its size.
+    // Measures the kept copy and records its size under the copy's lock, while it is listed.
     async fn record_size(
         &self,
         removed_worktree_id: &RemovedWorktreeId,
         kept_folder: &Path,
     ) -> Result<(), RemovedWorktreeStoreError> {
+        let _hold = self.deps.kept_copy_lock.acquire(*removed_worktree_id).await;
+        if self.find_row(*removed_worktree_id).await?.is_none() {
+            return Ok(());
+        }
         let size_bytes = measure_kept_copy(kept_folder)
             .await
             .map_err(RemovedWorktreeStoreError::failed)?;

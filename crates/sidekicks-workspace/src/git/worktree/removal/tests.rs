@@ -63,18 +63,18 @@ impl WorktreeSessionSweep for RecordingSweep {
 
 /// The kept worktrees' fixture with a removal over it, whose process owner and session sweep
 /// record what they were asked.
-pub(super) struct RemovalFixture {
+pub(crate) struct RemovalFixture {
     /// The repository, its trees and the store.
-    pub(super) kept: KeptCopyFixture,
+    pub(crate) kept: KeptCopyFixture,
     /// The removal under test.
-    pub(super) removal: WorktreeRemoval,
+    pub(crate) removal: WorktreeRemoval,
     owner: Arc<RecordingOwner>,
     sessions: Arc<RecordingSweep>,
 }
 
 impl RemovalFixture {
     /// The fixture over a fresh repository, its git calls through the tests' runner.
-    pub(super) async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         Self::over(KeptCopyFixture::new().await, test_git_runner())
     }
 

@@ -10,6 +10,7 @@ use futures::future::BoxFuture;
 use rstest::rstest;
 use rusqlite::params;
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::repo::git_reads::GitObjectId;
 use sidekicks_contracts::repo::mount::RepoMountState;
 use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 use sidekicks_contracts::worktree::removed::{
@@ -28,6 +29,7 @@ use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{
     PutBackAtFreeNameInput, PutBackBranchChoice, put_worktree_back_at_free_name,
 };
+use crate::git::worktree::removal::tests::RemovalFixture;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::cleanup::RetiredWorktreeKeeper;
 use crate::git::worktree::stale_record::StaleRecordTools;
@@ -159,11 +161,16 @@ async fn delete_now_removes_the_kept_copy_no_cleanup_pass_touches() {
 }
 
 // Kills a put-back a crash cut short left in place: its tree unrecorded where it went, its
-// record in the repository and its kept copy short of the tree.
+// record and new branch in the repository and its kept copy short of the tree, each left by the
+// cleanup's pass.
 #[tokio::test]
 async fn an_interrupted_put_back_is_undone_at_the_next_pass() {
-    let fixture = KeptCopyFixture::new().await;
+    let removal = RemovalFixture::new().await;
+    let fixture = &removal.kept;
     let tree = fixture.add_tree("fix", "fix").await;
+    let head = fixture
+        .git(Path::new(tree.fs_root.as_str()), &["rev-parse", "HEAD"])
+        .await;
     let removed_worktree_id = fixture.discard(&tree).await;
     let kept = fixture
         .store
@@ -181,7 +188,9 @@ async fn an_interrupted_put_back_is_undone_at_the_next_pass() {
             branch: kept.branch.as_str(),
             canonical_root: &fixture.repository,
             common_folder: &common_folder,
-            choice: &PutBackBranchChoice::OwnBranch,
+            choice: &PutBackBranchChoice::NewBranchAt(
+                GitObjectId::new(head).expect("git names a commit by its id"),
+            ),
             copy: &put_back_copy(&kept),
         },
         &KeptCopyPutBackMarks {
@@ -191,30 +200,34 @@ async fn an_interrupted_put_back_is_undone_at_the_next_pass() {
     )
     .await
     .expect("the tree is put back");
-    // As a crash leaves it: the tree in its folder and the row marked, nothing recording it.
+    // As a crash leaves it: the tree in its folder, its branch made and the row marked, nothing
+    // recording it.
     let target_folder = placed.target_folder.clone();
+    let new_branch = format!(
+        "refs/heads/{}",
+        placed
+            .new_branch
+            .as_ref()
+            .expect("a new branch is made")
+            .name
+    );
     drop(placed);
     assert!(target_folder.join(".git").is_file());
-    assert_eq!(
-        fixture
-            .store
-            .list_interrupted_put_backs()
-            .await
-            .expect("the interrupted put-backs are read"),
-        vec![removed_worktree_id]
-    );
+    let listing = ["for-each-ref", new_branch.as_str()];
+    let branch_listing = || fixture.git(&fixture.repository, &listing);
+    assert!(!branch_listing().await.is_empty(), "the new branch is made");
 
-    assert!(
-        fixture
-            .store
-            .finish_interrupted_put_back(removed_worktree_id)
-            .await
-            .expect("the interrupted put-back is undone")
-    );
+    let repair = removal
+        .removal
+        .finish_interrupted_kept_copies(&CancellationToken::new())
+        .await;
 
+    assert!(repair.failures.is_empty(), "{:?}", repair.failures);
+    assert_eq!(repair.repaired_removed_worktree_ids, [removed_worktree_id]);
     assert!(!target_folder.exists());
     assert!(kept_folder.join(KEPT_TREE_ENTRY).is_dir());
     assert!(!common_folder.join("worktrees").join("fix").exists());
+    assert_eq!(branch_listing().await, "", "the new branch is deleted");
     assert_eq!(
         fixture
             .store
