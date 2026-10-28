@@ -63,6 +63,7 @@ use crate::driver::claude::session::transport::inbound::{
 };
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
@@ -197,6 +198,14 @@ impl ScriptedSession {
     /// A live session on `opus` at Ask whose process answers as scripted, with every approval port
     /// registered.
     pub(crate) async fn new() -> Self {
+        Self::created_with(create_params).await
+    }
+
+    /// A live session as [`Self::new`] makes it, created with the params `params` builds for its
+    /// session id.
+    pub(crate) async fn created_with(
+        params: impl FnOnce(SessionId) -> CreateSessionParams,
+    ) -> Self {
         let ScriptedDriver {
             driver,
             starts,
@@ -221,7 +230,7 @@ impl ScriptedSession {
         starts.script_session(Arc::clone(&channel));
         let session_id = new_session_id();
         driver
-            .create_session(create_params(session_id))
+            .create_session(params(session_id))
             .await
             .expect("the session opens");
         let started = starts.take_started().pop().expect("a start was recorded");

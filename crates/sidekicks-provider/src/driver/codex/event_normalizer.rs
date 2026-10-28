@@ -593,6 +593,7 @@ pub(crate) fn derive_codex_child_thread_announcement(
         child_thread_id: thread_id,
         declared_parent_thread_id: parent_thread_id,
         subagent_id,
+        waiting_call_id: None,
     }
 }
 

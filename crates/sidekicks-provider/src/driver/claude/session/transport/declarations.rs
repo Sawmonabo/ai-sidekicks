@@ -141,6 +141,11 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) commands_changed: Option<Vec<String>>,
     /// The helper lifecycle signal it carries.
     pub(crate) subagent_lifecycle: Option<ClaudeSubagentLifecycleSignal>,
+    /// The helper a `task_updated` frame moves to the background.
+    pub(crate) backgrounded_helper_id: Option<String>,
+    /// The tool calls a `user` frame's tool results answer.
+    pub(crate) answered_call_ids: Vec<String>,
+
     /// The `system/init` declaration, which rides the observation so routing always sees it.
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,
     /// The compaction boundary it carries.

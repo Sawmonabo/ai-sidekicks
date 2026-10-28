@@ -1,10 +1,10 @@
-//! Each Claude Code frame through its session's routing band, on the reader under the band's
-//! lock: the thread router decides whether it projects, the usage accountant meters it, a helper's
-//! `task_started` and `task_notification` register and complete its child thread, and the session
-//! thread's own handshake, whole `/` list and compaction boundary are tapped. A thread's usage is
-//! the sum of its assistant messages, each message's last reading counted once, and a lead turn's
-//! `result` confirms the thread's sum: the turn's own `usage` raises it where the messages read
-//! short of it.
+//! Each Claude Code frame through its session's routing band, on the reader under the band's lock:
+//! the thread router decides whether it projects, the usage accountant meters it, a helper's
+//! `task_started` registers its child thread and its `task_notification`, or for a foreground
+//! helper its helper-tool call's result, completes it, and the session thread's own handshake,
+//! whole `/` list and compaction boundary are tapped. A thread's usage is the sum of its assistant
+//! messages, each message's last reading counted once, and a lead turn's `result` confirms the
+//! thread's sum: the turn's own `usage` raises it where the messages read short of it.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -220,6 +220,10 @@ impl ClaudeFrameRouting {
                 &mut routed,
             );
         }
+        // A helper moved to the background runs on past its call's result.
+        if let Some(helper_id) = &observation.backgrounded_helper_id {
+            band.router.stop_waiting_on_child(helper_id);
+        }
         let frame = ClaudeRoutableFrame {
             // Claude Code's frames carry no thread id: a helper's own id, else the session's.
             thread_id: observation
@@ -336,8 +340,8 @@ impl ClaudeFrameRouting {
     }
 }
 
-// Usage is metered ahead of suppression, so a helper's spend counts though its rows do not; a
-// helper's end completes its child thread.
+// Usage is metered ahead of suppression, so a helper's spend counts though its rows do not; the
+// helpers a frame ends complete their child threads.
 fn apply_route(
     band: &mut ClaudeSessionRoutingBand,
     frame: &ClaudeRoutableFrame,
@@ -350,7 +354,7 @@ fn apply_route(
         | ThreadFrameRoute::CarveOutUsage { .. }
         | ThreadFrameRoute::ChildTranscript { .. } => {
             routed.metered.extend(meter(band, frame));
-            complete_helper(band, frame, routed);
+            complete_ended_helpers(band, frame, routed);
         }
         // The router records a held or quarantined frame itself; an ask travels as a request.
         ThreadFrameRoute::CarveOutInteractiveRequest { .. }
@@ -429,33 +433,54 @@ fn combine_counts(
     }
 }
 
-// Completes a helper's child thread on its end, its only close signal, and reports the end once
-// for a helper the router held.
-fn complete_helper(
+// Completes the child thread of each helper the frame ends: a `task_notification`'s, and a
+// foreground helper's whose helper-tool call a tool result answers, since Claude Code answers that
+// call only once the helper finished, whether or not its `task_notification` comes.
+fn complete_ended_helpers(
     band: &mut ClaudeSessionRoutingBand,
     frame: &ClaudeRoutableFrame,
     routed: &mut ClaudeRoutedObservation,
 ) {
-    let Some(signal) = &frame.observation.subagent_lifecycle else {
-        return;
-    };
-    if signal.signal == ClaudeSubagentSignal::SubagentStart {
+    let observation = &frame.observation;
+    if let Some(signal) = &observation.subagent_lifecycle
+        && signal.signal == ClaudeSubagentSignal::SubagentStop
+    {
+        complete_helper(
+            band,
+            &signal.subagent_id,
+            signal.parent_tool_use_id.clone(),
+            routed,
+        );
+    }
+    for call_id in &observation.answered_call_ids {
+        if let Some(helper_id) = band
+            .router
+            .child_waiting_on_call(call_id)
+            .map(str::to_owned)
+        {
+            complete_helper(band, &helper_id, Some(call_id.clone()), routed);
+        }
+    }
+}
+
+// Completes a helper's child thread and reports its end once, for a helper the router held.
+fn complete_helper(
+    band: &mut ClaudeSessionRoutingBand,
+    helper_id: &str,
+    parent_tool_call_id: Option<String>,
+    routed: &mut ClaudeRoutedObservation,
+) {
+    let attribution = band.router.child_attribution_for(helper_id).cloned();
+    if !band.router.complete_child_thread(helper_id) {
         return;
     }
-    let attribution = band
-        .router
-        .child_attribution_for(&signal.subagent_id)
-        .cloned();
-    if !band.router.complete_child_thread(&signal.subagent_id) {
-        return;
-    }
-    band.accountant.release_thread(&signal.subagent_id);
-    band.usage_tally.threads.remove(&signal.subagent_id);
+    band.accountant.release_thread(helper_id);
+    band.usage_tally.threads.remove(helper_id);
     if let Some(ChildSpendAttribution::Subagent { subagent_id }) = attribution {
         routed.helper_lifecycle.push(SubagentLifecycleEmission {
             event_type: SubagentLifecycleEventType::Completed,
             subagent_id,
-            parent_tool_call_id: signal.parent_tool_use_id.clone(),
+            parent_tool_call_id,
         });
     }
 }

@@ -1,9 +1,10 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
-//! came from, a helper's start and end, an assistant message's usage and a turn's own usage, the
-//! `system/init` declaration and a later whole `/` list, the compaction boundary, and a start-up
-//! hook's start or end. The frame is untrusted, so it is read once into a struct naming only these
-//! members, each leniently: an absent or malformed one reads as absent, and every other member is
-//! skipped unread. `modelUsage`, the process's sum over every thread, is never read.
+//! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
+//! results answer, an assistant message's usage and a turn's own usage, the `system/init`
+//! declaration and a later whole `/` list, the compaction boundary, and a start-up hook's start or
+//! end. The frame is untrusted, so it is read once into a struct naming only these members, each
+//! leniently: an absent or malformed one reads as absent, and every other member is skipped unread.
+//! `modelUsage`, the process's sum over every thread, is never read.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -54,7 +55,11 @@ pub(crate) struct ClaudeStreamFrameRead {
     #[serde(default, deserialize_with = "read_lenient")]
     parent_task_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
-    message: Option<ClaudeAssistantMessage>,
+    is_backgrounded: Option<bool>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    patch: Option<ClaudeTaskPatch>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    message: Option<ClaudeFrameMessage>,
     #[serde(default, deserialize_with = "read_lenient")]
     usage: Option<ClaudeTokenUsage>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -81,13 +86,33 @@ pub(crate) struct ClaudeStreamFrameRead {
     hook_event: Option<String>,
 }
 
-// An assistant message as its frame carries it: its id and its usage so far.
+// A message as its frame carries it: an assistant message's id and usage so far, and the blocks
+// of either.
 #[derive(Deserialize)]
-struct ClaudeAssistantMessage {
+struct ClaudeFrameMessage {
     #[serde(default, deserialize_with = "read_lenient")]
     id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     usage: Option<ClaudeTokenUsage>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    content: Option<LenientList<ClaudeResultBlock>>,
+}
+
+// A content block, read only for a tool result's call; the result's own content is skipped
+// unread, since it can be a whole file.
+#[derive(Deserialize)]
+struct ClaudeResultBlock {
+    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
+    block_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    tool_use_id: Option<String>,
+}
+
+// What a `task_updated` frame changes of its task.
+#[derive(Deserialize)]
+struct ClaudeTaskPatch {
+    #[serde(default, deserialize_with = "read_lenient")]
+    is_backgrounded: Option<bool>,
 }
 
 // A message's or a turn's token counts, each member as sent.
@@ -116,7 +141,9 @@ struct ClaudeListedCommand {
 
 lenient_object!(
     ClaudeStreamFrameRead,
-    ClaudeAssistantMessage,
+    ClaudeFrameMessage,
+    ClaudeResultBlock,
+    ClaudeTaskPatch,
     ClaudeTokenUsage,
     ClaudeListedCommand
 );
@@ -193,6 +220,22 @@ impl ClaudeStreamFrameRead {
                     .collect()
             });
         let subagent_lifecycle = self.read_helper_lifecycle(&frame_kind);
+        let answered_call_ids = (frame_kind == "user")
+            .then(|| self.message.as_ref()?.content.as_ref())
+            .flatten()
+            .map(|content| {
+                content
+                    .0
+                    .iter()
+                    .filter(|block| block.block_type.as_deref() == Some("tool_result"))
+                    .filter_map(|block| non_empty(block.tool_use_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let backgrounded_helper_id = (frame_kind == "system/task_updated"
+            && self.patch.as_ref().and_then(|patch| patch.is_backgrounded) == Some(true))
+        .then(|| non_empty(self.task_id.clone()))
+        .flatten();
         let handshake = (frame_kind == "system/init").then(|| self.read_handshake());
         let compaction_boundary = (frame_kind == "system/compact_boundary"
             && self
@@ -209,6 +252,8 @@ impl ClaudeStreamFrameRead {
             message_usage,
             commands_changed,
             subagent_lifecycle,
+            backgrounded_helper_id,
+            answered_call_ids,
             handshake,
             compaction_boundary,
         }
@@ -244,6 +289,7 @@ impl ClaudeStreamFrameRead {
             subagent_id,
             parent_tool_use_id: non_empty(self.tool_use_id.clone()),
             parent_task_id: non_empty(self.parent_task_id.clone()),
+            is_foreground: self.is_backgrounded == Some(false),
         })
     }
 }

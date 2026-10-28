@@ -45,7 +45,7 @@ use crate::driver::claude::delivery::commands::{
     ClaudeCommandChannel, ClaudeCommandChannels, ClaudeSessionChannel,
 };
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
-use crate::driver::claude::frame_routing::{ClaudeFrameRouting, ClaudeThreadUsageTally};
+use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
 use crate::driver::claude::hooks::helper_limit::ClaudeHelperLimit;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
@@ -65,9 +65,8 @@ use crate::driver::claude::session::ignored_settings::find_ignored_setting_notic
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
 use crate::driver::claude::session::state::{
-    CLAUDE_THREAD_FRAME_ROUTER_CONFIG, ClaudeHeldCommandChoices, ClaudeLiveSettings,
-    ClaudeRequestedSpawn, ClaudeSessionRoutingBand, ClaudeSpawnBinding, ClaudeUsageEstablishment,
-    LiveClaudeSession,
+    ClaudeHeldCommandChoices, ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSessionRoutingBand,
+    ClaudeSpawnBinding, ClaudeUsageEstablishment, LiveClaudeSession,
 };
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
@@ -96,8 +95,6 @@ use crate::run::delivery::InboundDelivery;
 use crate::run::posture::{CredentialPolicyResolveError, ExecutionPostureService};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
-use crate::thread_frame_router::ThreadFrameRouter;
-use crate::usage_delta_accountant::UsageDeltaAccountant;
 use sidekicks_std::port_registration::PortRegistrationError;
 
 /// Why a session's process could not be brought up and adopted.
@@ -571,20 +568,14 @@ impl ClaudeSessionEstablishment {
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),
         ));
-        let mut band = ClaudeSessionRoutingBand {
-            router: ThreadFrameRouter::new(
-                DESCRIPTOR.provider_id(),
-                CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
-            ),
-            accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
-            usage_tally: ClaudeThreadUsageTally::default(),
-        };
+        let mut band = ClaudeSessionRoutingBand::new();
         self.routing
             .bind_session_thread(&mut band, session_id, &provider_session_id, &establishment)
             .await;
+        let band = Arc::new(Mutex::new(band));
         let listener = Arc::new(ClaudeSessionListener::new(
             provider_session_id.clone(),
-            Arc::new(Mutex::new(band)),
+            Arc::clone(&band),
             Arc::clone(&self.routing),
             Arc::clone(&stream),
             arrivals,
@@ -717,15 +708,17 @@ impl ClaudeSessionEstablishment {
             self.end_unadopted_live(&started, &live).await;
             return Err(ClaudeEstablishmentError::Closed);
         }
-        self.adopt(&live, stream, receiver, &started);
+        self.adopt(&live, stream, band, receiver, &started);
         Ok(started.spawned_version)
     }
 
-    // The adopted process's stream, task and notices.
+    // The adopted process's stream, task and notices; the helper limit counts the helpers its
+    // routing `band` holds.
     fn adopt(
         &self,
         live: &Arc<LiveClaudeSession>,
         stream: Arc<ClaudeSessionStream>,
+        band: Arc<Mutex<ClaudeSessionRoutingBand>>,
         receiver: crate::driver::claude::session::arrivals::ClaudeArrivalReceiver,
         started: &ClaudeStartedSession,
     ) {
@@ -752,7 +745,7 @@ impl ClaudeSessionEstablishment {
                 .ok()
                 .and_then(NonZeroUsize::new)
                 .unwrap_or(NonZeroUsize::MAX);
-            lock(&self.helpers).limit_session(&session_id, limit);
+            lock(&self.helpers).limit_session(&session_id, limit, band);
         }
         let mut task = ClaudeSessionTask::new(
             Arc::clone(&self.task_services),

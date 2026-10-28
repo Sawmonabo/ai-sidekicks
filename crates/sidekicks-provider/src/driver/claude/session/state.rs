@@ -21,6 +21,8 @@ use sidekicks_std::mutex_lock::lock;
 use tokio::sync::SetOnce;
 
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
+use crate::driver::claude::DESCRIPTOR;
+
 use crate::driver::claude::frame_routing::ClaudeThreadUsageTally;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
@@ -98,6 +100,20 @@ pub(crate) struct ClaudeSessionRoutingBand {
     pub(crate) accountant: UsageDeltaAccountant,
     /// Each thread's usage as its messages sum it.
     pub(crate) usage_tally: ClaudeThreadUsageTally,
+}
+
+impl ClaudeSessionRoutingBand {
+    /// A band for one process, with no thread registered yet.
+    pub(crate) fn new() -> Self {
+        Self {
+            router: ThreadFrameRouter::new(
+                DESCRIPTOR.provider_id(),
+                CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
+            ),
+            accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
+            usage_tally: ClaudeThreadUsageTally::default(),
+        }
+    }
 }
 
 /// What a session's process was started with, kept so a later run is checked against it.
