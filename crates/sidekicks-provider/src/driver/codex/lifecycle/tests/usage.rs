@@ -1,6 +1,7 @@
 //! A live session's metered spend, recorded through the usage sink.
 
 use std::error::Error;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -20,9 +21,10 @@ use crate::port::usage_sink::{MeteredUsage, ProviderQuotaWindow, UsageSink};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A usage sink that records nothing until its gate opens, then records each delta in arrival
-/// order.
+/// order, counting each delta it was handed.
 struct GatedUsage {
     gate: watch::Receiver<bool>,
+    handed: AtomicUsize,
     input_deltas: Mutex<Vec<Option<u64>>>,
 }
 
@@ -32,6 +34,7 @@ impl UsageSink for GatedUsage {
         metered: MeteredUsage,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
+            self.handed.fetch_add(1, Ordering::Relaxed);
             let mut gate = self.gate.clone();
             gate.wait_for(|is_open| *is_open)
                 .await
@@ -66,9 +69,11 @@ impl UsageSink for GatedUsage {
 #[tokio::test]
 async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
     let live = LiveCodexSession::start(&[]).await;
+    tokio::time::pause();
     let (open, gate) = watch::channel(false);
     let usage = Arc::new(GatedUsage {
         gate,
+        handed: AtomicUsize::new(0),
         input_deltas: Mutex::default(),
     });
     assert!(
@@ -97,6 +102,10 @@ async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
             },
         }));
     }
+    // The paused clock moves only once every task waits, so the session's task has metered every
+    // report it can, past the queue's room, and waits on the full queue.
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    let handed_while_stalled = usage.handed.load(Ordering::Relaxed);
     open.send_replace(true);
 
     let expected: Vec<Option<u64>> = (1..=reports).map(Some).collect();
@@ -107,5 +116,7 @@ async fn a_stalled_sink_loses_no_metered_spend_and_records_it_in_order() {
     })
     .await
     .expect("every report is recorded");
+    // The sink held the first delta alone while stalled.
+    assert_eq!(handed_while_stalled, 1);
     assert_eq!(*lock(&usage.input_deltas), expected);
 }
