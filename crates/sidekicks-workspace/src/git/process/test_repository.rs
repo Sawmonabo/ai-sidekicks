@@ -8,8 +8,24 @@ use super::{GitCall, GitRunner, in_folder};
 /// Runs git with `arguments` in `folder` and answers what it printed, trimmed. Panics when git
 /// fails.
 pub(crate) async fn git_in(git: &GitRunner, folder: &Path, arguments: &[&str]) -> String {
+    run_trimmed(git, GitCall::read(in_folder(folder, arguments))).await
+}
+
+/// Runs git with `arguments` in `folder`, writing `input` to it, and answers what it printed,
+/// trimmed. Panics when git fails.
+pub(crate) async fn git_in_with_input(
+    git: &GitRunner,
+    folder: &Path,
+    arguments: &[&str],
+    input: &str,
+) -> String {
+    let call = GitCall::read(in_folder(folder, arguments)).with_input(input.as_bytes().to_vec());
+    run_trimmed(git, call).await
+}
+
+async fn run_trimmed(git: &GitRunner, call: GitCall) -> String {
     let output = git
-        .run(None, GitCall::read(in_folder(folder, arguments)))
+        .run(None, call)
         .await
         .expect("git runs in the test repository");
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
