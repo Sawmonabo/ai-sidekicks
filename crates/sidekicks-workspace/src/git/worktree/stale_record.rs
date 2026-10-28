@@ -276,9 +276,11 @@ async fn read_record_gitdir(record_folder: &Path) -> Result<Option<String>, Stal
     Ok((!gitdir.is_empty()).then(|| gitdir.to_owned()))
 }
 
-// The `.git` a record's `gitdir` names, a relative one resolved from the record folder; `None` for
-// none.
-async fn read_record_git_file(record_folder: &Path) -> Result<Option<PathBuf>, StaleRecordError> {
+/// The `.git` a record's `gitdir` names, a relative one resolved from the record folder; `None` for
+/// none. Fails when the file cannot be read or its path resolved.
+pub(crate) async fn read_record_git_file(
+    record_folder: &Path,
+) -> Result<Option<PathBuf>, StaleRecordError> {
     read_record_gitdir(record_folder)
         .await?
         .map(|gitdir| resolve_git_file(record_folder, &gitdir))
@@ -305,7 +307,9 @@ async fn canonical(folder: &Path) -> Result<PathBuf, StaleRecordError> {
         .map_err(StaleRecordError::Resolve)
 }
 
-async fn is_same_git_file(
+/// Whether `first` and `second` name one `.git` file: the same name in folders that resolve to one.
+/// Fails when either folder cannot be resolved.
+pub(crate) async fn is_same_git_file(
     first: Option<&Path>,
     second: Option<&Path>,
 ) -> Result<bool, StaleRecordError> {
@@ -321,8 +325,9 @@ async fn is_same_git_file(
     Ok(canonical(first_folder).await? == canonical(second_folder).await?)
 }
 
-// Whether the `.git` at `git_file` names `record_folder`.
-async fn is_record_named_by(
+/// Whether the `.git` at `git_file` names `record_folder`. Fails when the file cannot be read or
+/// its path resolved.
+pub(crate) async fn is_record_named_by(
     git_file: &Path,
     record_folder: &Path,
 ) -> Result<bool, StaleRecordError> {

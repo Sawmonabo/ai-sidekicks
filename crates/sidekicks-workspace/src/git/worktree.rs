@@ -10,23 +10,25 @@
 //! whose processes a removal ends; and the folder reads and flushes their services share.
 
 pub mod branch_list;
-pub(crate) mod carry;
+pub mod carry;
 pub(crate) mod claims;
-pub(crate) mod copy;
+pub mod copy;
 pub mod creation;
 pub mod errors;
 pub mod event_emitter;
 pub mod fetch;
 pub(crate) mod flush;
 pub(crate) mod folder_names;
-pub(crate) mod kept_copy;
+pub mod kept_copy;
 pub mod naming;
 pub mod occupancy;
 pub(crate) mod projector;
+pub(crate) mod put_back;
 pub(crate) mod reads;
 pub mod removal;
+pub mod removed_store;
 pub(crate) mod risks;
-pub(crate) mod rows;
+pub mod rows;
 pub mod schema;
 pub mod service;
 pub mod setup;

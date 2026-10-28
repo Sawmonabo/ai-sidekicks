@@ -18,7 +18,7 @@
 //! across volumes by a copy that keeps both when the original cannot be removed completely. The
 //! caller removes git's record, and the payload refs with it, once the move is recorded.
 
-pub(crate) mod folder_move;
+pub mod folder_move;
 pub(crate) mod pins;
 pub(crate) mod saved_state;
 

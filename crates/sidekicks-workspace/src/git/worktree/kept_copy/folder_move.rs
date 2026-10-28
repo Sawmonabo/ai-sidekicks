@@ -33,7 +33,7 @@ const LEFTOVER_SUFFIX_BYTES: usize = 16;
 /// The names of the leftover folders this daemon is making or removing now: copies in flight and
 /// records set aside. Made once and shared by `Arc` with everything that makes or sweeps one.
 #[derive(Debug, Default)]
-pub(crate) struct LeftoverNamesInUse {
+pub struct LeftoverNamesInUse {
     names: Mutex<HashSet<PathBuf>>,
 }
 

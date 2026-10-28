@@ -158,7 +158,7 @@ pub(crate) struct RestoredWorktree {
 
 /// Why a worktree call failed.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeServiceError {
+pub enum WorktreeServiceError {
     /// The call was refused: an unknown tree, or a retirement while an agent runs in the tree.
     #[error(transparent)]
     Refused(#[from] WorktreeRefusal),
@@ -764,8 +764,9 @@ fn worktree_row_of(row: &Row<'_>) -> rusqlite::Result<WorktreeRow> {
     })
 }
 
-// A mount's `place` column at `index`, which holds the place's wire JSON.
-fn place_of(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Place>> {
+/// A mount's `place` column at `index`, which holds the place's wire JSON. Fails when the column
+/// is missing or holds no place.
+pub(crate) fn place_of(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<Place>> {
     optional_text_column(row, index, |text| serde_json::from_str::<Place>(&text))
 }
 
