@@ -20,11 +20,13 @@ use super::{
 use crate::git::worktree::kept_copy::KEPT_TREE_ENTRY;
 use crate::git::worktree::kept_copy::folder_move::list_leftover_copies;
 use crate::git::worktree::kept_copy::held_work::{held_answer, log_landed_late};
+use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::removed_store::RemovedWorktreeStoreError;
 use crate::git::worktree::removed_store::rows::finish_statement;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::{RecordRetirementOptions, remove_folder};
-use crate::git::worktree::stale_record::{StaleRecordTools, remove_stale_record_and_refs};
+use crate::git::worktree::stale_record::{StaleRecordTools, at, remove_stale_record_and_refs};
+use crate::git::worktree::tree_records::hold_records;
 use crate::git::worktree::unfinished_discards::UnfinishedKeptWorktree;
 
 /// What one pass over the work a crash cut short did; its failures stay for the next pass.
@@ -386,6 +388,11 @@ impl RemovalShared {
         original_path: &Path,
     ) -> Result<(), RecordRemovalFailure> {
         let store = &self.deps.removed_worktrees;
+        let common_folder = common_folder_of_record(record_folder)
+            .expect("a kept copy's record sits two folders below its git common folder");
+        let records_hold = hold_records(common_folder)
+            .await
+            .map_err(at(common_folder))?;
         remove_stale_record_and_refs(
             StaleRecordTools {
                 claims: store.claims(),
@@ -396,6 +403,7 @@ impl RemovalShared {
             Path::new(unfinished.kept_folder.as_str()),
             record_folder,
             original_path,
+            &records_hold,
         )
         .await?;
         Ok(())

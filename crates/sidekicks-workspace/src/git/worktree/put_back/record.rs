@@ -24,6 +24,7 @@ use crate::git::worktree::reads::{
     BRANCH_REF_PREFIX, GIT_FILE_NAME, LINKED_RECORDS_FOLDER_NAME, RECORD_COMMONDIR_FILE_NAME,
     RECORD_GITDIR_FILE_NAME, RECORD_LOCK_FILE_NAME,
 };
+use crate::git::worktree::tree_records::hold_records;
 
 // What a record's `commondir` holds: the repository's git common folder, two folders up.
 const COMMONDIR_TEXT: &[u8] = b"../..\n";
@@ -110,7 +111,7 @@ pub(super) struct TakenRecord {
 
 // The record folder a put-back writes, by git's own naming: the tree folder's name sanitized as
 // git sanitizes it, with the first free number after it when another record, or the refs a
-// repository keeps apart, already has it.
+// repository keeps apart, already has it; chosen and made under the repository's records hold.
 pub(super) async fn take_record_folder(
     common_folder: &Path,
     tree_name: &str,
@@ -122,6 +123,11 @@ pub(super) async fn take_record_folder(
         let path = path.to_path_buf();
         move |source| PutBackFailure::Record { path, source }
     };
+    // Held while the name is chosen and made, so the cleanup's check of a free name and its removal
+    // of that name's refs never fall between.
+    let _records_hold = hold_records(common_folder)
+        .await
+        .map_err(record_failure(common_folder))?;
     let is_records_folder_made = match tokio::fs::create_dir(&records_folder).await {
         Ok(()) => true,
         Err(failure) if failure.kind() == io::ErrorKind::AlreadyExists => false,

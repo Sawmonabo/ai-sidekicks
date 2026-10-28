@@ -4,22 +4,24 @@
 //! no put-back holds them.
 
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use sidekicks_std::keyed_lock::KeyHold;
 
 use super::INITIALIZING_LOCK;
 use crate::git::worktree::reads::RECORD_LOCK_FILE_NAME;
 use crate::git::worktree::stale_record::{StaleRecordError, StaleRecordTools, at};
-use crate::git::worktree::tree_records::hold_records;
 
 /// Removes the folder at `original_path` while it is empty, and every record in `records_folder`
 /// whose one entry is git's `initializing` lock, skipping each name a put-back under way holds or
-/// a live tree or a put-back's mark claims. The records are read under the repository's hold, so
-/// an add of the daemon's own is never caught between git's writes. Fails with the first read or
-/// removal that failed.
+/// a live tree or a put-back's mark claims. Runs under the repository's records hold,
+/// `_records_hold`, so an add of the daemon's own is never caught between git's writes. Fails with
+/// the first read or removal that failed.
 pub(crate) async fn remove_unmarked_names(
     tools: StaleRecordTools<'_>,
     original_path: &Path,
     records_folder: &Path,
+    _records_hold: &KeyHold<'static, PathBuf>,
 ) -> Result<(), StaleRecordError> {
     if !tools.names_in_use.is_held(original_path)
         && !tools.claims.is_live_tree_at(original_path).await?
@@ -37,14 +39,6 @@ pub(crate) async fn remove_unmarked_names(
             Err(failure) => return Err(at(original_path)(failure)),
         }
     }
-    let common_folder = records_folder
-        .parent()
-        .expect("the records folder sits in its repository's git common folder");
-    let _records_hold = match hold_records(common_folder).await {
-        Ok(hold) => hold,
-        Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(failure) => return Err(at(common_folder)(failure)),
-    };
     let mut records = match tokio::fs::read_dir(records_folder).await {
         Ok(records) => records,
         Err(failure) if failure.kind() == io::ErrorKind::NotFound => return Ok(()),

@@ -15,6 +15,7 @@ use std::sync::Arc;
 use sidekicks_contracts::place::Place;
 use sidekicks_platforms::CAN_RENAME_REPLACE_EMPTY_FOLDER;
 use sidekicks_std::cleanup_failures::CleanupFailures;
+use sidekicks_std::keyed_lock::KeyHold;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::GitRunner;
@@ -121,8 +122,10 @@ pub(crate) async fn remove_stale_tree_record(
 /// Removes the kept copy's stale record as [`remove_stale_tree_record`] does, then, once this call
 /// removed it or no record of its name stands, as after a crash between the two removals, and the
 /// copy in `kept_folder` kept refs from a refs payload, the tree's refs folder there, so no later
-/// record of that name finds them. Answers whether this call removed the record. Fails as the
-/// record's removal, the payload's read or the folder's removal does.
+/// record of that name finds them. Runs under the repository's records hold, `_records_hold`, so a
+/// put-back's record of that name either stands at the check or is made after the removal.
+/// Answers whether this call removed the record. Fails as the record's removal, the payload's read
+/// or the folder's removal does.
 pub(crate) async fn remove_stale_record_and_refs(
     tools: StaleRecordTools<'_>,
     git: &GitRunner,
@@ -130,6 +133,7 @@ pub(crate) async fn remove_stale_record_and_refs(
     kept_folder: &Path,
     record_folder: &Path,
     original_path: &Path,
+    _records_hold: &KeyHold<'static, PathBuf>,
 ) -> Result<bool, StaleRecordError> {
     let is_removed = remove_stale_tree_record(tools, record_folder, original_path).await?;
     // A name a put-back holds is one it is taking, the refs folder included.

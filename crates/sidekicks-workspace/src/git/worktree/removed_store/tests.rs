@@ -36,6 +36,7 @@ use crate::git::worktree::removal::tests::RemovalFixture;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::cleanup::RetiredWorktreeKeeper;
 use crate::git::worktree::stale_record::StaleRecordTools;
+use crate::git::worktree::tree_records::hold_records;
 
 // A keeper that records each tree a cleanup pass asks it to keep aside.
 #[derive(Default)]
@@ -311,9 +312,13 @@ async fn a_cleanup_removes_the_names_a_put_back_cut_short_before_its_mark_left()
         tools.names_in_use.hold(original_path),
         tools.names_in_use.hold(&record),
     ];
-    remove_unmarked_names(tools, original_path, &records_folder)
+    let records_hold = hold_records(&fixture.common_folder())
+        .await
+        .expect("the records are held");
+    remove_unmarked_names(tools, original_path, &records_folder, &records_hold)
         .await
         .expect("the names a put-back holds are skipped");
+    drop(records_hold);
     assert!(
         original_path.is_dir() && record.join("locked").is_file(),
         "a put-back under way keeps its names"
@@ -400,9 +405,17 @@ async fn a_put_back_that_finds_its_name_taken_leaves_the_other_put_back_s_hold()
     .expect("the second put-back takes the next name");
 
     assert_eq!(placed.target_folder, fixture.tree_at("fix-restored"));
-    remove_unmarked_names(tools, original_path, &common_folder.join("worktrees"))
+    let records_hold = hold_records(&common_folder)
         .await
-        .expect("the cleanup's pass runs");
+        .expect("the records are held");
+    remove_unmarked_names(
+        tools,
+        original_path,
+        &common_folder.join("worktrees"),
+        &records_hold,
+    )
+    .await
+    .expect("the cleanup's pass runs");
     assert!(
         original_path.is_dir(),
         "the first put-back's folder stays while it holds the name"

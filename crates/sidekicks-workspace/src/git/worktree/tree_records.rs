@@ -1,8 +1,8 @@
 //! Git's records of a tree the daemon made, found by the `.git` their `gitdir` names rather than
 //! from inside the tree, so a tree git left without its `.git` file, or one already removed, still
-//! has its records found. A record naming any other tree is never touched. The daemon's own adds
-//! and its scan for records a crash left take one hold per repository, so the scan never reads an
-//! add's record between git's writes.
+//! has its records found. A record naming any other tree is never touched. The daemon's own adds,
+//! its put-backs' records and the cleanup's reads and removals of records and their refs take one
+//! hold per repository, so none reads a record another is between writing.
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -27,6 +27,15 @@ pub(crate) async fn hold_records(
 ) -> io::Result<KeyHold<'static, PathBuf>> {
     let key = resolve_real_location(common_git_folder).await?;
     Ok(RECORD_WRITES.acquire(key).await)
+}
+
+/// Holds the records as [`hold_records`] does, at once: `None` while another holds or waits on
+/// them. Fails when the folder cannot be resolved.
+pub(crate) async fn try_hold_records(
+    common_git_folder: &Path,
+) -> io::Result<Option<KeyHold<'static, PathBuf>>> {
+    let key = resolve_real_location(common_git_folder).await?;
+    Ok(RECORD_WRITES.try_acquire(key).ok())
 }
 
 /// A record, or the folder holding them, that could not be read or removed.

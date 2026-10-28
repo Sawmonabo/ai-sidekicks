@@ -38,7 +38,7 @@ use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 use sidekicks_contracts::worktree::removed::{
     RemovedWorktree, WorktreeRemovedListRequest, WorktreeRemovedListResponse,
 };
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::processor_bound::map_with_processor_bound;
 use sidekicks_std::settle_all::SettleFailures;
@@ -72,9 +72,11 @@ use crate::git::worktree::path_holds::PathHolds;
 use crate::git::worktree::put_back::undo::undo_put_back;
 use crate::git::worktree::put_back::unmarked_names::remove_unmarked_names;
 use crate::git::worktree::put_back::{PutBackTools, UnsoundTreeError, require_sound_restored_tree};
+use crate::git::worktree::reads::common_folder_of_record;
 use crate::git::worktree::rows::WorktreeRow;
 use crate::git::worktree::service::{WorktreeRowsReadError, WorktreeService};
-use crate::git::worktree::stale_record::{StaleRecordTools, remove_stale_record_and_refs};
+use crate::git::worktree::stale_record::{StaleRecordTools, at, remove_stale_record_and_refs};
+use crate::git::worktree::tree_records::{hold_records, try_hold_records};
 use crate::git::worktree::unfinished_discards::{UnfinishedKeptWorktree, read_unfinished_discards};
 use crate::trust_envelope::components_equal;
 
@@ -327,8 +329,9 @@ impl RemovedWorktreeStore {
 
     /// Removes a kept copy's old tree record when it is still the copy's own, under the copy's
     /// lock, so git never counts it a duplicate of a tree put back, then the names a put-back cut
-    /// short before its mark left; once a run per copy. Fails as the removal does, the copy looked
-    /// at again next time.
+    /// short before its mark left; once a run per copy, a run that finds the repository's records
+    /// held looked at again next time. Fails as the removal does, the copy looked at again next
+    /// time.
     pub(crate) async fn remove_stale_record_of(
         &self,
         removed_worktree_id: RemovedWorktreeId,
@@ -338,7 +341,16 @@ impl RemovedWorktreeStore {
         }
         let _hold = self.deps.kept_copy_lock.acquire(removed_worktree_id).await;
         if let Some(kept) = self.find_row(removed_worktree_id).await? {
-            self.remove_stale_record(&kept).await?;
+            // A creation holds the repository's records across its add and the person's checkout
+            // hook, so this pass skips the copy rather than wait under its lock; the next retries.
+            let common_folder = common_folder_of_kept(&kept);
+            let Some(records_hold) = try_hold_records(common_folder)
+                .await
+                .map_err(|failure| RemovedWorktreeStoreError::failed(at(common_folder)(failure)))?
+            else {
+                return Ok(());
+            };
+            self.remove_stale_record(&kept, &records_hold).await?;
             lock(&self.stale_record_checked_ids).insert(removed_worktree_id);
         }
         Ok(())
@@ -608,7 +620,12 @@ impl RemovedWorktreeStore {
         &self,
         kept: &RemovedWorktreeRow,
     ) -> Result<(), RemovedWorktreeStoreError> {
-        self.remove_stale_record(kept).await?;
+        let common_folder = common_folder_of_kept(kept);
+        let records_hold = hold_records(common_folder)
+            .await
+            .map_err(|failure| RemovedWorktreeStoreError::failed(at(common_folder)(failure)))?;
+        self.remove_stale_record(kept, &records_hold).await?;
+        drop(records_hold);
         let pins = self.find_pin_repository(kept).await?;
         self.delete_kept_folder(
             &kept.removed_worktree_id,
@@ -660,10 +677,11 @@ impl RemovedWorktreeStore {
 
     // Removes the tree's old record when it is still the copy's own, and its refs in a refs
     // payload, then the names a put-back of a copy of that tree took before a crash cut it short,
-    // under the copy's lock.
+    // under the copy's lock and the repository's records hold, `records_hold`.
     async fn remove_stale_record(
         &self,
         kept: &RemovedWorktreeRow,
+        records_hold: &KeyHold<'static, PathBuf>,
     ) -> Result<(), RemovedWorktreeStoreError> {
         let tools = StaleRecordTools {
             claims: &self.claims,
@@ -678,6 +696,7 @@ impl RemovedWorktreeStore {
             Path::new(kept.kept_path.as_str()),
             record_folder,
             original_path,
+            records_hold,
         )
         .await
         .map_err(RemovedWorktreeStoreError::failed)?;
@@ -685,7 +704,7 @@ impl RemovedWorktreeStore {
         let records_folder = record_folder
             .parent()
             .expect("a record's folder sits in the records folder");
-        remove_unmarked_names(tools, original_path, records_folder)
+        remove_unmarked_names(tools, original_path, records_folder, records_hold)
             .await
             .map_err(RemovedWorktreeStoreError::failed)
     }
@@ -780,6 +799,12 @@ impl KeptCopyRowWrites for PendingKeptCopy<'_> {
             .forget_pending(&self.record.removed_worktree_id)
             .await?)
     }
+}
+
+// The git common folder the kept copy's record sits in.
+fn common_folder_of_kept(kept: &RemovedWorktreeRow) -> &Path {
+    common_folder_of_record(Path::new(kept.record_folder.as_str()))
+        .expect("a kept copy's record sits two folders below its git common folder")
 }
 
 // The kept copy as a put-back's copy and its undo report it, its figures left for the copy.
