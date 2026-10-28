@@ -142,6 +142,15 @@ pub enum GitError {
     NotStartable,
 }
 
+impl From<ChildTreeOutputError> for GitError {
+    fn from(error: ChildTreeOutputError) -> Self {
+        match error {
+            ChildTreeOutputError::TooLarge { bound } => Self::OutputTooLarge { bound },
+            ChildTreeOutputError::Io(error) => Self::Read(error),
+        }
+    }
+}
+
 /// The signal that ended a git process, as the system reports it.
 #[derive(Debug)]
 pub struct GitSignal {
@@ -586,8 +595,7 @@ impl GitRunner {
                 }
                 return Err(exited_failure(&output.status, output.stdout, stderr));
             }
-            Ok(Err(ChildTreeOutputError::TooLarge { bound })) => GitError::OutputTooLarge { bound },
-            Ok(Err(ChildTreeOutputError::Io(error))) => GitError::Read(error),
+            Ok(Err(error)) => error.into(),
             Err(_elapsed) => GitError::TimedOut { timeout },
         };
         self.end_failed_tree(child);

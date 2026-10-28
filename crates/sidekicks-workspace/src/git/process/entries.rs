@@ -4,6 +4,7 @@
 use std::process::Stdio;
 
 use sidekicks_contracts::place::Place;
+use sidekicks_platforms::read_bounded_to_end;
 use tokio::io::{AsyncBufReadExt as _, AsyncRead, AsyncReadExt as _, BufReader};
 
 use super::{GitCall, GitError, GitRunner, exited_failure};
@@ -50,7 +51,7 @@ impl GitRunner {
         let ran = tokio::time::timeout(timeout, async {
             let ((), stderr) = tokio::try_join!(
                 read_entries(stdout, separator, bound, &mut on_entry),
-                read_bounded(stderr, bound),
+                read_stderr(stderr, bound),
             )?;
             let status = child.wait().await.map_err(GitError::Read)?;
             Ok::<_, GitError>((status, stderr))
@@ -98,16 +99,9 @@ async fn read_entries(
 
 // `stream` read to its end as UTF-8, any other byte replaced. Fails with `OutputTooLarge` past
 // `bound`, else the read's error.
-async fn read_bounded(stream: impl AsyncRead + Unpin, bound: usize) -> Result<String, GitError> {
+async fn read_stderr(mut stream: impl AsyncRead + Unpin, bound: usize) -> Result<String, GitError> {
     let mut bytes = Vec::new();
-    stream
-        .take(past_bound(bound))
-        .read_to_end(&mut bytes)
-        .await
-        .map_err(GitError::Read)?;
-    if bytes.len() > bound {
-        return Err(GitError::OutputTooLarge { bound });
-    }
+    read_bounded_to_end(Some(&mut stream), &mut bytes, bound).await?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 

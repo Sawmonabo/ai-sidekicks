@@ -98,8 +98,8 @@ impl ChildTree {
             let output = async {
                 let (written, read) = tokio::join!(write_input(stdin, input), async {
                     tokio::try_join!(
-                        read_bounded(stdout.as_mut(), &mut stdout_bytes, bound),
-                        read_bounded(stderr.as_mut(), &mut stderr_bytes, bound),
+                        read_bounded_to_end(stdout.as_mut(), &mut stdout_bytes, bound),
+                        read_bounded_to_end(stderr.as_mut(), &mut stderr_bytes, bound),
                     )
                 });
                 written.map_err(ChildTreeOutputError::Io)?;
@@ -301,9 +301,10 @@ async fn write_input(stdin: Option<ChildStdin>, input: Option<Vec<u8>>) -> io::R
     }
 }
 
-// Reads `stream` to its end into `into`, one chunk at most per read, failing once it passes
-// `bound`; a dropped read keeps what it read in `into`.
-async fn read_bounded(
+/// Reads `stream` to its end into `into`, one chunk at most per read; no stream reads nothing.
+/// Fails with `TooLarge` once it passes `bound` bytes, else with the read's error; a dropped read
+/// keeps what it read in `into`.
+pub async fn read_bounded_to_end(
     stream: Option<&mut (impl AsyncRead + Unpin)>,
     into: &mut Vec<u8>,
     bound: usize,
