@@ -164,6 +164,9 @@ pub(crate) struct CodexExecRelay {
     commands: Mutex<HashMap<String, CommandRecord>>,
     channels: Mutex<HashMap<SessionId, Arc<OnceCell<Arc<SessionChannel>>>>>,
     snapshots: ShellSnapshots,
+    // The process starts Codex sent through the relay, which a test reads.
+    #[cfg(test)]
+    process_starts: AtomicU64,
 }
 
 impl CodexExecRelay {
@@ -191,6 +194,8 @@ impl CodexExecRelay {
             commands: Mutex::new(HashMap::new()),
             channels: Mutex::new(HashMap::new()),
             snapshots,
+            #[cfg(test)]
+            process_starts: AtomicU64::new(0),
         })
     }
 
@@ -309,6 +314,12 @@ impl CodexExecRelay {
         }
     }
 
+    /// How many process starts Codex sent through the relay.
+    #[cfg(test)]
+    pub(crate) fn process_starts(&self) -> u64 {
+        self.process_starts.load(Ordering::Relaxed)
+    }
+
     // The start of the service now, which a command started now is stamped with.
     fn current_service_start(&self) -> u64 {
         self.service_start.load(Ordering::Acquire)
@@ -410,6 +421,8 @@ impl CodexExecRelay {
             }
             (None, Some(INITIALIZED_METHOD)) => {}
             (Some(_), Some(PROCESS_START_METHOD)) => {
+                #[cfg(test)]
+                self.process_starts.fetch_add(1, Ordering::Relaxed);
                 tokio::spawn(relay.forward_process_start(Arc::clone(executor), line));
             }
             (Some(_), Some(PROCESS_TERMINATE_METHOD)) => {
