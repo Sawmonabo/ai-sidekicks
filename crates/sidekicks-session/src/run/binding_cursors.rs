@@ -5,8 +5,9 @@
 //! session holds the cursors of its newest bindings alone. A binding minted for a resume of a
 //! session in a new process carries the cursor of the session's leg on, opened before the resume
 //! runs, since the resumed provider delivers under it at once. A cursor whose row is not written is
-//! forgotten, and none opens for a session once it has closed.
+//! forgotten, and an open whose session closes while it reads opens none.
 
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -60,8 +61,8 @@ pub enum RunBindingCursorError {
     /// The read pool did not run the read.
     #[error("the read pool did not run the run's or the binding's read")]
     Pool(#[from] DatabaseReadError),
-    /// The session closed, so no cursor opens for it.
-    #[error("session {session_id} has closed, so no cursor opens for it")]
+    /// The session closed while the open read, so no cursor opens for it.
+    #[error("session {session_id} closed while its cursor opened, so none opens")]
     SessionClosed {
         /// The session.
         session_id: SessionId,
@@ -77,21 +78,33 @@ struct SessionCursors {
     driver_relaunch: Option<(RuntimeBindingId, RuntimeBinding)>,
 }
 
-// Every session's cursors, and the sessions that closed, which open none again: a close heard while
-// an open awaits its read leaves that open nothing to open into.
+// The opens and continues of one session in flight, and whether its close was heard meanwhile.
+struct InFlight {
+    count: usize,
+    is_closed: bool,
+}
+
+// Every session's cursors, and the sessions with an open or a continue in flight: a close heard
+// while one awaits its read marks the session, so that one opens nothing, and the mark goes with
+// the last of them.
 #[derive(Default)]
 struct HeldSessions {
     by_session: HashMap<SessionId, SessionCursors>,
-    closed: HashSet<SessionId>,
+    in_flight: HashMap<SessionId, InFlight>,
 }
 
 impl HeldSessions {
-    // The cursors of `session_id`, made on first use; refused for a session that closed.
+    // The cursors of `session_id`, made on first use; refused for a session whose close was heard
+    // while this open was in flight.
     fn open(
         &mut self,
         session_id: SessionId,
     ) -> Result<&mut SessionCursors, RunBindingCursorError> {
-        if self.closed.contains(&session_id) {
+        if self
+            .in_flight
+            .get(&session_id)
+            .is_some_and(|in_flight| in_flight.is_closed)
+        {
             return Err(RunBindingCursorError::SessionClosed { session_id });
         }
         Ok(self.by_session.entry(session_id).or_default())
@@ -109,6 +122,24 @@ impl HeldSessions {
     }
 }
 
+// An open or a continue of one session, counted in flight from before its first await until it
+// drops; the last of the session's to drop takes its close mark with it.
+struct InFlightOperation<'a> {
+    sessions: &'a Mutex<HeldSessions>,
+    session_id: SessionId,
+}
+
+impl Drop for InFlightOperation<'_> {
+    fn drop(&mut self) {
+        if let Entry::Occupied(mut entry) = lock(self.sessions).in_flight.entry(self.session_id) {
+            entry.get_mut().count -= 1;
+            if entry.get().count == 0 {
+                entry.remove();
+            }
+        }
+    }
+}
+
 /// Records each run's binding with its epoch cursor open, and drops the cursors runs left. The
 /// sessions' lock is taken before the cursors' and neither is held across an await.
 pub struct RunBindingCursors {
@@ -116,6 +147,9 @@ pub struct RunBindingCursors {
     store: Arc<RuntimeBindingStore>,
     epochs: Arc<Mutex<ExecutionEpochs>>,
     sessions: Mutex<HeldSessions>,
+    /// Holds an open once its run is read, before its cursor opens.
+    #[cfg(test)]
+    held_run_read_pause: sidekicks_std::pause_point::PausePoint,
 }
 
 impl RunBindingCursors {
@@ -131,40 +165,46 @@ impl RunBindingCursors {
             store,
             epochs,
             sessions: Mutex::new(HeldSessions::default()),
+            #[cfg(test)]
+            held_run_read_pause: sidekicks_std::pause_point::PausePoint::default(),
         }
     }
 
-    /// Records a binding of a run in the store and opens its cursor at the run's start, dropping
-    /// the cursors of the session's runs that have ended. Fails with
+    /// Records a binding of a run of `session_id` in the store and opens its cursor at the run's
+    /// start, dropping the cursors of the session's runs that have ended. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds, recording nothing,
     /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile, its row
     /// recorded and no cursor opened, and with the store's or the read's failure.
     pub async fn create(
         &self,
+        session_id: SessionId,
         input: CreateRuntimeBindingInput,
     ) -> Result<RuntimeBinding, RunBindingCursorError> {
-        let run = self.read_held_run(input.run_id).await?;
+        let _in_flight = self.begin(session_id);
+        self.read_held_run(input.run_id).await?;
         let binding = self.store.create(input).await?;
-        self.open_held(run.session_id, epoch_binding_of(&binding))?;
+        self.open_held(session_id, epoch_binding_of(&binding))?;
         Ok(binding)
     }
 
-    /// Opens the cursor of the binding `binding_id` the caller minted for `run_id`, at the run's
-    /// start, before its row is written, so the provider can deliver under it at once, dropping
-    /// the cursors of the session's runs that have ended. Fails with
+    /// Opens the cursor of the binding `binding_id` the caller minted for `run_id`, a run of
+    /// `session_id`, at the run's start, before its row is written, so the provider can deliver
+    /// under it at once, dropping the cursors of the session's runs that have ended. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a run no session holds,
-    /// [`RunBindingCursorError::SessionClosed`] for a session that closed and
+    /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile and
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
     pub async fn open_binding(
         &self,
+        session_id: SessionId,
         binding_id: RuntimeBindingId,
         run_id: RunId,
         provider_name: ProviderId,
         provider_account_id: Option<ProviderAccountId>,
     ) -> Result<(), RunBindingCursorError> {
-        let run = self.read_held_run(run_id).await?;
+        let _in_flight = self.begin(session_id);
+        self.read_held_run(run_id).await?;
         self.open_held(
-            run.session_id,
+            session_id,
             EpochBinding {
                 id: binding_id,
                 run_id,
@@ -192,16 +232,19 @@ impl RunBindingCursors {
     }
 
     /// Opens the cursor of `binding_id`, minted for a resume of `leg`'s conversation in a new
-    /// process, on `leg`'s run, where `leg`'s cursor stands. Fails with
+    /// process, on `leg`'s run, a run of `session_id`, where `leg`'s cursor stands. Fails with
     /// [`RunBindingCursorError::RunNotHeld`] for a leg whose run no session holds,
-    /// [`RunBindingCursorError::SessionClosed`] for a session that closed,
+    /// [`RunBindingCursorError::SessionClosed`] for a session that closed meanwhile,
     /// [`RunBindingCursorError::Cursor`] for a binding already open, and with the read's failure.
     pub async fn open_relaunch(
         &self,
+        session_id: SessionId,
         leg: &RuntimeBinding,
         binding_id: RuntimeBindingId,
     ) -> Result<(), RunBindingCursorError> {
-        self.continue_binding(leg, binding_id, false).await
+        let _in_flight = self.begin(session_id);
+        self.continue_binding(session_id, leg, binding_id, false)
+            .await
     }
 
     /// Opens the cursor of `binding_id`, which a driver minted for its own resume of
@@ -215,10 +258,12 @@ impl RunBindingCursors {
         session_id: SessionId,
         binding_id: RuntimeBindingId,
     ) -> Result<(), RunBindingCursorError> {
+        let _in_flight = self.begin(session_id);
         let Some(leg) = read_session_leg(&self.pool, session_id).await? else {
             return Ok(());
         };
-        self.continue_binding(&leg, binding_id, true).await
+        self.continue_binding(session_id, &leg, binding_id, true)
+            .await
     }
 
     /// Takes the binding a driver's own relaunch of `session_id` opened and the leg it continued,
@@ -234,11 +279,12 @@ impl RunBindingCursors {
             .take()
     }
 
-    // Opens `binding_id`'s cursor on `leg`'s run where `leg`'s stands, and where
-    // `is_drivers_own` keeps it with `leg` for the relaunch's result, forgetting an earlier one,
-    // all under the one sessions' lock a close is heard under.
+    // Opens `binding_id`'s cursor on `leg`'s run, a run of `session_id`, where `leg`'s stands, and
+    // where `is_drivers_own` keeps it with `leg` for the relaunch's result, forgetting an earlier
+    // one, all under the one sessions' lock a close is heard under.
     async fn continue_binding(
         &self,
+        session_id: SessionId,
         leg: &RuntimeBinding,
         binding_id: RuntimeBindingId,
         is_drivers_own: bool,
@@ -246,7 +292,7 @@ impl RunBindingCursors {
         let predecessor = epoch_binding_of(leg);
         let run = self.read_held_run(predecessor.run_id).await?;
         let mut sessions = self.lock_sessions();
-        let session = sessions.open(run.session_id)?;
+        let session = sessions.open(session_id)?;
         let mut epochs = lock(&self.epochs);
         let binding = EpochBinding {
             id: binding_id.clone(),
@@ -290,14 +336,17 @@ impl RunBindingCursors {
     }
 
     /// Takes a committed session event, on the writer's pump: a run's end marks its cursors to
-    /// drop and its continue unmarks them; a close drops all and opens none for the session again.
-    /// Fails when a run state change's payload does not read as its type's, changing nothing.
+    /// drop and its continue unmarks them; a close drops all, and an open or a continue of the
+    /// session in flight opens none. Fails when a run state change's payload does not read as its
+    /// type's, changing nothing.
     pub fn observe(&self, event: &CommittedEvent) -> Result<(), SessionEventReadError> {
         let envelope = &event.envelope;
         let session_id = envelope.session_id();
         let mut sessions = self.lock_sessions();
         if envelope.event_type() == SessionEventType::SessionClosed {
-            sessions.closed.insert(session_id);
+            if let Some(in_flight) = sessions.in_flight.get_mut(&session_id) {
+                in_flight.is_closed = true;
+            }
             if let Some(mut session) = sessions.by_session.remove(&session_id) {
                 let mut epochs = lock(&self.epochs);
                 for run_id in session
@@ -332,18 +381,38 @@ impl RunBindingCursors {
         Ok(())
     }
 
+    // Counts an open or a continue of `session_id` in flight until the answer drops.
+    fn begin(&self, session_id: SessionId) -> InFlightOperation<'_> {
+        self.lock_sessions()
+            .in_flight
+            .entry(session_id)
+            .or_insert(InFlight {
+                count: 0,
+                is_closed: false,
+            })
+            .count += 1;
+        InFlightOperation {
+            sessions: &self.sessions,
+            session_id,
+        }
+    }
+
     // The run's row; a run no session holds is refused.
     async fn read_held_run(&self, run_id: RunId) -> Result<RunRead, RunBindingCursorError> {
-        self.pool
+        let run = self
+            .pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunBindingCursorError>(RunStateReader::new(reader).read_run(&run_id)?)
             })
             .await?
-            .ok_or(RunBindingCursorError::RunNotHeld { run_id })
+            .ok_or(RunBindingCursorError::RunNotHeld { run_id })?;
+        #[cfg(test)]
+        self.held_run_read_pause.pass().await;
+        Ok(run)
     }
 
     // Opens `binding`'s cursor at the run's start in `session_id`'s cursors, first dropping the
-    // cursors of the session's runs that have ended; refused for a session that closed.
+    // cursors of the session's runs that have ended; refused for a session that closed meanwhile.
     fn open_held(
         &self,
         session_id: SessionId,
@@ -466,7 +535,7 @@ mod tests {
         // Records a binding of `run_id` through the cursors.
         async fn bind(&self, run_id: RunId) -> RuntimeBindingId {
             self.cursors
-                .create(binding_of(run_id))
+                .create(self.session_id, binding_of(run_id))
                 .await
                 .expect("the binding is recorded")
                 .id
@@ -476,7 +545,13 @@ mod tests {
         async fn bind_opened(&self, run_id: RunId) -> RuntimeBindingId {
             let input = binding_of(run_id);
             self.cursors
-                .open_binding(input.id.clone(), run_id, input.provider_name.clone(), None)
+                .open_binding(
+                    self.session_id,
+                    input.id.clone(),
+                    run_id,
+                    input.provider_name.clone(),
+                    None,
+                )
                 .await
                 .expect("the cursor opens");
             self.cursors
@@ -524,6 +599,36 @@ mod tests {
                 .expect("no test thread panics holding the cursors")
                 .binding(binding_id)
                 .is_ok()
+        }
+
+        // Has the cursors hear the session close.
+        fn hear_close(&self) {
+            self.hear(json!({
+                "type": SessionEventType::SessionClosed.as_str(),
+                "payload": {
+                    "sessionId": self.session_id,
+                    "previousState": "active",
+                    "newState": "closed",
+                },
+            }));
+        }
+
+        // Arms a hold for each of `count` opens, once its run is read and before its cursor
+        // opens; waits until all are held, has the cursors hear the session close, and lets them
+        // go on.
+        async fn close_while_held(&self, count: usize) {
+            let holds: Vec<_> = (0..count)
+                .map(|_| self.cursors.held_run_read_pause.arm())
+                .collect();
+            let mut releases = Vec::new();
+            for hold in holds {
+                hold.reached.await.expect("the open reaches its hold");
+                releases.push(hold.release);
+            }
+            self.hear_close();
+            for release in releases {
+                release.send(()).expect("the open waits at its hold");
+            }
         }
     }
 
@@ -573,46 +678,44 @@ mod tests {
     // Killed by an open that does not check for the session's close: a close heard while an open
     // awaits its read would leave a cursor and an entry for the closed session that nothing drops.
     #[tokio::test]
-    async fn a_closed_session_opens_no_cursor_again() {
+    async fn a_session_closed_while_its_opens_read_opens_no_cursor() {
         let harness = Harness::new().await;
         let run_id = harness.run();
         let leg = harness
             .cursors
-            .create(binding_of(run_id))
+            .create(harness.session_id, binding_of(run_id))
             .await
             .expect("the binding is recorded");
-        harness.hear(json!({
-            "type": SessionEventType::SessionClosed.as_str(),
-            "payload": {
-                "sessionId": harness.session_id,
-                "previousState": "active",
-                "newState": "closed",
-            },
-        }));
-
         let (minted, relaunched, opened) = (
             binding_of(run_id).id,
             binding_of(run_id).id,
             binding_of(run_id),
         );
-        let answers = [
-            harness
-                .cursors
-                .open_binding(opened.id.clone(), run_id, opened.provider_name, None)
-                .await,
-            harness.cursors.open_relaunch(&leg, minted.clone()).await,
-            harness
-                .cursors
-                .open_driver_relaunch(harness.session_id, relaunched.clone())
-                .await,
-        ];
+        let session_id = harness.session_id;
 
-        for answer in answers {
+        let (opened_answer, relaunch_answer, driver_relaunch_answer, ()) = tokio::join!(
+            harness.cursors.open_binding(
+                session_id,
+                opened.id.clone(),
+                run_id,
+                opened.provider_name,
+                None,
+            ),
+            harness
+                .cursors
+                .open_relaunch(session_id, &leg, minted.clone()),
+            harness
+                .cursors
+                .open_driver_relaunch(session_id, relaunched.clone()),
+            harness.close_while_held(3),
+        );
+
+        for answer in [opened_answer, relaunch_answer, driver_relaunch_answer] {
             assert!(
                 matches!(
                     answer,
-                    Err(RunBindingCursorError::SessionClosed { session_id })
-                        if session_id == harness.session_id
+                    Err(RunBindingCursorError::SessionClosed { session_id: closed })
+                        if closed == session_id
                 ),
                 "{answer:?}"
             );
@@ -623,6 +726,35 @@ mod tests {
         assert!(
             harness.cursors.lock_sessions().by_session.is_empty(),
             "no entry outlives the session"
+        );
+    }
+
+    // Killed by a close mark the last open in flight leaves behind, which the cursors would keep
+    // for every session that ever closed.
+    #[tokio::test]
+    async fn a_close_mark_goes_with_the_last_open_in_flight() {
+        let harness = Harness::new().await;
+        let run_id = harness.run();
+        let opened = binding_of(run_id);
+
+        let (answer, ()) = tokio::join!(
+            harness.cursors.open_binding(
+                harness.session_id,
+                opened.id,
+                run_id,
+                opened.provider_name,
+                None,
+            ),
+            harness.close_while_held(1),
+        );
+
+        assert!(
+            matches!(answer, Err(RunBindingCursorError::SessionClosed { .. })),
+            "{answer:?}"
+        );
+        assert!(
+            harness.cursors.lock_sessions().in_flight.is_empty(),
+            "no mark outlives the opens"
         );
     }
 }

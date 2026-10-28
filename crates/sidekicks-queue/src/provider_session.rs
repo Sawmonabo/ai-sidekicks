@@ -516,19 +516,22 @@ impl ProviderSessions {
         let binding = self
             .deps
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
-                id: mint_runtime_binding_id(),
-                run_id,
-                provider_name: current.provider_name,
-                contract_version: current.contract_version,
-                spawned_version: SpawnedVersionBindingCarriers {
-                    cli_version: current.cli_version,
-                    resolved_executable_path: PathBuf::from(current.resolved_executable_path),
+            .create(
+                session_id,
+                CreateRuntimeBindingInput {
+                    id: mint_runtime_binding_id(),
+                    run_id,
+                    provider_name: current.provider_name,
+                    contract_version: current.contract_version,
+                    spawned_version: SpawnedVersionBindingCarriers {
+                        cli_version: current.cli_version,
+                        resolved_executable_path: PathBuf::from(current.resolved_executable_path),
+                    },
+                    resume_handle: current.resume_handle,
+                    spawn_config: current.spawn_config,
+                    runtime_metadata: Map::new(),
                 },
-                resume_handle: current.resume_handle,
-                spawn_config: current.spawn_config,
-                runtime_metadata: Map::new(),
-            })
+            )
             .await?;
         Ok(binding.id)
     }
@@ -565,6 +568,7 @@ impl ProviderSessions {
         self.deps
             .binding_cursors
             .open_binding(
+                session_id,
                 binding_id.clone(),
                 run_id,
                 provider.clone(),
@@ -646,7 +650,7 @@ impl ProviderSessions {
         let driver = self.deps.providers.lookup(&leg.provider_name)?;
         self.deps
             .binding_cursors
-            .open_relaunch(&leg, minted_id.clone())
+            .open_relaunch(session_id, &leg, minted_id.clone())
             .await?;
         let answered = match relaunch {
             Relaunch::Resume => driver.resume_session(params).await,

@@ -149,13 +149,16 @@ impl Opening {
             Arc::clone(&epochs),
         ));
         let predecessor_id = binding_cursors
-            .create(CreateRuntimeBindingInput {
-                run_id: earlier_run_id,
-                ..binding_input(
-                    RuntimeBindingSpawnConfig::default(),
-                    spawned_build("1.0.0", "/opt/provider/bin"),
-                )
-            })
+            .create(
+                session_id,
+                CreateRuntimeBindingInput {
+                    run_id: earlier_run_id,
+                    ..binding_input(
+                        RuntimeBindingSpawnConfig::default(),
+                        spawned_build("1.0.0", "/opt/provider/bin"),
+                    )
+                },
+            )
             .await
             .expect("the earlier daemon's binding is recorded")
             .id;

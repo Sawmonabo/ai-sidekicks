@@ -227,13 +227,16 @@ impl Fixture {
         let binding = self
             .session
             .binding_cursors
-            .create(CreateRuntimeBindingInput {
-                run_id,
-                ..binding_input(
-                    RuntimeBindingSpawnConfig::default(),
-                    spawned_build("2.0.0", "/opt/provider/bin"),
-                )
-            })
+            .create(
+                session_id,
+                CreateRuntimeBindingInput {
+                    run_id,
+                    ..binding_input(
+                        RuntimeBindingSpawnConfig::default(),
+                        spawned_build("2.0.0", "/opt/provider/bin"),
+                    )
+                },
+            )
             .await
             .expect("the binding is recorded");
         binding.id

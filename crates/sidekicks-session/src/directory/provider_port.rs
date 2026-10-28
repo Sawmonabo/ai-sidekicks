@@ -463,7 +463,7 @@ impl SessionDirectoryProviderPort {
             }
             self.deps
                 .binding_cursors
-                .open_relaunch(&predecessor, binding_id.clone())
+                .open_relaunch(session_id, &predecessor, binding_id.clone())
                 .await?;
         }
         // A provider that continued the conversation in a new one left the old one behind.
@@ -680,7 +680,7 @@ mod tests {
         };
         let leg_id = leg.id.clone();
         binding_cursors
-            .create(leg)
+            .create(session_id, leg)
             .await
             .expect("the leg is recorded");
         let port = SessionDirectoryProviderPort::new(SessionDirectoryProviderPortDeps {
