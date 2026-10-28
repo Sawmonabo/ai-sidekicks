@@ -150,7 +150,7 @@ impl ShellTable {
             .into_iter()
             .chain(ended_nonces.iter().cloned())
             .collect();
-        let EndedInside {
+        let FolderKillOutcome {
             roots_inside,
             carried_nonces,
         } = end_processes_inside(roots, nonces, &folder_key).await?;
@@ -247,7 +247,7 @@ impl FolderProcessOwner for ShellTable {
 
 // What a close's kills answer: the shells that work inside themselves, left running for the caller
 // to close, and the nonces some process still carried.
-struct EndedInside {
+struct FolderKillOutcome {
     roots_inside: HashSet<u32>,
     carried_nonces: HashSet<String>,
 }
@@ -276,7 +276,7 @@ async fn end_processes_inside(
     roots: Vec<(u32, Option<PathBuf>)>,
     nonces: HashSet<String>,
     folder_key: &Path,
-) -> Result<EndedInside, FolderShellsCloseError> {
+) -> Result<FolderKillOutcome, FolderShellsCloseError> {
     let (root_ids, told_folders): (Vec<u32>, Vec<Option<PathBuf>>) = roots.into_iter().unzip();
     let (mut trees, carried_nonces) =
         tokio::task::spawn_blocking(move || read_trees(&root_ids, &nonces))
@@ -318,7 +318,7 @@ async fn end_processes_inside(
     end_processes(ending_ids)
         .await
         .map_err(FolderShellsCloseError::ProcessesNotEnded)?;
-    Ok(EndedInside {
+    Ok(FolderKillOutcome {
         roots_inside,
         carried_nonces,
     })
