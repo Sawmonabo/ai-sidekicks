@@ -8,13 +8,14 @@ use sidekicks_contracts::run::queue::QueueItemId;
 use sidekicks_contracts::session::id::SessionId;
 
 use super::{CODEX_SERVICE_STARTUP_TIMEOUT, CodexDriver, CodexDriverParts};
-use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnWait};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::history::read_codex_turn_id_by_client_message_id;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
-use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::lifecycle_call::{
+    CodexLifecycleCall, call_codex_lifecycle, let_go_codex_session_record,
+};
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
 use crate::driver::contract::{DriverError, SessionProcessState};
@@ -27,16 +28,6 @@ use crate::driver::session_control::{
     ResumeSessionParams,
 };
 use crate::usage_delta_accountant::UsageAxisCounts;
-
-/// Lets `inbound`'s record go on its session's task as `exit`; a task that let it go first has
-/// nothing more to let go.
-pub(crate) async fn let_go_codex_session_record(
-    inbound: &CodexSessionInboundSender,
-    exit: CodexRecordExit,
-) {
-    let _gone =
-        call_codex_lifecycle(inbound, |reply| CodexLifecycleCall::LetGo { exit, reply }).await;
-}
 
 impl CodexDriver {
     /// Opens a session on a fresh conversation on its account's service. Fails with

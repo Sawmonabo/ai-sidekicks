@@ -42,6 +42,7 @@ use crate::driver::codex::session::conversation_release::CodexConversationReleas
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexSessionEstablishment;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
+use crate::driver::codex::session::lifecycle_call::let_go_codex_session_record;
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
@@ -432,7 +433,9 @@ impl CodexServiceRecovery {
     }
 
     // Resumes one session's conversation in place on `service` inside its slot and reports the
-    // relaunch; `None` when the session closed or was established anew meanwhile.
+    // relaunch; `None` when the session closed or was established anew meanwhile. A conversation
+    // not resumed leaves the session with its record, so it reads down and the queue, told its
+    // process is gone, opens it again on its next run.
     async fn resume_session(
         &self,
         service: &Arc<CodexService>,
@@ -445,8 +448,16 @@ impl CodexServiceRecovery {
         self.dependencies.slots.settle_resume(session_id);
         let claim = claimed.ok()?;
         let result = self.resume_claimed(service, inbound, writer_left).await;
+        let is_failed = matches!(result, Some(DriverResumeResult::Failed { .. }));
+        if is_failed {
+            let_go_codex_session_record(inbound, CodexRecordExit::SessionContinues).await;
+            claim.vacate();
+        }
         drop(claim);
         let result = result?;
+        if is_failed && let Some(listener) = self.dependencies.process_gone.port() {
+            listener.process_gone(session_id);
+        }
         self.report_relaunch(service, session_id, result.clone())
             .await;
         Some(result)

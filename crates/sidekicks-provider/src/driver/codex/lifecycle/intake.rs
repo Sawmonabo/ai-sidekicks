@@ -43,16 +43,14 @@ use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndW
 use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
-use crate::driver::codex::session::calls::{
-    CodexSessionTask, ask_codex_session, run_codex_session_call,
-};
+use crate::driver::codex::session::calls::{CodexSessionTask, run_codex_session_call};
 use crate::driver::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::config_change::CodexConfigForks;
 use crate::driver::codex::session::inbound::{
-    CodexSessionCall, CodexSessionInbound, CodexSessionInboundHandler, CodexSessionInboundReceiver,
+    CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     CodexSessionInboundSender, drain_codex_session_inbound,
 };
 use crate::driver::codex::session::lifecycle_call::{CodexCompactionReading, CodexLifecycleCall};
@@ -69,19 +67,6 @@ use crate::usage_delta_accountant::WindowTelemetry;
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
-
-/// Runs the driver's own call `compose` builds on the session's task `inbound` reaches and
-/// answers its reply. Fails with `CodexError::Transport` once the session's task let its record
-/// go.
-pub(crate) async fn call_codex_lifecycle<Answer>(
-    inbound: &CodexSessionInboundSender,
-    compose: impl FnOnce(oneshot::Sender<Answer>) -> CodexLifecycleCall,
-) -> Result<Answer, CodexError> {
-    ask_codex_session(inbound, |reply| {
-        CodexSessionInbound::Lifecycle(compose(reply))
-    })
-    .await
-}
 
 /// One session's task: its record until it is let go, its routing band and its turn waits.
 pub(crate) struct CodexSessionIntake {

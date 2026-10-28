@@ -29,14 +29,13 @@ use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_aut
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
-use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::driver::codex::model_windows::{
     join_codex_model_windows, read_codex_service_model_windows,
 };
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,

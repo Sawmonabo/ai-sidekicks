@@ -1,14 +1,17 @@
-//! A live session's close and the daemon's stop, through the driver.
+//! A live session's close, the daemon's stop and an in-place resume that failed, through the
+//! driver.
 
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_std::mutex_lock::lock;
 
 use super::super::CodexDriver;
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
@@ -16,20 +19,23 @@ use crate::driver::codex::run::start::CODEX_TURN_START_TIMEOUT;
 use crate::driver::codex::run::start::record::CodexTurnRequest;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnEndDeadline;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, bind_test_listener, start_scripted_codex_service,
 };
-use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::side_questions::test_copies::{
     COPY_THREAD, COPY_TURN, read_only_profile, resting_question, serve_unended_copy,
 };
-use crate::driver::codex::session::slots::closing_session_refusal;
+use crate::driver::codex::session::slots::{CodexSessionSlots, closing_session_refusal};
 use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::{
     OneFolder, TEST_THREAD, TestDaemonTurnBindings, turn_completed, turn_reply,
 };
+use crate::driver::contract::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::ports::ProcessGoneListener;
 use crate::driver::session_control::CloseSessionParams;
 use crate::driver::test_registry::{new_run_id, new_session_id, test_driver_services};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
@@ -395,6 +401,79 @@ fn assert_interrupted_before_let_go(methods: &[Value], turn_id: &str) {
             .filter(|sent| sent["method"] == "turn/interrupt")
             .count(),
         1
+    );
+}
+
+/// What held a gone session's slot each time the queue heard its process gone.
+struct HeardGone {
+    slots: Arc<CodexSessionSlots>,
+    holders: Mutex<Vec<Option<CodexSessionSlotState>>>,
+}
+
+impl ProcessGoneListener for HeardGone {
+    fn process_gone(&self, session_id: SessionId) {
+        lock(&self.holders).push(self.slots.describe_holder(session_id));
+    }
+}
+
+// Killed by a failed in-place resume that keeps the session's record, or tells the queue nothing:
+// the session reads live on a conversation its service never loaded, and the queue keeps it.
+#[tokio::test]
+async fn a_conversation_not_resumed_in_place_leaves_the_session_down_and_tells_the_queue() {
+    let LiveCodexSession {
+        driver,
+        session_id,
+        mut scripted,
+        ..
+    } = LiveCodexSession::idle().await;
+    let parts = Arc::clone(driver.parts().expect("the driver composes"));
+    let heard = Arc::new(HeardGone {
+        slots: Arc::clone(&parts.slots),
+        holders: Mutex::default(),
+    });
+    assert!(
+        parts
+            .ports
+            .process_gone
+            .register(Arc::clone(&heard) as Arc<dyn ProcessGoneListener>)
+            .is_ok()
+    );
+    let service = Arc::clone(&scripted.service);
+    parts.recovery.owe_resumes(&service);
+    let recovering = parts
+        .recovery
+        .recover(&service, CodexServiceRecoveryCause::Crash);
+    let mut recovering = std::pin::pin!(recovering);
+    tokio::time::timeout(CLOSE_BOUND, async {
+        loop {
+            tokio::select! {
+                () = &mut recovering => break,
+                sent = scripted.script.next_sent() => match sent["method"].as_str() {
+                    Some("thread/resume") => scripted.script.send(&json!({
+                        "jsonrpc": "2.0",
+                        "id": sent["id"],
+                        "error": {"code": -32600, "message": "no rollout found for the thread"},
+                    })),
+                    Some("thread/unsubscribe") => {
+                        scripted
+                            .script
+                            .answer(&sent, &json!({"status": "unsubscribed"}));
+                    }
+                    Some("account/rateLimits/read") => {
+                        scripted.script.answer(&sent, &json!({"rateLimits": null}));
+                    }
+                    _ => scripted.script.answer(&sent, &json!({})),
+                },
+            }
+        }
+    })
+    .await
+    .expect("the recovery ends");
+
+    assert_eq!(*lock(&heard.holders), [None]);
+    assert_eq!(
+        driver.session_process_state(session_id),
+        SessionProcessState::Down
     );
 }
 
