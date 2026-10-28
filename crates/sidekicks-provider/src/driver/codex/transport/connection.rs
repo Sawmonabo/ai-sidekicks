@@ -75,8 +75,9 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
     fn service_draining(&self, message: &str);
 
     /// A request on the still open connection went unanswered past its deadline, `silent_for`
-    /// after the send of the oldest request still unanswered. Called once until the service next
-    /// sends anything, which [`Self::answered_after_timeout`] reports.
+    /// after the send of the oldest request still unanswered or the service's last frame,
+    /// whichever came later. Called once until the service next sends anything, which
+    /// [`Self::answered_after_timeout`] reports.
     fn request_timed_out(&self, silent_for: Duration);
 
     /// The service sent something after a request went unanswered. Called on the reader.
@@ -209,6 +210,8 @@ struct ConnectionState {
     close_reason: Option<String>,
     /// Whether a request went unanswered past its deadline with nothing from the service since.
     is_awaiting_answer: bool,
+    /// When the service last sent a frame, which clears the silence a timeout counts.
+    last_frame_at: Option<Instant>,
 }
 
 /// A request waiting for its answer: where the answer goes, and when the request was sent, `None`
@@ -273,6 +276,7 @@ impl CodexAppServerConnection {
                 answering: HashSet::new(),
                 close_reason: None,
                 is_awaiting_answer: false,
+                last_frame_at: None,
             }),
             sent_message_byte_limit: writer.sent_message_byte_limit(),
             writer: AsyncMutex::new(Some(writer)),
@@ -515,18 +519,24 @@ impl ConnectionShared {
     }
 
     // A request went unanswered: reported on an open connection, once until the service next
-    // sends anything, with the time since the oldest request still unanswered was sent.
+    // sends anything, with the time since the oldest request still unanswered was sent or the
+    // service last sent a frame, whichever came later.
     fn note_request_timed_out(&self) {
         let mut state = self.lock_state();
         if state.close_reason.is_none() && !state.is_awaiting_answer {
             state.is_awaiting_answer = true;
-            let now = Instant::now();
+            let last_frame_at = state.last_frame_at;
             let silent_for = state
                 .pending
                 .values()
                 .filter_map(|pending| pending.sent_at)
-                .map(|sent_at| now.saturating_duration_since(sent_at))
-                .max()
+                .min()
+                .map(|oldest_sent_at| {
+                    let silent_since = last_frame_at.map_or(oldest_sent_at, |last_frame_at| {
+                        last_frame_at.max(oldest_sent_at)
+                    });
+                    Instant::now().saturating_duration_since(silent_since)
+                })
                 .unwrap_or_default();
             self.events.request_timed_out(silent_for);
         }
@@ -547,6 +557,7 @@ impl ConnectionShared {
             if state.close_reason.is_some() {
                 return;
             }
+            state.last_frame_at = Some(Instant::now());
             // Reported under the lock, so it can never pass the timeout it answers.
             if std::mem::take(&mut state.is_awaiting_answer) {
                 self.events.answered_after_timeout();

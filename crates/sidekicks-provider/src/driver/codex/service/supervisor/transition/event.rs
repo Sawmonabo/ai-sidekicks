@@ -88,7 +88,8 @@ pub(crate) enum SupervisorEvent {
     RequestTimedOut {
         /// The connection's ticket.
         dial: u64,
-        /// How long since the oldest request still unanswered on it was sent.
+        /// How long since the oldest request still unanswered on it was sent or the service last
+        /// sent a frame, whichever came later.
         silent_for: Duration,
     },
     /// The service sent something on connection `dial` after a request on it went unanswered.

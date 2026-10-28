@@ -174,21 +174,29 @@ async fn a_timeout_is_reported_once_until_the_service_next_sends_anything() {
 }
 
 // Kills: the silence counted from the send of the request that timed out, when an older one
-// still waits, which lets a service answer nothing past the limit.
+// still waits, which lets a service answer nothing past the limit; and a clock that ignores the
+// frames the service sent since, which ends a service that keeps talking.
 #[tokio::test(start_paused = true)]
-async fn a_timeout_counts_the_silence_from_the_oldest_unanswered_send() {
-    let (connection, _service, events) = connect(usize::MAX, None);
+async fn a_timeout_counts_the_silence_from_the_oldest_send_or_the_last_frame() {
+    let (connection, service, events) = connect(usize::MAX, None);
     let params = json!({});
     let older = connection.request_within("thread/read", &params, Duration::from_mins(5));
     tokio::pin!(older);
     assert!(poll!(older.as_mut()).is_pending());
     tokio::time::advance(Duration::from_secs(30)).await;
+    service.send(&json!({ "method": "thread/status/changed", "params": {} }));
+    // The reader takes the frame on its own task, at 30 s.
+    for _ in 0..10 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(Duration::from_secs(10)).await;
 
     let _timed_out = connection.request("thread/read", &params).await;
 
+    // Sent at 0 s, a frame at 30 s, the newer request timed out at 100 s.
     assert_eq!(
         *events.silence.lock().expect("no test thread panicked"),
-        ["timed out after 90s"]
+        ["timed out after 70s"]
     );
 }
 
