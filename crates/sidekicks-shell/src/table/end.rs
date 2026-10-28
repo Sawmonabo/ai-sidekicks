@@ -15,7 +15,6 @@ use sidekicks_contracts::terminal::TerminalCloseRequest;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::{process_table, tree_under};
-use sidekicks_std::missing_entry::is_missing_entry;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_terminal::{TerminalError, TerminalHandle, Terminals};
 use sidekicks_workspace::folder::canonical_path::canonical_folder_path;
@@ -138,10 +137,7 @@ impl ShellTable {
     /// works inside is ended and one with nothing inside lives; shells still opening are waited
     /// for first, so none starts unseen. Answers once every such shell's
     /// program has exited; fails with each that will not end, every other one still ended.
-    pub(crate) async fn close_shells_in_folder(
-        &self,
-        folder: &Path,
-    ) -> Result<(), FolderShellsCloseError> {
+    async fn close_shells_in_folder(&self, folder: &Path) -> Result<(), FolderShellsCloseError> {
         let folder_key = canonical_folder_path(folder)
             .await
             .map_err(FolderShellsCloseError::Folder)?;
@@ -208,12 +204,9 @@ async fn are_trees_working_in(
     for working_folders in trees {
         let mut is_inside = false;
         for working_folder in working_folders {
-            // A working folder that no longer exists is not inside a folder that does.
-            let key = match canonical_folder_path(&working_folder).await {
-                Ok(key) => key,
-                Err(error) if is_missing_entry(&error) => continue,
-                Err(error) => return Err(FolderShellsCloseError::Folder(error)),
-            };
+            let key = canonical_folder_path(&working_folder)
+                .await
+                .map_err(FolderShellsCloseError::Folder)?;
             if is_contained_within(&key, folder_key) {
                 is_inside = true;
                 break;
