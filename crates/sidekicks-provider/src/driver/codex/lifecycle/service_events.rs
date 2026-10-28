@@ -61,8 +61,10 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
     }
 
     fn recovered(&self, service: &Arc<CodexService>, cause: CodexServiceRecoveryCause) {
+        // Marked here, in the service's own event order, before the service reads as up.
         if let Some(parts) = self.link.parts() {
             parts.recovery.forget_exit(service);
+            parts.recovery.owe_resumes(service);
         }
         self.spawn(service, "recovered", move |parts, service| async move {
             parts.recovery.recover(&service, cause).await;

@@ -123,6 +123,8 @@ struct RecoveryState {
     pending_build_change: HashMap<CodexServiceId, ProviderBuildChange>,
     // The services a build move left, waiting for their held conversations to be let go.
     retiring: HashSet<CodexServiceId>,
+    // The sessions each service that came back owes a resume, until its recovery resumed them.
+    owed_resumes: HashMap<CodexServiceId, Vec<SessionId>>,
 }
 
 /// Keeps each service's conversations through its exits, restarts, reconnects and build moves.
@@ -150,6 +152,25 @@ impl CodexServiceRecovery {
     /// its own; called in the service's own event order.
     pub(crate) fn forget_exit(&self, service: &CodexService) {
         self.lock().last_exit.remove(&service.id());
+    }
+
+    /// Marks every session on a service that came back as owed its resume, in the service's own
+    /// event order before the service reads as up, so none reads live and no move or run reaches
+    /// its conversation until [`Self::recover`] claimed its slot.
+    pub(crate) fn owe_resumes(&self, service: &CodexService) {
+        let owed: Vec<SessionId> = service
+            .attached_sessions()
+            .iter()
+            .map(CodexSessionInboundSender::session_id)
+            .collect();
+        for session_id in &owed {
+            self.dependencies.slots.owe_resume(*session_id);
+        }
+        self.lock()
+            .owed_resumes
+            .entry(service.id())
+            .or_default()
+            .extend(owed);
     }
 
     /// Ends every turn the service's sessions held with its process, in the order a kept message
@@ -392,8 +413,16 @@ impl CodexServiceRecovery {
             };
             resumed.push((session_id, thread_id, result));
         }
-        // A person's restart waiting on a session with no record here answers `None`.
-        self.lock().restart_waits.remove(&service.id());
+        // A person's restart waiting on a session with no record here answers `None`, and a
+        // session owed a resume that moved off the service meanwhile owes it no longer.
+        let owed = {
+            let mut state = self.lock();
+            state.restart_waits.remove(&service.id());
+            state.owed_resumes.remove(&service.id())
+        };
+        for session_id in owed.into_iter().flatten() {
+            self.dependencies.slots.settle_resume(session_id);
+        }
         resumed
     }
 
@@ -406,12 +435,10 @@ impl CodexServiceRecovery {
         writer_left: CodexWriterLeft,
     ) -> Option<DriverResumeResult> {
         let session_id = inbound.session_id();
-        let claim = self
-            .dependencies
-            .slots
-            .claim_establishing(session_id)
-            .await
-            .ok()?;
+        let claimed = self.dependencies.slots.claim_establishing(session_id).await;
+        // From here its claim reads it re-established, or it closed meanwhile.
+        self.dependencies.slots.settle_resume(session_id);
+        let claim = claimed.ok()?;
         let result = self.resume_claimed(service, inbound, writer_left).await;
         drop(claim);
         let result = result?;

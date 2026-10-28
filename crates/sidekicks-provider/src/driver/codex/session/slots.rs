@@ -1,9 +1,12 @@
 //! The Codex sessions' slots: which session holds a live record, by the queue its task drains, and
 //! the one transition in flight on each, an establishment or a close, taken as a per-session claim
-//! that the next waits behind. The record itself stays on its session's task; a close lets it go
-//! there, routes and waits first, so nothing reaches it after.
+//! that the next waits behind. A session whose service came back is owed its resume from then until
+//! recovery claims its slot, and reads as being established meanwhile. The record itself stays on
+//! its session's task; a close lets it go there, routes and waits first, so nothing reaches it
+//! after.
 
 use std::collections::HashMap;
+use std::pin::pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::time::Duration;
@@ -11,6 +14,7 @@ use std::time::Duration;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
+use tokio::sync::Notify;
 
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::app_server_protocol::ThreadUnsubscribeParams;
@@ -32,13 +36,29 @@ pub(crate) const THREAD_UNSUBSCRIBE_METHOD: &str = "thread/unsubscribe";
 /// cannot hold a close.
 pub(crate) const CODEX_LET_GO_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// One session's slot: its live record's queue, the claims published on it, oldest first, and how
-/// many closes it has seen.
+/// One session's slot: its live record's queue, the claims published on it, oldest first, how
+/// many closes it has seen, and whether its service came back with its resume not yet claimed.
 #[derive(Default)]
 struct SessionSlot {
     live: Option<CodexSessionInboundSender>,
     claims: Vec<(u64, CodexSessionSlotState)>,
     closes: u64,
+    is_resume_owed: bool,
+}
+
+impl SessionSlot {
+    // The state holding the slot: the newest claim in flight's, else `Establishing` while its
+    // resume is owed, else `Live` for a live record.
+    fn holder(&self) -> Option<CodexSessionSlotState> {
+        self.claims
+            .last()
+            .map(|claim| claim.1)
+            .or_else(|| {
+                self.is_resume_owed
+                    .then_some(CodexSessionSlotState::Establishing)
+            })
+            .or_else(|| self.live.as_ref().map(|_| CodexSessionSlotState::Live))
+    }
 }
 
 /// Every Codex session's slot.
@@ -50,6 +70,8 @@ pub(crate) struct CodexSessionSlots {
     next_claim_id: AtomicU64,
     /// Set once the daemon's stop began, after which no establishment is claimed.
     is_establishing_refused: AtomicBool,
+    /// Wakes the waits for an owed resume once one is claimed or its slot goes.
+    resumes_settled: Notify,
 }
 
 /// One transition's hold on its session's slot, ended when dropped.
@@ -80,6 +102,7 @@ impl CodexSessionSlots {
             slots: Mutex::new(HashMap::new()),
             next_claim_id: AtomicU64::new(1),
             is_establishing_refused: AtomicBool::new(false),
+            resumes_settled: Notify::new(),
         }
     }
 
@@ -106,29 +129,29 @@ impl CodexSessionSlots {
         }
     }
 
-    /// The queue of `session_id`'s live record, while no transition is in flight on it. Fails
-    /// with `CodexError::Transport` while it is being established again or torn down, or has none.
+    /// The queue of `session_id`'s live record, while no transition is in flight or owed on it.
+    /// Fails with `CodexError::Transport` while it is being established again or torn down, or has
+    /// none.
     pub(crate) fn require_live(
         &self,
         session_id: SessionId,
     ) -> Result<CodexSessionInboundSender, CodexError> {
         let slots = self.lock();
         let slot = slots.get(&session_id);
-        let detail = match slot
-            .and_then(|slot| slot.claims.last())
-            .map(|claim| claim.1)
-        {
+        let detail = match slot.and_then(SessionSlot::holder) {
             Some(CodexSessionSlotState::Closing) => {
                 return Err(closing_session_refusal(session_id));
             }
-            Some(CodexSessionSlotState::Establishing | CodexSessionSlotState::Live) => format!(
+            Some(CodexSessionSlotState::Establishing) => format!(
                 "Codex session \"{session_id}\" is being re-established; the conversation it \
                  runs on is about to change."
             ),
-            None => match slot.and_then(|slot| slot.live.clone()) {
-                Some(live) => return Ok(live),
-                None => format!("No live Codex session for \"{session_id}\"."),
-            },
+            Some(CodexSessionSlotState::Live) | None => {
+                match slot.and_then(|slot| slot.live.clone()) {
+                    Some(live) => return Ok(live),
+                    None => return Err(no_live_session_refusal(session_id)),
+                }
+            }
         };
         Err(CodexError::Transport {
             detail,
@@ -136,18 +159,75 @@ impl CodexSessionSlots {
         })
     }
 
-    /// The queue of `session_id`'s live record once every establishment in flight on it settled,
-    /// as one that brings its conversation back after its service returned or onto a fork. Fails
-    /// as [`Self::require_live`] does once none is in flight.
+    /// Waits until `session_id` is owed no resume and no establishment is in flight on it, as one
+    /// that brings its conversation back after its service returned or onto a fork.
+    pub(crate) async fn settle(&self, session_id: SessionId) {
+        loop {
+            let mut resumed = pin!(self.resumes_settled.notified());
+            // Armed before the read, so a resume claimed between the two is never missed.
+            resumed.as_mut().enable();
+            let (is_owed, holder) = {
+                let slots = self.lock();
+                slots
+                    .get(&session_id)
+                    .map_or((false, None), |slot| (slot.is_resume_owed, slot.holder()))
+            };
+            if is_owed {
+                resumed.await;
+            } else if holder == Some(CodexSessionSlotState::Establishing) {
+                // Taken once every transition claimed before it ended, and let go at once.
+                drop(self.transitions.acquire(session_id).await);
+            } else {
+                return;
+            }
+        }
+    }
+
+    /// The queue of `session_id`'s live record once it settled, with its transition turn held, so
+    /// no establishment or close begins until the caller's act on the record ends and drops it.
+    /// Fails with `CodexError::Transport` when the session holds no live record.
     pub(crate) async fn require_live_settled(
         &self,
         session_id: SessionId,
-    ) -> Result<CodexSessionInboundSender, CodexError> {
-        while self.describe_holder(session_id) == Some(CodexSessionSlotState::Establishing) {
-            // Taken once every transition claimed before it ended, and let go at once.
-            drop(self.transitions.acquire(session_id).await);
+    ) -> Result<(CodexSessionInboundSender, KeyHold<'_, SessionId>), CodexError> {
+        loop {
+            self.settle(session_id).await;
+            let turn = self.transitions.acquire(session_id).await;
+            // An establishment claimed or owed while this waited goes first; a claim made after
+            // the turn was taken waits behind it, so only the live record is read.
+            let (holder, live) = {
+                let slots = self.lock();
+                slots
+                    .get(&session_id)
+                    .map_or((None, None), |slot| (slot.holder(), slot.live.clone()))
+            };
+            if holder == Some(CodexSessionSlotState::Establishing) {
+                continue;
+            }
+            return match live {
+                Some(live) => Ok((live, turn)),
+                None => Err(no_live_session_refusal(session_id)),
+            };
         }
-        self.require_live(session_id)
+    }
+
+    /// Marks `session_id`'s live record owed its resume, as its service came back: it reads as
+    /// being established until [`Self::settle_resume`].
+    pub(crate) fn owe_resume(&self, session_id: SessionId) {
+        if let Some(slot) = self.lock().get_mut(&session_id)
+            && slot.live.is_some()
+        {
+            slot.is_resume_owed = true;
+        }
+    }
+
+    /// Ends `session_id`'s owed resume, once recovery claimed its slot or let it be, and wakes
+    /// whoever waits for it.
+    pub(crate) fn settle_resume(&self, session_id: SessionId) {
+        if let Some(slot) = self.lock().get_mut(&session_id) {
+            slot.is_resume_owed = false;
+        }
+        self.resumes_settled.notify_waiters();
     }
 
     /// Claims `session_id`'s slot for an establishment, a create, a resume or a fork, once every
@@ -203,15 +283,10 @@ impl CodexSessionSlots {
         }
     }
 
-    /// The state holding `session_id`'s slot: the newest claim in flight's, else `Live` for a live
-    /// record; `None` for a free slot.
+    /// The state holding `session_id`'s slot: the newest claim in flight's, else `Establishing`
+    /// while its resume is owed, else `Live` for a live record; `None` for a free slot.
     pub(crate) fn describe_holder(&self, session_id: SessionId) -> Option<CodexSessionSlotState> {
-        let slots = self.lock();
-        let slot = slots.get(&session_id)?;
-        slot.claims
-            .last()
-            .map(|claim| claim.1)
-            .or_else(|| slot.live.as_ref().map(|_| CodexSessionSlotState::Live))
+        self.lock().get(&session_id).and_then(SessionSlot::holder)
     }
 
     fn leave(&self, session_id: SessionId, claim_id: u64) {
@@ -221,7 +296,12 @@ impl CodexSessionSlots {
         };
         slot.claims.retain(|claim| claim.0 != claim_id);
         if slot.claims.is_empty() && slot.live.is_none() {
+            let is_resume_owed = slot.is_resume_owed;
             slots.remove(&session_id);
+            drop(slots);
+            if is_resume_owed {
+                self.resumes_settled.notify_waiters();
+            }
         }
     }
 
@@ -282,6 +362,14 @@ impl CodexSessionClaim<'_> {
 impl Drop for CodexSessionClaim<'_> {
     fn drop(&mut self) {
         self.slots.leave(self.session_id, self.claim_id);
+    }
+}
+
+// The refusal of a call on a session that holds no live record.
+fn no_live_session_refusal(session_id: SessionId) -> CodexError {
+    CodexError::Transport {
+        detail: format!("No live Codex session for \"{session_id}\"."),
+        cause: None,
     }
 }
 
@@ -350,6 +438,67 @@ mod tests {
     use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
     use crate::driver::codex::session::inbound::codex_session_inbound;
     use crate::driver::test_registry::new_session_id;
+
+    // Killed by an owed resume that reads live or lets a move through before recovery claimed the
+    // slot, and by a move that lets the transition turn go before its act, so an establishment
+    // claimed meanwhile runs under it.
+    #[tokio::test(start_paused = true)]
+    async fn a_move_settled_past_an_owed_resume_holds_off_the_next_establishment() {
+        let session_id = new_session_id();
+        let slots = Arc::new(CodexSessionSlots::new());
+        let (sender, _receiver) = codex_session_inbound(session_id);
+        slots
+            .claim_establishing(session_id)
+            .await
+            .expect("a free slot is claimed")
+            .install(sender);
+        slots.owe_resume(session_id);
+        assert_eq!(
+            slots.describe_holder(session_id),
+            Some(CodexSessionSlotState::Establishing)
+        );
+
+        let (moved_sender, mut moved) = tokio::sync::oneshot::channel();
+        let (done_sender, done) = tokio::sync::oneshot::channel::<()>();
+        let moving = tokio::spawn({
+            let slots = Arc::clone(&slots);
+            async move {
+                let (_live, _turn) = slots
+                    .require_live_settled(session_id)
+                    .await
+                    .expect("the session is live");
+                moved_sender.send(()).expect("the test waits for the move");
+                done.await.expect("the test ends the move");
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(
+            moved.try_recv().is_err(),
+            "the move waits for the owed resume"
+        );
+
+        slots.settle_resume(session_id);
+        moved
+            .await
+            .expect("the move goes once the resume is no longer owed");
+        let establishing = tokio::spawn({
+            let slots = Arc::clone(&slots);
+            async move { slots.claim_establishing(session_id).await.map(|_claim| ()) }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        assert!(
+            !establishing.is_finished(),
+            "the establishment waits for the move's act"
+        );
+        done_sender.send(()).expect("the move waits");
+        moving.await.expect("the move's task ends");
+        assert!(
+            establishing
+                .await
+                .expect("the establishment's task ends")
+                .is_ok()
+        );
+    }
 
     // Killed by removing the free check a create makes, and by removing the check an
     // establishment makes once it got the slot after a close.

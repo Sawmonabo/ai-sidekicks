@@ -61,14 +61,15 @@ const TERMINAL_REACH_ROW_LINE: &str = "Runs one Codex service while it is on, so
 
 impl CodexDriver {
     /// Moves the live conversation to another level from its next turn, once a fork onto its
-    /// changed config and a conversation coming back settled. Fails with `CodexError::Transport`
-    /// with no live record, and as the move fails.
+    /// changed config and a conversation coming back settled, holding off any re-establishment
+    /// until the move is made. Fails with `CodexError::Transport` with no live record, and as the
+    /// move fails.
     pub(crate) async fn update_permission_level(
         &self,
         params: UpdatePermissionLevelParams,
     ) -> Result<(), DriverError> {
         self.config_forks.join(params.session_id).await;
-        let inbound = self.slots.require_live_settled(params.session_id).await?;
+        let (inbound, _turn) = self.slots.require_live_settled(params.session_id).await?;
         call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::MoveLevel {
             params,
             reply,
@@ -84,7 +85,7 @@ impl CodexDriver {
         params: UpdateSessionModeParams,
     ) -> Result<(), DriverError> {
         self.config_forks.join(params.session_id).await;
-        let inbound = self.slots.require_live_settled(params.session_id).await?;
+        let (inbound, _turn) = self.slots.require_live_settled(params.session_id).await?;
         call_codex_lifecycle(&inbound, |reply| CodexLifecycleCall::MoveMode {
             mode: params.mode,
             reply,
