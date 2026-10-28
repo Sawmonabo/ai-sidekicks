@@ -53,6 +53,7 @@ use crate::input_lookup::ShellInputLookup;
 use crate::integration::injection::{ShellMarkNonce, ShellStartupFolders};
 use crate::list::ShellListFollowers;
 use crate::orphan::guard::OrphanGuard;
+use crate::orphan::nonce_search::find_processes_carrying_nonces;
 use crate::output::screen::{ShellScreenAppearance, cut_title};
 use crate::output::stream::ShellOutputEnd;
 use crate::record::{ShellRecord, ShellRecordDeps};
@@ -143,8 +144,9 @@ struct TableShared {
     sessions: Mutex<HashMap<SessionId, SessionShells>>,
     /// The folder holds in force, each taken under the sessions' lock.
     folder_holds: Mutex<Vec<FolderHold>>,
-    /// The spawn nonces of ended shells, kept until a folder close finds no process carrying one,
-    /// so a process an ended shell left behind is still ended with its folder.
+    /// The spawn nonces of ended shells while a process carries one: each is dropped once the scan
+    /// at its shell's end or a later folder close finds no carrier, so a process an ended shell
+    /// left behind is still ended with its folder.
     ended_nonces: Mutex<HashSet<String>>,
     /// The one count that orders the opens and the folder holds, taken under the sessions' lock.
     sequence: AtomicU64,
@@ -425,7 +427,8 @@ impl TableShared {
     }
 
     /// Records `shell`'s end as [`ShellRecord::record_end`] does, keeping its spawn nonce among the
-    /// ended shells' for the folder closes to search.
+    /// ended shells' for the folder closes to search. The nonce joins them before the record lets
+    /// it go, so a close that reads the live shells' nonces before the ended ones misses none.
     fn record_shell_end(
         &self,
         shell: &ShellRecord,
@@ -436,11 +439,34 @@ impl TableShared {
         Option<ShellMarkNonce>,
         Option<String>,
     ) {
-        let (handle, mark_nonce, spawn_nonce) = shell.record_end(end, is_removed);
-        if let Some(spawn_nonce) = &spawn_nonce {
-            self.lock_ended_nonces().insert(spawn_nonce.clone());
+        if let Some(spawn_nonce) = shell.spawn_nonce() {
+            self.lock_ended_nonces().insert(spawn_nonce);
         }
-        (handle, mark_nonce, spawn_nonce)
+        shell.record_end(end, is_removed)
+    }
+
+    /// Drops an ended shell's `spawn_nonce` when no process carries it, by one scan of this user's
+    /// processes; run once the shell's terminal was let go, so the shell itself carries it no more.
+    async fn forget_uncarried_nonce(&self, spawn_nonce: Option<String>) {
+        let Some(spawn_nonce) = spawn_nonce else {
+            return;
+        };
+        let searched = spawn_nonce.clone();
+        let carried = tokio::task::spawn_blocking(move || {
+            !find_processes_carrying_nonces(&HashSet::from([searched.as_str()])).is_empty()
+        })
+        .await;
+        match carried {
+            Ok(true) => {}
+            Ok(false) => {
+                self.lock_ended_nonces().remove(&spawn_nonce);
+            }
+            Err(error) => tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "The search for an ended shell's processes ended before it finished, so its \
+                 nonce waits for the next folder close."
+            ),
+        }
     }
 
     /// The next place in the order of opens and folder holds; taken under the sessions' lock.

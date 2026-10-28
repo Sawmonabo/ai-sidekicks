@@ -242,6 +242,12 @@ impl ShellRecord {
         state.spawn_nonce = Some(spawn_nonce);
     }
 
+    /// Gives a record no terminal started the spawn nonce a started shell's carries.
+    #[cfg(test)]
+    pub(crate) fn set_spawn_nonce(&self, spawn_nonce: &str) {
+        self.lock_state().spawn_nonce = Some(spawn_nonce.to_owned());
+    }
+
     /// Records that the shell could not start, for `cause`.
     pub(crate) fn record_did_not_start(&self, cause: String) {
         let cause = NonEmptyText::new(cause).unwrap_or_else(|| {

@@ -137,14 +137,15 @@ impl TableShared {
         let table = Arc::clone(self);
         Some(
             async move {
-                let_shell_go(
+                let let_go = let_shell_go(
                     &table.deps.orphan_guard,
                     close_terminal(&table.deps.terminals, handle),
                     mark_nonce,
-                    spawn_nonce,
+                    spawn_nonce.clone(),
                 )
-                .await
-                .map_err(|error| HandlerError::Internal(Box::new(error)))
+                .await;
+                table.forget_uncarried_nonce(spawn_nonce).await;
+                let_go.map_err(|error| HandlerError::Internal(Box::new(error)))
             }
             .boxed(),
         )

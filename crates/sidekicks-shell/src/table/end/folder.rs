@@ -128,6 +128,12 @@ impl ShellTable {
             .flat_map(|session| session.shells.values())
             .filter_map(|shell| Some((Arc::clone(shell), terminals.process_id(shell.handle()?)?)))
             .collect();
+        // The live shells' nonces are read before the ended ones: a shell's end keeps its nonce
+        // among the ended before letting it go, so one ending between the two reads is in either.
+        let live_nonces: Vec<String> = shells
+            .iter()
+            .filter_map(|(shell, _)| shell.spawn_nonce())
+            .collect();
         let ended_nonces = self.shared.lock_ended_nonces().clone();
         if shells.is_empty() && ended_nonces.is_empty() {
             return Ok(hold);
@@ -140,9 +146,8 @@ impl ShellTable {
                 (*process_id, told_folder)
             })
             .collect();
-        let nonces = shells
-            .iter()
-            .filter_map(|(shell, _)| shell.spawn_nonce())
+        let nonces = live_nonces
+            .into_iter()
             .chain(ended_nonces.iter().cloned())
             .collect();
         let EndedInside {
@@ -434,13 +439,16 @@ mod tests {
     use std::sync::Arc;
 
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
-    use sidekicks_contracts::terminal::TerminalOpenRequest;
+    use sidekicks_contracts::terminal::{TerminalId, TerminalOpenRequest};
     use sidekicks_contracts::wire::id::ClientUuid;
     use sidekicks_ipc::registry::HandlerError;
     use tokio::sync::watch;
 
     use super::end_processes_inside;
     use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
+    use crate::output::stream::ShellOutputEnd;
+    use crate::record::ShellRecord;
+    use crate::table::TableShared;
     use crate::test_table::{session, table_fixture};
 
     // Set on a stand-in's start, so the harness running ignored tests leaves the stand-in idle.
@@ -776,5 +784,89 @@ mod tests {
             }
         };
         assert_eq!(refusal, RefusalCode::SessionNotFound);
+    }
+
+    // A record of the fixture's session carrying `spawn_nonce`, as a started shell's does.
+    fn record_carrying(shared: &Arc<TableShared>, spawn_nonce: &str) -> Arc<ShellRecord> {
+        let list = shared
+            .session_of(&mut shared.lock_sessions(), &session())
+            .list
+            .clone();
+        let record = ShellRecord::new(
+            session(),
+            TerminalId::new(spawn_nonce.to_owned()).expect("a UUID is a terminal id"),
+            ClientUuid::new(spawn_nonce.to_owned()).expect("a client UUID"),
+            "sh".to_owned(),
+            std::env::temp_dir(),
+            Arc::clone(&shared.record_deps),
+            list,
+        );
+        record.set_spawn_nonce(spawn_nonce);
+        record
+    }
+
+    // Kills a shell's end that lets its nonce go before keeping it among the ended, an end with no
+    // scan for its carriers, and a close that keeps a nonce whose carrier ended: an ended shell's
+    // nonce joins the ended ones before its record lets it go, goes at once when nothing carries
+    // it, and stays while its carrier lives, until a close finds the carrier ended.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_ended_shell_s_nonce_is_kept_only_while_a_process_carries_it() {
+        let (_gate, gate_reader) = watch::channel(true);
+        let fixture = table_fixture(gate_reader).await;
+        let shared = Arc::clone(&fixture.table.shared);
+        let outside = tempfile::tempdir().expect("a scratch folder");
+        let uncarried = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0003";
+        let carried = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c0004";
+        let carrier = StandIn::start_carrying(outside.path(), None, Some(carried));
+        let uncarried_shell = record_carrying(&shared, uncarried);
+        let carried_shell = record_carrying(&shared, carried);
+
+        let ended_held = shared.lock_ended_nonces();
+        let ending = thread::spawn({
+            let shared = Arc::clone(&shared);
+            let shell = Arc::clone(&uncarried_shell);
+            move || {
+                shared.record_shell_end(&shell, ShellOutputEnd::Closed, true);
+            }
+        });
+        thread::sleep(Duration::from_millis(200));
+        let is_kept_while_waiting = uncarried_shell.spawn_nonce().is_some();
+        drop(ended_held);
+        ending.join().expect("the end is recorded");
+        let is_kept_at_end = shared.lock_ended_nonces().contains(uncarried);
+        shared
+            .forget_uncarried_nonce(Some(uncarried.to_owned()))
+            .await;
+        shared.record_shell_end(&carried_shell, ShellOutputEnd::Closed, true);
+        shared
+            .forget_uncarried_nonce(Some(carried.to_owned()))
+            .await;
+        let after_end = shared.lock_ended_nonces().clone();
+        let live_close = fixture
+            .table
+            .close_shells_in_folder(&fixture.working_folder)
+            .await
+            .expect("the close ends nothing");
+        drop(live_close);
+        let after_live_close = shared.lock_ended_nonces().clone();
+        drop(carrier);
+        let ended_close = fixture
+            .table
+            .close_shells_in_folder(&fixture.working_folder)
+            .await
+            .expect("the close ends nothing");
+        drop(ended_close);
+
+        assert!(
+            is_kept_while_waiting,
+            "the record keeps its nonce until it is among the ended"
+        );
+        assert!(is_kept_at_end, "the ended shell's nonce is among the ended");
+        assert_eq!(after_end, HashSet::from([carried.to_owned()]));
+        assert_eq!(after_live_close, HashSet::from([carried.to_owned()]));
+        assert!(
+            shared.lock_ended_nonces().is_empty(),
+            "the ended carrier's nonce is kept"
+        );
     }
 }
