@@ -9,14 +9,17 @@ use std::ffi::OsString;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::repo::clone::{CloneLine, ProjectCloneFailedStep, ProjectCloneStatus};
 use sidekicks_platforms::ChildExit;
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 use tracing::warn;
@@ -24,8 +27,9 @@ use tracing::warn;
 use crate::clone::askpass::broker::{AskpassBroker, AskpassBrokerError, AskpassOwnerIdError};
 use crate::clone::card::{ActivityStep, CloneActivity, CloneCards, clone_line, status_of_outcome};
 use crate::clone::destination::{
-    DestinationState, StagedClone, StagedCloneError, address_without_credentials,
-    make_staged_clone, move_staged_clone_into_place, read_destination_state, remove_staged_clone,
+    DestinationState, StagedClone, StagedCloneError, StagedFolder, address_without_credentials,
+    make_staged_clone, move_staged_clone_into_place, name_staged_clone, read_destination_state,
+    remove_staged_folder,
 };
 use crate::clone::large_files::{
     LARGE_FILES_CLONE_OPTIONS, LargeFilesReadError, clone_repositories, is_large_files_installed,
@@ -60,6 +64,16 @@ pub(crate) struct CloneRunsDeps {
     pub(crate) askpass: AskpassBroker,
     /// The sessions that waited on a clone, told once it attaches.
     pub(crate) clone_attached: Arc<PortRegistration<Arc<dyn CloneAttachedListener>>>,
+}
+
+/// A clone the last stop cut short whose staged folder the start's recovery removes.
+pub(crate) struct CutShortFolder {
+    /// The cloning project, recorded interrupted.
+    pub(crate) project_id: ProjectId,
+    /// The folder as its record names it.
+    pub(crate) staged: StagedFolder,
+    /// The destination, where a made folder stands once renamed.
+    pub(crate) destination: PathBuf,
 }
 
 /// A clone to run: its project, the address as typed, and the destination it is moved to.
@@ -211,26 +225,22 @@ impl CloneRuns {
         });
     }
 
-    /// Removes the folder the daemon made for a clone's git while that path still holds it, then
-    /// records how the clone ended; a folder that cannot be removed records the clone failed with
-    /// the reason instead. Answers the end recorded; fails when the record is not kept.
+    /// Removes the folder the daemon named for a clone's git while that path still holds what it
+    /// made there, then records how the clone ended; a folder that cannot be removed records the
+    /// clone failed with the reason instead. Answers the end recorded; fails when the record is
+    /// not kept.
     pub(crate) async fn end_short(
         &self,
         project_id: ProjectId,
-        staged: Option<&StagedClone>,
+        staged: Option<&StagedFolder>,
         end: CloneEnd,
     ) -> Result<CloneEnd, ProjectServiceError> {
         let mut recorded = end;
         if let Some(staged) = staged
-            && let Err(error) = remove_staged_clone(staged).await
+            && let Err(error) = remove_staged_folder(staged).await
         {
-            let line = clone_line(&format!(
-                "What the clone left could not be removed: {}",
-                describe_error(&error)
-            ))
-            .expect("the line has words");
             recorded = CloneEnd::Failed {
-                line: line.into_string(),
+                line: removal_failure_line(&error),
             };
         }
         self.projects
@@ -239,17 +249,80 @@ impl CloneRuns {
         Ok(recorded)
     }
 
-    /// Stops every run with the stop's grace, waits for each to end and record its end, ends every
-    /// card, then closes the askpass broker. Fails when the broker's listening task panicked.
-    pub(crate) async fn close(&self) -> Result<(), AskpassBrokerError> {
+    /// Removes the staged folders of the clones the last stop cut short, recorded interrupted
+    /// already, on a task of its own the close waits on, so the daemon's start waits for none of
+    /// them. The task holds `starts`, the start lock, until every folder is removed, so no start
+    /// meets a folder it has yet to remove; answers once it holds it. Each folder goes while its
+    /// path still holds what the daemon made, a made one at the destination too once renamed
+    /// there; its record lets it go, or records the clone failed with why it could not.
+    pub(crate) async fn remove_cut_short_folders(
+        self: &Arc<Self>,
+        clones: Vec<CutShortFolder>,
+        starts: Arc<KeyedLock<()>>,
+    ) {
+        let (held, holding) = oneshot::channel();
+        let runs = Arc::clone(self);
+        self.tasks.spawn(async move {
+            let _starting = starts.acquire(()).await;
+            if held.send(()).is_err() {
+                tracing::debug!("the clone service's start stopped waiting for its recovery");
+            }
+            for clone in clones {
+                runs.remove_cut_short_folder(clone).await;
+            }
+        });
+        // A task stopped before it held the lock leaves the start nothing to wait for.
+        if holding.await.is_err() {
+            warn!("the removal of the folders a stop left ended before it began");
+        }
+    }
+
+    /// Stops every run with the stop's grace and waits within `bound` for each to end and record
+    /// its end, the removals of the folders a stop left among them; a task still running at the
+    /// bound is logged and left to finish on its own. Then ends every card and closes the askpass
+    /// broker. Fails when the broker's listening task panicked.
+    pub(crate) async fn close(&self, bound: Duration) -> Result<(), AskpassBrokerError> {
         self.shutdown.cancel();
         self.tasks.close();
-        self.tasks.wait().await;
+        if tokio::time::timeout(bound, self.tasks.wait())
+            .await
+            .is_err()
+        {
+            warn!(
+                running = self.tasks.len(),
+                "clone tasks still ran when the stop's bound ran out; they are left to finish"
+            );
+        }
         self.cards.close();
         let broker = lock(&self.askpass).take();
         match broker {
             Some(broker) => broker.close().await,
             None => Ok(()),
+        }
+    }
+
+    // Removes one cut-short clone's staged folder, at its recorded path and, once made, at the
+    // destination it may have been renamed to, then records it gone or the clone failed with why.
+    async fn remove_cut_short_folder(&self, clone: CutShortFolder) {
+        let mut removed = remove_staged_folder(&clone.staged).await;
+        if let (Ok(()), StagedFolder::Made(made)) = (&removed, &clone.staged) {
+            let placed = StagedFolder::Made(StagedClone {
+                path: clone.destination,
+                identity: made.identity,
+            });
+            removed = remove_staged_folder(&placed).await;
+        }
+        let failure = removed.err().map(|error| removal_failure_line(&error));
+        if let Err(error) = self
+            .projects
+            .record_staged_clone_removed(clone.project_id, failure)
+            .await
+        {
+            warn!(
+                project_id = %clone.project_id,
+                error = &error as &(dyn Error + 'static),
+                "the removal of a cut-short clone's folder could not be recorded"
+            );
         }
     }
 
@@ -286,25 +359,32 @@ impl CloneRuns {
         }
     }
 
-    // Clones into a folder made beside the destination, then moves it into place and attaches
-    // it; answers whether the clone keeps large files Git LFS is not there to fetch. The folder
-    // made is left in `staged`, at the destination once moved, for an end short to remove.
+    // Clones into a folder named and made beside the destination, then moves it into place and
+    // attaches it; answers whether the clone keeps large files Git LFS is not there to fetch. The
+    // folder is left in `staged` from its naming on, at the destination once moved, for an end
+    // short to remove.
     async fn clone_into_place(
         &self,
         clone: &CloneJob,
         cancel: &CancellationToken,
-        staged: &mut Option<StagedClone>,
+        staged: &mut Option<StagedFolder>,
     ) -> Result<bool, CloneRunError> {
         let has_large_files = is_large_files_installed(&self.git, None).await?;
         // The folder may have filled since the start looked; what is there now is not the clone's.
         if read_destination_state(&clone.destination).await? == DestinationState::Taken {
             return Err(CloneRunError::DestinationFilled);
         }
-        let made = staged.insert(make_staged_clone(&clone.destination).await?);
-        let made_path = made.path.clone();
+        // Recorded before it is made, so no stop leaves a folder its record does not name.
+        let named = name_staged_clone(&clone.destination)?;
         self.projects
-            .record_clone_staged(clone.project_id, made)
+            .record_clone_staged(clone.project_id, &named, None)
             .await?;
+        *staged = Some(StagedFolder::Named(named.clone()));
+        let made = make_staged_clone(&named).await?;
+        self.projects
+            .record_clone_staged(clone.project_id, &made.path, Some(&made.identity))
+            .await?;
+        *staged = Some(StagedFolder::Made(made.clone()));
         let mut arguments: Vec<OsString> = Vec::new();
         if has_large_files {
             arguments.extend(LARGE_FILES_CLONE_OPTIONS.iter().map(OsString::from));
@@ -315,7 +395,7 @@ impl CloneRuns {
                 .map(OsString::from),
         );
         arguments.push(OsString::from(&clone.url));
-        arguments.push(made_path.clone().into_os_string());
+        arguments.push(made.path.clone().into_os_string());
         let call = progress_at_once(GitCall::write(arguments));
         let ran = self
             .run_git_followed(clone.project_id, None, call, cancel)
@@ -332,7 +412,7 @@ impl CloneRuns {
             Err(error) => return Err(error),
         }
         if has_large_files {
-            for repository in clone_repositories(&self.git, None, &made_path).await? {
+            for repository in clone_repositories(&self.git, None, &made.path).await? {
                 self.git
                     .run(
                         None,
@@ -342,12 +422,11 @@ impl CloneRuns {
             }
         }
         let is_missing_large_files =
-            !has_large_files && keeps_large_files(&self.git, None, &made_path).await?;
-        let made = staged.as_ref().expect("the folder was made above");
-        let placed = move_staged_clone_into_place(made, &clone.destination)
+            !has_large_files && keeps_large_files(&self.git, None, &made.path).await?;
+        let placed = move_staged_clone_into_place(&made, &clone.destination)
             .await?
             .ok_or(CloneRunError::DestinationFilled)?;
-        *staged = Some(placed);
+        *staged = Some(StagedFolder::Made(placed));
         // The last step that can fail: once attached, the folder is the project's and stays.
         self.projects
             .attach_cloned_project(clone.project_id, &clone.destination)
@@ -461,6 +540,16 @@ impl CloneRuns {
             .expect("an exit's description has words");
         Err(CloneRunError::GitFailed(line))
     }
+}
+
+// The failure line of a clone whose staged folder could not be removed.
+fn removal_failure_line(error: &StagedCloneError) -> String {
+    clone_line(&format!(
+        "What the clone left could not be removed: {}",
+        describe_error(error)
+    ))
+    .expect("the line has words")
+    .into_string()
 }
 
 // A git call of a clone or pull run in `repository`, its progress written at once.

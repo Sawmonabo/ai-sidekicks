@@ -79,11 +79,13 @@ fn workspace_schema_sql() -> String {
 -- mount's anchor (repo_mounts.metadata.commonDir); attach keeps one project per repository. While
 -- cloning, clone_url keeps the address the person typed with any user and password taken out,
 -- clone_outcome where the clone stands, clone_failure git's last error line after a failed clone,
--- and clone_staging_folder the folder the daemon made beside the destination for git to clone
--- into, with clone_staging_identity its <device>:<inode>: the one folder a failure or a restart
--- removes, and only while that path still holds that folder. place is where the folder is and its
--- sessions run, fixed at attach: the place's wire JSON (Windows itself or a WSL 2 distribution),
--- NULL on macOS and Linux; folder_path is in that place's own form.
+-- and clone_staging_folder the folder the daemon names beside the destination for git to clone
+-- into, recorded before it is made, with clone_staging_identity its <device>:<inode> once made:
+-- the one folder a failure or a restart removes, and only while that path still holds that folder,
+-- at folder_path too once it is renamed there; a folder with no identity yet is removed only while
+-- it is empty. place is where the folder is and its sessions run, fixed at attach: the place's
+-- wire JSON (Windows itself or a WSL 2 distribution), NULL on macOS and Linux; folder_path is in
+-- that place's own form.
 CREATE TABLE projects (
   id                     TEXT PRIMARY KEY,
   name                   TEXT NOT NULL,
@@ -103,7 +105,7 @@ CREATE TABLE projects (
   updated_at             TEXT NOT NULL,
   CHECK ((state = '{cloning}') = (clone_url IS NOT NULL)),
   CHECK ((state = '{cloning}') = (clone_outcome IS NOT NULL)),
-  CHECK ((clone_staging_folder IS NULL) = (clone_staging_identity IS NULL)),
+  CHECK (clone_staging_identity IS NULL OR clone_staging_folder IS NOT NULL),
   CHECK (state = '{cloning}' OR clone_staging_folder IS NULL),
   CHECK ((clone_outcome IS '{failed}') = (clone_failure IS NOT NULL))
 ) STRICT;

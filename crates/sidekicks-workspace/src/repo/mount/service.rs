@@ -42,7 +42,7 @@ use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::projector::{HealthProjectionError, RepoMountHealthRow};
-use crate::repo::errors::RepoRefusal;
+use crate::repo::errors::{RepoRefusal, refuse_distribution};
 use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health};
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::row_guards::COMMON_DIR_METADATA_PATH;
@@ -346,7 +346,7 @@ impl RepoMountService {
         &self,
         request: &RepoMountAttachRequest,
     ) -> Result<RepoAttachTarget, RepoMountServiceError> {
-        refuse_distribution(request)?;
+        refuse_distribution(request.place.as_ref())?;
         let resolution = self
             .resolver
             .resolve_canonical_root(Path::new(request.local_path.as_str()))
@@ -432,7 +432,7 @@ impl RepoMountService {
         &self,
         request: &RepoMountAttachRequest,
     ) -> Result<ResolvedFolder, RepoMountServiceError> {
-        refuse_distribution(request)?;
+        refuse_distribution(request.place.as_ref())?;
         let resolution = self
             .resolver
             .resolve_canonical_root(Path::new(request.local_path.as_str()))
@@ -650,17 +650,6 @@ pub fn managed_mount_deletion_statements(session_id: SessionId) -> Vec<WriteStat
             expected_row_count: None,
         })
         .collect()
-}
-
-// A WSL place cannot be reached from this computer's resolver; the place's own distribution names
-// the refusal.
-fn refuse_distribution(request: &RepoMountAttachRequest) -> Result<(), RepoRefusal> {
-    match &request.place {
-        Some(place) => Err(RepoRefusal::DistributionNotFound {
-            distro: place.distro.clone(),
-        }),
-        None => Ok(()),
-    }
 }
 
 fn already_attached(holder: &ActiveMount) -> RepoRefusal {

@@ -86,11 +86,11 @@ pub(crate) enum CrashMonitorEndFailure {
 
 /// Ends the daemon's work: the stop token, so the work under way ends; the socket, so no new call
 /// comes; then, within what is left of `bound`, the mutating calls under way, the capability
-/// refresh, the providers' registration, the run queue, the repository services' background work,
-/// the session services' follows with the chats' write watch and file recount, the renames' name
-/// pushes, the highlighter, the terminals, the scheduler, the working-folder watch, the clone
-/// service with its askpass broker, the projects list, the search index, the drivers and the git
-/// trees a failed call left. Answers each step's failure, every step having run.
+/// refresh, the providers' registration, the run queue, the clone service with its askpass broker,
+/// the repository services' background work, the session services' follows with the chats' write
+/// watch and file recount, the renames' name pushes, the highlighter, the terminals, the
+/// scheduler, the working-folder watch, the projects list, the search index, the drivers and the
+/// git trees a failed call left. Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
     intent: DaemonStopIntent,
@@ -132,6 +132,13 @@ pub(crate) async fn stop_work(
     // Before the attachments and the drivers, so no run is admitted or delivered past here.
     if let Some(session) = &process.session {
         session.queue.stop().await;
+    }
+    // Before the session attachments' stop, so a clone that attaches tells sessions still served;
+    // taken, so a stop run again finds no broker to close.
+    if let Some(clones) = process.clones.take()
+        && let Err(failure) = clones.close(remaining()).await
+    {
+        failures.push(failure.into());
     }
     // Before the scheduler, whose tick wakes the health re-probe.
     if let (Some(repo_attachments), Some(repo)) = (process.repo_attachments.take(), &process.repo)
@@ -180,12 +187,6 @@ pub(crate) async fn stop_work(
     }
     if let Some(repo) = &process.repo {
         repo.folder_watch.stop().await;
-    }
-    // Taken, so a stop run again finds no broker to close.
-    if let Some(clones) = process.clones.take()
-        && let Err(failure) = clones.close().await
-    {
-        failures.push(failure.into());
     }
     if let Some(project_list_feed) = process.project_list_feed.take() {
         project_list_feed.close();

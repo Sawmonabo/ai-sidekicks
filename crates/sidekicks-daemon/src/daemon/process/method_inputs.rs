@@ -368,6 +368,7 @@ pub(crate) async fn register_method_inputs(
             projects: Arc::clone(&projects),
             records: Arc::clone(&port.project_records),
             reads: Arc::clone(&reads),
+            writer: Arc::clone(&writer),
             askpass,
             settings: settings_reader,
             home_folder: home_folder.to_path_buf(),

@@ -1,7 +1,8 @@
 //! The clone service's tests, against a real git on temporary folders with the test's own git
 //! config: a clone with a submodule attaches and its key answers a resend and refuses another
-//! request, a failed clone keeps no credential, and the start's recovery removes only the folders
-//! the daemon made.
+//! request, as does the key of a start answered by the attached project, a failed clone keeps no
+//! credential, and the start's recovery removes only the folders the daemon made, wherever the
+//! clone stood.
 
 use std::error::Error;
 use std::ffi::OsString;
@@ -34,7 +35,7 @@ use tempfile::TempDir;
 
 use super::{CloneAttachedListener, CloneService, CloneServiceDeps, CloneServiceError};
 use crate::clone::askpass::broker::AskpassBroker;
-use crate::clone::destination::make_staged_clone;
+use crate::clone::destination::{make_staged_clone, name_staged_clone};
 use crate::clone::requests::CLONE_REQUESTS_STATEMENT_CAPACITY;
 use crate::event_emitter::WorkspaceEventEmitter;
 use crate::git::process::{GitCall, GitRunner, in_folder, test_git_runner_with_environment};
@@ -153,6 +154,7 @@ impl Harness {
             projects,
             records,
             reads: Arc::clone(&self.reads),
+            writer: Arc::clone(&self.log.writer),
             askpass,
             settings: Arc::new(Unreached),
             home_folder: self.folder.clone(),
@@ -238,7 +240,9 @@ async fn follow_to_end(service: &CloneService, project_id: ProjectId) -> Project
 
 // Kills `--recurse-submodules` dropped (the submodule's file is missing), the key record written
 // outside the project's insert (the start commits twice, or the resend clones again and commits),
-// and the key's comparison dropped (the differing parent folder answers the first project).
+// the key's comparison dropped (the differing parent folder answers the first project), and the
+// key left unwritten by a start the attached project answers (another request under it answers
+// that project again).
 #[tokio::test]
 async fn a_clone_with_a_submodule_attaches_and_its_key_answers_a_resend_and_refuses_another() {
     let harness = Harness::new().await;
@@ -339,7 +343,35 @@ async fn a_clone_with_a_submodule_attaches_and_its_key_answers_a_resend_and_refu
         ),
         "the first project is named: {refused:?}"
     );
-    service.close().await.expect("the service closes");
+
+    // A start the attached project answers keeps its key for that project.
+    let attached_key = new_key();
+    let answered = service
+        .start_clone(start_request(
+            source,
+            &folder.join("projects"),
+            &attached_key,
+        ))
+        .await
+        .expect("the attached project answers");
+    assert_eq!(answered, started);
+    let refused = service
+        .start_clone(start_request(
+            source,
+            &folder.join("elsewhere"),
+            &attached_key,
+        ))
+        .await
+        .expect_err("another request under that key is refused");
+    assert!(
+        matches!(
+            refused,
+            CloneServiceError::Refused(RepoRefusal::CloneIdempotencyConflict { project_id: first })
+                if first == project_id
+        ),
+        "the attached project is named: {refused:?}"
+    );
+    service.close(WAIT).await.expect("the service closes");
 }
 
 // Kills the typed address's replacement dropped: the hook's failure line echoes the address as
@@ -406,42 +438,70 @@ async fn a_failed_clone_keeps_no_credential_in_its_record_or_its_card() {
         let kept = kept.expect("the failure and the address are kept");
         assert!(!kept.contains("tok"), "a credential is kept: {kept}");
     }
-    service.close().await.expect("the service closes");
+    service.close(WAIT).await.expect("the service closes");
 }
 
-// Kills a staged folder removed by its path alone (the folder that replaced one is removed) and
-// the recovery skipped (both clones stay running and the daemon's folder stays).
+// Kills a staged folder removed by its path alone (the folder that replaced one is removed), the
+// recovery skipped (the clones stay running and the daemon's folders stay), the recovery reading
+// only the recorded path (the clone renamed to its destination stays), and a folder named before
+// it was made removed whole (the file in it goes) or left though empty.
 #[tokio::test]
 async fn the_start_records_running_clones_interrupted_and_removes_only_the_folders_it_made() {
     let harness = Harness::new().await;
     let projects = harness.folder.join("projects");
-    let made = make_staged_clone(&projects.join("made"))
+    let named = |destination: &Path| name_staged_clone(destination).expect("the folder is named");
+    let made = make_staged_clone(&named(&projects.join("made")))
         .await
         .expect("the folder is made");
-    let replaced = make_staged_clone(&projects.join("replaced"))
+    let replaced = make_staged_clone(&named(&projects.join("replaced")))
         .await
         .expect("the folder is made");
     std::fs::rename(&replaced.path, harness.folder.join("moved")).expect("the folder moves away");
     std::fs::create_dir(&replaced.path).expect("another folder takes its path");
+    let placed_destination = projects.join("placed");
+    let placed = make_staged_clone(&named(&placed_destination))
+        .await
+        .expect("the folder is made");
+    std::fs::rename(&placed.path, &placed_destination).expect("the clone moves into place");
+    let empty = named(&projects.join("empty"));
+    std::fs::create_dir(&empty).expect("the named folder is made");
+    let filled = named(&projects.join("filled"));
+    std::fs::create_dir(&filled).expect("a folder stands at the named path");
+    std::fs::write(filled.join("note"), "kept").expect("the folder holds a file");
     let mut clones = Vec::new();
-    for staged in [&made, &replaced] {
+    for (destination, staged_folder, staged_identity) in [
+        (projects.join("made"), &made.path, Some(made.identity)),
+        (
+            projects.join("replaced"),
+            &replaced.path,
+            Some(replaced.identity),
+        ),
+        (
+            placed_destination.clone(),
+            &placed.path,
+            Some(placed.identity),
+        ),
+        (projects.join("empty"), &empty, None),
+        (projects.join("filled"), &filled, None),
+    ] {
         let project_id =
             ProjectId::try_from(mint_uuid_v7()).expect("a minted UUID is a project id");
-        let slug: OsString = staged.path.file_name().expect("a folder name").to_owned();
+        let slug: OsString = staged_folder.file_name().expect("a folder name").to_owned();
         harness
             .database
             .reader()
             .execute(
                 "INSERT INTO projects (id, name, slug, folder_path, state, clone_url, \
                  clone_outcome, clone_staging_folder, clone_staging_identity, setup, created_at, \
-                 updated_at) VALUES (?1, ?2, ?2, '/repos/app', 'cloning', \
-                 'https://example.invalid/app.git', 'running', ?3, ?4, \
-                 '{\"filesToCopy\":[],\"commands\":[]}', ?5, ?5)",
+                 updated_at) VALUES (?1, ?2, ?2, ?3, 'cloning', \
+                 'https://example.invalid/app.git', 'running', ?4, ?5, \
+                 '{\"filesToCopy\":[],\"commands\":[]}', ?6, ?6)",
                 rusqlite::params![
                     project_id.text().as_str(),
                     slug.to_string_lossy(),
-                    staged.path.to_string_lossy(),
-                    staged.identity.to_string(),
+                    destination.to_string_lossy(),
+                    staged_folder.to_string_lossy(),
+                    staged_identity.map(|identity| identity.to_string()),
                     PARENT_ROWS_AT,
                 ],
             )
@@ -450,9 +510,20 @@ async fn the_start_records_running_clones_interrupted_and_removes_only_the_folde
     }
 
     let service = harness.start().await;
+    // The removals run on the service's own task, which its close waits on.
+    service.close(WAIT).await.expect("the service closes");
 
     assert!(!made.path.exists(), "the folder the daemon made is removed");
     assert!(replaced.path.is_dir(), "a folder that replaced it is kept");
+    assert!(
+        !placed_destination.exists(),
+        "the clone renamed to its destination is removed"
+    );
+    assert!(!empty.exists(), "an empty named folder is removed");
+    assert!(
+        filled.join("note").is_file(),
+        "a named folder holding a file is kept"
+    );
     for project_id in clones {
         assert_eq!(
             harness
@@ -460,6 +531,10 @@ async fn the_start_records_running_clones_interrupted_and_removes_only_the_folde
                 .as_deref(),
             Some("interrupted")
         );
+        assert_eq!(
+            harness.project_column(project_id, "clone_staging_folder"),
+            None,
+            "the record lets the folder go"
+        );
     }
-    service.close().await.expect("the service closes");
 }

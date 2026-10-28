@@ -21,7 +21,7 @@ use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::{
     ProjectId, ProjectListEntry, ProjectName, ProjectSessionTally, ProjectSetup, ProjectState,
 };
-use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState, VcsType};
+use sidekicks_contracts::repo::mount::{RepoMountId, RepoMountState};
 use sidekicks_contracts::session::directory::SessionActivity;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
@@ -151,16 +151,13 @@ pub(crate) struct ProjectChanges {
 /// Where a project's clone stands, while the project is cloning.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CloneRecord {
-    /// The address the person typed, with any user and password taken out.
-    pub(crate) clone_url: String,
     /// Where the clone stands.
     pub(crate) outcome: CloneOutcome,
     /// Git's last error line, held only while the outcome is `failed`.
     pub(crate) failure: Option<String>,
 }
 
-/// One project's own row, with its attached mount, as the project writer and a clone's card read
-/// it.
+/// One project's own row, as the project writer and a clone's card read it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ProjectRow {
     /// Its life.
@@ -171,8 +168,6 @@ pub(crate) struct ProjectRow {
     pub(crate) place: Option<Place>,
     /// Its own branch pattern; `None` follows the machine's.
     pub(crate) branch_pattern: Option<BranchNamePattern>,
-    /// Its attached mount and that mount's version control; `None` while it has none.
-    pub(crate) mount: Option<(RepoMountId, VcsType)>,
     /// Its clone, while it is cloning.
     pub(crate) clone: Option<CloneRecord>,
 }
@@ -186,14 +181,19 @@ pub(crate) struct DetachSubjects {
     pub(crate) archivable_session_ids: Vec<SessionId>,
 }
 
-/// A clone recorded running, as the clone service's start-time recovery reads it.
+/// A clone the last stop cut short, as the clone service's start-time recovery reads it: one
+/// recorded running, or one whose staged folder a recovery left unremoved.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct RunningClone {
+pub(crate) struct CutShortClone {
     /// The cloning project.
     pub(crate) project_id: ProjectId,
-    /// The folder the daemon made for the clone's git with its identity, `None` before it made
-    /// one.
-    pub(crate) staged: Option<(PathBuf, EntryIdentity)>,
+    /// Whether it is still recorded running.
+    pub(crate) is_running: bool,
+    /// The folder the finished clone is renamed to.
+    pub(crate) folder_path: PathBuf,
+    /// The folder the daemon named for the clone's git, with its identity once it made it;
+    /// `None` before it named one.
+    pub(crate) staged: Option<(PathBuf, Option<EntryIdentity>)>,
 }
 
 // Each project with its attached mount; `@project_ids` NULL reads every project.
@@ -230,18 +230,11 @@ static SESSION_PROJECTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// One project's row with its attached mount, which is at most one.
-static PROJECT_ROW_SQL: LazyLock<String> = LazyLock::new(|| {
-    format!(
-        "SELECT project.state, project.folder_path, project.place, project.branch_pattern,
-       project.clone_url, project.clone_outcome, project.clone_failure, mount.id, mount.vcs_type
-  FROM projects AS project
-  LEFT JOIN repo_mounts AS mount
-    ON mount.project_id = project.id AND mount.state = '{}'
- WHERE project.id = @project_id",
-        <&'static str>::from(RepoMountState::Attached)
-    )
-});
+// One project's row.
+const PROJECT_ROW_SQL: &str =
+    "SELECT state, folder_path, place, branch_pattern, clone_outcome, clone_failure
+  FROM projects
+ WHERE id = @project_id";
 
 // Every project as a check of the machine's branch pattern reads it, oldest first.
 const PATTERN_PROJECTS_SQL: &str =
@@ -300,15 +293,16 @@ static ATTACHED_ROOTS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// A clone recorded running: at the clone service's start no git runs, so the last stop cut it
-// short.
-static RUNNING_CLONES_SQL: LazyLock<String> = LazyLock::new(|| {
+// A clone recorded running, or holding a staged folder: at the clone service's start no git runs,
+// so the last stop cut it short.
+static CUT_SHORT_CLONES_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, clone_staging_folder, clone_staging_identity
+        "SELECT id, clone_outcome = '{running}', folder_path, clone_staging_folder,
+       clone_staging_identity
   FROM projects
- WHERE state = '{}' AND clone_outcome = '{}'",
+ WHERE state = '{}' AND (clone_outcome = '{running}' OR clone_staging_folder IS NOT NULL)",
         <&'static str>::from(ProjectState::Cloning),
-        <&'static str>::from(CloneOutcome::Running)
+        running = <&'static str>::from(CloneOutcome::Running)
     )
 });
 
@@ -399,8 +393,7 @@ impl ProjectRecords {
             .await
     }
 
-    /// One project's row with its attached mount, or `None` when it does not exist. Fails as the
-    /// read fails.
+    /// One project's row, or `None` when it does not exist. Fails as the read fails.
     pub(crate) async fn read_row(
         &self,
         project_id: ProjectId,
@@ -408,7 +401,7 @@ impl ProjectRecords {
         self.reads
             .read(ReadLength::Short, move |connection| {
                 Ok(connection
-                    .prepare_cached(&PROJECT_ROW_SQL)?
+                    .prepare_cached(PROJECT_ROW_SQL)?
                     .query_row(
                         named_params! { "@project_id": project_id.text().as_str() },
                         project_row,
@@ -571,21 +564,25 @@ impl ProjectRecords {
         Ok(self.read_roots(Some(project_id)).await?.into_iter().next())
     }
 
-    /// The clones recorded running, which no git runs for at the clone service's start. Fails as
-    /// the read fails.
-    pub(crate) async fn read_running_clones(&self) -> Result<Vec<RunningClone>, ProjectReadError> {
+    /// The clones the last stop cut short, which no git runs for at the clone service's start.
+    /// Fails as the read fails.
+    pub(crate) async fn read_cut_short_clones(
+        &self,
+    ) -> Result<Vec<CutShortClone>, ProjectReadError> {
         self.reads
             .read(ReadLength::Short, |connection| {
                 Ok(connection
-                    .prepare_cached(&RUNNING_CLONES_SQL)?
+                    .prepare_cached(&CUT_SHORT_CLONES_SQL)?
                     .query_map([], |row| {
-                        let staged_folder = row.get::<_, Option<String>>(1)?.map(PathBuf::from);
+                        let staged_folder = row.get::<_, Option<String>>(3)?.map(PathBuf::from);
                         let staged_identity =
-                            optional_text_column(row, 2, |text| text.parse::<EntryIdentity>())?;
-                        Ok(RunningClone {
+                            optional_text_column(row, 4, |text| text.parse::<EntryIdentity>())?;
+                        Ok(CutShortClone {
                             project_id: text_column(row, 0, |text| ProjectId::new(&text))?,
-                            // The row's check sets both or neither.
-                            staged: staged_folder.zip(staged_identity),
+                            is_running: row.get(1)?,
+                            folder_path: PathBuf::from(row.get::<_, String>(2)?),
+                            // The row's check sets an identity only beside its folder.
+                            staged: staged_folder.map(|folder| (folder, staged_identity)),
                         })
                     })?
                     .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -699,25 +696,15 @@ fn read_session_projects(
 }
 
 fn project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
-    let clone_url: Option<String> = row.get(4)?;
-    let outcome = optional_text_column(row, 5, stored_clone_outcome)?;
-    let failure: Option<String> = row.get(6)?;
-    let mount_id = optional_text_column(row, 7, |text| RepoMountId::new(&text))?;
-    let vcs_type = optional_text_column(row, 8, closed_word)?;
+    let outcome = optional_text_column(row, 4, stored_clone_outcome)?;
+    let failure: Option<String> = row.get(5)?;
     Ok(ProjectRow {
         state: text_column(row, 0, closed_word)?,
         folder_path: PathBuf::from(row.get::<_, String>(1)?),
         place: optional_text_column(row, 2, stored_json)?,
         branch_pattern: optional_text_column(row, 3, stored_json_text)?,
-        mount: mount_id.zip(vcs_type),
-        // The row's checks set the address and the outcome exactly while it is cloning.
-        clone: clone_url
-            .zip(outcome)
-            .map(|(clone_url, outcome)| CloneRecord {
-                clone_url,
-                outcome,
-                failure,
-            }),
+        // The row's checks set the outcome exactly while it is cloning.
+        clone: outcome.map(|outcome| CloneRecord { outcome, failure }),
     })
 }
 

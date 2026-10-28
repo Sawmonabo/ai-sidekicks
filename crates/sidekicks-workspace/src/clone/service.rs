@@ -1,13 +1,13 @@
 //! The clone service: where a clone goes, its start under the client's key, its card, the answer
 //! to git's question, its cancel and the large-files pull, and at the service's start the clones a
-//! stop cut short, each found running, its folder removed and recorded interrupted.
+//! stop cut short, recorded interrupted at once and their folders removed after.
 //!
 //! - Starts run one at a time under the start lock, which is always taken before the project
-//!   writer's own, so two clones never take one destination.
+//!   writer's own, so two clones never take one destination; the start's removals hold it too.
 //! - A start under a key on record answers that start's project when it asks the same, and is
 //!   refused when it asks something else; nothing is checked or written for it again.
-//! - A start whose address names an attached project's repository clones nothing and answers that
-//!   project.
+//! - A start whose address names an attached project's repository, or that runs again a clone
+//!   still running, clones nothing and answers that project, its key recorded for it.
 
 #[cfg(test)]
 mod tests;
@@ -16,20 +16,22 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures::future::BoxFuture;
 use futures::{StreamExt as _, stream};
 use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 use sidekicks_contracts::project::{PROJECT_NAME_MAX_LEN, ProjectId, ProjectName};
 use sidekicks_contracts::repo::clone::{
     AskpassAnswer, CloneLine, CloneQuestionId, ProjectCloneFolderReadResponse,
     ProjectCloneFolderSource, ProjectCloneRefusedDetails, ProjectCloneStartRequest,
     ProjectCloneStartResponse, ProjectCloneStatus,
 };
+use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::stream::latest_value::LatestValueOutlet;
-use sidekicks_platforms::PathRules;
 use sidekicks_std::file::real_location::resolve_real_location;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::missing_entry::is_missing_entry;
@@ -37,26 +39,31 @@ use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::processor_bound::processor_count;
 use sidekicks_std::text_cut::cut_to_code_points;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use tracing::warn;
 
 use crate::clone::askpass::broker::{AskpassBroker, AskpassBrokerError};
 use crate::clone::card::{CloneCards, status_of_outcome};
 use crate::clone::destination::{
-    DestinationState, StagedClone, read_destination_state, repository_key_of, repository_name_of,
+    DestinationState, StagedClone, StagedFolder, read_destination_state, repository_key_of,
+    repository_name_of,
 };
 use crate::clone::large_files::{LargeFilesReadError, is_large_files_installed, keeps_large_files};
 use crate::clone::requests::{CloneRequestFields, KeyRecord, read_key_record};
-use crate::clone::run::{CloneJob, CloneRuns, CloneRunsDeps};
+use crate::clone::run::{CloneJob, CloneRuns, CloneRunsDeps, CutShortFolder};
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{
     CONFIG_UNSET_EXIT_CODE, GitCall, GitError, GitRunner, background_read, strip_line_end,
 };
 use crate::machine_settings::MachineSettingsReader;
 use crate::project::records::{AttachedProjectRoot, ProjectReadError, ProjectRecords};
-use crate::project::service::clone_record::{CloneEnd, CloneTarget, CloningProject};
+use crate::project::service::clone_record::{CloneTarget, CloningProject};
 use crate::project::service::{ProjectService, ProjectServiceError};
-use crate::repo::errors::RepoRefusal;
+use crate::repo::errors::{RepoRefusal, refuse_distribution, refuse_relative_clone_folder};
 use crate::repo::root_resolver::{refusal_of_filesystem_failure, require_unicode_path};
+
+// The clone start's member holding the folder the clone goes in.
+const PARENT_FOLDER_MEMBER: &str = "parentFolder";
 
 // Git's own line for an address it can name no folder from, which the refusal carries.
 const NO_DIRECTORY_NAME_LINE: &str = "fatal: No directory name could be guessed.";
@@ -79,6 +86,8 @@ pub struct CloneServiceDeps {
     pub records: Arc<ProjectRecords>,
     /// The read pool the start's key records are read through.
     pub reads: Arc<DatabaseReadPool>,
+    /// The writer a start answered with no create records its key through.
+    pub writer: Arc<DatabaseWriter>,
     /// Carries git's questions to the card and the answers back; the service closes it at its
     /// stop.
     pub askpass: AskpassBroker,
@@ -119,6 +128,9 @@ pub enum CloneServiceError {
     /// A folder or a name does not read as wire text.
     #[error("a clone folder or name is not text the reply can carry")]
     Text(#[from] TextError),
+    /// The key record of a start answered with no create could not be written.
+    #[error("the clone start's key record could not be written")]
+    Write(#[from] WriteError),
 }
 
 impl CloneServiceError {
@@ -140,7 +152,8 @@ impl From<CloneServiceError> for HandlerError {
             | CloneServiceError::Git(_)
             | CloneServiceError::LargeFiles(_)
             | CloneServiceError::Folder(_)
-            | CloneServiceError::Text(_)) => Self::Internal(Box::new(other)),
+            | CloneServiceError::Text(_)
+            | CloneServiceError::Write(_)) => Self::Internal(Box::new(other)),
         }
     }
 }
@@ -150,20 +163,22 @@ pub struct CloneService {
     projects: Arc<ProjectService>,
     records: Arc<ProjectRecords>,
     reads: Arc<DatabaseReadPool>,
+    writer: Arc<DatabaseWriter>,
     settings: Arc<dyn MachineSettingsReader>,
     home_folder: PathBuf,
     git: GitRunner,
     cards: Arc<CloneCards>,
     runs: Arc<CloneRuns>,
-    starts: KeyedLock<()>,
+    starts: Arc<KeyedLock<()>>,
 }
 
 impl CloneService {
-    /// Starts the service: each clone recorded running was cut short by the last stop, so the
-    /// folder the daemon made for its git is removed while that path still holds that folder, and
-    /// it is recorded interrupted, or failed with why the folder could not be removed. Fails when
-    /// the running clones cannot be read or an end cannot be recorded; the broker is then dropped,
-    /// which stops it.
+    /// Starts the service: each clone recorded running was cut short by the last stop, so all of
+    /// them are recorded interrupted in one write, and the folders the daemon named for their git
+    /// are removed on a task of the service's own, while their paths still hold what it made, the
+    /// start lock held until the last is gone; a folder that cannot be removed records its clone
+    /// failed with the reason. Fails when the cut-short clones cannot be read or their ends cannot
+    /// be recorded; the broker is then dropped, which stops it.
     pub async fn start(deps: CloneServiceDeps) -> Result<Arc<Self>, CloneServiceError> {
         let cards = Arc::new(CloneCards::default());
         let runs = Arc::new(CloneRuns::new(CloneRunsDeps {
@@ -173,28 +188,51 @@ impl CloneService {
             askpass: deps.askpass,
             clone_attached: deps.clone_attached,
         }));
-        for clone in deps.records.read_running_clones().await? {
-            let staged = clone
-                .staged
-                .map(|(path, identity)| StagedClone { path, identity });
-            runs.end_short(clone.project_id, staged.as_ref(), CloneEnd::Interrupted)
-                .await?;
+        let cut_short = deps.records.read_cut_short_clones().await?;
+        let running: Vec<ProjectId> = cut_short
+            .iter()
+            .filter(|clone| clone.is_running)
+            .map(|clone| clone.project_id)
+            .collect();
+        if !running.is_empty() {
+            deps.projects.record_clones_interrupted(&running).await?;
+        }
+        let folders: Vec<CutShortFolder> = cut_short
+            .into_iter()
+            .filter_map(|clone| {
+                let (path, identity) = clone.staged?;
+                Some(CutShortFolder {
+                    project_id: clone.project_id,
+                    staged: match identity {
+                        Some(identity) => StagedFolder::Made(StagedClone { path, identity }),
+                        None => StagedFolder::Named(path),
+                    },
+                    destination: clone.folder_path,
+                })
+            })
+            .collect();
+        let starts = Arc::new(KeyedLock::new());
+        if !folders.is_empty() {
+            runs.remove_cut_short_folders(folders, Arc::clone(&starts))
+                .await;
         }
         Ok(Arc::new(Self {
             projects: deps.projects,
             records: deps.records,
             reads: deps.reads,
+            writer: deps.writer,
             settings: deps.settings,
             home_folder: deps.home_folder,
             git: deps.git,
             cards,
             runs,
-            starts: KeyedLock::new(),
+            starts,
         }))
     }
 
     /// Where a clone goes when the person names no folder: the folder set for clones, else the
-    /// folder holding the most recently attached project, else the home folder. Fails when the
+    /// folder holding the most recently attached project, else the home folder. Refuses
+    /// `repoMount.distributionNotFound` for a folder set in a WSL distribution; fails when the
     /// settings or the projects cannot be read.
     pub async fn read_clone_folder(
         &self,
@@ -211,11 +249,12 @@ impl CloneService {
     /// Starts a clone of `request.url` and answers its project at once: a new one marked
     /// `cloning`, or `request.projectId` run again after a failed or canceled clone. Refuses
     /// `project.clone.idempotencyConflict` for a key on record whose start asked otherwise,
-    /// `repoMount.distributionNotFound` for a WSL place, `request.paramsInvalid` for a relative
-    /// parent folder, `repoMount.rootResolutionFailed` for a parent folder whose path is not
-    /// Unicode or cannot be read, `project.clone.refused` when the address leaves no folder name or the
-    /// destination is taken, and `project.notFound` for a project no longer cloning; nothing is
-    /// written for any of them.
+    /// `repoMount.distributionNotFound` for a WSL place, the request's or the folder set for
+    /// clones, `request.paramsInvalid` for a relative parent folder,
+    /// `repoMount.rootResolutionFailed` for a parent folder whose path is not Unicode or cannot be
+    /// read, `project.clone.refused` when the address leaves no folder name or the destination is
+    /// taken, and `project.notFound` for a project no longer cloning; nothing is written for any
+    /// of them.
     pub async fn start_clone(
         &self,
         request: ProjectCloneStartRequest,
@@ -230,17 +269,11 @@ impl CloneService {
             }
             KeyRecord::New => {}
         }
-        // A WSL folder is in Linux form, which this system's path rules do not read.
-        if let Some(place) = &request.place {
-            return Err(RepoRefusal::DistributionNotFound {
-                distro: place.distro.clone(),
-            }
-            .into());
-        }
-        if let Some(parent_folder) = &request.parent_folder
-            && !PathRules::NATIVE.names_complete_location(parent_folder.as_str())
-        {
-            return Err(RepoRefusal::RelativeCloneFolder.into());
+        refuse_distribution(request.place.as_ref())?;
+        if let Some(parent_folder) = &request.parent_folder {
+            refuse_relative_clone_folder(parent_folder.as_str(), || {
+                vec![IssuePathSegment::Member(PARENT_FOLDER_MEMBER.to_owned())]
+            })?;
         }
         let parent_folder = match &request.parent_folder {
             Some(parent_folder) => PathBuf::from(parent_folder.as_str()),
@@ -249,7 +282,7 @@ impl CloneService {
         refuse_parent_folder_not_unicode(&parent_folder).await?;
         let url = request.url.as_str();
         if let Some(project_id) = self.find_attached_project_of(url).await? {
-            return Ok(ProjectCloneStartResponse { project_id });
+            return self.answer_with_key(&fields, key, project_id).await;
         }
         let Some(name) = repository_name_of(url) else {
             let line =
@@ -262,7 +295,7 @@ impl CloneService {
         if let Some(project_id) = request.project_id
             && self.cards.is_running(project_id)
         {
-            return Ok(ProjectCloneStartResponse { project_id });
+            return self.answer_with_key(&fields, key, project_id).await;
         }
         let destination = parent_folder.join(&name);
         let destination_key = canonical_folder_path(&destination).await?;
@@ -321,8 +354,14 @@ impl CloneService {
     ) -> Result<Box<dyn FnOnce() + Send>, CloneServiceError> {
         let status = self.read_card_status(project_id).await?;
         // Another reader or a run may have opened the card while the record was read; its status
-        // is the newer.
-        let outlet_id = self.cards.attach(project_id, status, outlet);
+        // is the newer. A run that ended while the record was read has its end recorded by now.
+        let outlet_id = match self.cards.attach(project_id, status, outlet) {
+            Ok(outlet_id) => outlet_id,
+            Err(outlet) => {
+                let status = self.read_card_status(project_id).await?;
+                self.cards.attach_at(project_id, status, outlet)
+            }
+        };
         let cards = Arc::clone(&self.cards);
         Ok(Box::new(move || cards.detach(project_id, outlet_id)))
     }
@@ -378,15 +417,18 @@ impl CloneService {
         Ok(())
     }
 
-    /// Stops every running git with the stop's grace and waits for each to record its end, ends
-    /// every card and closes the askpass broker. A clone stopped so is recorded as one a restart
-    /// cut short. Fails when the broker's listening task panicked.
-    pub async fn close(&self) -> Result<(), AskpassBrokerError> {
-        self.runs.close().await
+    /// Stops every running git with the stop's grace and waits within `bound` for each run to
+    /// record its end and for the start's folder removals, leaving any still running at the bound
+    /// to finish on its own, logged; then ends every card and closes the askpass broker. A clone
+    /// stopped so is recorded as one a restart cut short. Fails when the broker's listening task
+    /// panicked.
+    pub async fn close(&self, bound: Duration) -> Result<(), AskpassBrokerError> {
+        self.runs.close(bound).await
     }
 
     // The folder set for clones, else the parent of the most recently attached project's folder,
-    // else the home folder, with which of them it is.
+    // else the home folder, with which of them it is; a folder set in a WSL distribution is
+    // refused, since this daemon reaches none.
     async fn resolve_clone_folder(
         &self,
     ) -> Result<(PathBuf, ProjectCloneFolderSource), CloneServiceError> {
@@ -396,6 +438,7 @@ impl CloneService {
             .await
             .map_err(CloneServiceError::MachineSettings)?;
         if let Some(folder) = settings.clone_folder {
+            refuse_distribution(folder.place.as_ref())?;
             return Ok((
                 PathBuf::from(folder.path.as_str()),
                 ProjectCloneFolderSource::Setting,
@@ -440,6 +483,20 @@ impl CloneService {
             return Ok(ProjectCloneStatus::LargeFilesMissing { project_id });
         }
         Ok(ProjectCloneStatus::Done { project_id })
+    }
+
+    // Answers `project_id` to a start that creates nothing, keeping its key's record for it, so a
+    // resend answers it again and another request under the key is refused.
+    async fn answer_with_key(
+        &self,
+        fields: &CloneRequestFields,
+        key: &ClientUuid,
+        project_id: ProjectId,
+    ) -> Result<ProjectCloneStartResponse, CloneServiceError> {
+        self.writer
+            .write(vec![fields.record_statement(key, project_id)])
+            .await?;
+        Ok(ProjectCloneStartResponse { project_id })
     }
 
     // Answers when the project exists; refuses `project.notFound` when it does not.

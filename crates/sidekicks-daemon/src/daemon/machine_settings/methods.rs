@@ -5,9 +5,7 @@ use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
-use serde_json::json;
-use sidekicks_contracts::jsonrpc::issue::{Issue, IssuePathSegment};
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::jsonrpc::issue::IssuePathSegment;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::machine::settings::{
     BranchNamePattern, MachineSettingsChange, MachineSettingsRead, MachineSettingsReading,
@@ -21,8 +19,8 @@ use sidekicks_ipc::registry::{
 };
 use sidekicks_ipc::stream::feed::Feed;
 use sidekicks_ipc::stream::latest_value::LatestValueFeed;
-use sidekicks_platforms::PathRules;
 use sidekicks_workspace::project::refusals::{refuse_branch_pattern, refuse_environment_rows};
+use sidekicks_workspace::repo::errors::{refuse_distribution, refuse_relative_clone_folder};
 
 use crate::daemon::machine_settings::file::{MachineSettingsFile, MachineSettingsFileError};
 
@@ -89,7 +87,7 @@ pub(crate) fn register_machine_settings_methods(
                         refuse_branch_pattern(refusal)?;
                     }
                     MachineSettingsChange::CloneFolder(folder) => {
-                        refuse_relative_clone_folder(folder.as_ref())?;
+                        refuse_clone_folder(folder.as_ref())?;
                     }
                     MachineSettingsChange::UpdatesAutomatic(_)
                     | MachineSettingsChange::KeepCrashReports(_)
@@ -134,33 +132,19 @@ pub(crate) fn register_machine_settings_methods(
     )
 }
 
-// Refuses as the request's own params a clone folder that names no complete location, its issue
-// at the folder's path, since a relative one would be completed from the daemon's own folder; a
-// cleared folder passes. A folder in a WSL distribution is in Linux form there.
-fn refuse_relative_clone_folder(folder: Option<&PlacedPath>) -> Result<(), DomainError> {
+// Refuses a clone folder as a clone start refuses its own: one in a WSL distribution, which this
+// daemon reaches none of, or one naming no complete location, its issue at the folder's path; a
+// cleared folder passes.
+fn refuse_clone_folder(folder: Option<&PlacedPath>) -> Result<(), DomainError> {
     let Some(folder) = folder else {
         return Ok(());
     };
-    let rules = if folder.place.is_some() {
-        PathRules::Posix
-    } else {
-        PathRules::NATIVE
-    };
-    if rules.names_complete_location(folder.path.as_str()) {
-        return Ok(());
-    }
-    let member = |name: &str| IssuePathSegment::Member(name.to_owned());
-    Err(DomainError::new(
-        "the params break the method's contract",
-        RefusalCode::RequestParamsInvalid,
-    )
-    .with_detail(json!({
-        "issues": [Issue {
-            path: vec![member("change"), member("cloneFolder"), member("path")],
-            message: "the folder must name one complete location".to_owned(),
-            params: None,
-        }],
-    })))
+    refuse_distribution(folder.place.as_ref())?;
+    refuse_relative_clone_folder(folder.path.as_str(), || {
+        let member = |name: &str| IssuePathSegment::Member(name.to_owned());
+        vec![member("change"), member("cloneFolder"), member("path")]
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]

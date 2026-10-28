@@ -210,7 +210,7 @@ methods! {
             mutating: false,
             params: EmptyPayload,
             result: ProjectCloneFolderReadResponse,
-            refusals: [ProjectCloneUnavailable],
+            refusals: [ProjectCloneUnavailable, RepoMountDistributionNotFound],
         },
         /// Pulls a cloned project's large files.
         ProjectLargeFilePull = mutation "project.largeFile.pull" {

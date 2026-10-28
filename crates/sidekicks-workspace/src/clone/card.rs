@@ -168,21 +168,34 @@ impl CloneCards {
             .any(|card| card.destination_key.as_deref() == Some(destination_key))
     }
 
-    /// Opens a card for `outlet`'s reader, made at `status` when none is open, sends the card's
-    /// status to the reader now and keeps the reader for every update after; answers the id its
-    /// detach takes.
+    /// Opens a card for `outlet`'s reader, made at `status` read from the record when none is
+    /// open, sends the card's status to the reader now and keeps the reader for every update after;
+    /// answers the id its detach takes. Hands `outlet` back, opening nothing, when no card is open
+    /// and `status` reads cloning: the run it was read from has ended since, its card dropped, so
+    /// the record is to be read again.
     pub(crate) fn attach(
         &self,
         project_id: ProjectId,
         status: ProjectCloneStatus,
         outlet: LatestValueOutlet<ProjectCloneStatus>,
-    ) -> LatestValueOutletId {
+    ) -> Result<LatestValueOutletId, LatestValueOutlet<ProjectCloneStatus>> {
         let mut cards = self.cards();
-        let card = cards
-            .entry(project_id)
-            .or_insert_with(|| CloneCard::new(status));
-        outlet.send(card.status.clone());
-        lock(&card.outlets).attach(outlet)
+        if !cards.contains_key(&project_id) && matches!(status, ProjectCloneStatus::Cloning { .. })
+        {
+            return Err(outlet);
+        }
+        Ok(attach_to_card(&mut cards, project_id, status, outlet))
+    }
+
+    /// Opens a card for `outlet`'s reader as [`attach`](Self::attach) does, made at `status`
+    /// whatever it reads when none is open.
+    pub(crate) fn attach_at(
+        &self,
+        project_id: ProjectId,
+        status: ProjectCloneStatus,
+        outlet: LatestValueOutlet<ProjectCloneStatus>,
+    ) -> LatestValueOutletId {
+        attach_to_card(&mut self.cards(), project_id, status, outlet)
     }
 
     /// Lets one reader go, dropping the card once it has no reader and nothing running.
@@ -331,6 +344,21 @@ impl CloneCards {
         card.publish_activity(project_id);
         Some(waiting)
     }
+}
+
+// Keeps `outlet`'s reader on the project's card, made at `status` when none is open, and sends it
+// the card's status now.
+fn attach_to_card(
+    cards: &mut HashMap<ProjectId, CloneCard>,
+    project_id: ProjectId,
+    status: ProjectCloneStatus,
+    outlet: LatestValueOutlet<ProjectCloneStatus>,
+) -> LatestValueOutletId {
+    let card = cards
+        .entry(project_id)
+        .or_insert_with(|| CloneCard::new(status));
+    outlet.send(card.status.clone());
+    lock(&card.outlets).attach(outlet)
 }
 
 // Drops the project's card once it has no reader and nothing running, ending its gate.
