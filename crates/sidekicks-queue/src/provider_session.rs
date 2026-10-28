@@ -573,6 +573,11 @@ impl ProviderSessions {
             })
             .into_iter()
             .collect();
+        // The driver minted the resume's binding; its cursor carries on where the leg's stands.
+        self.deps
+            .binding_cursors
+            .open_relaunch(session_id, binding_id.clone())
+            .await?;
         self.deps
             .binding_cursors
             .record_relaunch(RuntimeBindingRelaunch {
