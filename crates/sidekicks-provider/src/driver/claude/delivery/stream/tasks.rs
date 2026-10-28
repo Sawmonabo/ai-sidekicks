@@ -18,7 +18,15 @@ use crate::driver::claude::delivery::run_readings::ClaudeRowDelivery;
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::frame_routing::ClaudeMeteredReading;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute};
-use crate::port::usage_sink::MeteredUsage;
+use crate::driver::claude::session::errors::record_unheard_claude_failure;
+use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
+
+/// Why usage Claude Code reported is not recorded: no run holds the session's thread and no
+/// helper's route names a binding.
+#[derive(Debug, thiserror::Error)]
+#[error("Claude Code reported usage while no run of the session could carry it")]
+struct ClaudeUsageUnheld;
 
 impl ClaudeDeliveryStream {
     /// Takes one task frame of `kind`, read off `text` into `members`: a helper's end moves its
@@ -68,8 +76,10 @@ impl ClaudeDeliveryStream {
         }
     }
 
-    /// Records each metered reading on the run whose thread spent it: a helper's on the binding
-    /// of its child run, the session's own on `lead`'s. A reading no run can take is logged.
+    /// Records each metered reading on the run whose thread spent it: the session's own on
+    /// `lead`'s binding, a helper's as the helper's, which the record counts toward the helper's
+    /// own run, on its child route's binding, else the lead's. A reading no binding can carry is
+    /// recorded as a diagnostic.
     pub(super) async fn record_metered(
         &self,
         session: &ClaudeSessionStream,
@@ -80,35 +90,41 @@ impl ClaudeDeliveryStream {
             return;
         };
         let routes = &self.dependencies.routes;
+        let lead_binding = || {
+            lead.cloned()
+                .or_else(|| routes.lead_run_on(session.session_id))
+                .map(|lead| lead.binding_id)
+        };
         for reading in metered {
-            let binding_id =
-                match &reading.subagent_id {
-                    Some(agent_id) => routes.child_run_for(session.session_id, agent_id).and_then(
-                        |child_run_id| match routes.route_of(child_run_id) {
+            let (binding_id, owner) = match reading.subagent_id {
+                Some(agent_id) => {
+                    let child_binding = routes
+                        .child_run_for(session.session_id, &agent_id)
+                        .and_then(|child_run_id| match routes.route_of(child_run_id) {
                             Some(ClaudeRunRoute::Child(route)) => Some(route.binding_id),
                             Some(ClaudeRunRoute::Lead { .. } | ClaudeRunRoute::Apart) | None => {
                                 None
                             }
-                        },
-                    ),
-                    None => lead
-                        .cloned()
-                        .or_else(|| routes.lead_run_on(session.session_id))
-                        .map(|lead| lead.binding_id),
-                };
+                        });
+                    let owner = SubagentId::new(agent_id)
+                        .map_or(MeteredUsageOwner::Run, MeteredUsageOwner::Helper);
+                    (child_binding.or_else(lead_binding), owner)
+                }
+                None => (lead_binding(), MeteredUsageOwner::Run),
+            };
             let Some(binding_id) = binding_id else {
-                tracing::warn!(
-                    session_id = %session.session_id,
-                    "usage Claude Code reported on a thread no run holds is not recorded"
+                record_unheard_claude_failure(
+                    DriverDiagnosticKind::ProcessReportFailed,
+                    session.session_id,
+                    "metered usage",
+                    &ClaudeUsageUnheld,
                 );
                 continue;
             };
             let metered = MeteredUsage {
                 session_id: session.session_id,
                 binding_id,
-                subagent_id: reading
-                    .subagent_id
-                    .and_then(|agent_id| SubagentId::new(agent_id).ok()),
+                owner,
                 delta: reading.delta,
             };
             if let Err(error) = sink.record_metered(metered).await {

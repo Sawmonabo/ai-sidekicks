@@ -69,7 +69,7 @@ use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAns
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::session_rules::SessionRulePort;
-use crate::port::usage_sink::{MeteredUsage, UsageSink};
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
     CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
@@ -730,7 +730,7 @@ async fn meter_side_question(
     let metered = MeteredUsage {
         session_id,
         binding_id: binding_id.clone(),
-        subagent_id: None,
+        owner: MeteredUsageOwner::SideQuestion,
         delta,
     };
     if let Err(error) = sink.record_metered(metered).await {

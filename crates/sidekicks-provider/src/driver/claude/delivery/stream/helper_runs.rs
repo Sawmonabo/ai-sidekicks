@@ -7,7 +7,6 @@
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
-use sidekicks_contracts::turn::ProviderTurnId;
 
 use super::{
     ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
@@ -23,14 +22,12 @@ use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEve
 
 impl ClaudeDeliveryStream {
     // A helper's start gets a child run beneath the lead run, the one holding the turn as the
-    // frame was read, and both ends get their row on it. `turn_id` is the frame's own id, which
-    // names the turn the frame opens.
+    // frame was read, and both ends get their row on it, naming the helper's child run.
     pub(super) async fn deliver_helper_lifecycle(
         &self,
         session: &ClaudeSessionStream,
         lead_at_read: Option<ClaudeBoundRun>,
         emission: SubagentLifecycleEmission,
-        turn_id: Option<ProviderTurnId>,
     ) {
         let routes = &self.dependencies.routes;
         let lead = lead_at_read.or_else(|| routes.lead_run_on(session.session_id));
@@ -47,9 +44,10 @@ impl ClaudeDeliveryStream {
         // A helper's start can be its turn's first frame, which opens the turn before its rows; a
         // background helper's end after its turn ended opens none.
         if is_lead_turn {
-            self.open_turn(session, &lead, turn_id).await;
+            self.open_turn(session, &lead).await;
         }
         let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
+        let mut child_run_id = None;
         if emission.event_type == SubagentLifecycleEventType::Started {
             let child = InboundDelivery::ChildRun {
                 binding: DeliveryBinding {
@@ -64,6 +62,7 @@ impl ClaudeDeliveryStream {
             if let Some(InboundOutcome::ChildRunStarted { run_id }) =
                 self.send(session, child, Some("system/task_started")).await
             {
+                child_run_id = Some(run_id);
                 routes.bind_child_run(
                     run_id,
                     ClaudeChildRunRoute {
@@ -75,6 +74,9 @@ impl ClaudeDeliveryStream {
                 );
             }
         }
+        // A helper's end names the child run its start was given.
+        let child_run_id = child_run_id
+            .or_else(|| routes.child_run_for(session.session_id, &emission.subagent_id));
         let Ok(subagent_id) = SubagentId::new(emission.subagent_id.clone()) else {
             return;
         };
@@ -83,6 +85,7 @@ impl ClaudeDeliveryStream {
             run_id: lead.run_id,
             provider: DESCRIPTOR.provider_id(),
             subagent_id,
+            child_run_id,
             parent_tool_call_id: emission
                 .parent_tool_call_id
                 .and_then(|tool_call_id| ToolCallId::new(tool_call_id).ok()),

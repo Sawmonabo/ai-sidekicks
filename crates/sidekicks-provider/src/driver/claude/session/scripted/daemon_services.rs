@@ -182,9 +182,9 @@ impl UsageSink for RecordingUsage {
     fn read_prior_emitted(
         &self,
         _session_id: SessionId,
-        _thread_id: &str,
-    ) -> Result<UsageAxisCounts, Box<dyn Error + Send + Sync>> {
-        Ok(*lock(&self.reported))
+        _thread_id: String,
+    ) -> BoxFuture<'_, Result<UsageAxisCounts, Box<dyn Error + Send + Sync>>> {
+        ready(Ok(*lock(&self.reported))).boxed()
     }
 
     fn record_quota_windows(

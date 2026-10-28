@@ -148,7 +148,7 @@ impl ClaudeFrameRouting {
     /// frame meters at once and an unestablished thread refuses it, then the frames held for it
     /// routed again. A resumed thread's base is the daemon's prior-emitted sum; one that cannot be
     /// read is recorded and starts at zero, since failing here would orphan a live process.
-    pub(crate) fn bind_session_thread(
+    pub(crate) async fn bind_session_thread(
         &self,
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
@@ -161,7 +161,8 @@ impl ClaudeFrameRouting {
                 prior_emitted_thread_id,
             } => ThreadBaseEstablishment::Resume {
                 prior_emitted_cumulative: self
-                    .read_prior_emitted(session_id, prior_emitted_thread_id),
+                    .read_prior_emitted(session_id, prior_emitted_thread_id)
+                    .await,
             },
         };
         band.accountant
@@ -309,9 +310,12 @@ impl ClaudeFrameRouting {
 
     // The daemon's own sum for a resumed thread; an unregistered usage record or a failed read is
     // recorded, the base then zero, so the first reading meters what came before again.
-    fn read_prior_emitted(&self, session_id: SessionId, thread_id: &str) -> UsageAxisCounts {
+    async fn read_prior_emitted(&self, session_id: SessionId, thread_id: &str) -> UsageAxisCounts {
         let failure = match self.usage.require_port() {
-            Ok(sink) => match sink.read_prior_emitted(session_id, thread_id) {
+            Ok(sink) => match sink
+                .read_prior_emitted(session_id, thread_id.to_owned())
+                .await
+            {
                 Ok(counts) => return counts,
                 Err(error) => describe_error(error.as_ref()),
             },
