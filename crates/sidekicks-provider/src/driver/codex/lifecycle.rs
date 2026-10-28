@@ -248,7 +248,7 @@ impl CodexDriver {
             shell_lines: Arc::clone(&services.shell_lines),
             background_work: Arc::clone(&services.background_work),
             pending_compactions: services.pending_compactions.clone(),
-            limit_stopped_helpers: Arc::default(),
+            limit_stopped_helpers: Arc::new(CodexLimitStoppedHelpers::new(tasks.clone())),
             processes: Arc::clone(&services.processes),
             ports: Arc::clone(&services.ports),
             helper_roles_folder: services.data_folder.join(CODEX_HELPER_ROLES_FOLDER_NAME),
@@ -463,11 +463,10 @@ impl CodexDriver {
             receiver,
             routing,
             routed,
-            kept_fixed_start_tokens,
+            fixed_start,
         } = opened;
         let service = Arc::clone(&record.service);
-        let intake =
-            CodexSessionIntake::new(record, routing, Arc::clone(parts), kept_fixed_start_tokens);
+        let intake = CodexSessionIntake::new(record, routing, Arc::clone(parts), fixed_start);
         self.tasks.spawn(intake.run(receiver, routed));
         self.read_rate_limits_once(parts, service);
     }

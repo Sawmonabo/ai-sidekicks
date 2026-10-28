@@ -7,8 +7,8 @@ use sidekicks_contracts::session::inspector::SessionContextReading;
 use sidekicks_contracts::wire::number::Percent;
 
 use super::{
-    CodexContextWindowReading, CodexReadingSettings, CodexSessionContextReadings, LateReading,
-    PublishedReadings, compose_settings_reading, publish_counted,
+    CodexContextWindowReading, CodexFixedStart, CodexReadingSettings, CodexSessionContextReadings,
+    LateReading, PublishedReadings, compose_settings_reading, publish_counted,
 };
 use crate::driver::codex::model_windows::{CodexModelWindow, CodexModelWindows};
 use crate::port::context_reading_publisher::ContextReadingPublisher;
@@ -126,8 +126,9 @@ fn a_late_reading_never_replaces_a_newer_one() {
     );
 }
 
-// The fixed start is the conversation's first request's input; a resumed conversation's first
-// report, whose total holds its history, leaves it unknown.
+// The fixed start is a new conversation's first request's input; a resumed conversation's first
+// report, whose total holds its history, leaves it unknown, and so does any report of a resumed
+// conversation whose binding kept none. Killed by noting a resumed conversation's start.
 #[test]
 fn only_the_conversations_first_request_sets_the_fixed_start() {
     let report = |is_conversation_start: bool, input: u64| CodexContextWindowReading {
@@ -143,10 +144,14 @@ fn only_the_conversations_first_request_sets_the_fixed_start() {
         },
         is_conversation_start,
     };
-    let mut readings = CodexSessionContextReadings::new(session_id(), None);
+    let mut readings =
+        CodexSessionContextReadings::new(session_id(), CodexFixedStart::FirstRequest);
     readings.note_fixed_start(&report(false, 180_000));
     assert_eq!(readings.fixed_start_tokens, None);
     readings.note_fixed_start(&report(true, 12_000));
     readings.note_fixed_start(&report(true, 40_000));
     assert_eq!(readings.fixed_start_tokens, Some(12_000));
+    let mut resumed = CodexSessionContextReadings::new(session_id(), CodexFixedStart::Kept(None));
+    resumed.note_fixed_start(&report(true, 180_000));
+    assert_eq!(resumed.fixed_start_tokens, None);
 }

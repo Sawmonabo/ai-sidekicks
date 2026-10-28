@@ -35,7 +35,9 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::service::threads::ThreadClaim;
 use crate::driver::codex::session::calls::CodexSessionTask;
-use crate::driver::codex::session::context_reading::read_codex_kept_fixed_start;
+use crate::driver::codex::session::context_reading::{
+    CodexFixedStart, read_codex_kept_fixed_start,
+};
 use crate::driver::codex::session::controls::update_codex_session_mode;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::fork::{
@@ -112,7 +114,7 @@ pub(crate) struct CodexEstablishedSession {
     receiver: CodexSessionInboundReceiver,
     claim: ThreadClaim,
     is_resumed: bool,
-    kept_fixed_start_tokens: Option<u64>,
+    fixed_start: CodexFixedStart,
 }
 
 /// A conversation open on its service: what its session's task holds, and the frames binding it
@@ -126,8 +128,8 @@ pub(crate) struct CodexOpenedSession {
     pub(crate) routing: CodexSessionRouting,
     /// The frames that waited for the conversation, delivered.
     pub(crate) routed: CodexRoutedFrames,
-    /// The conversation's fixed start, in tokens, as its binding kept it; `None` for a new one.
-    pub(crate) kept_fixed_start_tokens: Option<u64>,
+    /// Where the conversation takes its fixed start from.
+    pub(crate) fixed_start: CodexFixedStart,
 }
 
 /// What a resume as a fork did: the result to answer, and the session to open once it resumed.
@@ -244,7 +246,7 @@ impl CodexSessionEstablishment {
                 receiver,
                 claim,
                 is_resumed: false,
-                kept_fixed_start_tokens: None,
+                fixed_start: CodexFixedStart::FirstRequest,
             },
         ))
     }
@@ -339,7 +341,9 @@ impl CodexSessionEstablishment {
                 receiver,
                 claim,
                 is_resumed: true,
-                kept_fixed_start_tokens: read_codex_kept_fixed_start(&params.runtime_metadata),
+                fixed_start: CodexFixedStart::Kept(read_codex_kept_fixed_start(
+                    &params.runtime_metadata,
+                )),
             },
         ))
     }
@@ -372,7 +376,7 @@ impl CodexSessionEstablishment {
             receiver,
             claim,
             is_resumed,
-            kept_fixed_start_tokens,
+            fixed_start,
         } = established;
         let base = if is_resumed {
             // The list read before the resume is stale; a fresh read follows the next request.
@@ -401,7 +405,7 @@ impl CodexSessionEstablishment {
             receiver,
             routing,
             routed,
-            kept_fixed_start_tokens,
+            fixed_start,
         }
     }
 

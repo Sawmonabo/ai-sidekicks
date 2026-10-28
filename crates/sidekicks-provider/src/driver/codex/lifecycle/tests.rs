@@ -38,6 +38,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
     write_failing_codex,
 };
+use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::driver::codex::session::test_fixture::{
@@ -212,7 +213,12 @@ impl LiveCodexSession {
                     .await,
             );
         }
-        let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts), None);
+        let intake = CodexSessionIntake::new(
+            record,
+            routing,
+            Arc::clone(&parts),
+            CodexFixedStart::FirstRequest,
+        );
         driver.tasks.spawn(intake.run(receiver, routed));
         Self {
             driver,

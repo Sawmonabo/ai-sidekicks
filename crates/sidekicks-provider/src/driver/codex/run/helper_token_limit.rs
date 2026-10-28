@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::run::turn_interrupt::interrupt_codex_turn;
@@ -27,12 +28,21 @@ struct ListedTurnStatus {
 
 /// The helper conversations of each session stopped at their token limit, whose every later turn
 /// is interrupted at its start.
-#[derive(Default)]
 pub(crate) struct CodexLimitStoppedHelpers {
     helpers: Mutex<HashMap<SessionId, HashSet<String>>>,
+    // The driver's tasks, which each interrupt runs on.
+    tasks: TaskTracker,
 }
 
 impl CodexLimitStoppedHelpers {
+    /// No helper stopped yet, each interrupt run on `tasks`, the driver's.
+    pub(crate) fn new(tasks: TaskTracker) -> Self {
+        Self {
+            helpers: Mutex::default(),
+            tasks,
+        }
+    }
+
     /// Marks the helper conversation `helper_thread_id` of `session_id` stopped at its limit.
     pub(crate) fn stop(&self, session_id: SessionId, helper_thread_id: &str) {
         lock(&self.helpers)
@@ -43,7 +53,7 @@ impl CodexLimitStoppedHelpers {
 
     /// Interrupts the turn `turn_id` that the helper conversation `helper_thread_id` of the
     /// session `record` holds just started, when that helper was stopped at its limit; the
-    /// interrupt runs on its own task, and a failed one is logged.
+    /// interrupt runs on a task of the driver's, and a failed one is logged.
     pub(crate) fn interrupt_started_turn(
         &self,
         record: &CodexSessionRecord,
@@ -60,7 +70,7 @@ impl CodexLimitStoppedHelpers {
         let session_id = record.session_id;
         let helper_thread_id = helper_thread_id.to_owned();
         let turn_id = turn_id.to_owned();
-        tokio::spawn(async move {
+        self.tasks.spawn(async move {
             let interrupted = match service.connection() {
                 Ok(connection) => interrupt_codex_turn(&connection, &helper_thread_id, &turn_id)
                     .await

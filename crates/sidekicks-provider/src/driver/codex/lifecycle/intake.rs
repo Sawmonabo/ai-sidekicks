@@ -49,7 +49,9 @@ use crate::driver::codex::server_requests::{
 use crate::driver::codex::session::calls::{
     CodexSessionTask, ask_codex_session, run_codex_session_call,
 };
-use crate::driver::codex::session::context_reading::CodexSessionContextReadings;
+use crate::driver::codex::session::context_reading::{
+    CodexFixedStart, CodexSessionContextReadings,
+};
 use crate::driver::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
@@ -116,13 +118,13 @@ pub(crate) struct CodexSessionIntake {
 }
 
 impl CodexSessionIntake {
-    /// The task of `record`'s session, routing through `routing`, its conversation's fixed start
-    /// `kept_fixed_start_tokens` where its binding kept one.
+    /// The task of `record`'s session, routing through `routing`, its conversation taking its fixed
+    /// start as `fixed_start` says.
     pub(crate) fn new(
         record: CodexSessionRecord,
         routing: CodexSessionRouting,
         parts: Arc<CodexDriverParts>,
-        kept_fixed_start_tokens: Option<u64>,
+        fixed_start: CodexFixedStart,
     ) -> Self {
         let session_id = record.session_id;
         Self {
@@ -131,7 +133,7 @@ impl CodexSessionIntake {
             routing,
             waiters: CodexTurnEndWaiters::default(),
             parts,
-            context_readings: CodexSessionContextReadings::new(session_id, kept_fixed_start_tokens),
+            context_readings: CodexSessionContextReadings::new(session_id, fixed_start),
             usage_recorder: None,
         }
     }

@@ -65,12 +65,25 @@ pub(crate) fn read_codex_kept_fixed_start(runtime_metadata: &Map<String, Value>)
         .and_then(Value::as_u64)
 }
 
+/// Where an opening session's conversation takes its fixed start from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum CodexFixedStart {
+    /// A new conversation: its first request's input sets it.
+    FirstRequest,
+    /// A resumed conversation, with the tokens its binding kept; `None` stays unknown, since the
+    /// first report after a resume is not the conversation's start.
+    Kept(Option<u64>),
+}
+
 /// One session's context readings, published on its task: from each usage report, and with no
 /// usage at its start and on each change of its model or window.
 pub(crate) struct CodexSessionContextReadings {
     session_id: SessionId,
     fixed_start_tokens: Option<u64>,
-    // The binding the fixed start was last kept on, so each binding is written once.
+    // Whether the first request's report may set the fixed start: only on a new conversation.
+    notes_first_request: bool,
+    // The binding the fixed start was last kept on or is being written to, so each binding is
+    // written once.
     fixed_start_kept_on: Arc<Mutex<Option<RuntimeBindingId>>>,
     // The model and window the last reading was composed for.
     published_for: Option<CodexReadingSettings>,
@@ -97,12 +110,17 @@ struct LateReading {
 }
 
 impl CodexSessionContextReadings {
-    /// No reading published yet for `session_id`, whose conversation's fixed start is
-    /// `kept_fixed_start_tokens` where its binding kept one.
-    pub(crate) fn new(session_id: SessionId, kept_fixed_start_tokens: Option<u64>) -> Self {
+    /// No reading published yet for `session_id`, whose conversation takes its fixed start as
+    /// `fixed_start` says.
+    pub(crate) fn new(session_id: SessionId, fixed_start: CodexFixedStart) -> Self {
+        let (fixed_start_tokens, notes_first_request) = match fixed_start {
+            CodexFixedStart::FirstRequest => (None, true),
+            CodexFixedStart::Kept(tokens) => (tokens, false),
+        };
         Self {
             session_id,
-            fixed_start_tokens: kept_fixed_start_tokens,
+            fixed_start_tokens,
+            notes_first_request,
             fixed_start_kept_on: Arc::default(),
             published_for: None,
             published: Arc::default(),
@@ -141,21 +159,27 @@ impl CodexSessionContextReadings {
         }
     }
 
-    // Takes the fixed start from the conversation's first request, never from a later one.
+    // Takes the fixed start from a new conversation's first request, never from a later one or
+    // from a resumed conversation's.
     fn note_fixed_start(&mut self, reading: &CodexContextWindowReading) {
-        if reading.is_conversation_start {
+        if self.notes_first_request && reading.is_conversation_start {
             self.fixed_start_tokens = self.fixed_start_tokens.or(reading.breakdown.input);
         }
     }
 
     // Keeps the known fixed start on the session's binding once per binding, off the session's
-    // task; a failed write is logged and tried again at the next report.
+    // task, marked before the write so a report meanwhile starts no second one; a failed write is
+    // logged, unmarked and tried again at the next report.
     fn keep_fixed_start(&self, parts: &CodexDriverParts, record: &CodexSessionRecord) {
         let (Some(tokens), Some(binding_id)) = (self.fixed_start_tokens, &record.binding_id) else {
             return;
         };
-        if lock(&self.fixed_start_kept_on).as_ref() == Some(binding_id) {
-            return;
+        {
+            let mut kept_on = lock(&self.fixed_start_kept_on);
+            if kept_on.as_ref() == Some(binding_id) {
+                return;
+            }
+            *kept_on = Some(binding_id.clone());
         }
         let kept_on = Arc::clone(&self.fixed_start_kept_on);
         let runtime_bindings = Arc::clone(&parts.runtime_bindings);
@@ -164,16 +188,19 @@ impl CodexSessionContextReadings {
         parts.tasks.spawn(async move {
             let runtime_metadata =
                 Map::from_iter([(FIXED_START_TOKENS_KEY.to_owned(), Value::from(tokens))]);
-            match runtime_bindings
+            if let Err(error) = runtime_bindings
                 .keep_recovery_data(binding_id.clone(), runtime_metadata)
                 .await
             {
-                Ok(()) => *lock(&kept_on) = Some(binding_id),
-                Err(error) => tracing::warn!(
+                tracing::warn!(
                     error = &*error as &(dyn std::error::Error + 'static),
                     %session_id,
                     "a codex session's fixed start could not be kept on its binding"
-                ),
+                );
+                let mut kept_on = lock(&kept_on);
+                if kept_on.as_ref() == Some(&binding_id) {
+                    *kept_on = None;
+                }
             }
         });
     }
