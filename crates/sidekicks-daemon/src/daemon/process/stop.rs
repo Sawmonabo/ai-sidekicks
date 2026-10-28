@@ -147,7 +147,7 @@ pub(crate) async fn stop_work(
     }
     // Before the working-folder watch, on which a setup's warm step holds its tree.
     if let Some(worktree_setup) = process.worktree_setup.take()
-        && let Err(failure) = worktree_setup.stop().await
+        && let Err(failure) = worktree_setup.stop(remaining()).await
     {
         failures.push(failure.into());
     }

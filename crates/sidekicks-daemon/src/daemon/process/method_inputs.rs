@@ -5,7 +5,6 @@
 //! parts the start runs next and the stop ends.
 
 use std::error::Error;
-use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
@@ -21,7 +20,7 @@ use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
-    command_shell, physical_memory, read_process_peak_bytes,
+    physical_memory, read_process_peak_bytes,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -210,9 +209,6 @@ pub(crate) enum MethodInputsError {
         /// The socket's path.
         path: PathBuf,
     },
-    /// The shell a worktree's setup commands run under could not be read.
-    #[error("the shell setup commands run under could not be read")]
-    CommandShell(#[source] io::Error),
     /// A folder's path cannot be reported on the wire.
     #[error("the folder path {} cannot be reported", path.display())]
     FolderPathText {
@@ -302,7 +298,6 @@ pub(crate) async fn register_method_inputs(
         spawner: spawner.clone(),
         watcher: Arc::clone(&repo.folder_watch),
         sources: Arc::clone(&worktree_sources) as _,
-        command_shell: command_shell().map_err(MethodInputsError::CommandShell)?,
     }));
     let worktree_creator = Arc::new(WorktreeCreator::new(WorktreeCreatorDeps {
         git: git.clone(),
@@ -313,6 +308,7 @@ pub(crate) async fn register_method_inputs(
         worktrees: Arc::clone(&repo.worktrees),
         setup: Arc::clone(&worktree_setup),
         live_run_folders: Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads))),
+        // No run gate holds a checkout lock, so the creator's is its own.
         checkout_lock: Arc::new(KeyedLock::new()),
     }));
     let session = build_session_services(SessionServiceStart {
