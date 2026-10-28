@@ -7,6 +7,7 @@
 //! turn too long for the window files a row marked exceeded with no counts. A helper gets no row.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
@@ -33,6 +34,7 @@ use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
     ClaudeContextUsageDetail, ClaudeControlRequest,
 };
+use crate::driver::claude::session::transport::declarations::ClaudeMessageUsageObservation;
 use crate::driver::context_window::{BOTTOM_STOP_HEADROOM_PERCENT, share_percent};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
@@ -134,13 +136,27 @@ pub(crate) struct ClaudeContextRead {
     pub(crate) model: Option<String>,
 }
 
-// What one session's reads hold: the last read, and whether a read is under way with another
-// asked for behind it, on the run the later ask follows.
+// What one session's reads hold: the last read; the read task under way, by its number, with
+// whether another read was asked behind it and the runs those asks follow; and the last lead
+// message whose usage gave a mid-turn reading, with its counts.
 #[derive(Default)]
 struct ClaudeSessionReads {
     last: Option<ClaudeContextRead>,
-    is_reading: bool,
-    asked_again: Option<Option<ClaudeBoundRun>>,
+    reading_task: Option<u64>,
+    is_asked_again: bool,
+    waiting_runs: Vec<ClaudeBoundRun>,
+    mid_turn_message: Option<(String, UsageAxisCounts)>,
+}
+
+impl ClaudeSessionReads {
+    // Keeps `run` for the next read, once.
+    fn wait_for_read(&mut self, run: Option<ClaudeBoundRun>) {
+        if let Some(run) = run
+            && !self.waiting_runs.contains(&run)
+        {
+            self.waiting_runs.push(run);
+        }
+    }
 }
 
 /// Every live session's context reads, the latest of each, and where they go.
@@ -149,6 +165,7 @@ pub(crate) struct ClaudeContextReadings {
     dispatch: Arc<dyn InboundDispatch>,
     streams: Arc<ClaudeSessionStreams>,
     sessions: Mutex<HashMap<SessionId, ClaudeSessionReads>>,
+    next_reading_task: AtomicU64,
 }
 
 impl ClaudeContextReadings {
@@ -164,61 +181,81 @@ impl ClaudeContextReadings {
             dispatch,
             streams,
             sessions: Mutex::default(),
+            next_reading_task: AtomicU64::new(0),
         }
     }
 
     /// Reads `live`'s context from its process and files it on `run` where the read follows that
-    /// run's turn; returns at once. A read asked while one is under way runs once that one ends,
-    /// so a burst of asks costs two reads. A refused read is recorded.
+    /// run's turn; returns at once. A read asked while one is under way runs once that one ends
+    /// and is filed on every run asked for meanwhile, so a burst of asks costs two reads. A
+    /// refused read is recorded.
     pub(crate) fn request_read(
         self: &Arc<Self>,
         live: &Arc<LiveClaudeSession>,
         run: Option<ClaudeBoundRun>,
     ) {
-        {
+        let task = {
             let mut sessions = lock(&self.sessions);
             let reads = sessions.entry(live.session_id).or_default();
-            if reads.is_reading {
-                reads.asked_again = Some(run);
+            if reads.reading_task.is_some() {
+                reads.is_asked_again = true;
+                reads.wait_for_read(run);
                 return;
             }
-            reads.is_reading = true;
-        }
+            let task = self.next_reading_task.fetch_add(1, Ordering::Relaxed);
+            reads.reading_task = Some(task);
+            task
+        };
         let readings = Arc::clone(self);
         let live = Arc::clone(live);
         tokio::spawn(async move {
-            let mut run = run;
+            let mut runs = Vec::from_iter(run);
             loop {
-                readings.read_once(&live, run).await;
+                readings.read_once(&live, task, &runs).await;
                 let mut sessions = lock(&readings.sessions);
-                let Some(reads) = sessions.get_mut(&live.session_id) else {
+                // A session forgotten, or held by a later process's task, is no longer this one's.
+                let Some(reads) = sessions
+                    .get_mut(&live.session_id)
+                    .filter(|reads| reads.reading_task == Some(task))
+                else {
                     return;
                 };
-                match reads.asked_again.take() {
-                    Some(again) => run = again,
-                    None => {
-                        reads.is_reading = false;
-                        return;
-                    }
+                if !reads.is_asked_again {
+                    reads.reading_task = None;
+                    return;
                 }
+                reads.is_asked_again = false;
+                runs = std::mem::take(&mut reads.waiting_runs);
             }
         });
     }
 
-    /// The mid-turn reading the lead's assistant message with `counts` gives on the last read's
-    /// window, published, with the row to file on `run_id`; `None` before any read or for a
-    /// message that carries no input counts.
+    /// The mid-turn reading the lead's assistant message gives on the last read's window from its
+    /// `usage`, published, with the row to file on `run_id`; `None` before any read, for a message
+    /// that carries no input counts, and for a message whose counts did not change since its last
+    /// frame, since Claude Code repeats a message's usage on each of its content frames.
     pub(crate) fn read_mid_turn(
         &self,
         session_id: SessionId,
         run_id: RunId,
-        counts: &UsageAxisCounts,
+        usage: &ClaudeMessageUsageObservation,
     ) -> Option<LateAppendableRow> {
+        let counts = &usage.counts;
         let used = [counts.input, counts.cache_write_input, counts.cached_input]
             .into_iter()
             .flatten()
             .reduce(u64::saturating_add)?;
-        let last = lock(&self.sessions).get(&session_id)?.last.clone()?;
+        let last = {
+            let mut sessions = lock(&self.sessions);
+            let reads = sessions.get_mut(&session_id)?;
+            let last = reads.last.clone()?;
+            let message = (usage.message_id.clone(), *counts);
+            if reads.mid_turn_message.as_ref() == Some(&message) {
+                return None;
+            }
+            reads.mid_turn_message = Some(message);
+            last
+        };
         let window = last.reading.window_tokens.get();
         let figure = |tokens: Option<u64>| SafeInt::<0>::new(tokens.unwrap_or(0));
         let reading = SessionContextReading {
@@ -251,19 +288,26 @@ impl ClaudeContextReadings {
         lock(&self.sessions).remove(&session_id);
     }
 
-    // Publishes `read` and keeps it as the session's last, which later mid-turn readings are made
-    // on.
-    fn hold_read(&self, session_id: SessionId, read: ClaudeContextRead) {
+    // Publishes `read`, made by the read task numbered `task`, and keeps it as the session's
+    // last, which later mid-turn readings are made on; answers whether it did. A read whose
+    // session was forgotten while it was under way, or whose task a later process's took over,
+    // is neither published nor held.
+    fn hold_read(&self, session_id: SessionId, task: u64, read: ClaudeContextRead) -> bool {
+        let mut sessions = lock(&self.sessions);
+        let Some(reads) = sessions
+            .get_mut(&session_id)
+            .filter(|reads| reads.reading_task == Some(task))
+        else {
+            return false;
+        };
         if let Some(publisher) = self.publisher.port() {
             publisher.publish_context_reading(read.reading.clone());
         }
-        // A session forgotten while its read was under way is not held again.
-        if let Some(reads) = lock(&self.sessions).get_mut(&session_id) {
-            reads.last = Some(read);
-        }
+        reads.last = Some(read);
+        true
     }
 
-    async fn read_once(&self, live: &LiveClaudeSession, run: Option<ClaudeBoundRun>) {
+    async fn read_once(&self, live: &LiveClaudeSession, task: u64, runs: &[ClaudeBoundRun]) {
         let request = ClaudeControlRequest::GetContextUsage {
             detail: ClaudeContextUsageDetail::Summary,
         };
@@ -282,22 +326,23 @@ impl ClaudeContextReadings {
         let Some(read) = compose_claude_context_read(live.session_id, reply.as_deref()) else {
             return;
         };
-        self.hold_read(live.session_id, read.clone());
-        let Some(run) = run else {
+        if !self.hold_read(live.session_id, task, read.clone()) {
             return;
-        };
-        let delivery = InboundDelivery::SessionRow {
-            binding: DeliveryBinding {
-                binding_id: run.binding_id,
-                operation: None,
-            },
-            row: window_row(&read, Some(run.run_id)),
-            content: None,
-        };
-        // A refused row is reported by the dispatch.
-        let _filed =
-            deliver_in_session_order(&*self.dispatch, &self.streams, live.session_id, delivery)
-                .await;
+        }
+        for run in runs {
+            let delivery = InboundDelivery::SessionRow {
+                binding: DeliveryBinding {
+                    binding_id: run.binding_id.clone(),
+                    operation: None,
+                },
+                row: window_row(&read, Some(run.run_id)),
+                content: None,
+            };
+            // A refused row is reported by the dispatch.
+            let _filed =
+                deliver_in_session_order(&*self.dispatch, &self.streams, live.session_id, delivery)
+                    .await;
+        }
     }
 }
 
@@ -432,7 +477,7 @@ fn context_part(part: &ClaudeNamedPart) -> Option<SessionContextPart> {
     })
 }
 
-// The context-window row of `read`, on `run_id`.
+// The context-window row of `read`, on `run_id`, exceeded where the used tokens reach the window.
 fn window_row(read: &ClaudeContextRead, run_id: Option<RunId>) -> LateAppendableRow {
     let reading = &read.reading;
     let window_max_tokens = SafeInt::<0>::new(reading.window_tokens.get());
@@ -447,7 +492,7 @@ fn window_row(read: &ClaudeContextRead, run_id: Option<RunId>) -> LateAppendable
         window_used_tokens,
         window_max_tokens: window_max_tokens.filter(|_| window_used_tokens.is_some()),
         window_source: ContextWindowSource::ProviderReported,
-        exceeded: false,
+        exceeded: window_used_tokens.is_some_and(|used| used.get() >= reading.window_tokens.get()),
         model_id: read
             .model
             .clone()

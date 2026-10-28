@@ -32,24 +32,24 @@ const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =
 
 impl ClaudeDeliveryStream {
     // The first frame of a run's turn opens it: an interrupt still held answered as taken, the
-    // continued run's report, the boundary, then the turn numbered under `turn_id`, the first
-    // frame's own id, the readings of the turn before emptied.
-    pub(super) async fn open_turn(
-        &self,
-        session: &ClaudeSessionStream,
-        lead: &ClaudeBoundRun,
-        turn_id: Option<ProviderTurnId>,
-    ) {
+    // continued run's report, the boundary, then the turn numbered under the uuid of the user
+    // message that opened it, the readings of the turn before emptied.
+    pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
+        if session
+            .lock()
+            .turn
+            .as_ref()
+            .is_some_and(|turn| turn.run_id == lead.run_id)
+        {
+            return;
+        }
+        let turn_id = session
+            .lock_prompts()
+            .take_turn_opening(session.session_id)
+            .and_then(|uuid| ProviderTurnId::new(uuid).ok());
         let (interrupted, continues) = {
             let mut readings = session.lock();
-            if readings
-                .turn
-                .as_ref()
-                .is_some_and(|turn| turn.run_id == lead.run_id)
-            {
-                return;
-            }
             readings.carried_ends.remove(&lead.run_id);
             // Claude Code started its next turn with the steers it kept, so the interrupt took.
             let is_held_for_interrupt = readings

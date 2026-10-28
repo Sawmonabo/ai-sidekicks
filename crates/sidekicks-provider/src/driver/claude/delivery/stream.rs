@@ -19,7 +19,6 @@ use std::error::Error;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
-use serde::Deserialize;
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::ModelRerouteScope;
 use sidekicks_contracts::run::id::RunId;
@@ -29,7 +28,7 @@ use sidekicks_contracts::session::controls::events::{
 };
 use sidekicks_contracts::session::events::SessionProviderStatusReportedPayload;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::turn::{ProviderTurnId, TurnTasksUpdate};
+use sidekicks_contracts::turn::TurnTasksUpdate;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
@@ -68,7 +67,6 @@ use crate::driver::claude::spent_retries_signal::classify_claude_spent_retries;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
-use crate::lenient_json::{Lenient, lenient_object, read_lenient};
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
 use crate::port::running_command_publisher::RunningCommandPublisher as _;
@@ -164,15 +162,9 @@ impl ClaudeDeliveryStream {
         {
             report_engine_failure(session, "the settled output speed", &*error);
         }
-        let turn_id = read_frame_turn_id(&frame.text);
         for emission in routed.helper_lifecycle {
-            self.deliver_helper_lifecycle(
-                session,
-                turn_at_read.lead.clone(),
-                emission,
-                turn_id.clone(),
-            )
-            .await;
+            self.deliver_helper_lifecycle(session, turn_at_read.lead.clone(), emission)
+                .await;
         }
         self.record_metered(session, turn_at_read.lead.as_ref(), routed.metered)
             .await;
@@ -266,7 +258,7 @@ impl ClaudeDeliveryStream {
                  a failure naming the subtype or its absence",
             );
         }
-        self.open_turn(session, &lead, turn_id).await;
+        self.open_turn(session, &lead).await;
         if self.dependencies.dialogs.observe_turn_frame(lead.run_id) {
             // An answer no write or check settled reached Claude Code, which runs the turn again.
             let running = RunStateReport {
@@ -595,11 +587,10 @@ impl ClaudeDeliveryStream {
             report_engine_failure(session, "a step", &*error);
         }
         if let Some(usage) = usage
-            && let Some(row) = self.dependencies.context.read_mid_turn(
-                session.session_id,
-                lead.run_id,
-                &usage.counts,
-            )
+            && let Some(row) =
+                self.dependencies
+                    .context
+                    .read_mid_turn(session.session_id, lead.run_id, usage)
         {
             self.send_row(session, lead, row, "assistant").await;
         }
@@ -766,23 +757,6 @@ fn report_engine_failure(
         error,
         "the run engine could not take what a Claude Code session reported"
     );
-}
-
-// The frame's own id, which names the turn a turn's first frame opens.
-#[derive(Deserialize)]
-struct ClaudeFrameIdentity {
-    #[serde(default, deserialize_with = "read_lenient")]
-    uuid: Option<String>,
-}
-
-lenient_object!(ClaudeFrameIdentity);
-
-fn read_frame_turn_id(text: &str) -> Option<ProviderTurnId> {
-    let identity =
-        <ClaudeFrameIdentity as Lenient>::read(&mut serde_json::Deserializer::from_str(text))
-            .ok()
-            .flatten()?;
-    ProviderTurnId::new(identity.uuid?).ok()
 }
 
 // Whether a `result` ended its turn because the conversation no longer fits the window.
