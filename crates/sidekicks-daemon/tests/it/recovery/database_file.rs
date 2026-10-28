@@ -1,5 +1,6 @@
 //! The database file's copies aside, its repair and the readying of its fresh file, each run
-//! through the daemon's own program in its `database copy` and `database shell` modes.
+//! through the daemon's own program in its `database copy` and `database shell` modes, and the
+//! service's start on a file its repair cannot heal.
 
 use std::error::Error as _;
 use std::fs::{self, OpenOptions};
@@ -9,8 +10,9 @@ use std::path::{Path, PathBuf};
 use rstest::rstest;
 use rusqlite::Connection;
 use rusqlite::config::DbConfig;
+use sidekicks_contracts::daemon::service_status::{DaemonCannotStart, ServiceStatusFile};
 use sidekicks_daemon::daemon::schema::schema_parts;
-use sidekicks_platforms::physical_memory;
+use sidekicks_platforms::{create_missing_private_folders, physical_memory};
 use sidekicks_recovery::database_file::aside_copy::{
     AsideCopyError, DatabaseFilesAside, copy_database_files_aside,
 };
@@ -24,12 +26,16 @@ use sidekicks_recovery::database_file::repair::{
     repair_damaged_file,
 };
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
-use sidekicks_store::database::connection::writer_open::SEARCH_INDEX_FOLDER_NAME;
+use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::database::connection::writer_open::{
+    DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
+};
+use sidekicks_store::database::damage::record_database_damage;
 use sidekicks_store::database::schema::DatabaseSchema;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 
-use crate::helpers::{daemon_program, spawner};
+use crate::helpers::{daemon_program, run_service, short_home, spawner};
 
 // The folders the store's files are copied into, each a copy.
 fn aside_copies(data_folder: &Path) -> Vec<PathBuf> {
@@ -725,4 +731,49 @@ async fn a_backup_copy_an_earlier_repair_left_is_removed_before_any_work(
         }
         (earlier, repaired) => panic!("{earlier:?} was answered {repaired:?}"),
     }
+}
+
+// A start on a damaged file its repair cannot heal, here a table this build does not have, which
+// the recovery carries into the fresh file, fails naming the damaged file's copy aside, writes the
+// status file a client reads that from, and leaves the file byte for byte as it was. Killed by the
+// start going on past a file its repair left damaged.
+#[tokio::test]
+async fn a_start_on_a_file_its_repair_cannot_heal_fails_naming_the_copy_aside() {
+    let home = short_home();
+    let data_folder = data_folder(home.path());
+    create_missing_private_folders(&data_folder).expect("the data folder is made");
+    let database_path = data_folder.join(DAEMON_DATABASE_FILE_NAME);
+    schema_file(&database_path, &schema_parts().into_schema())
+        .execute_batch("CREATE TABLE stray (id INTEGER)")
+        .expect("the table is made");
+    record_database_damage(&database_path, "a page failed the integrity check")
+        .await
+        .expect("the damage is recorded");
+    let before = fs::read(&database_path).expect("the file reads");
+
+    let ended = run_service(home.path()).await;
+
+    let standard_error = String::from_utf8_lossy(&ended.stderr);
+    assert_eq!(ended.status.code(), Some(1), "{standard_error}");
+    let status: ServiceStatusFile = serde_json::from_slice(
+        &fs::read(data_folder.join("run").join("service-status.json"))
+            .expect("the status file is written"),
+    )
+    .expect("the status file reads");
+    let DaemonCannotStart::SavedSessionsUnrepaired { aside_folder } = status.cannot_start else {
+        panic!("the status file says {:?}", status.cannot_start);
+    };
+    assert_eq!(
+        aside_copies(&data_folder),
+        vec![PathBuf::from(aside_folder.as_str())]
+    );
+    assert!(
+        standard_error.contains(aside_folder.as_str()),
+        "{standard_error}"
+    );
+    assert_eq!(
+        fs::read(&database_path).expect("the file reads"),
+        before,
+        "the file is as it was"
+    );
 }
