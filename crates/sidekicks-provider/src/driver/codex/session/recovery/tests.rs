@@ -15,7 +15,8 @@ use super::{CodexServiceRecovery, CodexServiceRecoveryDependencies};
 use crate::driver::codex::rate_limits::CodexRateLimitFiling;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
-use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
+use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, fork_reply, no_turns, one_folder_spawn_contexts,
 };
@@ -29,17 +30,21 @@ use crate::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
 use crate::port::run_host::test_host::{EngineCall, RecordingRunEngine};
 
 // What the stand-ins for the reviewer denials and the queue heard, in order, each with the turn
-// ends the run engine took before it.
+// ends the run engine took before it, and what held each gone session's slot as the queue heard.
 struct Steps {
     engine: Arc<RecordingRunEngine>,
+    slots: Arc<CodexSessionSlots>,
     heard: Mutex<Vec<(String, Vec<EngineCall>)>>,
+    holders_at_gone: Mutex<Vec<Option<CodexSessionSlotState>>>,
 }
 
 impl Steps {
-    fn new(engine: &Arc<RecordingRunEngine>) -> Self {
+    fn new(session: &TestCodexSession) -> Self {
         Self {
-            engine: Arc::clone(engine),
+            engine: Arc::clone(&session.engine),
+            slots: Arc::clone(&session.slots),
             heard: Mutex::default(),
+            holders_at_gone: Mutex::default(),
         }
     }
 
@@ -49,6 +54,10 @@ impl Steps {
 
     fn read(&self) -> Vec<(String, Vec<EngineCall>)> {
         lock(&self.heard).clone()
+    }
+
+    fn holders_at_gone(&self) -> Vec<Option<CodexSessionSlotState>> {
+        lock(&self.holders_at_gone).clone()
     }
 }
 
@@ -71,6 +80,7 @@ struct HeardGone(Arc<Steps>);
 
 impl ProcessGoneListener for HeardGone {
     fn process_gone(&self, session_id: SessionId) {
+        lock(&self.0.holders_at_gone).push(self.0.slots.describe_holder(session_id));
         self.0.push(format!("gone {session_id}"));
     }
 }
@@ -159,7 +169,7 @@ fn exit_code(code: u8) -> ProcessExit {
 async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_queue_hears() {
     let mut session = TestCodexSession::start().await;
     let folder = tempfile::tempdir().expect("the test makes a folder");
-    let steps = Arc::new(Steps::new(&session.engine));
+    let steps = Arc::new(Steps::new(&session));
     let recovery = test_recovery(&session, folder.path(), &steps);
     let binding_id = session.record_binding().await;
     let run_id = new_run_id();
@@ -205,7 +215,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         let mut session = TestCodexSession::start().await;
         session.scripted.report_version("codex-cli 0.163.0");
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let steps = Arc::new(Steps::new(&session.engine));
+        let steps = Arc::new(Steps::new(&session));
         let recovery = test_recovery(&session, folder.path(), &steps);
         let service = Arc::clone(&session.scripted.service);
         let settings = session.task.record.thread_settings.clone();
@@ -277,7 +287,7 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
     tokio::time::timeout(Duration::from_secs(30), async {
         let mut session = TestCodexSession::start().await;
         let folder = tempfile::tempdir().expect("the test makes a folder");
-        let steps = Arc::new(Steps::new(&session.engine));
+        let steps = Arc::new(Steps::new(&session));
         let recovery = test_recovery(&session, folder.path(), &steps);
         let service = Arc::clone(&session.scripted.service);
         let session_id = session.task.record.session_id;
@@ -327,6 +337,29 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
     })
     .await
     .expect("the crash loop is told within the bound");
+}
+
+// Killed by a crash loop that leaves a resume its service owed: the session reads restarting at
+// the notice, so the queue keeps a process that stays down.
+#[tokio::test(start_paused = true)]
+async fn a_crash_loop_while_resumes_are_owed_reads_down_at_the_notice() {
+    let session = TestCodexSession::start().await;
+    let folder = tempfile::tempdir().expect("the test makes a folder");
+    let steps = Arc::new(Steps::new(&session));
+    let recovery = test_recovery(&session, folder.path(), &steps);
+    let service = Arc::clone(&session.scripted.service);
+    let session_id = session.task.record.session_id;
+    recovery.owe_resumes(&service);
+    assert_eq!(
+        session.slots.describe_holder(session_id),
+        Some(CodexSessionSlotState::Establishing)
+    );
+
+    recovery
+        .crash_loop(&service, Some(&restart_failure()))
+        .await;
+
+    assert_eq!(steps.holders_at_gone(), [Some(CodexSessionSlotState::Live)]);
 }
 
 // The payload of each notice delivered on `session_id`, in order.

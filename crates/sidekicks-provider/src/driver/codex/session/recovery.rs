@@ -317,13 +317,18 @@ impl CodexServiceRecovery {
     }
 
     // Tells the queue the process of every session on `service`, which stays down, is gone, and
-    // answers those sessions.
+    // answers those sessions. A resume the service owed them is let go first, so each reads down
+    // by the notice and the queue forgets it.
     fn report_sessions_gone(&self, service: &CodexService) -> HashSet<SessionId> {
         let sessions: HashSet<SessionId> = service
             .attached_sessions()
             .iter()
             .map(CodexSessionInboundSender::session_id)
             .collect();
+        let owed = self.lock().owed_resumes.remove(&service.id());
+        for session_id in owed.into_iter().flatten() {
+            self.dependencies.slots.settle_resume(session_id);
+        }
         if let Some(listener) = self.dependencies.process_gone.port() {
             for session_id in &sessions {
                 listener.process_gone(*session_id);
