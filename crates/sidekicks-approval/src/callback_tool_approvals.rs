@@ -43,7 +43,10 @@ pub(crate) const CANCELED_REFUSAL: &str =
     "This call's approval ended unanswered, so it did not run.";
 
 /// How one of the app's own tools is gated.
-#[expect(dead_code, reason = "the agent tool server's gate map")]
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the agent tool server's gate map")
+)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum CallbackToolGate {
     /// It only reads what the calling session may already read.
