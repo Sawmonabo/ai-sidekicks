@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Router;
-use axum::extract::{Query, Request, State};
+use axum::extract::{Query, RawQuery, Request, State};
 use axum::http::header::{CACHE_CONTROL, HOST, LOCATION, REFERRER_POLICY};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
@@ -119,6 +119,9 @@ pub struct RedirectCallback {
     pub response: AuthorizationResponse,
     /// The `iss` the server returned, for the owner's issuer check.
     pub issuer: Option<String>,
+    /// The whole address the browser came back on, its query as sent, for an owner that hands
+    /// the return on to the client that made the request.
+    pub return_url: Url,
 }
 
 /// The page the receiver serves itself after an MCP sign-in.
@@ -224,6 +227,7 @@ impl RedirectListener {
         let (answered, answered_watch) = watch::channel(false);
         let state = Arc::new(ReceiverState {
             authority: authority(&self.redirect_url),
+            redirect_url: self.redirect_url.clone(),
             expected_state,
             owner,
             answered,
@@ -255,6 +259,8 @@ pub struct RedirectReceiver {
 struct ReceiverState {
     /// The `Host` a request must carry: the redirect address's host and port.
     authority: String,
+    /// The redirect address, which a callback's query is read back onto.
+    redirect_url: Url,
     expected_state: String,
     owner: Arc<dyn RedirectCallbackOwner>,
     /// Set once the owner gave its final answer (or the hold ran out).
@@ -438,11 +444,14 @@ async fn mark_private(mut response: Response) -> Response {
 async fn receive_callback(
     State(state): State<Arc<ReceiverState>>,
     Query(parameters): Query<Vec<(String, String)>>,
+    RawQuery(query): RawQuery,
 ) -> Response {
     if *state.answered.borrow() {
         return StatusCode::BAD_REQUEST.into_response();
     }
-    let Some(callback) = read_callback(&parameters, &state.expected_state) else {
+    let mut return_url = state.redirect_url.clone();
+    return_url.set_query(query.as_deref());
+    let Some(callback) = read_callback(&parameters, &state.expected_state, return_url) else {
         return StatusCode::BAD_REQUEST.into_response();
     };
     let answer = match tokio::time::timeout(BROWSER_HOLD, state.owner.answer(callback)).await {
@@ -465,11 +474,12 @@ async fn receive_callback(
     (StatusCode::SEE_OTHER, [(LOCATION, location)]).into_response()
 }
 
-/// Reads a callback's query: `state` must equal the expected one, compared in constant time, and
+/// Reads a callback's query, which came back on `return_url`: `state` must equal the expected one, compared in constant time, and
 /// exactly one of `code` and `error` must be present; no parameter may repeat.
 fn read_callback(
     parameters: &[(String, String)],
     expected_state: &str,
+    return_url: Url,
 ) -> Option<RedirectCallback> {
     let mut code = None;
     let mut error = None;
@@ -498,7 +508,11 @@ fn read_callback(
         (None, Some(error)) => AuthorizationResponse::Error { error, description },
         (Some(_), Some(_)) | (None, None) => return None,
     };
-    Some(RedirectCallback { response, issuer })
+    Some(RedirectCallback {
+        response,
+        issuer,
+        return_url,
+    })
 }
 
 #[cfg(test)]

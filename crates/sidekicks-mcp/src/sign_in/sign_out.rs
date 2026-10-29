@@ -1,6 +1,7 @@
 //! The sign-out of an MCP server: its held sign-in is read into memory, its keychain item removed,
-//! its waiting attempt ended and its address marked signed out; after the reply, its refresh token
-//! is revoked where the authorization server publishes a revocation endpoint (RFC 7009).
+//! its waiting attempt or provider's flow ended and its address marked signed out; after the
+//! reply, its refresh token is revoked where the authorization server publishes a revocation
+//! endpoint (RFC 7009).
 //!
 //! - A removal the keychain refuses refuses the sign-out, and the sign-in stays held and in use:
 //!   nothing after the removal runs.
@@ -57,10 +58,11 @@ enum RevocationError {
     expect(dead_code, reason = "the mcp.server.signOut handler calls it")
 )]
 impl SignInService {
-    /// Signs out of `target`'s server: forgets its sign-in, ends its waiting attempt and marks it
-    /// signed out, then revokes its refresh token after the reply. A server with no sign-in held
-    /// signs out at once. Refuses with `mcp.server.signOutFailed`, carrying the keychain's cause,
-    /// when the keychain refuses to read or delete the sign-in, which then stays held and in use.
+    /// Signs out of `target`'s server: forgets its sign-in, ends its waiting attempt or provider's
+    /// flow and marks it signed out, then revokes its refresh token after the reply. A server with
+    /// no sign-in held signs out at once. Refuses with `mcp.server.signOutFailed`, carrying the
+    /// keychain's cause, when the keychain refuses to read or delete the sign-in, which then stays
+    /// held and in use.
     pub(crate) async fn sign_out(&self, target: &SignInTarget) -> Result<(), McpRefusal> {
         let Some(server) = addressed_server(target) else {
             return Ok(());
@@ -86,6 +88,7 @@ impl SignInService {
         if let Some(attempt) = self.take_attempt(&server.canonical_address, None) {
             attempt.end();
         }
+        self.end_provider_flow(&server.canonical_address, None);
         self.signed_in_addresses
             .send_if_modified(|addresses| addresses.remove(&server.canonical_address));
         if let Some(held) = held {
@@ -206,6 +209,7 @@ mod tests {
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
+    use sidekicks_provider::driver::test_registry::registry_of_first_providers;
     use sidekicks_std::keyed_lock::KeyedLock;
     use sidekicks_store::credential_store::SecretKeychain;
     use sidekicks_store::credential_store::service::KeychainService;
@@ -345,6 +349,7 @@ mod tests {
         let service = SignInService::new(
             custody,
             admitted_clients,
+            Arc::new(registry_of_first_providers(Vec::new())),
             OAuthHttpPools::new().expect("the pools build"),
             &RELAY_ADDRESS,
             Arc::new(SessionEventAppender::new(
@@ -358,6 +363,7 @@ mod tests {
                 server_name: McpServerName::new("docs".to_owned()).expect("a server name"),
             },
             server: SignInServer::Address(AddressedServer::new(address.clone(), None)),
+            root_folder: None,
         };
         SignedIn {
             service,

@@ -34,7 +34,7 @@ use crate::sign_in::service::{SignInAttempt, SignInService};
 
 /// How long the code's exchange may take: inside the 30 s the receiver holds the browser, so the
 /// page the browser is sent to is the outcome the event records.
-const REDEMPTION_BOUND: Duration = Duration::from_secs(25);
+pub(super) const REDEMPTION_BOUND: Duration = Duration::from_secs(25);
 
 /// The issuer a callback must name (RFC 9207), as the server's metadata gave it at the launch.
 #[derive(Clone, Debug)]
@@ -290,7 +290,7 @@ mod tests {
     async fn a_return_from_another_issuer_is_refused_and_the_real_one_still_signs_in(
         #[case] forged: &[(&str, &str)],
     ) {
-        let server = serve_authorization_server(true, false).await;
+        let server = serve_authorization_server(true, false, false).await;
         let harness = harness().await;
         let browser_url = launch_to_browser(&harness, &addressed_target(&server.base)).await;
         let signed_in = harness.service.signed_in_addresses();
@@ -348,7 +348,7 @@ mod tests {
         #[case] reason: SignInFailureReason,
         #[case] token_requests: usize,
     ) {
-        let server = serve_authorization_server(true, is_code_refused).await;
+        let server = serve_authorization_server(true, false, is_code_refused).await;
         let harness = harness().await;
         let browser_url = launch_to_browser(&harness, &addressed_target(&server.base)).await;
         let mut returned = parameters.to_vec();
