@@ -3,7 +3,9 @@
 //! with its limit when its log still owes one, left alone when it is queued behind a message
 //! still waiting to start it, failed otherwise. A run with open turns ends them as the daemon's
 //! own report, each turn a limit's interrupt row names with that limit's cause, the newest in the
-//! run's own write.
+//! run's own write. And how a run moves once a resume succeeded, from its state before the restart
+//! and what its provider holds of its turn: left while the provider runs or ends its turn or the
+//! run rests, paused out of `pausing`, and interrupted with `daemonRestart` where its turn is gone.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
@@ -26,6 +28,7 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::session_control::ProviderTurnAnswer;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::database::stored_column::{
     closed_word, optional_text_column, safe_int_column, text_column,
@@ -254,11 +257,14 @@ pub(crate) fn read_run_stops(
     ))
 }
 
-// The limit `run_id` still owes, read on `reader` from its log alone: a limit whose reached event
-// no end of the run by that limit followed, the token limit before the step limit. Whether an
-// interrupt was recorded, is pending or failed since does not decide it. Fails when SQLite refuses
-// the read.
-fn read_owed_limit(reader: &Connection, run_id: &RunId) -> rusqlite::Result<Option<RunLimit>> {
+/// The limit `run_id` still owes, read on `reader` from its log alone: a limit whose reached event
+/// no end of the run by that limit followed, the token limit before the step limit. Whether an
+/// interrupt was recorded, is pending or failed since does not decide it. Fails when SQLite refuses
+/// the read.
+pub(crate) fn read_owed_limit(
+    reader: &Connection,
+    run_id: &RunId,
+) -> rusqlite::Result<Option<RunLimit>> {
     let reached_type = reader
         .prepare_cached(&SELECT_OWED_LIMIT_SQL)?
         .query_row(named_params! { "@run_id": run_id.text().as_str() }, |row| {
@@ -383,6 +389,87 @@ pub(crate) fn decide_restart_settlement(
             }
             RestartSettlement::Failed => RestartTurnEnd::Failed,
         }),
+    })
+}
+
+/// How a resume that succeeded moves a run a restart left live.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ResumedRunMove {
+    /// Left as it is: queued, resting, or waiting on its provider's own end of the turn or of
+    /// its ask.
+    Left,
+    /// Left as it is with its provider running its turn again, so the limits it owes go again.
+    Running,
+    /// `pausing → paused`; its open turns end interrupted with `daemonRestart` where the turn is
+    /// gone, and are otherwise left to the provider's own end.
+    Paused {
+        /// Whether the provider holds no turn of the run.
+        is_turn_gone: bool,
+    },
+    /// Its turn is gone: settled by its stops, else interrupted with `daemonRestart`.
+    TurnGone,
+}
+
+/// Decides how a resume that succeeded moves a run that read `state_before` before the restart,
+/// a child where `is_child`, from what its provider holds of its turn. A queued run is left
+/// whatever the answer. A turn still running leaves the run as it is, the provider going on; a
+/// turn its provider ended leaves the run to that end, except that `pausing` reaches its
+/// boundary. A gone turn interrupts the run, except that a lead's pause holds: `paused` stays and
+/// `pausing` becomes `paused`; a child's gone turn interrupts it in any state.
+pub(crate) fn decide_resumed_move(
+    state_before: RunState,
+    is_child: bool,
+    answer: ProviderTurnAnswer,
+) -> ResumedRunMove {
+    match (state_before, answer) {
+        (RunState::Queued, _)
+        | (RunState::Completed | RunState::Interrupted | RunState::Stopped | RunState::Failed, _) => {
+            ResumedRunMove::Left
+        }
+        (_, ProviderTurnAnswer::Gone) if is_child => ResumedRunMove::TurnGone,
+        (RunState::Starting | RunState::Running, ProviderTurnAnswer::StillRunning) => {
+            ResumedRunMove::Running
+        }
+        (RunState::Pausing, ProviderTurnAnswer::EndedByProvider) => ResumedRunMove::Paused {
+            is_turn_gone: false,
+        },
+        (RunState::Pausing, ProviderTurnAnswer::Gone) => {
+            ResumedRunMove::Paused { is_turn_gone: true }
+        }
+        (
+            RunState::Starting
+            | RunState::Running
+            | RunState::WaitingForApproval
+            | RunState::WaitingForInput,
+            ProviderTurnAnswer::Gone,
+        ) => ResumedRunMove::TurnGone,
+        (
+            RunState::Starting
+            | RunState::Running
+            | RunState::WaitingForApproval
+            | RunState::WaitingForInput
+            | RunState::Pausing
+            | RunState::Paused,
+            ProviderTurnAnswer::StillRunning | ProviderTurnAnswer::EndedByProvider,
+        )
+        | (RunState::Paused, ProviderTurnAnswer::Gone) => ResumedRunMove::Left,
+    }
+}
+
+/// Decides how a run whose turn a resume found gone settles, or `None` for a queued run, which is
+/// left: by its stops as a restart settles it, else interrupted with `daemonRestart`, its
+/// conversation kept for the next send; every open turn ends interrupted.
+pub(crate) fn decide_turn_gone_settlement(
+    run: &LiveRun,
+    facts: &RestartFacts,
+) -> Option<RestartDecision> {
+    (run.run.state != RunState::Queued).then(|| RestartDecision {
+        settlement: settlement_by_stops(&facts.pending_interrupts, facts.owed_limit).unwrap_or(
+            RestartSettlement::Interrupted {
+                trigger: Some(InterruptReason::DaemonRestart),
+            },
+        ),
+        open_turn_end: Some(RestartTurnEnd::Interrupted),
     })
 }
 

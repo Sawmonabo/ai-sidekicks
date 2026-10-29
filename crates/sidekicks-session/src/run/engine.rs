@@ -3,13 +3,15 @@
 //! It also starts the runs of the turns the daemon starts on a session itself and of a provider's
 //! own subagents, continues an interrupted run on its next turn, resumes a paused run once its
 //! driver took the resume, numbers and ends each turn, counts a turn's steps against its step
-//! bound, stops a run at a limit, records the markers a provider reports on a live run, and tells
-//! a session when a run's provider does not run it at the fast output level it carried.
+//! bound, stops a run at a limit, records the markers a provider reports on a live run, tells a
+//! session when a run's provider does not run it at the fast output level it carried, and re-arms
+//! and finalizes the live runs a restart's resume found again.
 
 mod ending;
 mod host;
 mod limits;
 mod live;
+mod resumed;
 mod running_wait;
 mod settle;
 mod start;
@@ -83,9 +85,10 @@ use crate::run::state_change::{
 /// since a version, its interventions with no outcome and one session's ended runs still holding
 /// one, the two agent reads, and the run end's reads of its held questions open or waiting for it
 /// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
-/// open choices (the newest request of each dialog and whether it was settled since), and a
-/// driver's read of a session's stored leg (the session's runs and their bindings).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 22 + RUN_AGENT_STATEMENT_CAPACITY;
+/// open choices (the newest request of each dialog and whether it was settled since), a driver's
+/// read of a session's stored leg (the session's runs and their bindings), and a restart's re-arm
+/// of a live run (its newest open turn with its steps, and the session's step bound).
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 24 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
