@@ -471,6 +471,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                     },
                 }));
             }
+            Some("thread/fork") => panic!("a loaded conversation is forked"),
             Some("thread/turns/list") => script.answer(
                 sent,
                 &json!({
@@ -503,7 +504,9 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
             },
         ]
     );
-    let ask = harness.asks.first().await;
+    let ask = tokio::time::timeout(Duration::from_secs(10), harness.asks.first())
+        .await
+        .expect("the waiting approval reaches the permission pipeline");
     assert_eq!((ask.request_id.as_str(), ask.run_id), ("42", lead_run));
 
     for (thread_id, turn_id, item_id) in [
@@ -522,7 +525,7 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
         }));
     }
     let landed = |item_id: &'static str| {
-        harness.engine.wait_until(move |calls| {
+        let landing = harness.engine.wait_until(move |calls| {
             calls.iter().find_map(|call| match call {
                 EngineCall::Deliver(delivery) => match &delivery.row {
                     Some(LateAppendableRow::AgentMessageSent(payload))
@@ -534,10 +537,13 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                 },
                 _ => None,
             })
-        })
+        });
+        tokio::time::timeout(Duration::from_secs(10), landing)
     };
-    assert_eq!(landed("message-lead").await, lead_run);
-    assert_eq!(landed("message-helper").await, helper_run);
+    let lead_landed = landed("message-lead").await;
+    assert_eq!(lead_landed.expect("the turn's words land"), lead_run);
+    let helper_landed = landed("message-helper").await;
+    assert_eq!(helper_landed.expect("the helper's words land"), helper_run);
 }
 
 // A resume Codex refuses while it closes the loaded conversation waits for the close and loads the

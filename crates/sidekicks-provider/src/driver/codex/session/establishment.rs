@@ -360,11 +360,6 @@ impl CodexSessionEstablishment {
         record
             .service
             .register_thread(record.thread_id.clone(), record.session_id);
-        for helper in helpers {
-            record
-                .service
-                .register_thread(helper.thread_id, record.session_id);
-        }
         self.record_service_process(record.session_id, &record.service);
         drop(claim);
         let ended = end_owed_codex_turns(&mut routing, delivery, &mut record, &listed_turns).await;
