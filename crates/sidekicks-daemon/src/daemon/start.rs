@@ -119,7 +119,7 @@ enum ServiceStartError {
     CallerReader(#[source] CodeSignatureError),
     /// The daemon's start failed.
     #[error(transparent)]
-    Start(#[from] CleanupFailures<DaemonStartError, DaemonStopFailure>),
+    Start(Box<CleanupFailures<DaemonStartError, DaemonStopFailure>>),
 }
 
 /// Runs the service: makes it its own responsible process, prepares the process, then runs the

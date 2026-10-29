@@ -273,10 +273,10 @@ pub(crate) enum DatabaseFileOpenError {
     /// The file is too damaged to open; its damage is recorded, beside the record's own failure
     /// when that failed, so the next start repairs it.
     #[error("the database file is damaged; the next start repairs it")]
-    Damaged(#[source] CleanupFailures<WriterOpenFailure, AtomicWriteError>),
+    Damaged(#[source] Box<CleanupFailures<WriterOpenFailure, AtomicWriteError>>),
     /// The writer could not open the file.
     #[error(transparent)]
-    Writer(WriterOpenFailure),
+    Writer(Box<WriterOpenFailure>),
 }
 
 /// Why a step of the database file's close failed; every other step still ran.
@@ -617,17 +617,19 @@ async fn open_writer(
         return Err(DatabaseFileOpenError::SavedSessionsFromAnotherVersion { path: path.clone() });
     }
     if !is_database_damage_error(&failure) {
-        return Err(DatabaseFileOpenError::Writer(failure));
+        return Err(DatabaseFileOpenError::Writer(Box::new(failure)));
     }
     let record_failures = record_database_damage(database_path, &describe_error(&failure))
         .await
         .err()
         .into_iter()
         .collect();
-    Err(DatabaseFileOpenError::Damaged(CleanupFailures::new(
-        failure,
-        record_failures,
-        "recording the damage to the database file",
+    Err(DatabaseFileOpenError::Damaged(Box::new(
+        CleanupFailures::new(
+            failure,
+            record_failures,
+            "recording the damage to the database file",
+        ),
     )))
 }
 

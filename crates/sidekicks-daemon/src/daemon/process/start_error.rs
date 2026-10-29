@@ -130,7 +130,7 @@ pub(crate) enum DaemonStartError {
     MethodInputs(#[from] MethodInputsError),
     /// The run queues could not be read to deliver what a stop left waiting.
     #[error("the run queues could not be recovered")]
-    QueueRecovery(#[source] QueueError),
+    QueueRecovery(#[source] Box<QueueError>),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release
@@ -138,7 +138,7 @@ pub(crate) enum DaemonStartError {
 #[derive(Debug)]
 pub(crate) struct DaemonStartFailure {
     /// The step's error and the release's failures.
-    pub(crate) failures: CleanupFailures<DaemonStartError, DaemonStopFailure>,
+    pub(crate) failures: Box<CleanupFailures<DaemonStartError, DaemonStopFailure>>,
     /// When the release began.
     pub(crate) release_started: Instant,
 }
