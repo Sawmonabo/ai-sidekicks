@@ -600,10 +600,14 @@ fn merged_decisions(
         .collect()
 }
 
-/// The decision task's windows: when each subject's open window closes.
+/// The decision task's windows: when each subject's open window closes, and when a failed pass is
+/// tried again.
 struct DecisionTask {
     service: Arc<AttentionService>,
     windows: HashMap<AttentionSubject, Instant>,
+    // A window after the last failed pass, cleared by a pass that succeeds, so a failure is retried
+    // with no window open and no attention change.
+    retry_at: Option<Instant>,
 }
 
 impl DecisionTask {
@@ -611,18 +615,19 @@ impl DecisionTask {
         Self {
             service,
             windows: HashMap::new(),
+            retry_at: None,
         }
     }
 
     /// Reads the undecided entries, opens a window for each subject that has none, decides the
-    /// Notify entries and every subject whose window has closed, and answers when the next open
-    /// window closes. A failed read or decision keeps the closed windows, closing again a window
-    /// later.
-    async fn pass(&mut self) -> Result<Option<Instant>, AttentionServiceError> {
+    /// Notify entries and every subject whose window has closed, and answers whether it wrote a
+    /// decision. A failed read or decision keeps the closed windows, closing again a window later,
+    /// and sets the pass to be tried again then.
+    async fn pass(&mut self) -> Result<bool, AttentionServiceError> {
         let undecided = match self.service.read_undecided().await {
             Ok(undecided) => undecided,
             Err(error) => {
-                self.defer_closed_windows(Instant::now());
+                self.defer_after_failure(Instant::now());
                 return Err(error);
             }
         };
@@ -647,31 +652,36 @@ impl DecisionTask {
                 closed.push(entries);
             }
         }
-        if !notify.is_empty() || !closed.is_empty() {
+        let has_decided = !notify.is_empty() || !closed.is_empty();
+        if has_decided {
             if let Err(error) = self.service.decide_batch(notify, closed).await {
-                self.defer_closed_windows(now);
+                self.defer_after_failure(now);
                 return Err(error);
             }
             for subject in &closed_subjects {
                 self.windows.remove(subject);
             }
         }
-        Ok(self.next_close())
+        self.retry_at = None;
+        Ok(has_decided)
     }
 
-    /// When the next open window closes, `None` while no window is open.
+    /// When the next open window closes or a failed pass is tried again, whichever is first;
+    /// `None` while neither is due.
     fn next_close(&self) -> Option<Instant> {
-        self.windows.values().min().copied()
+        self.windows.values().copied().chain(self.retry_at).min()
     }
 
-    // Closes every window closed by `now` again a window after it, so a failed pass is tried again
-    // then, never at once.
-    fn defer_closed_windows(&mut self, now: Instant) {
+    // Closes every window closed by `now` again a window after it and sets the retry then, so a
+    // failed pass is tried again a window later, never at once and never only at the next change.
+    fn defer_after_failure(&mut self, now: Instant) {
+        let retry_at = now + MERGE_WINDOW;
         for closes_at in self.windows.values_mut() {
             if *closes_at <= now {
-                *closes_at = now + MERGE_WINDOW;
+                *closes_at = retry_at;
             }
         }
+        self.retry_at = Some(retry_at);
     }
 }
 
@@ -684,38 +694,40 @@ struct DecisionWakes {
 }
 
 // Passes over the undecided entries at once, then whenever the machine's count moves or a window
-// closes, and arms the next provider build's retirement whenever a build is recorded, until
-// `stop`; a failed pass is logged, at warn the first since a pass succeeded and at debug after,
-// and the next change or window reads again.
+// closes or a failed pass is due again, and arms the next provider build's retirement whenever a
+// build is recorded, until `stop`; a failed pass is logged, at warn the first since a pass decided
+// something and at debug after, and is tried again a window later or at the next change.
 async fn run_decisions(mut task: DecisionTask, mut wakes: DecisionWakes, stop: CancellationToken) {
     let mut next_close = None;
     let mut is_pass_due = true;
-    let failures = FailureEpisode::default();
+    let failure_episode = FailureEpisode::default();
     loop {
         if is_pass_due {
-            next_close = match task.pass().await {
-                Ok(next_close) => {
-                    failures.mark_succeeded();
-                    next_close
+            match task.pass().await {
+                // A pass that read nothing to decide leaves the episode open.
+                Ok(has_decided) => {
+                    if has_decided {
+                        failure_episode.mark_succeeded();
+                    }
                 }
                 Err(error) => {
                     let error = &error as &(dyn Error + 'static);
-                    if failures.is_first_failure() {
+                    if failure_episode.is_first_failure() {
                         tracing::warn!(
                             error,
-                            "the attention entries were not decided; the next change or window \
-                             reads them again"
+                            "the attention entries were not decided; they are read again a \
+                             window later"
                         );
                     } else {
                         tracing::debug!(
                             error,
-                            "the attention entries still were not decided; the next change or \
-                             window reads them again"
+                            "the attention entries still were not decided; they are read again \
+                             a window later"
                         );
                     }
-                    task.next_close()
                 }
-            };
+            }
+            next_close = task.next_close();
         }
         let window_closes = async {
             match next_close {

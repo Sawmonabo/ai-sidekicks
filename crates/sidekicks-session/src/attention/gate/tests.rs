@@ -274,9 +274,10 @@ async fn a_mute_after_the_decision_read_withholds_the_end_it_decided() {
 }
 
 // A decision written for a session purged after its entries were read writes no delivery row and
-// no count row for it. Killed by the bump's entries guard dropped.
+// no count row for it. Killed by the bump's entries guard dropped, and by the decision inserted
+// with no read of its entry.
 #[tokio::test]
-async fn a_decision_for_a_session_purged_after_the_read_writes_no_count() {
+async fn a_decision_for_a_session_purged_after_the_read_writes_no_delivery_and_no_count() {
     let harness = Harness::new().await;
     let purged = test_session_id();
     let settings = MachineSettings::default().notifications;

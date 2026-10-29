@@ -59,7 +59,7 @@ struct LaunchState {
     // Whether this run of the daemon logged that its system starts no app yet.
     has_logged_unsupported: bool,
     // Whether a start failed since one last succeeded, which logs later failures at debug.
-    start_failures: FailureEpisode,
+    start_failure_episode: FailureEpisode,
 }
 
 impl BannerLauncher {
@@ -161,7 +161,9 @@ async fn launch_and_lift(
         return;
     };
     if launched.is_ok() {
-        lock(&in_flight.state).start_failures.mark_succeeded();
+        lock(&in_flight.state)
+            .start_failure_episode
+            .mark_succeeded();
     }
     match launched {
         Ok(WindowlessLaunch::Unwatched) => tokio::time::sleep(UNWATCHED_START_HOLD).await,
@@ -192,7 +194,10 @@ async fn launch_and_lift(
 // debug after.
 fn log_failed_start(in_flight: &InFlightStart, error: &io::Error) {
     let error = error as &(dyn Error + 'static);
-    if lock(&in_flight.state).start_failures.is_first_failure() {
+    if lock(&in_flight.state)
+        .start_failure_episode
+        .is_first_failure()
+    {
         tracing::warn!(
             error,
             "the app could not be started with no window, so its banner waits for the app"

@@ -37,7 +37,7 @@ pub(super) struct RetirementSlot {
     // At most one; a later failure replaces it and a successful arm cancels it.
     retry: Option<ScheduledJobHandle>,
     // Whether the slot failed since it was last armed, which logs later failures at debug.
-    failures: FailureEpisode,
+    failure_episode: FailureEpisode,
 }
 
 // A provider build line's retirement the scheduler holds, its arm's number and the instant it
@@ -85,14 +85,15 @@ impl AttentionService {
                     && let Err(error) =
                         self.schedule_provider_build_retirement(&mut slot, retires_at)
                 {
-                    self.schedule_retirement_retry(&mut slot, &error);
+                    log_failed_arm(&slot.failure_episode, &error);
+                    self.schedule_retirement_retry(&mut slot);
                     return;
                 }
             }
             if let Some(retry) = slot.retry.take() {
                 retry.cancel();
             }
-            slot.failures.mark_succeeded();
+            slot.failure_episode.mark_succeeded();
         }
         .boxed()
     }
@@ -121,7 +122,7 @@ impl AttentionService {
                     };
                     service.disarm_provider_build_retirement(arm);
                     if let Err(error) = service.advance_retention(Vec::new(), retires_at).await {
-                        service.retry_empty_retirement_slot(&error);
+                        service.retry_failed_retirement(&error);
                     }
                     Ok(())
                 }
@@ -151,13 +152,14 @@ impl AttentionService {
         }
     }
 
-    // Schedules the retry after `error` while the slot is empty; an armed slot needs none. The
-    // first failure since the slot was last armed is logged at warn, later ones at debug.
+    // Schedules the retry after a failed arm's `error` while the slot is empty; an armed slot needs
+    // none. The first failure since the slot was last armed is logged at warn, later ones at debug.
     fn retry_empty_retirement_slot(self: &Arc<Self>, error: &(dyn Error + 'static)) {
         let mut slot = lock(&self.retirement);
         if slot.armed.is_none() {
-            self.schedule_retirement_retry(&mut slot, error);
-        } else if slot.failures.is_first_failure() {
+            log_failed_arm(&slot.failure_episode, error);
+            self.schedule_retirement_retry(&mut slot);
+        } else if slot.failure_episode.is_first_failure() {
             tracing::warn!(
                 error,
                 "a provider build's retirement could not be armed; the one armed stays"
@@ -170,25 +172,26 @@ impl AttentionService {
         }
     }
 
-    // Logs `error`, at warn the first time since the slot was last armed and at debug after, and
-    // schedules one arm a minute from now on the monotonic clock in place of any pending.
-    fn schedule_retirement_retry(
-        self: &Arc<Self>,
-        slot: &mut RetirementSlot,
-        error: &(dyn Error + 'static),
-    ) {
-        if slot.failures.is_first_failure() {
+    // Logs a fired retirement's failed `error`, at warn the first time since the slot was last
+    // armed and at debug after, and schedules the retry, whose arm reads what is due again.
+    fn retry_failed_retirement(self: &Arc<Self>, error: &(dyn Error + 'static)) {
+        let mut slot = lock(&self.retirement);
+        if slot.failure_episode.is_first_failure() {
             tracing::warn!(
                 error,
-                "a provider build's retirement could not be armed; it is tried again in a minute"
+                "a provider build's retirement failed; it is tried again in a minute"
             );
         } else {
             tracing::debug!(
                 error,
-                "a provider build's retirement still could not be armed; it is tried again in a \
-                 minute"
+                "a provider build's retirement still failed; it is tried again in a minute"
             );
         }
+        self.schedule_retirement_retry(&mut slot);
+    }
+
+    // Schedules one arm a minute from now on the monotonic clock in place of any pending.
+    fn schedule_retirement_retry(self: &Arc<Self>, slot: &mut RetirementSlot) {
         if let Some(previous) = slot.retry.take() {
             previous.cancel();
         }
@@ -216,5 +219,21 @@ impl AttentionService {
                 "a provider build's retirement retry was not scheduled"
             ),
         }
+    }
+}
+
+// Logs a failed arm's `error`, at warn the first failure of `failure_episode` and at debug after,
+// before its retry is scheduled.
+fn log_failed_arm(failure_episode: &FailureEpisode, error: &(dyn Error + 'static)) {
+    if failure_episode.is_first_failure() {
+        tracing::warn!(
+            error,
+            "a provider build's retirement could not be armed; it is tried again in a minute"
+        );
+    } else {
+        tracing::debug!(
+            error,
+            "a provider build's retirement still could not be armed; it is tried again in a minute"
+        );
     }
 }

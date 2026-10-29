@@ -295,6 +295,44 @@ async fn a_read_that_fails_at_a_close_is_tried_again_a_window_later() {
     assert_eq!(fixture.banner(&entry), (Some("pending".to_owned()), None));
 }
 
+// A read that fails on the task's first pass opens no window, yet the pass is tried again a window
+// later with no attention change, and the entry it then reads is decided. Killed by the retry
+// instant removed, which leaves nothing to wake for.
+#[tokio::test]
+async fn a_read_that_fails_with_no_window_open_is_tried_again_a_window_later() {
+    let fixture = Fixture::new().await;
+    let log = &fixture.log;
+    let run_id = log.run(None);
+    let mut task = fixture.task();
+    log.append(log.run_state(run_id, "completed", 2, json!({})))
+        .await;
+    let entry = log.entry_of(run_id);
+    let rename_deliveries = |from: &str, to: &str| {
+        log.database
+            .reader()
+            .execute_batch(&format!("ALTER TABLE {from} RENAME TO {to}"))
+            .expect("the deliveries table is renamed");
+    };
+    rename_deliveries("attention_deliveries", "attention_deliveries_away");
+
+    tokio::time::pause();
+    let failed_at = Instant::now();
+    assert!(task.pass().await.is_err(), "the read fails");
+    assert_eq!(
+        task.next_close(),
+        Some(failed_at + MERGE_WINDOW),
+        "the failed read is tried again a window later"
+    );
+    tokio::time::advance(MERGE_WINDOW).await;
+    tokio::time::resume();
+    rename_deliveries("attention_deliveries_away", "attention_deliveries");
+    Fixture::pass(&mut task).await;
+    pass_the_window().await;
+    Fixture::pass(&mut task).await;
+
+    assert_eq!(fixture.banner(&entry), (Some("pending".to_owned()), None));
+}
+
 // Only this machine's main settles a banner, and only while it is pending. Killed by an
 // unguarded update, and by the device check dropped.
 #[tokio::test]
