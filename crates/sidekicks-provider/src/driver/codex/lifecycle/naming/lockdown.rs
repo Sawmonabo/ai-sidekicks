@@ -45,7 +45,7 @@ const WEB_SEARCH_OFF: (&str, &str) = ("web_search", "disabled");
 const READ_ONLY_PERMISSIONS: (&str, &str) = ("default_permissions", ":read-only");
 
 /// The config table of the MCP servers.
-const MCP_SERVERS_KEY: &str = "mcp_servers";
+pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
 
 /// The config overrides of a title conversation, each a dotted key and its value, with each of
 /// `server_names` disabled under the server table, where a name may hold a dot.

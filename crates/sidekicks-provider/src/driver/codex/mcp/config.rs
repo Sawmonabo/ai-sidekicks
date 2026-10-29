@@ -1,7 +1,8 @@
 //! The read of the person's own Codex MCP config: one `config/read` per attached root on the
 //! person's own Codex folder, each server's view taken from Codex's own merge and its bindings from
-//! the layers that declare it, plus the servers of the plugins in the daemon's plugin home. Every
-//! credential-bearing value is dropped at the read: a declaration keeps names only.
+//! the layers that declare it, plus the servers of the plugins in the daemon's plugin home, bounded
+//! by the allow list in Codex's requirements. Every credential-bearing value is dropped at the
+//! read: a declaration keeps names only.
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,7 @@ use sidekicks_contracts::place::PlacedPath;
 use crate::driver::codex::config_read::{CodexConfigRead, read_codex_config};
 use crate::driver::codex::mcp::config::attribution::attribute_codex_mcp_servers;
 use crate::driver::codex::mcp::config::plugins::read_plugin_servers;
+use crate::driver::codex::mcp::requirements::read_codex_mcp_requirements;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::session::errors::CodexError;
@@ -18,8 +20,8 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
 mod attribution;
-mod plugins;
-mod server_entry;
+pub(super) mod plugins;
+pub(super) mod server_entry;
 #[cfg(test)]
 mod tests;
 
@@ -42,13 +44,12 @@ pub(crate) struct CodexMcpConfigSources<'sources> {
     pub(crate) plugin_home: &'sources Path,
     /// The attached project roots.
     pub(crate) roots: &'sources [CodexMcpRoot],
+    /// The folder Codex reads its administrator-managed requirements from; `None` where the
+    /// system has none.
+    pub(crate) managed_settings_folder: Option<&'sources Path>,
 }
 
 /// The person's Codex MCP config as the read found it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex MCP server read composes it")
-)]
 #[derive(Clone, Debug)]
 pub(crate) struct CodexMcpConfigReading {
     /// Each server the config's layers and the installed plugins declare, redacted.
@@ -57,11 +58,7 @@ pub(crate) struct CodexMcpConfigReading {
     pub(crate) roots: Vec<McpRootReading>,
     /// Whether an administrator's layer on this computer declares any server.
     pub(crate) is_machine_managed: bool,
-    /// The allow and deny lists; Codex's config layers carry none, so it is always empty.
-    #[cfg_attr(
-        test,
-        expect(dead_code, reason = "the Codex MCP server read hands it on")
-    )]
+    /// The allow list of Codex's requirements, by server name; Codex keeps no deny list.
     pub(crate) server_policy: McpServerPolicy,
 }
 
@@ -76,13 +73,13 @@ pub(crate) struct CodexRootConfigRead {
 
 /// Reads the person's Codex MCP config from `sources`: Codex's config at each attached root, or at
 /// the person's home folder when none is attached, on the person's own Codex folder, and the
-/// plugins' servers. Fails as the service there cannot be reached or a read fails; a plugin whose
-/// files cannot be read is logged and skipped.
-#[expect(dead_code, reason = "the Codex MCP server read composes it")]
+/// plugins' servers, each root keeping out what the requirements' allow list does not allow. Fails
+/// as the service there cannot be reached or a read fails; a plugin whose files cannot be read is
+/// logged and skipped.
 pub(crate) async fn read_codex_mcp_config(
     sources: &CodexMcpConfigSources<'_>,
 ) -> Result<CodexMcpConfigReading, CodexError> {
-    sources
+    let mut reading = sources
         .registry
         .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
             let connection = service.connection()?;
@@ -94,7 +91,11 @@ pub(crate) async fn read_codex_mcp_config(
             )
             .await
         })
-        .await
+        .await?;
+    if let Some(requirements) = read_codex_mcp_requirements(sources.managed_settings_folder).await {
+        requirements.apply(&mut reading);
+    }
+    Ok(reading)
 }
 
 // The read over `connection`: one `config/read` with its layers at each of `roots`, or once at

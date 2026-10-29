@@ -14,7 +14,7 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::mcp::config::server_entry::read_codex_server_entry;
+use crate::driver::codex::mcp::config::server_entry::{ENABLED_MEMBER, read_codex_server_entry};
 use crate::driver::mcp_server::read::McpServerDeclaration;
 use crate::inbound_json::decode_inbound_json;
 
@@ -34,15 +34,78 @@ const DEFAULT_MCP_FILE: &str = ".mcp.json";
 const MCP_SERVERS_MEMBER: &str = "mcpServers";
 // The prefix a manifest's path to its MCP file starts with, relative to the plugin's folder.
 const MANIFEST_PATH_PREFIX: &str = "./";
+// The member of a plugin's server entry naming its transport, which Codex's config does not take.
+const TRANSPORT_TYPE_MEMBER: &str = "type";
+// The member of a server entry holding its sign-in client.
+const OAUTH_MEMBER: &str = "oauth";
+// The sign-in client's members a plugin's file may spell in camel case, and Codex's spelling.
+const OAUTH_MEMBER_SPELLINGS: [(&str, &str); 4] = [
+    ("callbackUrl", "callback_url"),
+    ("callbackPort", "callback_port"),
+    ("clientId", "client_id"),
+    ("clientSecret", "client_secret"),
+];
+// The member of a stdio server's entry naming the folder it runs in.
+const WORKING_FOLDER_MEMBER: &str = "cwd";
+
+/// One server a plugin in the daemon's plugin home declares: its redacted declaration, and its entry
+/// as the plugin's file writes it, credential values included, for the probe that sends it. It
+/// derives no `Debug`, so nothing prints a value.
+pub(crate) struct CodexPluginServer {
+    /// The declaration, bound to its plugin and read-only.
+    pub(crate) declaration: McpServerDeclaration,
+    /// The entry as the plugin's file writes it.
+    entry: Map<String, Value>,
+    /// The folder of the plugin's version Codex runs, which a relative working folder names.
+    plugin_root: PathBuf,
+}
+
+impl CodexPluginServer {
+    /// The entry as Codex's config takes it, as Codex reads its own plugins' entries: the
+    /// transport's `type` dropped, the sign-in client's members in Codex's spelling, a relative
+    /// working folder made absolute in the plugin's folder, and the server switched on.
+    pub(crate) fn compose_codex_entry(&self) -> Map<String, Value> {
+        let mut entry = self.entry.clone();
+        entry.remove(TRANSPORT_TYPE_MEMBER);
+        if let Some(Value::Object(mut oauth)) = entry.remove(OAUTH_MEMBER) {
+            for (spelled, codex_spelling) in OAUTH_MEMBER_SPELLINGS {
+                if let Some(value) = oauth.remove(spelled) {
+                    oauth.entry(codex_spelling).or_insert(value);
+                }
+            }
+            if !oauth.is_empty() {
+                entry.insert(OAUTH_MEMBER.to_owned(), Value::Object(oauth));
+            }
+        }
+        if let Some(Value::String(folder)) = entry.get(WORKING_FOLDER_MEMBER)
+            && !Path::new(folder).is_absolute()
+        {
+            let folder = self.plugin_root.join(folder).display().to_string();
+            entry.insert(WORKING_FOLDER_MEMBER.to_owned(), Value::String(folder));
+        }
+        entry.insert(ENABLED_MEMBER.to_owned(), Value::Bool(true));
+        entry
+    }
+}
 
 /// The servers each plugin in `plugin_home` declares, read-only and bound to their plugin. A
 /// malformed server entry is skipped, and a plugin whose files cannot be read is logged and
 /// declares none.
 pub(crate) async fn read_plugin_servers(plugin_home: &Path) -> Vec<McpServerDeclaration> {
+    read_plugin_server_entries(plugin_home)
+        .await
+        .into_iter()
+        .map(|server| server.declaration)
+        .collect()
+}
+
+/// The servers each plugin in `plugin_home` declares, with the entries their files write, as
+/// [`read_plugin_servers`] reads them.
+pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexPluginServer> {
     let cache = PLUGIN_CACHE_FOLDER
         .iter()
         .fold(plugin_home.to_path_buf(), |folder, name| folder.join(name));
-    let mut declarations: Vec<McpServerDeclaration> = Vec::new();
+    let mut servers: Vec<CodexPluginServer> = Vec::new();
     for marketplace in list_folder_names(&cache).await {
         let marketplace_folder = cache.join(&marketplace);
         for plugin in list_folder_names(&marketplace_folder).await {
@@ -53,8 +116,9 @@ pub(crate) async fn read_plugin_servers(plugin_home: &Path) -> Vec<McpServerDecl
             let Some(version) = pick_active_version(list_folder_names(&plugin_folder).await) else {
                 continue;
             };
-            let servers = match read_plugin_server_map(&plugin_folder.join(version)).await {
-                Ok(servers) => servers,
+            let plugin_root = plugin_folder.join(version);
+            let entries = match read_plugin_server_map(&plugin_root).await {
+                Ok(entries) => entries,
                 Err(error) => {
                     tracing::warn!(
                         plugin = %plugin,
@@ -65,11 +129,13 @@ pub(crate) async fn read_plugin_servers(plugin_home: &Path) -> Vec<McpServerDecl
                     continue;
                 }
             };
-            for (name, entry) in servers {
+            for (name, entry) in entries {
                 let Ok(server_name) = McpServerName::new(name) else {
                     continue;
                 };
-                let Some(declared) = read_codex_server_entry(&entry) else {
+                let (Some(declared), Value::Object(entry)) =
+                    (read_codex_server_entry(&entry), entry)
+                else {
                     continue;
                 };
                 let binding = McpServerBindingRef::Plugin {
@@ -77,21 +143,28 @@ pub(crate) async fn read_plugin_servers(plugin_home: &Path) -> Vec<McpServerDecl
                     scope_ref: plugin_name.clone(),
                     server_name,
                 };
-                if declarations.iter().any(|kept| kept.binding == binding) {
+                if servers
+                    .iter()
+                    .any(|kept| kept.declaration.binding == binding)
+                {
                     continue;
                 }
-                declarations.push(McpServerDeclaration {
-                    binding,
-                    config: declared.config,
-                    superseded_in: Vec::new(),
-                    disabled_in: Vec::new(),
-                    is_read_only: true,
-                    sign_in_client: declared.sign_in_client,
+                servers.push(CodexPluginServer {
+                    declaration: McpServerDeclaration {
+                        binding,
+                        config: declared.config,
+                        superseded_in: Vec::new(),
+                        disabled_in: Vec::new(),
+                        is_read_only: true,
+                        sign_in_client: declared.sign_in_client,
+                    },
+                    entry,
+                    plugin_root: plugin_root.clone(),
                 });
             }
         }
     }
-    declarations
+    servers
 }
 
 /// Why one plugin's servers could not be read.

@@ -26,7 +26,6 @@ pub(crate) enum PersonalFolderRead {
     Config,
     /// The machine probe, whose throwaway conversation must unload as its connection drops: only
     /// the terminal service, or a transient one that unloads at once.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the Codex machine probe"))]
     Probe,
 }
 

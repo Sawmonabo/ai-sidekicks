@@ -16,8 +16,8 @@ use crate::driver::mcp_server::read::McpServerSignInClient;
 // The members that name how a server is reached: a program for stdio, an address for HTTP.
 const COMMAND_MEMBER: &str = "command";
 const URL_MEMBER: &str = "url";
-// The member that switches a server on or off.
-const ENABLED_MEMBER: &str = "enabled";
+/// The member of a server entry that switches the server on or off.
+pub(crate) const ENABLED_MEMBER: &str = "enabled";
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
 

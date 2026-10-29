@@ -144,7 +144,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
         if let Some(root) = root {
             roots.push(McpRootReading {
                 root: root.clone(),
-                // Codex keeps no list of project servers out of a project's sessions.
+                // The requirements' allow list fills it once the read has every declaration.
                 kept_out_server_names: Vec::new(),
                 provider_loaded,
             });
@@ -154,7 +154,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
         declarations: drafts.into_iter().map(|draft| draft.declaration).collect(),
         roots,
         is_machine_managed,
-        // Codex's config layers carry no allow or deny list of servers.
+        // Codex's config layers carry no allow or deny list; its requirements file does.
         server_policy: McpServerPolicy::default(),
     }
 }
