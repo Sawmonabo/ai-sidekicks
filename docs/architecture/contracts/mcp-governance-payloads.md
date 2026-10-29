@@ -280,8 +280,13 @@ interface McpLiveApplicationResult {
 }
 
 // ---- Operations (12; JSON-RPC per ADR-009) ---- Reads:
-//   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[]}
-//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry}
+//   mcp.server.list      {refresh?: boolean} → {servers: McpServerInventoryEntry[],
+// failedProviders: {provider: ProviderId, cause: string}[]} // each provider is read on its own:
+// one whose read fails is left out of `servers` and named in `failedProviders` with its cause,
+// sanitized (no credential, URL query or path outside a web address) and capped at the error
+// message's length; the other providers' rows still list
+//   mcp.server.read       McpServerBindingRef → {server: McpServerInventoryEntry} // a provider
+// whose read fails answers its refusal (`provider.unavailable`, `provider.timeout`)
 //   mcp.subscribe {} → AsyncIterable<EventEnvelope | McpServerBindingRef & {type:
 // "mcp.server.config.changed"} | McpServerStatusChangedNotice> // live-tail of every mcpGovernance
 // envelope as appended, a live notice after each edit to a binding (an add, a change, a switch, a

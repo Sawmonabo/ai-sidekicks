@@ -1,14 +1,14 @@
 //! `mcp.server.list` and `mcp.server.read`, answered from the MCP server inventory: a binding the
-//! inventory does not hold is refused by its code, and a source it could not read is a fault.
+//! inventory does not hold is refused by its code, a list names each provider whose read failed
+//! beside the others' rows, a read answers a driver's failure as the driver's error answers a call,
+//! and any other source it could not read is a fault.
 
 use std::sync::Arc;
 
 use futures::FutureExt as _;
 use sidekicks_contracts::mcp::governance::{McpServerList, McpServerRead};
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
-use sidekicks_contracts::mcp::server::requests::{
-    McpServerListRequest, McpServerListResponse, McpServerReadResponse,
-};
+use sidekicks_contracts::mcp::server::requests::{McpServerListRequest, McpServerReadResponse};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
@@ -26,11 +26,10 @@ pub(super) fn register_inventory_methods(
         move |request: McpServerListRequest, _context: HandlerContext| {
             let inventory = Arc::clone(&list_inventory);
             async move {
-                let servers = inventory
+                inventory
                     .list(&request)
                     .await
-                    .map_err(inventory_handler_error)?;
-                Ok(McpServerListResponse { servers })
+                    .map_err(inventory_handler_error)
             }
             .boxed()
         },
@@ -51,15 +50,15 @@ pub(super) fn register_inventory_methods(
     )
 }
 
-/// The reply to an inventory failure: a refusal by its code, every source that could not be read
-/// a fault inside the daemon.
+/// The reply to an inventory failure: a refusal by its code, a driver's read as the driver's
+/// error answers a call, and every other source that could not be read a fault inside the daemon.
 fn inventory_handler_error(error: McpInventoryError) -> HandlerError {
     match error {
         McpInventoryError::Refused(refusal) => HandlerError::Refused(DomainError::from(*refusal)),
+        McpInventoryError::Driver { source, .. } => HandlerError::from(source),
         fault @ (McpInventoryError::Projects(_)
         | McpInventoryError::ProjectRoot(_)
         | McpInventoryError::Accounts(_)
-        | McpInventoryError::AccountId
-        | McpInventoryError::Driver { .. }) => HandlerError::Internal(Box::new(fault)),
+        | McpInventoryError::AccountId) => HandlerError::Internal(Box::new(fault)),
     }
 }

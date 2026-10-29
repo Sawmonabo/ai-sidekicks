@@ -5,21 +5,26 @@
 
 use std::sync::Arc;
 
-use futures::future::{join_all, try_join_all};
+use futures::future::join_all;
+use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::inventory::{
     McpAnsweredInventoryEntry, McpOverrideOrigin, McpServerIdempotencyClass,
     McpServerInventoryEntry, McpStoreUnavailableInventoryEntry, McpToolOverride, McpToolReading,
     McpToolSetting,
 };
-use sidekicks_contracts::mcp::server::requests::McpServerListRequest;
+use sidekicks_contracts::mcp::server::requests::{
+    McpProviderReadFailure, McpServerListRequest, McpServerListResponse,
+};
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpToolName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::list::UniqueList;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_contracts::wire::text::TextError;
+use sidekicks_ipc::redaction::sanitize_failure_reason;
 use sidekicks_provider::account_homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
@@ -187,25 +192,52 @@ impl McpInventoryService {
         Self { sources }
     }
 
-    /// Every binding each provider declares, in the providers' order. A refresh has each driver
-    /// read again what it keeps between reads and probe every binding it can, one probe per
-    /// provider at a time: a refresh that finds its provider's probe running waits for it and
-    /// reads what it recorded. Fails as a source cannot be read.
+    /// Every binding each provider declares, in the providers' order, each provider read on its
+    /// own: a provider whose driver's read fails is named with its cause beside the others' rows.
+    /// A refresh has each driver read again what it keeps between reads and probe every binding
+    /// it can, one probe per provider at a time: a refresh that finds its provider's probe running
+    /// waits for it and reads what it recorded. Fails as a source every provider shares cannot be
+    /// read.
     pub async fn list(
         &self,
         request: &McpServerListRequest,
-    ) -> Result<Vec<McpServerInventoryEntry>, McpInventoryError> {
+    ) -> Result<McpServerListResponse, McpInventoryError> {
         let is_refresh = request.refresh == Some(true);
         let context = self.read_context().await?;
-        let providers = try_join_all(self.sources.providers.drivers().map(|(provider, driver)| {
+        let providers = join_all(self.sources.providers.drivers().map(|(provider, driver)| {
             self.list_provider(provider, driver.as_ref(), &context, is_refresh)
         }))
-        .await?;
-        Ok(providers
-            .into_iter()
-            .flatten()
-            .map(|(_key, entry)| entry)
-            .collect())
+        .await;
+        let mut servers = Vec::new();
+        let mut failed_providers = Vec::new();
+        for rows in providers {
+            match rows {
+                Ok(rows) => servers.extend(rows.into_iter().map(|(_key, entry)| entry)),
+                Err(McpInventoryError::Driver { provider, source }) => {
+                    tracing::warn!(
+                        error = &source as &(dyn std::error::Error + 'static),
+                        provider = provider.as_str(),
+                        "the provider's MCP servers could not be read, so the list names it \
+                         without its rows"
+                    );
+                    failed_providers.push(McpProviderReadFailure {
+                        provider,
+                        cause: read_failure_cause(&source),
+                    });
+                }
+                Err(
+                    error @ (McpInventoryError::Refused(_)
+                    | McpInventoryError::Projects(_)
+                    | McpInventoryError::ProjectRoot(_)
+                    | McpInventoryError::Accounts(_)
+                    | McpInventoryError::AccountId),
+                ) => return Err(error),
+            }
+        }
+        Ok(McpServerListResponse {
+            servers,
+            failed_providers,
+        })
     }
 
     /// The binding `binding` names. Refuses with [`McpRefusal::ServerNotFound`] where its
@@ -540,6 +572,26 @@ impl McpInventoryService {
 
 /// Whether a declaration's own config leaves its server on: its `enabled` member, on where it
 /// sets none, as every provider reads an entry without one.
+// Why a provider's read failed, as the list names it: the error and its causes, with no
+// credential, address query or file path, cut to the cap.
+fn read_failure_cause(error: &DriverError) -> FreeFormText<ERROR_MESSAGE_MAX_LEN> {
+    let mut text = error.to_string();
+    let mut source = std::error::Error::source(error);
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    FreeFormText::new(sanitize_failure_reason(
+        &text.replace('\0', ""),
+        ERROR_MESSAGE_MAX_LEN,
+    ))
+    .unwrap_or_else(|_blank| {
+        FreeFormText::new("The provider's MCP servers could not be read".to_owned())
+            .expect("the fallback is text")
+    })
+}
+
 fn config_enabled(config: &McpServerConfigView) -> bool {
     let (McpServerConfigView::Stdio { enabled, .. }
     | McpServerConfigView::Http { enabled, .. }
