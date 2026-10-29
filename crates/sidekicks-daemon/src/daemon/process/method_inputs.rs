@@ -28,10 +28,12 @@ use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_queue::memory_gate::{
     INGEST_WORKER_BYTES, MemoryGate, MemoryGateFigures, QUICK_THREAD_BYTES,
 };
+use sidekicks_queue::provider_session::resumed_runs::ResumedRunsIngress;
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
+use sidekicks_recovery::resumed_runs::{ResumedRunsFinalize, ResumedRunsFinalizeDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
@@ -452,6 +454,16 @@ pub(crate) async fn register_method_inputs(
         approvals: Arc::clone(&session.approvals.service),
         plans: Arc::clone(&session.plans),
     }));
+    // A resume settles the runs it named through recovery's finalize, registered before the start
+    // serves anything, so no resume finds the port empty.
+    session
+        .resumed_runs
+        .register(Arc::new(ResumedRunsFinalize::new(ResumedRunsFinalizeDeps {
+            reads: Arc::clone(&reads),
+            run_engine: Arc::clone(&session.engine),
+            delivery: session.queue.delivery(),
+            providers: Arc::clone(&registry),
+        })) as Arc<dyn ResumedRunsIngress>)?;
     let stored = build_stored_data_methods(StoredDataMethodsStart {
         database,
         repo,

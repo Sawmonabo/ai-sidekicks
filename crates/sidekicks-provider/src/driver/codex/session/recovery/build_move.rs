@@ -18,20 +18,14 @@ use super::{CodexServiceRecovery, CodexWriterLeft, never_left};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::run::turn_end_waiters::CodexTurnWait;
 use crate::driver::codex::service::home::CodexServiceKind;
-use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::driver::codex::service::supervisor::{CODEX_UNLOAD_TIMEOUT, CodexService};
 use crate::driver::codex::session::calls::{call_codex_session, wait_for_codex_turns};
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::establishment::CodexInPlaceOutcome;
 use crate::driver::codex::session::inbound::{CodexSessionCall, CodexSessionInboundSender};
 use crate::driver::codex::session::slots::{CodexSessionClaim, let_go_codex_thread};
-use crate::driver::codex::transport::connection::CODEX_REQUEST_TIMEOUT;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
-
-/// How long a conversation may take to unload from the service it leaves before its resume on the
-/// new one goes ahead and Codex decides.
-const CODEX_UNLOAD_TIMEOUT: std::time::Duration = CODEX_REQUEST_TIMEOUT;
 
 impl CodexServiceRecovery {
     /// Moves every session on the driver's services onto the build that replaced the running one,
@@ -235,7 +229,7 @@ impl CodexServiceRecovery {
             .release_session_threads(from, &session_id, |released| released != thread_id);
         to.attach_session(inbound.clone());
         let_go_codex_thread(from, &thread_id).await;
-        if !await_unloaded(from, &thread_id, deadline).await {
+        if !from.await_unloaded(&thread_id, deadline).await {
             // Another client, such as a terminal the person joined, still holds it on the old
             // service; the resume goes ahead and Codex decides.
             CodexTransportDiagnostic::ConversationUnloadTimedOut {
@@ -247,7 +241,7 @@ impl CodexServiceRecovery {
         let writer_left: CodexWriterLeft = Box::new(move || {
             let leaving = Arc::clone(&leaving);
             let thread_id = thread_id.clone();
-            async move { await_unloaded(&leaving, &thread_id, deadline).await }.boxed()
+            async move { leaving.await_unloaded(&thread_id, deadline).await }.boxed()
         });
         self.resume_claimed(to, inbound, writer_left).await
     }
@@ -308,41 +302,6 @@ enum ClaimedIdle<'slots> {
     Busy,
     /// The session closed or was established anew.
     Gone,
-}
-
-// Waits until `from` no longer holds the conversation loaded: each `thread/closed` is confirmed by
-// reading the loaded conversations, since a close can be stale. `false` once the deadline passed.
-async fn await_unloaded(from: &CodexService, thread_id: &str, deadline: Instant) -> bool {
-    loop {
-        // Armed before the read, so a close between the two is not missed.
-        let closed = from.wait_for_thread_closed(thread_id.to_owned());
-        if is_unloaded(from, thread_id).await {
-            return true;
-        }
-        if tokio::time::timeout_at(deadline, closed).await.is_err() {
-            return false;
-        }
-    }
-}
-
-// Whether `from` no longer holds the conversation loaded; a read that fails leaves it to the
-// resume, which Codex refuses while the conversation is still written elsewhere.
-async fn is_unloaded(from: &CodexService, thread_id: &str) -> bool {
-    let Ok(connection) = from.connection() else {
-        // A service that stopped holds nothing loaded.
-        return true;
-    };
-    match read_codex_loaded_threads(&connection).await {
-        Ok(loaded) => !loaded.iter().any(|loaded| loaded == thread_id),
-        Err(error) => {
-            CodexTransportDiagnostic::ConversationUnloadUnconfirmed {
-                thread_id: thread_id.to_owned(),
-                error: Box::new(error),
-            }
-            .report();
-            true
-        }
-    }
 }
 
 fn report_restart_failed(service: &CodexService, error: &CodexError) {

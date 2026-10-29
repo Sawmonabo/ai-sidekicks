@@ -53,14 +53,18 @@ use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingC
 use sidekicks_session::run::stored_leg::read_session_leg;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::{PortRegistration, PortRegistrationError};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
 use sidekicks_store::database::writer::DatabaseWriter;
 
+use crate::provider_session::resumed_runs::ResumedRunsIngress;
+
 pub mod controls;
 pub mod resume;
+pub mod resumed_runs;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_opening;
 #[cfg(test)]
@@ -116,6 +120,9 @@ pub struct ProviderSessionsDeps {
     pub transition_lock: Arc<KeyedLock<SessionId>>,
     /// The idle sleep, told of each session whose process opens or resumes and each close.
     pub process_follower: Arc<dyn SessionProcessFollower>,
+    /// Settles each run a resume named as the provider answered for it, before the resumed
+    /// binding is recorded.
+    pub resumed_runs: Arc<PortRegistration<Arc<dyn ResumedRunsIngress>>>,
 }
 
 /// Why a session's provider session was not opened, a run's binding not recorded, or a level or
@@ -194,6 +201,19 @@ pub enum ProviderSessionError {
     /// The binding or its cursor was not recorded.
     #[error(transparent)]
     Cursor(#[from] RunBindingCursorError),
+    /// The runs a resume named were not settled as the provider answered for them, so its binding
+    /// was not recorded.
+    #[error("the runs the resume of session {session_id} named were not settled")]
+    ResumedRuns {
+        /// The session.
+        session_id: SessionId,
+        /// Why.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
+    /// A port the provider sessions call is not registered yet.
+    #[error(transparent)]
+    Port(#[from] PortRegistrationError),
     /// The binding of a process the driver opened was not recorded, and the process could not be
     /// closed.
     #[error(
@@ -203,8 +223,9 @@ pub enum ProviderSessionError {
     UnrecordedNotClosed {
         /// The session.
         session_id: SessionId,
-        /// Why the binding was not recorded.
-        recorded: Box<RunBindingCursorError>,
+        /// Why the binding was not recorded: its record failed, or the runs its resume named were
+        /// not settled.
+        recorded: Box<ProviderSessionError>,
         /// Why the close failed.
         #[source]
         closed: DriverError,
@@ -298,6 +319,8 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::NotOpen { .. }
             | ProviderSessionError::NoConversation { .. }
             | ProviderSessionError::Cursor(_)
+            | ProviderSessionError::ResumedRuns { .. }
+            | ProviderSessionError::Port(_)
             | ProviderSessionError::UnrecordedNotClosed { .. }
             | ProviderSessionError::Store(_)
             | ProviderSessionError::LevelNotStored {
@@ -317,17 +340,18 @@ impl From<ProviderSessionError> for HandlerError {
 }
 
 // Closes the process `driver` opened for `session_id` whose binding was not recorded, so none runs
-// under a binding with no row; the error to answer is the record's, or both when the close failed.
+// under a binding with no row; the error to answer is `recorded`, why it was not recorded, or both
+// when the close failed.
 async fn close_unrecorded(
     driver: &dyn ProviderDriver,
     session_id: SessionId,
-    recorded: RunBindingCursorError,
+    recorded: ProviderSessionError,
 ) -> ProviderSessionError {
     match driver
         .close_session(CloseSessionParams { session_id })
         .await
     {
-        Ok(()) => recorded.into(),
+        Ok(()) => recorded,
         Err(closed) => ProviderSessionError::UnrecordedNotClosed {
             session_id,
             recorded: Box::new(recorded),
@@ -606,7 +630,7 @@ impl ProviderSessions {
             })
             .await;
         if let Err(unrecorded) = recorded {
-            return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded).await);
+            return Err(close_unrecorded(driver.as_ref(), session_id, unrecorded.into()).await);
         }
         Ok(OpenedSession {
             provider,

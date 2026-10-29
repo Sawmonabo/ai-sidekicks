@@ -18,6 +18,8 @@
 mod chain;
 mod continued;
 mod state;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
 mod tests;
 mod withdraw;

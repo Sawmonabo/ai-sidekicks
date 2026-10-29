@@ -699,13 +699,15 @@ mod tests {
         }
     }
 
-    // A relaunch's `Resumed` on `binding_id`, running conversation `resume_handle`.
+    // A relaunch's `Resumed` on `binding_id`, running conversation `resume_handle`, naming no
+    // runs.
     fn resumed_on(binding_id: RuntimeBindingId, resume_handle: &str) -> DriverResumeResult {
         DriverResumeResult::Resumed {
             binding_id,
             session_position: SafeInt::new(1).expect("a position"),
             resume_handle: NonEmptyText::new(resume_handle.to_owned()).expect("a resume handle"),
             spawned_version: spawned_build("1.1.0", "/opt/provider/bin"),
+            runs: Vec::new(),
         }
     }
 

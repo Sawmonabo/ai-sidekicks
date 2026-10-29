@@ -8811,6 +8811,7 @@ dependencies = [
  "sidekicks-ipc",
  "sidekicks-platforms",
  "sidekicks-provider",
+ "sidekicks-queue",
  "sidekicks-session",
  "sidekicks-std",
  "sidekicks-store",

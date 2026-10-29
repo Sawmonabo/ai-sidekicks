@@ -1,5 +1,5 @@
-//! Readers of a Codex thread's replies: the thread, the reasoning effort and the permission profile
-//! a start, resume or fork runs under, and the turn a turn request names.
+//! Readers of a Codex thread's replies: the thread and where it stands, the reasoning effort and
+//! the permission profile a start, resume or fork runs under, and the turn a turn request names.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
@@ -16,6 +16,22 @@ pub(crate) struct CodexThreadView {
     pub(crate) id: String,
     /// The Codex session the thread belongs to.
     pub(crate) session_id: String,
+    /// Where the thread stands on the service, `None` where the reply names no status it reads.
+    pub(crate) status: Option<CodexThreadStatus>,
+}
+
+/// Where a thread stands on its service, as a thread reply's `status` names it.
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub(crate) enum CodexThreadStatus {
+    /// Not loaded: no turn of it runs.
+    NotLoaded,
+    /// Loaded, with no turn running.
+    Idle,
+    /// Loaded, but stopped by a failure of the service's own: no turn of it runs.
+    SystemError,
+    /// Loaded, with a turn running.
+    Active,
 }
 
 // Each reader names only the member it reads, so a member of another type fails only its reader.
@@ -54,6 +70,7 @@ pub(crate) fn read_active_permission_profile(profile: &RawValue) -> Option<Strin
 struct ThreadMembers {
     id: Option<String>,
     session_id: Option<String>,
+    status: Option<Box<RawValue>>,
 }
 
 // A turn, read by its id.
@@ -96,7 +113,14 @@ pub(crate) fn read_thread(reply: &RawValue, method: &str) -> Result<CodexThreadV
             cause: None,
         });
     };
-    Ok(CodexThreadView { id, session_id })
+    let status = thread
+        .status
+        .and_then(|status| read_codex_object::<CodexThreadStatus>(status.get()));
+    Ok(CodexThreadView {
+        id,
+        session_id,
+        status,
+    })
 }
 
 /// The reasoning effort a start, resume or fork reply names, or `None` for none or an empty one.
@@ -155,6 +179,9 @@ pub(crate) fn read_steered_turn_id(reply: &RawValue) -> Option<String> {
 
 /// The request that starts a thread.
 pub(crate) const THREAD_START_METHOD: &str = "thread/start";
+
+/// The request that resumes a thread.
+pub(crate) const THREAD_RESUME_METHOD: &str = "thread/resume";
 
 /// The request that starts a turn on a thread.
 pub(crate) const TURN_START_METHOD: &str = "turn/start";

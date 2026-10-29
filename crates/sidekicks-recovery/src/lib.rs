@@ -1,12 +1,13 @@
 //! Recovery: the start's checks, the settling of runs a stop left live, damaged history, the gate
 //! that holds writes to state the daemon cannot yet trust, projection rebuilds, the recovery status
-//! and the database file's repair. It sits over std, store, ipc, provider, session, approval and
-//! artifact and is taken by the program.
+//! and the database file's repair, with the finalize of the runs a resume found. It sits over std,
+//! store, ipc, provider, session, approval, queue and artifact and is taken by the program.
 
 pub mod damaged_history;
 pub mod database_file;
 pub mod projection_rebuild;
 pub mod restart_settle;
+pub mod resumed_runs;
 pub mod session_write_refusal;
 pub mod startup;
 pub mod status;

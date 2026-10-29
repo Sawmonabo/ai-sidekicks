@@ -95,6 +95,8 @@ fn restart_failure(error: ProviderSessionError, session_id: SessionId) -> Handle
         | ProviderSessionError::NotOpen { .. }
         | ProviderSessionError::Cursor(_)
         | ProviderSessionError::UnrecordedNotClosed { .. }
+        | ProviderSessionError::ResumedRuns { .. }
+        | ProviderSessionError::Port(_)
         | ProviderSessionError::Store(_)
         | ProviderSessionError::LevelNotStored { .. }
         | ProviderSessionError::LevelNotMovedBack { .. }

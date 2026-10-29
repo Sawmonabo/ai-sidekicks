@@ -900,5 +900,7 @@ fn compose_claude_relaunch(live: &LiveClaudeSession) -> Option<ResumeSessionPara
         on_mcp_server_status: legs.on_mcp_server_status.clone(),
         // This daemon's idle sleep still holds the session's jobs across the relaunch.
         kept_schedules: Vec::new(),
+        // A relaunch the driver takes itself names no runs for the daemon to settle.
+        live_runs: Vec::new(),
     })
 }

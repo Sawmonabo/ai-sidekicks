@@ -64,8 +64,8 @@ use crate::driver::codex::session::errors::{
 use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionInboundSender};
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::codex::transport::connection::{
-    CodexAppServerConnection, CodexConnectionEvents, CodexConnectionHandlers,
-    open_codex_connection, read_codex_object,
+    CODEX_REQUEST_TIMEOUT, CodexAppServerConnection, CodexConnectionEvents,
+    CodexConnectionHandlers, open_codex_connection, read_codex_object,
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
@@ -79,6 +79,10 @@ use crate::spawned_version::{ResolvedProviderExecutable, SpawnedProviderVersionR
 
 /// The ask that reads whether the service may run a sandboxed command on Windows.
 const WINDOWS_SANDBOX_READINESS_METHOD: &str = "windowsSandbox/readiness";
+
+/// How long a resume waits for a conversation to unload from a service: the one it leaves for a
+/// new build, or the one closing it.
+pub(crate) const CODEX_UNLOAD_TIMEOUT: Duration = CODEX_REQUEST_TIMEOUT;
 
 /// Resolves the configured Codex command again at every start, so a restart runs what the command
 /// names now.
@@ -637,6 +641,46 @@ impl CodexService {
     /// first; dropping it stops the wait.
     pub(crate) fn wait_for_thread_closed(&self, thread_id: String) -> oneshot::Receiver<()> {
         self.lock_routing().wait_for_closed(thread_id)
+    }
+
+    /// Waits until the service no longer holds `thread_id` loaded: each `thread/closed` is
+    /// confirmed by reading the loaded conversations, since a close can be stale. `false` once
+    /// `deadline` passed.
+    pub(crate) async fn await_unloaded(
+        &self,
+        thread_id: &str,
+        deadline: tokio::time::Instant,
+    ) -> bool {
+        loop {
+            // Armed before the read, so a close between the two is not missed.
+            let closed = self.wait_for_thread_closed(thread_id.to_owned());
+            if self.is_unloaded(thread_id).await {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, closed).await.is_err() {
+                return false;
+            }
+        }
+    }
+
+    // Whether the service no longer holds `thread_id` loaded; a read that fails leaves it to the
+    // resume, which Codex refuses while the conversation is still written elsewhere.
+    async fn is_unloaded(&self, thread_id: &str) -> bool {
+        let Ok(connection) = self.connection() else {
+            // A service that stopped holds nothing loaded.
+            return true;
+        };
+        match read_codex_loaded_threads(&connection).await {
+            Ok(loaded) => !loaded.iter().any(|loaded| loaded == thread_id),
+            Err(error) => {
+                CodexTransportDiagnostic::ConversationUnloadUnconfirmed {
+                    thread_id: thread_id.to_owned(),
+                    error: Box::new(error),
+                }
+                .report();
+                true
+            }
+        }
     }
 
     /// The conversations started in a terminal that the service has loaded: every loaded one less
