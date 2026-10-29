@@ -19,6 +19,9 @@ use crate::driver::codex::service::supervisor::test_service::{
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
+// The start bound of the daemon whose join of a stopped former service must run out.
+const JOIN_START_BOUND: Duration = Duration::from_secs(3);
+
 // The services of one test in a folder whose socket paths fit the system's bound on them.
 fn folder_and_services() -> (tempfile::TempDir, StandInServices) {
     let folder = short_socket_folder().expect("a scratch folder is made");
@@ -149,9 +152,13 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
-    let (_folder, services) = folder_and_services();
-    let startup_timeout = services.dependencies.startup_timeout;
+    let (_folder, mut services) = folder_and_services();
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
+    // The join fails only once its start bound runs out, so the test's daemon takes a short one.
+    Arc::get_mut(&mut services.dependencies)
+        .expect("no daemon holds the test's dependencies yet")
+        .startup_timeout = JOIN_START_BOUND;
+    let startup_timeout = services.dependencies.startup_timeout;
     let is_second_killed = send_signal(second_process, "-KILL");
     let is_second_gone = wait_until_gone(second_process).await;
     let is_first_stopped = send_signal(first_process, "-STOP");
