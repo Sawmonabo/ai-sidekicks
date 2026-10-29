@@ -26,9 +26,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
-    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
-    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
-    SessionProcessState, StartRunParams,
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -304,6 +304,12 @@ pub trait ProviderDriver: Send + Sync {
         &self,
         params: ListModelsParams,
     ) -> BoxFuture<'_, Result<Vec<ProviderModel>, DriverError>>;
+
+    /// Checks a new session's lead binding from what the driver holds, before the session is
+    /// made: refuses `agent.providerAxisInvalid` only for a model, effort or session option the
+    /// driver's own start would refuse, and leaves what only a running provider can answer to
+    /// that start, which refuses it with the same code. Starts no process and reads nothing.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError>;
 
     /// The provider's modes.
     fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>>;

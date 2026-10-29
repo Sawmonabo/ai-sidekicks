@@ -107,6 +107,8 @@ impl ClaudeSessionEstablishment {
             provider_account_id: params.provider_account_id,
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
+            // The create's start checked the lead's effort.
+            effort: None,
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let (started, session_position) = self

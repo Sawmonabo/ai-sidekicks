@@ -1,7 +1,7 @@
-//! What an `initialize` reply declares about the process: the models it offers and which run in
-//! auto mode, its output styles and the one it runs with, its fast mode, and the commands it
-//! lists. The reply is untrusted, so each member is read leniently and a row naming no value is
-//! skipped.
+//! What an `initialize` reply declares about the process: the models it offers, their effort
+//! levels and which run in auto mode, its output styles and the one it runs with, its fast mode,
+//! and the commands it lists. The reply is untrusted, so each member is read leniently and a row
+//! naming no value is skipped.
 
 use std::collections::HashSet;
 
@@ -43,6 +43,14 @@ struct ModelRow {
         deserialize_with = "read_lenient"
     )]
     supports_auto_mode: Option<bool>,
+    #[serde(rename = "supportsEffort", default, deserialize_with = "read_lenient")]
+    supports_effort: Option<bool>,
+    #[serde(
+        rename = "supportedEffortLevels",
+        default,
+        deserialize_with = "read_lenient"
+    )]
+    supported_effort_levels: Option<LenientList<String>>,
 }
 
 #[derive(Deserialize)]
@@ -79,10 +87,16 @@ pub(crate) fn read_claude_initialize_declaration(
             auto_mode_models.insert(value.clone());
             auto_mode_models.extend(resolved_model.clone());
         }
+        // A model that says it takes no effort, or lists no level, has no effort axis.
+        let effort_levels = row
+            .supported_effort_levels
+            .map(|levels| levels.0)
+            .filter(|levels| row.supports_effort != Some(false) && !levels.is_empty());
         models.push(ClaudeOfferedModel {
             value,
             resolved_model,
             display_name: non_empty(row.display_name),
+            effort_levels,
         });
     }
     ClaudeInitializeDeclaration {

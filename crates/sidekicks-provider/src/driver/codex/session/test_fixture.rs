@@ -676,6 +676,7 @@ pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParam
         agent_id: AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         config: Map::new(),
         model: ProviderToken::new("gpt-5".to_owned()).expect("the model fits"),
+        effort: None,
         larger_window: None,
         execution_posture: Some(compose_execution_posture(
             PermissionLevel::Ask,

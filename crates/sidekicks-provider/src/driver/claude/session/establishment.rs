@@ -87,6 +87,7 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::diagnostics::DriverDiagnosticKind;
+use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
@@ -146,6 +147,10 @@ pub(crate) enum ClaudeEstablishmentError {
     /// (`session.permissionLevel.notOffered`), so the process was ended.
     #[error(transparent)]
     LevelNotOffered(DomainError),
+    /// The lead asked for a value on a provider axis the started process does not offer
+    /// (`agent.providerAxisInvalid`), so the process was ended.
+    #[error(transparent)]
+    AxisNotOffered(ProviderAxisInvalid),
     /// The session's command channel could not be opened.
     #[error("the session's command channel could not be opened")]
     CommandChannel(#[source] io::Error),
@@ -169,6 +174,7 @@ impl ClaudeEstablishmentError {
             | Self::ConversationUnreadable { .. }
             | Self::Closed
             | Self::LevelNotOffered(_)
+            | Self::AxisNotOffered(_)
             | Self::CommandChannel(_) => RecoveryCondition::RecoveryNeeded,
         }
     }
@@ -176,12 +182,14 @@ impl ClaudeEstablishmentError {
 
 impl From<ClaudeEstablishmentError> for DriverError {
     /// A session's refusal or a launch failure answers as its own, a level the session cannot run
-    /// as `session.permissionLevel.notOffered`; anything else is internal.
+    /// as `session.permissionLevel.notOffered`, an axis value the process does not offer as
+    /// `agent.providerAxisInvalid`; anything else is internal.
     fn from(error: ClaudeEstablishmentError) -> Self {
         match error {
             ClaudeEstablishmentError::Session(error) => error.into(),
             ClaudeEstablishmentError::Launch(error) => error.into(),
             ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::from(refusal),
+            ClaudeEstablishmentError::AxisNotOffered(invalid) => Self::from(invalid),
             error @ (ClaudeEstablishmentError::Context(_)
             | ClaudeEstablishmentError::Legs(_)
             | ClaudeEstablishmentError::SessionRules(_)
@@ -275,10 +283,10 @@ impl ClaudeCallbackBinding {
     }
 }
 
-// Whether the model the process runs is checked against the catalog it declared.
-#[derive(Clone, Copy, PartialEq, Eq)]
+// Whether the model the process runs, and the effort the lead asked for, are checked against the
+// catalog it declared.
 enum ClaudeModelCheck {
-    Checked,
+    Checked { effort: Option<String> },
     Unchecked,
 }
 
@@ -339,6 +347,8 @@ pub(crate) struct ClaudeSpawnRequest {
     pub(crate) row_values: ProviderRowValues,
     /// The Ultracode value the agent asked for; `None` keeps Claude Code's own.
     pub(crate) ultracode: Option<bool>,
+    /// The lead's effort, checked against the model's levels; `None` checks none.
+    pub(crate) effort: Option<String>,
 }
 
 impl ClaudeSessionEstablishment {
@@ -373,6 +383,7 @@ impl ClaudeSessionEstablishment {
             provider_account_id: params.provider_account_id,
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
+            effort: params.effort.map(FreeFormText::into_string),
         };
         let output_speed = params.output_speed.map(FreeFormText::into_string);
         let spawned_version = self
@@ -520,7 +531,9 @@ impl ClaudeSessionEstablishment {
             establishment,
             command_choices,
             spawn_binding,
-            model_check: ClaudeModelCheck::Checked,
+            model_check: ClaudeModelCheck::Checked {
+                effort: request.effort,
+            },
             ultracode: request.ultracode,
             step_bound,
             resumed_binding_id: None,

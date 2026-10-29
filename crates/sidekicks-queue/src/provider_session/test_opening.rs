@@ -51,6 +51,7 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
                         .expect("a minted UUID is an agent id"),
                     config: Map::new(),
                     model: ProviderToken::new("test-model".to_owned()).expect("a model token"),
+                    effort: None,
                     larger_window: None,
                     execution_posture: Some(compose_execution_posture(
                         PermissionLevel::Readonly,

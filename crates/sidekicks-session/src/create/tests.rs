@@ -12,12 +12,7 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::machine::settings::{MachineSettings, ProviderRowValue};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::declaration::{
-    ProviderDeclarationId, ProviderDeclarationText, ProviderOptionSetting, ProviderOptionSettings,
-    ProviderSessionOption, ProviderSessionOptionControl, ProviderSessionOptionPlacement,
-    ProviderValue,
-};
-use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::ExecutionMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -198,35 +193,21 @@ impl Fixture {
             .boxed()
         });
         let settings = Arc::new(StoredSettings(Mutex::new(MachineSettings::default())));
-        driver.expect_list_models().returning(|_params| {
-            async {
-                Ok(vec![ProviderModel {
-                    id: ProviderToken::new("model-a".to_owned()).expect("the id fits"),
-                    name: ProviderToken::new("Model A".to_owned()).expect("the name fits"),
-                    capabilities: Vec::new(),
-                    effort_levels: Some(vec![
-                        ProviderToken::new("high".to_owned()).expect("the level fits"),
-                    ]),
-                    output_speed_levels: None,
-                    fast: false,
-                    larger_window: false,
-                    context_window: None,
-                }])
-            }
-            .boxed()
-        });
-        driver.expect_session_options().returning(|| {
-            async {
-                Ok(vec![ProviderSessionOption {
-                    id: option_id(),
-                    label: ProviderDeclarationText::new("Option".to_owned())
-                        .expect("the label fits"),
-                    placement: ProviderSessionOptionPlacement::EffortMenu,
-                    control: ProviderSessionOptionControl::Switch {},
-                }])
-            }
-            .boxed()
-        });
+        // The driver's own rule stands in as one refusal: it refuses every lead that sets an effort.
+        driver
+            .expect_check_lead_binding()
+            .returning(|params| match params.effort {
+                None => Ok(()),
+                Some(effort) => Err(DomainError::new(
+                    "The provider does not offer that effort",
+                    RefusalCode::AgentProviderAxisInvalid,
+                )
+                .with_detail(
+                    serde_json::json!({ "agentId": params.agent_id, "axis": "effort",
+                "value": effort }),
+                )
+                .into()),
+            });
         let creation = Arc::new(SessionCreation::new(SessionCreationDeps {
             reads,
             appender: Arc::new(SessionEventAppender::new(
@@ -303,10 +284,6 @@ impl Fixture {
              UPDATE repo_mounts SET state = 'attached' WHERE id = '{PROJECT_ID}';"
         ));
     }
-}
-
-fn option_id() -> ProviderDeclarationId {
-    ProviderDeclarationId::new("option".to_owned()).expect("an option id")
 }
 
 fn opus() -> String {
@@ -609,47 +586,25 @@ fn token(text: &str) -> ProviderToken {
     ProviderToken::new(text.to_owned()).expect("the token fits")
 }
 
-// Dies to the model check dropped, and to the effort or the options check dropped: the session is
-// then born on an axis its driver does not offer, to fail at its first run.
-#[rstest::rstest]
-#[case::model(SessionLead { model_id: token("model-z"), ..lead() }, "modelId")]
-#[case::effort(SessionLead { effort: Some(token("max")), ..lead() }, "effort")]
-#[case::options(
-    SessionLead {
-        options: ProviderOptionSettings::new(vec![ProviderOptionSetting {
-            id: ProviderDeclarationId::new("other".to_owned()).expect("an option id"),
-            value: ProviderValue::Switch(true),
-        }]),
-        ..lead()
-    },
-    "options"
-)]
+// Dies to the driver's check of the lead's binding dropped: the session is then born on an axis
+// its driver refuses, to fail at its first run.
 #[tokio::test]
-async fn a_lead_axis_its_driver_does_not_offer_is_refused_and_nothing_lands(
-    #[case] lead: SessionLead,
-    #[case] axis: &str,
-) {
+async fn a_lead_binding_its_driver_refuses_is_refused_and_nothing_lands() {
     let fixture = Fixture::new().await;
     let SessionCreateRequest::Project(mut request) = project_request(new_key(), None) else {
         unreachable!("the request is a project's");
     };
-    request.lead = lead;
+    request.lead.effort = Some(token("max"));
 
     let refusal = refusal_of(
         fixture
             .creation
             .create(SessionCreateRequest::Project(request))
             .await
-            .expect_err("an axis the driver does not offer is refused"),
+            .expect_err("a binding the driver refuses is refused"),
     );
 
     assert_eq!(refusal.code, RefusalCode::AgentProviderAxisInvalid);
-    assert_eq!(
-        refusal
-            .detail
-            .and_then(|detail| detail.get("axis").cloned()),
-        Some(serde_json::json!(axis))
-    );
     assert_eq!(fixture.count("SELECT count(*) FROM sessions"), 0);
     assert_eq!(
         fixture.count("SELECT count(*) FROM session_create_requests"),

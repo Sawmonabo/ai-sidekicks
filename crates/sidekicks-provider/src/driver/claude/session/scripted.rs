@@ -221,6 +221,7 @@ impl ScriptedSession {
                 value: "opus".to_owned(),
                 resolved_model: None,
                 display_name: None,
+                effort_levels: None,
             }],
             ..ClaudeInitializeDeclaration::default()
         });

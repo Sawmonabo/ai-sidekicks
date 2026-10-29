@@ -62,6 +62,9 @@ pub struct CreateSessionParams {
     /// The session's model. A provider that takes it at process start applies a usage-credits
     /// prompt's `switchDefault` to this session alone, never to the account's saved default.
     pub model: ProviderToken,
+    /// The lead's reasoning effort, which the start refuses `agent.providerAxisInvalid` on the
+    /// effort axis when the provider lists the model without that level; `None` checks none.
+    pub effort: Option<ProviderToken>,
     /// The larger window chosen for the model, in tokens, as recorded when it was picked; `None`
     /// runs the model's default window. A provider whose model id names the window refuses one.
     pub larger_window: Option<SafeInt<1>>,

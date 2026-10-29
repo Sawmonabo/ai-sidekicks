@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::provider::driver::capabilities::find_provider_model_row;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -56,7 +57,7 @@ use crate::driver::codex::thread::view::{
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::contract::error::{DriverError, bound_failure_detail};
-use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
+use crate::driver::error_causes::{ProviderAxisInvalid, UNSPECIFIED_PROVIDER_FAILURE_DETAIL};
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
 };
@@ -176,8 +177,9 @@ impl CodexSessionEstablishment {
     /// conversation started under another profile or on a service that reported no version let go
     /// first. Fails as the settings' composition, the service's start, the larger window's check
     /// (`CodexError::LargerWindowUnavailable` for one the catalog does not offer at that figure
-    /// now), the request or the profile's read-back fails, and when the service reported no
-    /// version.
+    /// now), the effort's check (`agent.providerAxisInvalid` for an effort the catalog's row for
+    /// the model does not list), the request or the profile's read-back fails, and when the
+    /// service reported no version.
     pub(crate) async fn create(
         &self,
         params: &CreateSessionParams,
@@ -201,9 +203,33 @@ impl CodexSessionEstablishment {
             confirm_larger_window(&service, &settings.model, larger_window.get()).await?;
         }
         let connection = service.connection()?;
+        // Before the service is asked, so an effort the model does not list starts no
+        // conversation; Codex takes a model it does not list, whose effort is then unchecked.
+        let catalog = match &params.effort {
+            Some(effort) => {
+                let catalog = read_codex_service_model_catalog(&connection)
+                    .await
+                    .map_err(CodexError::Driver)?;
+                if let Some(row) = find_provider_model_row(&catalog, &settings.model, false) {
+                    ProviderAxisInvalid::check_effort(
+                        params.agent_id,
+                        effort.as_str(),
+                        row.effort_levels.as_deref(),
+                    )
+                    .map_err(|invalid| CodexError::Driver(invalid.into()))?;
+                }
+                Some(catalog)
+            }
+            None => None,
+        };
         // Before the service is asked, so a level the model does not list reaches no conversation.
         let output_speed = resolve_codex_output_speed_level(
-            || read_codex_service_model_catalog(&connection),
+            || async {
+                match catalog {
+                    Some(catalog) => Ok(catalog),
+                    None => read_codex_service_model_catalog(&connection).await,
+                }
+            },
             &settings.model,
             params
                 .output_speed

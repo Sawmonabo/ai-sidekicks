@@ -25,7 +25,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::agent::definition::binding::{AgentProviderBinding, ProviderToken};
+use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::agent::methods::AgentSubscribeEntry;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -50,7 +50,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
-use sidekicks_provider::driver::contract::params_and_results::ListModelsParams;
+use sidekicks_provider::driver::contract::params_and_results::LeadBindingCheckParams;
 use sidekicks_provider::driver::error_causes::ProviderAxisInvalid;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -324,12 +324,11 @@ impl SessionCreation {
     /// reads now, binding and activating it first when it was left `provisioning`; one sent while
     /// its key's create runs waits for it. The create runs whole in a task of its own under its
     /// key, so a caller that stops waiting never leaves it part made. Refuses, writing nothing,
-    /// `agent.providerAxisInvalid` for a provider no driver answers or a model, effort or session
-    /// option the lead's driver does not offer, `provider.account.notRegistered` or
-    /// `provider.account.current.notSet` for a lead with no current account, `project.notFound`,
-    /// `repoMount.notFound` for a project with no attached folder that is not cloning, and
-    /// `session.group.refused` for a group of another project; fails as the driver's catalog read
-    /// fails. A failure after `session.created` leaves the session `provisioning` for a retry or
+    /// `agent.providerAxisInvalid` for a provider no driver answers or a lead binding its driver's
+    /// check refuses, `provider.account.notRegistered` or `provider.account.current.notSet` for a
+    /// lead with no current account, `project.notFound`, `repoMount.notFound` for a project with
+    /// no attached folder that is not cloning, and `session.group.refused` for a group of another
+    /// project. A failure after `session.created` leaves the session `provisioning` for a retry or
     /// the daemon's next start to finish.
     pub async fn create(
         self: &Arc<Self>,
@@ -369,9 +368,14 @@ impl SessionCreation {
         let lead = target.lead;
         let agent_id = AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id");
         let driver = self.lead_driver(agent_id, &lead.provider_name)?;
+        driver.check_lead_binding(LeadBindingCheckParams {
+            agent_id,
+            model_id: lead.model_id.clone(),
+            effort: lead.effort.clone(),
+            options: lead.options.clone(),
+        })?;
         let agent_name = self.providers.descriptor(&lead.provider_name)?.name();
         let account = self.resolve_account(&lead.provider_name).await?;
-        check_lead_offered(&*driver, agent_id, lead, &account.provider_account_id).await?;
         let settings = self
             .settings
             .read_machine_settings()
@@ -749,34 +753,6 @@ pub(crate) fn project_folder_not_attached(project_id: ProjectId) -> DomainError 
         RefusalCode::RepoMountNotFound,
     )
     .with_detail(json!({ "projectId": project_id }))
-}
-
-// Refuses `agent.providerAxisInvalid` for the lead `agent_id` when its model, effort or session
-// options are not what its driver offers on `provider_account_id` now; fails as the reads fail.
-async fn check_lead_offered(
-    driver: &dyn ProviderDriver,
-    agent_id: AgentId,
-    lead: &SessionLead,
-    provider_account_id: &ProviderAccountId,
-) -> Result<(), SessionCreateError> {
-    let (models, options) = futures::future::try_join(
-        driver.list_models(ListModelsParams {
-            session_id: None,
-            provider_account_id: Some(provider_account_id.clone()),
-        }),
-        driver.session_options(),
-    )
-    .await?;
-    ProviderAxisInvalid::check_offered(
-        agent_id,
-        lead.model_id.as_str(),
-        lead.effort.as_ref().map(ProviderToken::as_str),
-        lead.options.as_ref(),
-        &models,
-        &options,
-    )
-    .map_err(DriverError::from)?;
-    Ok(())
 }
 
 fn read_recorded_create(

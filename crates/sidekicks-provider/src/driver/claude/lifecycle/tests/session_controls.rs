@@ -368,6 +368,7 @@ async fn a_side_question_runs_in_plan_mode_live_or_at_rest_and_meters_only_its_o
                 value: "opus".to_owned(),
                 resolved_model: Some(FULL_MODEL_ID.to_owned()),
                 display_name: None,
+                effort_levels: None,
             }],
             ..ClaudeInitializeDeclaration::default()
         });

@@ -37,11 +37,12 @@ use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
-    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
-    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
-    SessionProcessState, StartRunParams,
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, LeadBindingCheckParams,
+    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::error_causes::ProviderAxisInvalid;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
@@ -271,6 +272,9 @@ const CODEX_MESSAGE_HANDING: MessageHanding = MessageHanding {
     reads_priority_message: false,
 };
 
+/// The session options the Codex driver declares: none.
+const CODEX_SESSION_OPTIONS: &[ProviderSessionOption] = &[];
+
 impl ProviderDriver for CodexDriver {
     fn create_session(
         &self,
@@ -470,6 +474,17 @@ impl ProviderDriver for CodexDriver {
         self.list_models(params).boxed()
     }
 
+    // Codex takes any model id, and the effort levels sit in the catalog its service lists, so the
+    // start checks the effort; Codex declares no session option, so any option is refused.
+    fn check_lead_binding(&self, params: LeadBindingCheckParams) -> Result<(), DriverError> {
+        ProviderAxisInvalid::check_options(
+            params.agent_id,
+            params.options.as_ref(),
+            CODEX_SESSION_OPTIONS,
+        )
+        .map_err(DriverError::from)
+    }
+
     fn list_modes(&self) -> BoxFuture<'_, Result<Vec<ProviderMode>, DriverError>> {
         ready(Ok(list_codex_modes())).boxed()
     }
@@ -577,9 +592,8 @@ impl ProviderDriver for CodexDriver {
         self.apply_row_value(params).boxed()
     }
 
-    // Codex declares no session option.
     fn session_options(&self) -> BoxFuture<'_, Result<Vec<ProviderSessionOption>, DriverError>> {
-        ready(Ok(Vec::new())).boxed()
+        ready(Ok(CODEX_SESSION_OPTIONS.to_vec())).boxed()
     }
 
     // With no option declared, there is none to observe.

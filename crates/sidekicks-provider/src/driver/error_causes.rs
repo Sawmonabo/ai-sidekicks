@@ -12,7 +12,6 @@ use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::declaration::{ProviderOptionSettings, ProviderSessionOption};
-use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
@@ -141,45 +140,45 @@ impl ProviderAxisInvalid {
         }
     }
 
-    /// Checks a binding's model, effort and session options against what its driver offers now:
-    /// `models`, the driver's catalog, and `options`, the session options it declares. Refuses the
-    /// first axis set to a value not offered, in that order: a model the catalog does not list, an
-    /// effort the model's row does not list (a model with no effort axis takes none), and an option
-    /// the driver does not declare or a value its declaration refuses.
-    pub fn check_offered(
+    /// Checks a binding's session options against `options`, the ones its driver declares:
+    /// refuses the first option the driver does not declare, or whose value its declaration
+    /// refuses.
+    pub(crate) fn check_options(
         agent_id: AgentId,
-        model_id: &str,
-        effort: Option<&str>,
         option_settings: Option<&ProviderOptionSettings>,
-        models: &[ProviderModel],
         options: &[ProviderSessionOption],
     ) -> Result<(), Self> {
-        let refused = |axis, value| Self {
-            agent_id,
-            axis,
-            value,
-        };
-        let Some(model) = models.iter().find(|row| row.id.as_str() == model_id) else {
-            return Err(refused(ProviderAxis::ModelId, json!(model_id)));
-        };
-        if let Some(effort) = effort
-            && !model
-                .effort_levels
-                .as_ref()
-                .is_some_and(|levels| levels.iter().any(|level| level.as_str() == effort))
-        {
-            return Err(refused(ProviderAxis::Effort, json!(effort)));
-        }
         for setting in option_settings.map_or(&[][..], ProviderOptionSettings::as_slice) {
             let is_offered = options
                 .iter()
                 .find(|option| option.id == setting.id)
                 .is_some_and(|option| option.check_value(&setting.value).is_ok());
             if !is_offered {
-                return Err(refused(ProviderAxis::Options, json!(setting)));
+                return Err(Self {
+                    agent_id,
+                    axis: ProviderAxis::Options,
+                    value: json!(setting),
+                });
             }
         }
         Ok(())
+    }
+
+    /// Checks a binding's `effort` against `effort_levels`, the levels the provider lists for the
+    /// binding's model, `None` for a model with no effort axis, which takes none.
+    pub(crate) fn check_effort<Level: AsRef<str>>(
+        agent_id: AgentId,
+        effort: &str,
+        effort_levels: Option<&[Level]>,
+    ) -> Result<(), Self> {
+        if effort_levels.is_some_and(|levels| levels.iter().any(|level| level.as_ref() == effort)) {
+            return Ok(());
+        }
+        Err(Self {
+            agent_id,
+            axis: ProviderAxis::Effort,
+            value: json!(effort),
+        })
     }
 }
 
