@@ -6,6 +6,7 @@ use sidekicks_contracts::repo::workspace::{
     WORKSPACE_LAST_ERROR_MAX_LEN, WorkspaceListEntry, WorkspaceListRequest,
 };
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 
 use super::{WorkspaceRow, WorkspaceService, WorkspaceServiceError, root_mismatch, wire_path};
@@ -31,14 +32,19 @@ const ROOT_UNREACHABLE_DETAIL: &str = "the workspace's working folder can no lon
 
 impl WorkspaceService {
     /// A session's workspaces, narrowed to one mount when `request` names it, each read through
-    /// its health: a ready one whose root is gone moves to `rootLost` and reads so. One row that
-    /// cannot be read fails the whole list, since a shortened list would mislead what to detach;
-    /// fails as the read, the probe's projection or the `rootLost` move fails.
+    /// its health: a ready one whose root is gone moves to `rootLost` and reads so. Refuses
+    /// `session.notFound` for a session the directory does not hold. One row that cannot be read
+    /// fails the whole list, since a shortened list would mislead what to detach; fails as the
+    /// read, the probe's projection or the `rootLost` move fails.
     pub async fn list(
         &self,
         request: &WorkspaceListRequest,
     ) -> Result<Vec<WorkspaceListEntry>, WorkspaceServiceError> {
         let session_id = request.session_id;
+        // An empty list would read as a session with no workspaces.
+        if !self.session_exists(session_id).await? {
+            return Err(session_not_found(&session_id).into());
+        }
         let repo_mount_id = request
             .repo_mount_id
             .map(|repo_mount_id| repo_mount_id.text().as_str().to_owned());

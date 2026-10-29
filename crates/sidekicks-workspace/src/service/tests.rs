@@ -267,3 +267,22 @@ async fn a_retry_from_root_lost_clears_the_last_failure() {
     assert_eq!(ready[0].state, WorkspaceState::Ready);
     assert_eq!(ready[0].last_error, None);
 }
+
+// Dies to the list's session check dropped: a purged session's list would answer empty, as one
+// with no workspaces does.
+#[tokio::test]
+async fn the_list_refuses_a_session_the_directory_does_not_hold() {
+    let database = TestDatabase::new(schema_parts());
+    let (service, _rows) = open_service(&database).await;
+    let request = WorkspaceListRequest {
+        session_id: SessionId::new("0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e7f").expect("a session id"),
+        repo_mount_id: None,
+    };
+
+    let refused = service
+        .list(&request)
+        .await
+        .expect_err("an unknown session is refused");
+
+    assert_eq!(refusal_code(&refused), RefusalCode::SessionNotFound);
+}

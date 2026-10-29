@@ -22,7 +22,9 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::ProjectId;
-use sidekicks_contracts::repo::folders::{RepoMountAttachRequest, RepoMountAttachResponse};
+use sidekicks_contracts::repo::folders::{
+    RepoMountAttachRequest, RepoMountAttachResponse, RepoMountRootResolutionReason,
+};
 use sidekicks_contracts::repo::mount::{RepoMountHealth, RepoMountId, RepoMountState, VcsType};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
@@ -126,7 +128,7 @@ static SELECT_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
 // with the identity anchor, a mount at the root first.
 static SELECT_ACTIVE_MOUNT_OF_REPOSITORY_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT id, origin, project_id
+        "SELECT id, project_id
      FROM repo_mounts
     WHERE machine_id = @machine_id
       AND coalesce(place, '') = coalesce(@place, '')
@@ -213,8 +215,6 @@ pub struct ResolvedFolder {
     pub canonical_root: PathBuf,
     /// The top level, each link resolved, of the working tree the folder sits in.
     pub working_tree_root: PathBuf,
-    /// The attached project mount of its repository, `None` when none holds it.
-    pub repo_mount_id: Option<RepoMountId>,
     /// The path as entered.
     local_path: FilesystemPath,
     /// The repository's resolved git common folder.
@@ -259,7 +259,6 @@ pub(crate) struct RepoMountRecord {
 // The machine's attached mount holding a repository.
 struct ActiveMount {
     id: RepoMountId,
-    origin: MountOrigin,
     project_id: Option<ProjectId>,
 }
 
@@ -343,18 +342,21 @@ impl RepoMountService {
 
     /// The attach target of `resolved`, once the machine has no active mount of its repository,
     /// writing nothing. Refuses a root that resolved past the wire's path cap
-    /// (`request.paramsInvalid`, as the request's own path would be), and
-    /// `repoMount.alreadyAttached` naming the mount that holds the repository.
+    /// (`repoMount.rootResolutionFailed`, `pathTooLong`), and `repoMount.alreadyAttached` naming
+    /// the mount that holds the repository.
     pub(crate) async fn attach_target_of(
         &self,
         resolved: &ResolvedFolder,
     ) -> Result<RepoAttachTarget, RepoMountServiceError> {
         // A link or junction can resolve to a longer path than the one entered; a resolved path
         // holds no NUL, so passing the cap is the one way it is refused.
-        let root_text = stored_path(&resolved.canonical_root);
-        let code_points = root_text.chars().count();
-        let canonical_root = FilesystemPath::new(root_text)
-            .map_err(|_over_cap| RepoRefusal::ResolvedRootTooLong { code_points })?;
+        let canonical_root =
+            FilesystemPath::new(stored_path(&resolved.canonical_root)).map_err(|_over_cap| {
+                RepoRefusal::RootResolutionFailed {
+                    reason: RepoMountRootResolutionReason::PathTooLong,
+                    detail: None,
+                }
+            })?;
         let place = None;
         if let Some(holder) = self
             .find_active_mount_of_repository(
@@ -422,11 +424,10 @@ impl RepoMountService {
         })
     }
 
-    /// The folder at `request`'s path resolved the way attach resolves it, attaching nothing: its
-    /// canonical root, its working tree and the attached project mount of its repository. A
-    /// chat's managed workspace is never a project, so its mount is never answered. Refuses a path
-    /// the resolver refuses, and a WSL place (`repoMount.distributionNotFound`, no distribution
-    /// being reachable here).
+    /// The folder at `request`'s path resolved the way attach resolves it, attaching nothing and
+    /// reading no mount: its canonical root and its working tree. Refuses a path the resolver
+    /// refuses, and a WSL place (`repoMount.distributionNotFound`, no distribution being reachable
+    /// here).
     pub async fn resolve_folder(
         &self,
         request: &RepoMountAttachRequest,
@@ -436,19 +437,9 @@ impl RepoMountService {
             .resolver
             .resolve_canonical_root(Path::new(request.local_path.as_str()))
             .await?;
-        let mount = self
-            .find_active_mount_of_repository(
-                &resolution.canonical_root,
-                Some(&resolution.common_folder),
-                None,
-            )
-            .await?;
         Ok(ResolvedFolder {
             canonical_root: resolution.canonical_root,
             working_tree_root: resolution.working_tree_root,
-            repo_mount_id: mount
-                .filter(|mount| mount.origin == MountOrigin::Attached)
-                .map(|mount| mount.id),
             local_path: request.local_path.clone(),
             common_folder: resolution.common_folder,
         })
@@ -720,8 +711,7 @@ fn read_active_mount(
             |row| {
                 Ok(ActiveMount {
                     id: text_column(row, 0, |text| RepoMountId::new(&text))?,
-                    origin: text_column(row, 1, closed_word)?,
-                    project_id: optional_text_column(row, 2, |text| ProjectId::new(&text))?,
+                    project_id: optional_text_column(row, 1, |text| ProjectId::new(&text))?,
                 })
             },
         )

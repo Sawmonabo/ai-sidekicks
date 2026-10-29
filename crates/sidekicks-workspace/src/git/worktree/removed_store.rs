@@ -47,7 +47,6 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::DatabaseWriter;
 use tokio::sync::Semaphore;
-use tokio::task::JoinError;
 use tokio_util::task::TaskTracker;
 
 use self::rows::{
@@ -114,12 +113,9 @@ pub enum RemovedWorktreeStoreError {
     /// A read, a write, a git call or a file step failed; a put-back undid every step first.
     #[error(transparent)]
     Failed(Box<dyn Error + Send + Sync>),
-    /// The task that ran the call under the kept copy's lock ended before it finished.
-    #[error("the kept worktree's call ended before it finished")]
-    Interrupted(#[source] JoinError),
-    /// The call under the kept copy's lock ended without an answer.
+    /// The task that ran the call under the kept copy's lock ended without answering.
     #[error("the kept worktree's call ended without an answer")]
-    Unanswered,
+    Unanswered(#[from] HeldWorkEnd),
 }
 
 impl From<RemovedWorktreeStoreError> for HandlerError {
@@ -128,8 +124,7 @@ impl From<RemovedWorktreeStoreError> for HandlerError {
         match error {
             RemovedWorktreeStoreError::Refused(refusal) => Self::Refused(refusal.into()),
             fault @ (RemovedWorktreeStoreError::Failed(_)
-            | RemovedWorktreeStoreError::Interrupted(_)
-            | RemovedWorktreeStoreError::Unanswered) => Self::Internal(Box::new(fault)),
+            | RemovedWorktreeStoreError::Unanswered(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -829,15 +824,6 @@ fn put_back_copy(kept: &RemovedWorktreeRow) -> WorktreeCopy {
         name: kept.worktree_name.clone(),
         copied_bytes: SafeInt::ZERO,
         total_bytes: SafeInt::ZERO,
-    }
-}
-
-impl From<HeldWorkEnd> for RemovedWorktreeStoreError {
-    fn from(end: HeldWorkEnd) -> Self {
-        match end {
-            HeldWorkEnd::Unanswered => Self::Unanswered,
-            HeldWorkEnd::Interrupted(interrupted) => Self::Interrupted(interrupted),
-        }
     }
 }
 

@@ -45,7 +45,6 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_std::settle_all::settle_all;
-use tokio::task::JoinError;
 
 pub use self::repair::{InterruptedKeptCopyFailure, InterruptedKeptCopyRepair};
 use crate::folder::canonical_path::canonical_folder_path;
@@ -214,12 +213,9 @@ pub enum WorktreeRemovalError {
     /// A read, a write, a git call or a file step failed.
     #[error(transparent)]
     Failed(Box<dyn Error + Send + Sync>),
-    /// The task that ran the removal or the keeping aside ended before it finished.
-    #[error("the removal ended before it finished")]
-    Interrupted(#[source] JoinError),
-    /// The removal or the keeping aside ended without an answer.
+    /// The task that ran the removal or the keeping aside under its lock ended without answering.
     #[error("the removal ended without an answer")]
-    Unanswered,
+    Unanswered(#[from] HeldWorkEnd),
 }
 
 impl From<WorktreeRemovalError> for HandlerError {
@@ -233,8 +229,7 @@ impl From<WorktreeRemovalError> for HandlerError {
             | WorktreeRemovalError::Sweep(_)
             | WorktreeRemovalError::RecordRemoval { .. }
             | WorktreeRemovalError::Failed(_)
-            | WorktreeRemovalError::Interrupted(_)
-            | WorktreeRemovalError::Unanswered) => Self::Internal(Box::new(fault)),
+            | WorktreeRemovalError::Unanswered(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -265,8 +260,7 @@ impl From<RemovedWorktreeStoreError> for WorktreeRemovalError {
         match failure {
             RemovedWorktreeStoreError::Refused(refusal) => Self::Refused(refusal),
             RemovedWorktreeStoreError::Failed(failure) => Self::Failed(failure),
-            RemovedWorktreeStoreError::Interrupted(interrupted) => Self::Interrupted(interrupted),
-            RemovedWorktreeStoreError::Unanswered => Self::Unanswered,
+            RemovedWorktreeStoreError::Unanswered(end) => Self::Unanswered(end),
         }
     }
 }
@@ -828,15 +822,6 @@ fn retired(worktree_id: WorktreeId, kept: Option<KeptWorktree>) -> WorktreeRetir
 /// A new kept copy's id, minted.
 pub(crate) fn new_removed_worktree_id() -> RemovedWorktreeId {
     RemovedWorktreeId::try_from(mint_uuid_v7()).expect("a minted UUID is a removed worktree id")
-}
-
-impl From<HeldWorkEnd> for WorktreeRemovalError {
-    fn from(end: HeldWorkEnd) -> Self {
-        match end {
-            HeldWorkEnd::Unanswered => Self::Unanswered,
-            HeldWorkEnd::Interrupted(interrupted) => Self::Interrupted(interrupted),
-        }
-    }
 }
 
 #[cfg(test)]

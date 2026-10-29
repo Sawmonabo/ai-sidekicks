@@ -203,15 +203,10 @@ async fn an_attach_whose_root_resolves_past_the_path_cap_is_refused_before_any_w
         panic!("the attach is refused, not {refusal:?}");
     };
     let refusal = DomainError::from(refusal);
-    assert_eq!(refusal.code, RefusalCode::RequestParamsInvalid);
-    let issue = &refusal.detail.expect("the refusal names its issue")["issues"][0];
-    assert_eq!(issue["path"], serde_json::json!(["localPath"]));
-    let length = (FILE_PATH_MAX_LEN + 1).to_string();
-    assert!(
-        issue["message"]
-            .as_str()
-            .is_some_and(|message| message.contains(&length)),
-        "{issue}"
+    assert_eq!(refusal.code, RefusalCode::RepoMountRootResolutionFailed);
+    assert_eq!(
+        refusal.detail.expect("the refusal names its reason")["reason"],
+        "pathTooLong"
     );
 }
 
