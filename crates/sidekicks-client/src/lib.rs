@@ -2,6 +2,7 @@
 //! helper process.
 
 pub mod daemon_connection;
+pub mod daemon_ending;
 pub mod error;
 pub mod terminal_write;
 pub mod transport;
