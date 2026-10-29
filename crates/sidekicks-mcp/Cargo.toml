@@ -32,7 +32,7 @@ sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
-sidekicks-std.workspace = true
+sidekicks-std = { workspace = true, features = ["outbound-http"] }
 sidekicks-store.workspace = true
 sse-stream.workspace = true
 strum.workspace = true

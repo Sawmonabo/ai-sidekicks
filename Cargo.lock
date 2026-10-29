@@ -8922,6 +8922,7 @@ dependencies = [
  "futures",
  "getrandom 0.4.3",
  "reflink-copy",
+ "reqwest",
  "rstest",
  "serde-saphyr",
  "sidekicks-contracts",

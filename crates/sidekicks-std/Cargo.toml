@@ -23,6 +23,8 @@ base16ct.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 reflink-copy.workspace = true
+# The outbound HTTP client's shared settings.
+reqwest = { workspace = true, optional = true }
 serde-saphyr.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
@@ -40,6 +42,8 @@ tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
+# The outbound HTTP client's shared settings, for the crates that call out over HTTP.
+outbound-http = ["dep:reqwest"]
 # Helpers other crates' tests use: the pause point a test holds a task at, the bounded read's stall,
 # the keyed lock's count of queued holders and the scheduler's names of waiting jobs.
 test-support = []
