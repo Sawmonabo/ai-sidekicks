@@ -76,7 +76,7 @@ use crate::driver::codex::session::recovery::{
 use crate::driver::codex::session::rewind::CodexConversationRewind;
 use crate::driver::codex::session::side_questions::CodexSideQuestions;
 use crate::driver::codex::session::slots::CodexSessionSlots;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::driver::{DriverServices, attachments::AttachmentResolver};
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};

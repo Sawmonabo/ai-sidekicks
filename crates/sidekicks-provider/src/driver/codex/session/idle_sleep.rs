@@ -5,7 +5,7 @@
 use sidekicks_contracts::session::id::SessionId;
 
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 
 impl CodexDriver {

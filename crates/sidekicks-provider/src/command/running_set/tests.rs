@@ -25,7 +25,8 @@ use super::{
 };
 use crate::command::channel::PartyId;
 use crate::command::waiting_checks::WaitingState;
-use crate::driver::contract::{DriverError, MockProviderDriver};
+use crate::driver::contract::MockProviderDriver;
+use crate::driver::contract::error::DriverError;
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };

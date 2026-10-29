@@ -34,7 +34,7 @@ use crate::driver::ProviderDescriptor;
 use crate::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
+use crate::driver::contract::params_and_results::{DriverCliVersionReport, GetCapabilitiesResult};
 use crate::output_validation::{ProviderOutputValidationError, check_contract_version};
 
 /// The statements a [`DriverCapabilitiesWriter`] prepares on a read connection: the contract row,
@@ -514,7 +514,9 @@ mod tests {
     use crate::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
-    use crate::driver::contract::{DriverCliVersionReport, GetCapabilitiesResult};
+    use crate::driver::contract::params_and_results::{
+        DriverCliVersionReport, GetCapabilitiesResult,
+    };
     use crate::driver::schema::schema_parts;
 
     const SENTINEL: &str = "2000-01-01T00:00:00.000Z";

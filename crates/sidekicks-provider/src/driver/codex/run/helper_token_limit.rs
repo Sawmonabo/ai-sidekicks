@@ -17,7 +17,7 @@ use crate::driver::codex::session::history::read_codex_newest_turn;
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::HelperTokenLimitParams;
 
 // The member of a listed turn this stop reads.

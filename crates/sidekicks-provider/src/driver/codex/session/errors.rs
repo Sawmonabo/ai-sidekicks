@@ -16,7 +16,7 @@ use sidekicks_ipc::domain_error::DomainError;
 
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::contract::{
+use crate::driver::contract::error::{
     DriverError, PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE, bound_failure_detail,
 };
 use crate::driver::error_causes::{

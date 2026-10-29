@@ -28,7 +28,7 @@ use crate::driver::codex::session::inbound::{
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::view::read_steered_turn_id;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::run_control::SteerTurnEndedError;
 
 #[cfg(test)]

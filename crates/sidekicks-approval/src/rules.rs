@@ -50,7 +50,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::session_control::RevokeRuleParams;
 use sidekicks_provider::port::permission_ask::{ProviderAnswerRule, ProviderAskAction};
 use sidekicks_session::directory::lookups::session_exists;

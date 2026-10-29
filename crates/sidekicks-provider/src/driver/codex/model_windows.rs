@@ -20,7 +20,7 @@ use crate::driver::codex::calibration::CodexCompactionLimits;
 use crate::driver::codex::service::command::read_codex_model_catalog_dump;
 use crate::driver::codex::service::home::CodexServiceHome;
 use crate::driver::codex::service::supervisor::CodexService;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };

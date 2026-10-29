@@ -7,7 +7,7 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::integer::MAX_SAFE_INTEGER;
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::contract::DriverCliVersionReport;
+use crate::driver::contract::params_and_results::DriverCliVersionReport;
 
 /// The longest provider-owned `resume_handle`, in code points; equals the SQL CHECK bound.
 pub(crate) const RESUME_HANDLE_MAX_LEN: usize = 4096;

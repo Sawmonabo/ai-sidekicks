@@ -32,7 +32,7 @@ use crate::driver::claude::spawn::launch::one_turn::ClaudeOneTurnRequest;
 use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 

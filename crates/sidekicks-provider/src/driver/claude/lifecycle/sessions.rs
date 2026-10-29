@@ -23,7 +23,8 @@ use crate::driver::claude::session::naming::{
 use crate::driver::claude::session::purge::{ClaudePurgePlace, purge_claude_conversations};
 use crate::driver::claude::session::restart::{ClaudeEndedConversation, ClaudeSessionStanding};
 use crate::driver::claude::session::slots::ClaudeCloseStart;
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};

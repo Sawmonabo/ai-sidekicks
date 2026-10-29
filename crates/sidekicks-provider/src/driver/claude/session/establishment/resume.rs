@@ -27,7 +27,8 @@ use crate::driver::claude::session::slots::ClaudeResumeSlot;
 use crate::driver::claude::session::state::{ClaudeUsageEstablishment, LiveClaudeSession};
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
+use crate::driver::contract::error::bound_failure_detail;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 

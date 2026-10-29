@@ -35,7 +35,7 @@ use crate::driver::claude::session::transport::declarations::{
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::thread_frame_router::{

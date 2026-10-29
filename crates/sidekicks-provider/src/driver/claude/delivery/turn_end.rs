@@ -21,7 +21,7 @@ use strum::EnumString;
 
 use crate::driver::claude::event_normalizer::ClaudeWireFrameKind;
 use crate::driver::claude::turn_evidence::classify_claude_turn_evidence;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::record_readers::read_non_empty_string;

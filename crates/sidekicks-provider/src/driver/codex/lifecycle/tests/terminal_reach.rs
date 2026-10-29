@@ -10,7 +10,8 @@ use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, short_socket_folder};
 
 use super::super::CodexDriver;
 use super::{driver_on_codex_folder, listen_on_codex_folder};
-use crate::driver::contract::{ApplyRowValueParams, DriverError};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ApplyRowValueParams;
 use crate::driver::daemon_stop::DaemonStopIntent;
 
 // The switch's value turned to `is_on` on the computer's one place.

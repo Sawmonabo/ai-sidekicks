@@ -16,7 +16,7 @@ use sidekicks_std::error_description::describe_error;
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::session::transport::control::ClaudeControlSubtype;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -363,7 +363,7 @@ mod tests {
     use sidekicks_ipc::registry::HandlerError;
 
     use super::{ClaudeControlSubtype, ClaudeSessionError, ClaudeUnansweredCause};
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
 
     // The refusal's code a driver error answers a call with; `None` for a failure that is none.
     fn refusal_code(error: DriverError) -> Option<RefusalCode> {

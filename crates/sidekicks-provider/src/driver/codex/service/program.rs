@@ -12,7 +12,7 @@ use crate::command_search::{ProviderCommandSearch, list_command_folders};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::home::CodexServiceHome;
 use crate::driver::codex::service::supervisor::CodexProgramResolver;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::spawn_environment::{
     ProviderEnvironmentRequest, ReservedEnvironmentNames, SessionEnvironment,
     build_provider_process_environment,

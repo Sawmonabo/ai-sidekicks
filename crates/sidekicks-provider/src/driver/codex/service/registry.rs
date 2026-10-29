@@ -29,7 +29,7 @@ use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
 };
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::service_log::provider_service_log_file_of_key;
 

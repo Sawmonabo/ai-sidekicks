@@ -20,7 +20,7 @@ use crate::driver::codex::server_requests::{
     CodexServerRequestResponder, compose_unrouted_request_error,
 };
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::RequestUnanswered;
 
 #[derive(Default)]

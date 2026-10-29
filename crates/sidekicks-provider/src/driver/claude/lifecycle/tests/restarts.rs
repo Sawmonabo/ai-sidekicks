@@ -30,7 +30,7 @@ use crate::driver::claude::session::scripted::{binding_id, settle};
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::SessionProcessState;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
     ResumeSessionParams, UpdateSessionModeParams,

@@ -10,8 +10,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::{
-    DriverError, RespondToRequestParams, SessionProcessState, StartRunParams,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::run_control::{

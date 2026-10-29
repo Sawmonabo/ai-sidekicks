@@ -37,7 +37,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
 use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;

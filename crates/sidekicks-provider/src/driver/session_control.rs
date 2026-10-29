@@ -40,7 +40,7 @@ use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::idle_sleep::KeptSchedule;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 
@@ -50,7 +50,7 @@ const PROVIDER_AUTH_DETAIL_MAX_LEN: usize = 512;
 
 /// What the daemon hands a driver to open a session: its config, its spawn-bound legs and the
 /// daemon's callbacks. A spawn-bound leg that gets nothing here launches without it; per-run
-/// carriers are on [`StartRunParams`](super::contract::StartRunParams).
+/// carriers are on [`StartRunParams`](super::contract::params_and_results::StartRunParams).
 #[derive(Clone)]
 pub struct CreateSessionParams {
     /// The session.
@@ -91,7 +91,7 @@ pub struct CreateSessionParams {
     pub tool_servers: Option<Vec<SessionToolServer>>,
     /// A JSON Schema the final output must meet, for a provider that binds it per session (gated
     /// on `structuredOutput`); one that binds it per turn reads
-    /// [`StartRunParams::output_schema`](super::contract::StartRunParams::output_schema).
+    /// [`StartRunParams::output_schema`](super::contract::params_and_results::StartRunParams::output_schema).
     pub output_schema: Option<Map<String, Value>>,
     /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
     /// path pins the account's credential home, so the driver only carries it.
@@ -424,7 +424,7 @@ pub enum DriverResumeResult {
         /// What recovery the run needs.
         recovery_condition: RecoveryCondition,
         /// The provider's failure, fitted by
-        /// [`bound_failure_detail`](super::contract::bound_failure_detail).
+        /// [`bound_failure_detail`](super::contract::error::bound_failure_detail).
         provider_failure_detail: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
     },
 }

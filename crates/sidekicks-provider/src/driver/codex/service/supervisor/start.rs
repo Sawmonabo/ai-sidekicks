@@ -43,7 +43,7 @@ use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_servic
 use crate::driver::codex::version::{
     CODEX_CLIENT_NAME, CodexInitializeReply, read_reported_version,
 };
-use crate::driver::contract::DriverCliVersionReport;
+use crate::driver::contract::params_and_results::DriverCliVersionReport;
 use crate::output_validation::check_cli_version_report;
 use crate::spawned_version::{
     ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,

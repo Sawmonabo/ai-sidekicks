@@ -17,7 +17,10 @@ use crate::driver::ProviderDescriptor;
 use crate::driver::capabilities::{
     DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
 };
-use crate::driver::contract::{CapabilityDetectionSource, DriverError, GetCapabilitiesResult};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    CapabilityDetectionSource, GetCapabilitiesResult,
+};
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };

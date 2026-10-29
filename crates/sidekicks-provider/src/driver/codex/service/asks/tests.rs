@@ -20,7 +20,7 @@ use crate::driver::codex::session::inbound::{
 };
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// How many items the test queues for its session.
 const QUEUED_ITEMS: usize = 3;

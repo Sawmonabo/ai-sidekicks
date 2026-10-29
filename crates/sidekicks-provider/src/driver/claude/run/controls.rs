@@ -42,7 +42,8 @@ use crate::driver::claude::session::transport::control::ClaudeControlRequest;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeUserContentBlock, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
-use crate::driver::contract::{DriverError, RespondToRequestParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::RespondToRequestParams;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, HelperTokenLimitParams,

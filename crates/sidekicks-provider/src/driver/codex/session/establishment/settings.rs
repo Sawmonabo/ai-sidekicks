@@ -18,7 +18,7 @@ use crate::driver::codex::session::helper_roles::{
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{
     ResumeSessionParams, SessionToolServer, SubagentDefinition, SubagentPolicy,
 };

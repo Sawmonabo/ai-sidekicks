@@ -21,8 +21,8 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::error_description::describe_error;
 
 #[cfg(any(test, feature = "test-support"))]
-use crate::driver::contract::DriverError;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::error::bound_failure_detail;
 
 /// Stands in for a provider failure whose words are blank once bounded.
 pub(crate) static UNSPECIFIED_PROVIDER_FAILURE_DETAIL: LazyLock<
@@ -224,7 +224,7 @@ mod tests {
     use sidekicks_ipc::registry::HandlerError;
 
     use super::{ProviderAxis, ProviderAxisInvalid};
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
 
     #[test]
     fn an_axis_refusal_names_the_agent_the_axis_and_the_value() {

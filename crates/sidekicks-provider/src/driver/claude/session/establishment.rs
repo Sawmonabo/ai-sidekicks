@@ -84,7 +84,8 @@ use crate::driver::claude::spawn::legs::{
     build_claude_spawn_bound_legs,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 use crate::driver::ports::DriverPorts;

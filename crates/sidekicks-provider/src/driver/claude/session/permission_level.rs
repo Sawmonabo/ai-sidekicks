@@ -38,7 +38,7 @@ use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
 use crate::driver::claude::spawn::settings::compose_claude_sandbox_settings;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::session_control::{UpdatePermissionLevelParams, permission_level_not_offered};
 

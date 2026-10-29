@@ -14,7 +14,7 @@ use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::claude::delivery::messages::ClaudeMessageFrame;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::idle_sleep::{IdleSleepHolds, KeptSchedule, SessionSleepState};
 use crate::driver::session_control::ResumeSessionParams;
 use crate::lenient_json::read_lenient;
