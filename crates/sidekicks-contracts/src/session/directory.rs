@@ -654,6 +654,9 @@ methods! {
                 RepoMountRootResolutionFailed,
                 RepoMountOutsideTrustEnvelope,
                 WorkspaceRootUnavailable,
+                RepoMountNotFound,
+                WorkspaceNotFound,
+                WorkspacePreparationFailed,
             ],
         },
         /// The terminal pane's held read.

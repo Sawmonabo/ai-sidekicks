@@ -57,7 +57,7 @@ methods! {
             mutating: false,
             params: RepoMountRequest,
             result: RepoMountReadResponse,
-            refusals: [RepoMountNotFound],
+            refusals: [RepoMountNotFound, RepoMountRootResolutionFailed],
         },
         /// Every folder the service can reach.
         RepoMountList = query "repoMount.list" {
@@ -110,6 +110,8 @@ methods! {
                 RepoMountManaged,
                 RepoMountOutsideTrustEnvelope,
                 WorkspaceModeUnsupported,
+                WorkspaceRootUnavailable,
+                RepoMountRootResolutionFailed,
             ],
         },
         /// A session's workspaces.
