@@ -2,8 +2,8 @@
 //! keychain and which client each server admitted, both under the server's canonical address, the
 //! filtered HTTP its OAuth calls go through, which client each sign-in goes through, the launch
 //! and the life of each server's one open attempt, the browser's return and the code's redemption,
-//! the one completion event each settled sign-in appends, and the authorizer that presents and
-//! renews its token on each request.
+//! the one completion event each settled sign-in appends, the authorizer that presents and
+//! renews its token on each request, and the sign-out that forgets and revokes it.
 
 pub(crate) mod admitted_client;
 pub(crate) mod authorizer;
@@ -13,6 +13,7 @@ pub(crate) mod oauth_http_client;
 pub(crate) mod redemption;
 pub mod registration;
 pub(crate) mod service;
+pub(crate) mod sign_out;
 #[cfg(test)]
 mod test_keychain;
 #[cfg(test)]
