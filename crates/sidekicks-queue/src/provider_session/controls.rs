@@ -59,14 +59,16 @@ pub enum MoveRecordError {
 
 impl ProviderSessions {
     /// Moves the session to `level` and stores it with the `LevelMoved` notice, unless it stands
-    /// there already. The level's posture is resolved first, over the session's git folder, so a
-    /// level whose folder is gone is refused before anything moves. A process that runs, or that
-    /// its driver brings back, is moved next, so the record never names a level the provider
-    /// refused; a store that fails then moves it back and fails. Only a stored level moves the
-    /// process's posture and its live runs, so no run holds a posture its session never stored. A
-    /// session with no process stores the level, which its next process opens at and its runs
-    /// gate at. Fails with [`ProviderSessionError::PostureRefused`] for a level whose posture does
-    /// not resolve and as the driver's move fails, both with nothing changed, with
+    /// there already. The level's posture is resolved first, over the session's git folder where
+    /// it names one, so a level whose folder is gone or not yet set is refused before anything
+    /// moves. A process that runs, or that its driver brings back, is moved next, so the record
+    /// never names a level the provider refused; a store that fails then moves it back and fails.
+    /// Only a stored level moves the process's posture and its live runs, so no run holds a
+    /// posture its session never stored. A session with no process stores the level, which its
+    /// next process opens at and its runs gate at. Fails with
+    /// [`ProviderSessionError::PostureRefused`] for a level whose posture does not resolve or whose
+    /// folder is unavailable, and as the driver's move fails, both with nothing changed, with
+    /// [`ProviderSessionError::GitFolder`] where the folder's read fails, with
     /// [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for a closed
     /// session, and with [`ProviderSessionError::LevelNotStored`] carrying `session.notFound` for
     /// one gone meanwhile.
@@ -81,10 +83,13 @@ impl ProviderSessions {
         if stored == level {
             return Ok(());
         }
-        let posture = compose_execution_posture(level, self.git_folder(session_id).await?);
-        let resolved = resolve_posture(&posture)
-            .await
-            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
+        let posture = self.level_posture(session_id, level).await?;
+        let resolved = resolve_posture(&posture).await.map_err(|cause| {
+            ProviderSessionError::PostureRefused {
+                session_id,
+                cause: Box::new(cause),
+            }
+        })?;
         let (opened, driver) = match self.process_state(session_id)? {
             Some(OpenedProcess {
                 state: SessionProcessState::Live | SessionProcessState::Restarting,
@@ -262,9 +267,12 @@ impl ProviderSessions {
                 .map_err(|cause| ProviderSessionError::ModeNotStored { session_id, cause });
         };
         let posture = compose_execution_posture(level, opened.git_folder);
-        let resolved = resolve_posture(&posture)
-            .await
-            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
+        let resolved = resolve_posture(&posture).await.map_err(|cause| {
+            ProviderSessionError::PostureRefused {
+                session_id,
+                cause: Box::new(cause),
+            }
+        })?;
         driver
             .update_permission_level(UpdatePermissionLevelParams {
                 session_id,

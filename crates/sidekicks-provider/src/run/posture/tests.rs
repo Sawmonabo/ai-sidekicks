@@ -358,8 +358,9 @@ async fn a_gate_reads_the_stored_level_only_once_stored_and_at_most_its_rounds()
     assert_eq!(service.resolved_posture_for(&moving.run_id), None);
 }
 
-// A gate of a session whose level was stored fails once the stored levels' source is gone, where
-// a service never handed one runs the requested posture. Killed by a gone source read as none.
+// A gate of a session whose level was stored fails where the stored levels' source was never
+// handed, and once the one handed is gone. Killed by a missing or gone source read as no stored
+// level.
 #[tokio::test]
 async fn a_gate_fails_once_the_stored_levels_are_gone() {
     let service =
@@ -367,7 +368,10 @@ async fn a_gate_fails_once_the_stored_levels_are_gone() {
     let session = new_session_id();
     service.note_level_stored(&session);
     let unset = run_context(session, readonly());
-    pass_gate(&service, &unset).await;
+    let unset_refusal = service
+        .assert_run_ready(&unset)
+        .await
+        .expect_err("a source never handed fails the gate");
     let stored = Arc::new(StoredLevel::default());
     service
         .set_stored_postures(Arc::downgrade(&stored) as Weak<_>)
@@ -375,18 +379,17 @@ async fn a_gate_fails_once_the_stored_levels_are_gone() {
     drop(stored);
 
     let gone = run_context(session, readonly());
-    let refused = service
+    let gone_refusal = service
         .assert_run_ready(&gone)
         .await
         .expect_err("a gone source fails the gate");
 
-    assert!(
-        matches!(&refused, RunSetupGateError::Failed(cause)
-            if matches!(cause.downcast_ref(), Some(PostureGateError::StoredLevelsGone))),
-        "{refused:?}"
-    );
-    assert_eq!(
-        service.resolved_posture_for(&unset.run_id),
-        Some(readonly())
-    );
+    for refused in [&unset_refusal, &gone_refusal] {
+        assert!(
+            matches!(refused, RunSetupGateError::Failed(cause)
+                if matches!(cause.downcast_ref(), Some(PostureGateError::StoredLevelsUnreadable))),
+            "{refused:?}"
+        );
+    }
+    assert_eq!(service.resolved_posture_for(&unset.run_id), None);
 }

@@ -35,16 +35,26 @@ use crate::provider_session::ProviderSessionError;
 use crate::provider_session::controls::SideQuestionSource;
 use sidekicks_provider::driver::test_registry::new_run_id;
 
-// A move to Sandboxed in a repository whose git folder is gone since the process opened is refused
-// before the driver hears of it as `workspace.rootUnavailable`, the stored level left as it was.
-// Killed by resolving the posture after the driver's move, and by answering the refusal as a
-// fault.
+// A move to Sandboxed in a repository whose git folder is gone is refused before the driver hears
+// of it as `workspace.rootUnavailable`, the stored level left as it was, whether the session's
+// process runs, is down, or was never opened by this daemon; a move to Read-only, whose posture
+// names no folder, is stored on a session with no process. Killed by resolving the posture after
+// the driver's move, by answering the refusal as a fault, and by reading the folder for a level
+// whose posture names none.
+#[rstest]
+#[case::live(Some(SessionProcessState::Live), PermissionLevel::Sandboxed)]
+#[case::down(Some(SessionProcessState::Down), PermissionLevel::Sandboxed)]
+#[case::not_opened(None, PermissionLevel::Sandboxed)]
+#[case::not_opened_to_readonly(None, PermissionLevel::Readonly)]
 #[tokio::test]
-async fn a_level_move_whose_root_is_gone_is_refused_before_the_driver_moves() {
-    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
-        driver
-            .expect_session_process_state()
-            .return_const(SessionProcessState::Live);
+async fn a_level_move_whose_root_is_gone_is_refused_before_the_driver_moves(
+    #[case] process: Option<SessionProcessState>,
+    #[case] level: PermissionLevel,
+) {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), move |driver, _| {
+        if let Some(state) = process {
+            driver.expect_session_process_state().return_const(state);
+        }
         driver.expect_update_permission_level().never();
     })
     .await;
@@ -53,34 +63,39 @@ async fn a_level_move_whose_root_is_gone_is_refused_before_the_driver_moves() {
         FilesystemPath::new(repository.path().to_string_lossy().into_owned())
             .expect("the scratch repository is a path"),
     );
-    opening
-        .sessions
-        .open(opening.session_id, opening.run_id)
-        .await
-        .expect("the conversation resumes");
-    let stored_before =
-        read_session_permission_level(&opening.database.reader(), &opening.session_id)
-            .expect("the stored level reads");
+    if process.is_some() {
+        opening
+            .sessions
+            .open(opening.session_id, opening.run_id)
+            .await
+            .expect("the conversation resumes");
+    }
+    store_level(&opening, PermissionLevel::Ask);
     repository.close().expect("the repository is removed");
 
     let moved = opening
         .sessions
-        .change_level(opening.session_id, PermissionLevel::Sandboxed)
+        .change_level(opening.session_id, level)
         .await;
 
-    assert!(
-        matches!(moved, Err(ProviderSessionError::PostureRefused { .. })),
-        "{moved:?}"
-    );
-    let answered = HandlerError::from(moved.expect_err("the move is refused"));
-    assert!(
-        matches!(&answered, HandlerError::Refused(refusal)
-            if refusal.code == RefusalCode::WorkspaceRootUnavailable),
-        "{answered:?}"
-    );
     let stored = read_session_permission_level(&opening.database.reader(), &opening.session_id)
         .expect("the stored level reads");
-    assert_eq!(stored, stored_before);
+    if level == PermissionLevel::Readonly {
+        moved.expect("a level naming no folder moves");
+        assert_eq!(stored, PermissionLevel::Readonly);
+    } else {
+        assert!(
+            matches!(moved, Err(ProviderSessionError::PostureRefused { .. })),
+            "{moved:?}"
+        );
+        let answered = HandlerError::from(moved.expect_err("the move is refused"));
+        assert!(
+            matches!(&answered, HandlerError::Refused(refusal)
+                if refusal.code == RefusalCode::WorkspaceRootUnavailable),
+            "{answered:?}"
+        );
+        assert_eq!(stored, PermissionLevel::Ask);
+    }
 }
 
 // A level move carries a run already past its gate to the moved level's posture. Killed by a move
@@ -377,11 +392,10 @@ async fn a_report_during_a_move_is_followed_after_it() {
     let held_alone = transition_lock.queue_handle_count(session_id);
     let sessions = Arc::clone(&opening.sessions);
     let followed = tokio::spawn(async move { sessions.follow_reported_level(session_id).await });
-    tokio::time::timeout(Duration::from_secs(5), async {
-        while transition_lock.queue_handle_count(session_id) == held_alone {
-            tokio::task::yield_now().await;
-        }
-    })
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        transition_lock.wait_for_queue_past(session_id, held_alone),
+    )
     .await
     .expect("the follow waits on the session's lock");
     release.notify_one();

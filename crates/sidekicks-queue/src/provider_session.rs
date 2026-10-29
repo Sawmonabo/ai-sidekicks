@@ -28,7 +28,7 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -41,8 +41,8 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
 use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::run::posture::{
-    ExecutionPostureRejection, ExecutionPostureService, StoredSessionPosture,
-    compose_execution_posture,
+    ExecutionPostureService, StoredSessionPosture, compose_execution_posture,
+    compose_folderless_posture,
 };
 use sidekicks_provider::runtime_binding::resume::{ResumeFunctionLegs, RuntimeBindingNotResumable};
 use sidekicks_provider::runtime_binding::store::{
@@ -104,13 +104,26 @@ pub type ProviderSessionOpeningComposer = Arc<
         + Sync,
 >;
 
-/// Reads the git folder of a session's repository, which the posture of each level is built on.
-/// Fails when the session has no workspace or git cannot read the folder.
+/// Reads the git folder of a session's repository, which the posture of Sandboxed is built on.
+/// Fails with [`GitFolderReadError::Unavailable`] when the session names no folder or git finds
+/// none there, and with [`GitFolderReadError::Failed`] when the reads fail.
 pub type ProviderSessionGitFolderReader = Arc<
-    dyn Fn(SessionId) -> BoxFuture<'static, Result<FilesystemPath, Box<dyn Error + Send + Sync>>>
+    dyn Fn(SessionId) -> BoxFuture<'static, Result<FilesystemPath, GitFolderReadError>>
         + Send
         + Sync,
 >;
+
+/// Why a session's git folder was not read.
+#[derive(Debug, thiserror::Error)]
+pub enum GitFolderReadError {
+    /// The session names no folder to work in yet, or git finds no repository where it names one,
+    /// as once its worktree is deleted.
+    #[error("the session's repository folder is unavailable")]
+    Unavailable(#[source] Box<dyn Error + Send + Sync>),
+    /// The session's records could not be read, or git could not be run.
+    #[error("the session's git folder could not be read")]
+    Failed(#[source] Box<dyn Error + Send + Sync>),
+}
 
 /// What the provider sessions read, write and call.
 pub struct ProviderSessionsDeps {
@@ -233,15 +246,15 @@ pub enum ProviderSessionError {
     /// The session's leg could not be read.
     #[error(transparent)]
     Store(#[from] RuntimeBindingStoreError),
-    /// The posture of the level the session was to move to did not resolve, so neither its process
-    /// nor its record moved.
+    /// The posture of the level the session was to move to did not resolve, or the folder it names
+    /// is unavailable, so neither its process nor its record moved.
     #[error("the posture of the level session {session_id} was to move to was refused")]
     PostureRefused {
         /// The session.
         session_id: SessionId,
         /// Why the posture was refused.
         #[source]
-        cause: ExecutionPostureRejection,
+        cause: Box<dyn Error + Send + Sync>,
     },
     /// The git folder the posture of the session's level is built on could not be read.
     #[error("the git folder of session {session_id} could not be read")]
@@ -392,7 +405,7 @@ fn unchangeable_session_refusal(session_id: &SessionId, state: SessionState) -> 
 
 // The refusal a level move answers whose posture's folder no longer resolves, keeping the
 // rejection as its cause; its message names no path, since a refusal can reach a remote caller.
-fn posture_refusal(session_id: &SessionId, cause: ExecutionPostureRejection) -> DomainError {
+fn posture_refusal(session_id: &SessionId, cause: Box<dyn Error + Send + Sync>) -> DomainError {
     DomainError::new(
         "The folder this level lets the session write to is unreachable, so the level did not \
          move.",
@@ -724,21 +737,36 @@ impl ProviderSessions {
         }))
     }
 
-    // The git folder of the session's opened process, else as read now. Fails as the read fails.
-    async fn git_folder(
+    // The posture the session's process runs at at `level`, over the opened process's git folder,
+    // else the session's as read now, which only a level whose posture names it reads. Fails with
+    // `PostureRefused` where that folder is unavailable, and as its read fails otherwise.
+    async fn level_posture(
         &self,
         session_id: SessionId,
-    ) -> Result<FilesystemPath, ProviderSessionError> {
+        level: PermissionLevel,
+    ) -> Result<ExecutionPosture, ProviderSessionError> {
+        if let Some(posture) = compose_folderless_posture(level) {
+            return Ok(posture);
+        }
         let opened_folder = self
             .lock_opened()
             .get(&session_id)
             .map(|opened| opened.git_folder.clone());
-        match opened_folder {
-            Some(git_folder) => Ok(git_folder),
-            None => (self.deps.read_git_folder)(session_id)
-                .await
-                .map_err(|cause| ProviderSessionError::GitFolder { session_id, cause }),
-        }
+        let git_folder =
+            match opened_folder {
+                Some(git_folder) => git_folder,
+                None => (self.deps.read_git_folder)(session_id)
+                    .await
+                    .map_err(|failure| match failure {
+                        GitFolderReadError::Unavailable(cause) => {
+                            ProviderSessionError::PostureRefused { session_id, cause }
+                        }
+                        GitFolderReadError::Failed(cause) => {
+                            ProviderSessionError::GitFolder { session_id, cause }
+                        }
+                    })?,
+            };
+        Ok(compose_execution_posture(level, git_folder))
     }
 
     fn set_posture(&self, session_id: SessionId, posture: ExecutionPosture) {
@@ -768,8 +796,8 @@ impl SessionLevelFollower for ProviderSessions {
 }
 
 impl StoredSessionPosture for ProviderSessions {
-    /// The stored level's posture over the opened process's git folder, or over the session's git
-    /// folder as read now.
+    /// The stored level's posture, over the opened process's git folder or the session's as read
+    /// now where it names one.
     fn stored_posture<'a>(
         &'a self,
         session_id: SessionId,
@@ -780,8 +808,7 @@ impl StoredSessionPosture for ProviderSessions {
             if level == requested.permission_level() {
                 return Ok(None);
             }
-            let git_folder = self.git_folder(session_id).await?;
-            Ok(Some(compose_execution_posture(level, git_folder)))
+            Ok(Some(self.level_posture(session_id, level).await?))
         }
         .map(|read: Result<_, ProviderSessionError>| {
             read.map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)

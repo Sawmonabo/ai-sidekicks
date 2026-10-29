@@ -42,28 +42,34 @@ pub fn compose_execution_posture(
     level: PermissionLevel,
     git_folder: FilesystemPath,
 ) -> ExecutionPosture {
+    compose_folderless_posture(level).unwrap_or_else(|| ExecutionPosture::Sandboxed {
+        credential_policy_ref: curated_policy_ref(),
+        writable_roots: vec![git_folder],
+    })
+}
+
+/// The posture a session's process runs at at `level` where that posture names no folder; `None`
+/// at Sandboxed, whose posture [`compose_execution_posture`] builds on the repository's git folder.
+pub fn compose_folderless_posture(level: PermissionLevel) -> Option<ExecutionPosture> {
     let credential_policy_ref = curated_policy_ref();
     match level {
-        PermissionLevel::Readonly => ExecutionPosture::Readonly {
+        PermissionLevel::Readonly => Some(ExecutionPosture::Readonly {
             credential_policy_ref,
             writable_roots: no_writable_roots(),
-        },
-        PermissionLevel::Ask => ExecutionPosture::Ask {
+        }),
+        PermissionLevel::Ask => Some(ExecutionPosture::Ask {
             credential_policy_ref,
             writable_roots: Vec::new(),
-        },
-        PermissionLevel::Reviewed => ExecutionPosture::Reviewed {
+        }),
+        PermissionLevel::Reviewed => Some(ExecutionPosture::Reviewed {
             credential_policy_ref,
             writable_roots: Vec::new(),
-        },
-        PermissionLevel::Sandboxed => ExecutionPosture::Sandboxed {
-            credential_policy_ref,
-            writable_roots: vec![git_folder],
-        },
-        PermissionLevel::Yolo => ExecutionPosture::Yolo {
+        }),
+        PermissionLevel::Sandboxed => None,
+        PermissionLevel::Yolo => Some(ExecutionPosture::Yolo {
             credential_policy_ref,
             writable_roots: no_writable_roots(),
-        },
+        }),
     }
 }
 
@@ -180,11 +186,13 @@ const GATE_ROUNDS: usize = 3;
 /// Why a run's gate could not settle the run's posture, a posture's own rejection aside.
 #[derive(Debug, thiserror::Error)]
 enum PostureGateError {
-    /// The sessions' stored levels were readable once and no longer are, as while the daemon stops.
-    #[error("the sessions' stored levels can no longer be read")]
-    StoredLevelsGone,
-    /// The session's level moved or was stored during each of the gate's rounds.
-    #[error("the session's level moved during each of the run gate's {GATE_ROUNDS} reads of it")]
+    /// The sessions' stored levels cannot be read: no source of them was handed to the service, or
+    /// the one handed is gone, as while the daemon stops.
+    #[error("the sessions' stored levels cannot be read")]
+    StoredLevelsUnreadable,
+    /// The session's level moved or was stored during each of the gate's rounds; the text is the
+    /// failed run's message, which the person reads.
+    #[error("The session's level kept changing while this run started.")]
     Unsettled,
 }
 
@@ -304,18 +312,18 @@ impl ExecutionPostureService {
     }
 
     // The posture the session's stored level runs at for `context`'s run where it is not the one
-    // the run was requested at; `None` where it is, or where no source was ever set, as in a test
-    // that stores no level. Fails once a source set is gone.
+    // the run was requested at; `None` where it is. Fails where no source was set or it is gone.
     async fn stored_posture(
         &self,
         context: &RunSetupContext,
     ) -> Result<Option<ExecutionPosture>, RunSetupGateError> {
-        let Some(source) = self.stored_postures.get() else {
-            return Ok(None);
-        };
-        let source = source.upgrade().ok_or_else(|| {
-            RunSetupGateError::Failed(Box::new(PostureGateError::StoredLevelsGone))
-        })?;
+        let source = self
+            .stored_postures
+            .get()
+            .and_then(Weak::upgrade)
+            .ok_or_else(|| {
+                RunSetupGateError::Failed(Box::new(PostureGateError::StoredLevelsUnreadable))
+            })?;
         source
             .stored_posture(context.session_id, &context.execution_posture)
             .await

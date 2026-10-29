@@ -6,6 +6,7 @@ mod controls;
 mod resume;
 
 use std::num::NonZeroUsize;
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, Weak, mpsc};
 use std::time::Duration;
@@ -64,8 +65,8 @@ use super::test_opening::{
     test_opening_composer,
 };
 use super::{
-    ProviderSessionError, ProviderSessionGitFolderReader, ProviderSessionOpeningComposer,
-    ProviderSessions, ProviderSessionsDeps,
+    GitFolderReadError, ProviderSessionError, ProviderSessionGitFolderReader,
+    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
 };
 
 /// The statements the test's read pool prepares.
@@ -356,7 +357,8 @@ fn recording_composer(
     })
 }
 
-// Reads every session's git folder as `git_folder` names it once one is set, else the root.
+// Reads every session's git folder as `git_folder` names it once one is set, else the root; a
+// folder deleted since is unavailable, as git finds no repository there.
 fn recording_git_folder(
     git_folder: &Arc<Mutex<Option<FilesystemPath>>>,
 ) -> ProviderSessionGitFolderReader {
@@ -365,7 +367,15 @@ fn recording_git_folder(
         let git_folder = lock(&git_folder)
             .clone()
             .unwrap_or_else(|| FilesystemPath::new("/".to_owned()).expect("the root is a path"));
-        async move { Ok(git_folder) }.boxed()
+        async move {
+            if !Path::new(git_folder.as_str()).exists() {
+                return Err(GitFolderReadError::Unavailable(
+                    "the repository folder is gone".into(),
+                ));
+            }
+            Ok(git_folder)
+        }
+        .boxed()
     })
 }
 
