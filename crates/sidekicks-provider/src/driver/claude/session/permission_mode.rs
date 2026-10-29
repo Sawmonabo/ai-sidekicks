@@ -1,22 +1,26 @@
 //! The permission mode a live Claude Code process runs in, as the daemon's own sends set it and as
 //! Claude Code reports it, so a report the daemon's own send caused is told apart from a mode
-//! changed in Claude Code itself.
+//! changed in Claude Code itself, which is handed to the daemon to follow.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::watch;
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::permission_level::claude_level_of_mode;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::contract::ProviderReportedLevel;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
+use crate::port::session_level_follower::SessionLevelFollower;
 
 /// One live process's permission mode: the mode it runs, last acknowledged; the daemon's
 /// `set_permission_mode` sends in flight, counted per mode; and Claude Code's newest report.
@@ -85,6 +89,17 @@ impl ClaudePermissionModeRecord {
         }
     }
 
+    /// Takes `mode`, which Claude Code reported running and the daemon followed, as the mode the
+    /// process runs, so that report no longer reads as Claude Code's own.
+    pub(crate) fn adopt_report(&self, mode: ClaudePermissionMode) {
+        lock(&self.sends).running = mode;
+    }
+
+    /// A receiver woken on each of Claude Code's reports, which ends once the record drops.
+    pub(crate) fn report_changes(&self) -> watch::Receiver<Option<ClaudePermissionMode>> {
+        self.newest_report.subscribe()
+    }
+
     /// The mode Claude Code last reported, whoever caused it; `None` before any report.
     pub(crate) fn newest_report(&self) -> Option<ClaudePermissionMode> {
         *self.newest_report.borrow()
@@ -119,6 +134,38 @@ impl ClaudePermissionModeRecord {
             if *count == 0 {
                 sends.in_flight.remove(&mode);
             }
+        }
+    }
+}
+
+/// Hands each of `session_id`'s reports that reads as Claude Code's own to the registered
+/// follower, until `record` drops at the process's close; with no follower registered the report
+/// is dropped, and a failed follow is logged. Holds the record weakly, so it never keeps it alive.
+pub(crate) async fn follow_claude_reported_levels(
+    record: Weak<ClaudePermissionModeRecord>,
+    mut reports: watch::Receiver<Option<ClaudePermissionMode>>,
+    session_id: SessionId,
+    followers: Arc<PortRegistration<Arc<dyn SessionLevelFollower>>>,
+) {
+    while reports.changed().await.is_ok() {
+        let Some(record) = record.upgrade() else {
+            break;
+        };
+        // A report the daemon's own send explains is not followed.
+        if record.reported_level().is_none() {
+            continue;
+        }
+        drop(record);
+        let Some(follower) = followers.port().cloned() else {
+            continue;
+        };
+        if let Err(error) = follower.follow_reported_level(session_id).await {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::DeliveryDispatchFailed,
+                Some(session_id),
+                "the follow of a reported level",
+                error.as_ref(),
+            );
         }
     }
 }

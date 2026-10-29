@@ -160,8 +160,9 @@ impl ClaudeDriver {
 
     /// Moves the session to another level from its next request, with its rules in force: a live
     /// process at once, and one the driver brings back from the settings it starts with. Refused
-    /// `session.permissionLevel.notOffered` for a level the model or this system cannot run, and
-    /// `NoLiveSession` when no process serves the session or comes back; fails as the move fails.
+    /// `session.permissionLevel.notOffered` for a level the model or this system cannot run,
+    /// unless Claude Code reported running it, and `NoLiveSession` when no process serves the
+    /// session or comes back; fails as the move fails.
     pub(crate) async fn update_permission_level(
         &self,
         params: UpdatePermissionLevelParams,
@@ -183,6 +184,12 @@ impl ClaudeDriver {
                     read_claude_session_rules(&self.sources.ports.session_rules, params.session_id),
                 );
                 let session_rules = session_rules.map_err(DriverError::Internal)?;
+                if params.is_provider_reported {
+                    return parts
+                        .session_controls
+                        .follow_reported_level(&live, params, can_run_sandbox, &session_rules)
+                        .await;
+                }
                 move_claude_permission_level(
                     &live,
                     params,
@@ -194,22 +201,25 @@ impl ClaudeDriver {
                 Ok(())
             },
             |ended| async move {
-                let legs = &ended.spawn_bound_legs;
-                let can_run_sandbox = read_claude_sandbox_support(
-                    &self.sources.spawner,
-                    &legs.spawn_environment,
-                    &legs.working_directory,
-                    Some(params.session_id),
-                )
-                .await;
-                let is_runnable = can_run_claude_level(
-                    level,
-                    &lock(&ended.settings).running_model,
-                    &ended.initialize.auto_mode_models,
-                    can_run_sandbox,
-                );
-                if !is_runnable {
-                    return Err(DriverError::Refused(permission_level_not_offered(level)));
+                // The process reported running the level, so a later process starts in it.
+                if !params.is_provider_reported {
+                    let legs = &ended.spawn_bound_legs;
+                    let can_run_sandbox = read_claude_sandbox_support(
+                        &self.sources.spawner,
+                        &legs.spawn_environment,
+                        &legs.working_directory,
+                        Some(params.session_id),
+                    )
+                    .await;
+                    let is_runnable = can_run_claude_level(
+                        level,
+                        &lock(&ended.settings).running_model,
+                        &ended.initialize.auto_mode_models,
+                        can_run_sandbox,
+                    );
+                    if !is_runnable {
+                        return Err(DriverError::Refused(permission_level_not_offered(level)));
+                    }
                 }
                 Ok(parts.restarts.write_held_settings(&ended, |settings| {
                     settings.execution_posture = Some(params.execution_posture.clone());
@@ -526,12 +536,13 @@ impl ClaudeDriver {
     ) -> Result<(), DriverError> {
         let parts = self.parts()?;
         let mode = params.mode;
+        let params = &params;
         self.move_session_setting(
             params.session_id,
             |live| async move {
                 parts
                     .session_controls
-                    .update_session_mode(&live, mode)
+                    .update_session_mode(&live, params)
                     .await
             },
             |ended| async move {

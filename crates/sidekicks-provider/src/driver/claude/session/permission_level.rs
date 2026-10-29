@@ -197,28 +197,39 @@ pub(crate) fn can_run_claude_level(
         && (level != PermissionLevel::Reviewed || auto_mode_models.contains(running_model))
 }
 
+/// What a live level move left to tell the person.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeLevelMoved {
+    /// Claude Code reported running Sandboxed where the sandbox cannot start, so its commands
+    /// fail rather than run unsandboxed.
+    pub(crate) sandbox_unavailable: bool,
+}
+
 /// Moves a live session to the posture `params` names, at its level and writable roots: its
 /// permission mode, unless the session plans, then its whole permission rules with `session_rules`
 /// in force and its command sandbox, on at Sandboxed and removed at every other level, then the
 /// posture it runs at. Refused before anything is sent for a level the model or system cannot
-/// run.
+/// run. A move that follows a mode Claude Code reported running sends no mode and is never
+/// refused, since Claude Code runs it already; it takes that mode as the one the process runs,
+/// and at Sandboxed where the sandbox cannot start it answers `sandbox_unavailable`.
 pub(crate) async fn move_claude_permission_level(
     live: &LiveClaudeSession,
     params: &UpdatePermissionLevelParams,
     can_run_sandbox: bool,
     session_rules: &[ProviderAskRule],
     path_rules: PathRules,
-) -> Result<(), ClaudeLevelMoveError> {
+) -> Result<ClaudeLevelMoved, ClaudeLevelMoveError> {
     let posture = &params.execution_posture;
     let level = posture.permission_level();
     let (session_mode, is_runnable) = {
         let settings = lock(&live.settings);
-        let is_runnable = can_run_claude_level(
-            level,
-            &settings.running_model,
-            &live.initialize.auto_mode_models,
-            can_run_sandbox,
-        );
+        let is_runnable = params.is_provider_reported
+            || can_run_claude_level(
+                level,
+                &settings.running_model,
+                &live.initialize.auto_mode_models,
+                can_run_sandbox,
+            );
         (settings.session_mode, is_runnable)
     };
     if !is_runnable {
@@ -235,7 +246,7 @@ pub(crate) async fn move_claude_permission_level(
     )
     .map_err(ClaudePermissionsError::Compose)?;
     // A planning session stays in plan mode; the level's own mode returns when it builds again.
-    if session_mode == SessionMode::Build {
+    if session_mode == SessionMode::Build && !params.is_provider_reported {
         let mode = claude_permission_mode_for(Some(level));
         // Held until the reply, so the report the send causes is known as the daemon's own.
         let send = live.permission_mode.begin_send(mode);
@@ -263,7 +274,16 @@ pub(crate) async fn move_claude_permission_level(
         .await
         .map_err(level_request_failure)?;
     lock(&live.settings).execution_posture = Some(posture.clone());
-    Ok(())
+    if !params.is_provider_reported {
+        return Ok(ClaudeLevelMoved {
+            sandbox_unavailable: false,
+        });
+    }
+    live.permission_mode
+        .adopt_report(claude_permission_mode_for(Some(level)));
+    Ok(ClaudeLevelMoved {
+        sandbox_unavailable: level == PermissionLevel::Sandboxed && !can_run_sandbox,
+    })
 }
 
 // Claude Code's own refusal of a level's request refuses the level as not offered, in its words;

@@ -87,6 +87,7 @@ impl ProviderSessions {
         let moved = UpdatePermissionLevelParams {
             session_id,
             execution_posture: posture.clone(),
+            is_provider_reported: false,
         };
         driver.update_permission_level(moved).await?;
         self.set_posture(session_id, posture);
@@ -99,6 +100,7 @@ impl ProviderSessions {
         let back = UpdatePermissionLevelParams {
             session_id,
             execution_posture: opened.execution_posture.clone(),
+            is_provider_reported: false,
         };
         match driver.update_permission_level(back).await {
             Ok(()) => {
@@ -160,7 +162,11 @@ impl ProviderSessions {
             }
         };
         driver
-            .update_session_mode(UpdateSessionModeParams { session_id, mode })
+            .update_session_mode(UpdateSessionModeParams {
+                session_id,
+                mode,
+                is_provider_reported: false,
+            })
             .await?;
         let Err(stored_error) = self.record_mode(session_id, mode).await else {
             return Ok(());
@@ -168,6 +174,7 @@ impl ProviderSessions {
         let back = UpdateSessionModeParams {
             session_id,
             mode: stored,
+            is_provider_reported: false,
         };
         match driver.update_session_mode(back).await {
             Ok(()) => Err(ProviderSessionError::ModeNotStored {

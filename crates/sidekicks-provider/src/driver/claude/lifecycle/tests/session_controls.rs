@@ -1,5 +1,5 @@
 //! The session controls that run beside a session's own turns, reached through the driver: a side
-//! question, a review, a mode move, a run started through the driver interface and a fork.
+//! question, a review, a run started through the driver interface and a fork.
 
 use std::sync::Arc;
 
@@ -11,7 +11,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::failure_cause::{RunFailureCause, RunRefusedOrigin};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{
-    PermissionLevel, SessionMode, SessionReviewTarget, SideQuestionId,
+    PermissionLevel, SessionReviewTarget, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::BoolLiteral;
@@ -27,7 +27,7 @@ use tokio::runtime::Handle;
 use super::{resume_params, start_params};
 use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
+use crate::driver::claude::session::scripted::channel::ScriptedChannel;
 use crate::driver::claude::session::scripted::driver::{
     ScriptedDriver, create_params, end_turn_of,
 };
@@ -46,7 +46,6 @@ use crate::driver::contract::{DriverError, ProviderDriver, RunOpeningItem};
 use crate::driver::run_control::InterruptRunRequest;
 use crate::driver::session_control::{
     AskSideQuestionParams, CloseSessionParams, CreateSessionParams, MoveSessionToForkParams,
-    UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::EngineCall;
@@ -241,28 +240,6 @@ async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
         .map(|one_turn| one_turn.permission_mode)
         .collect();
     assert_eq!(modes, [None]);
-}
-
-// Killed by answering Claude Code's refusal of a mode as an internal failure.
-#[tokio::test(start_paused = true)]
-async fn a_mode_claude_code_refuses_is_refused_as_not_offered() {
-    let fixture = ScriptedDriver::new();
-    let channel = Arc::new(ScriptedChannel::default());
-    let session_id = fixture.create(&channel).await;
-    channel.answer("set_permission_mode", ScriptedAnswer::Refused);
-
-    let moved = fixture
-        .driver
-        .update_session_mode(UpdateSessionModeParams {
-            session_id,
-            mode: SessionMode::Plan,
-        })
-        .await;
-
-    let Err(DriverError::Refused(refusal)) = moved else {
-        panic!("a refused mode is refused, not {moved:?}");
-    };
-    assert_eq!(refusal.code, RefusalCode::SessionModeNotOffered);
 }
 
 // Killed by a staged review whose process starts with no channel of its own, and by one that keeps

@@ -63,7 +63,9 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::driver::claude::session::ignored_settings::find_ignored_setting_notice;
-use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
+use crate::driver::claude::session::permission_mode::{
+    ClaudePermissionModeRecord, follow_claude_reported_levels,
+};
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
 use crate::driver::claude::session::state::{
@@ -782,6 +784,12 @@ impl ClaudeSessionEstablishment {
         tokio::spawn(async move {
             drain_claude_session_arrivals(receiver, &mut task, account).await;
         });
+        tokio::spawn(follow_claude_reported_levels(
+            Arc::downgrade(&live.permission_mode),
+            live.permission_mode.report_changes(),
+            session_id,
+            Arc::clone(&self.sources.ports.session_level_followers),
+        ));
         let cleanup_period_days = started.settings_readback.cleanup_period_days;
         tokio::spawn(async move {
             let managed_settings_folder = DESCRIPTOR.managed_settings_folder();

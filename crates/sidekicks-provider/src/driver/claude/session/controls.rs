@@ -20,7 +20,7 @@ use sidekicks_contracts::session::controls::events::{
     SessionNotice, SessionNoticePostedPayload, SessionSideQuestionAnsweredPayload,
 };
 use sidekicks_contracts::session::controls::methods::{
-    SessionMode, SideQuestionId, SideQuestionText,
+    PermissionLevel, SessionMode, SideQuestionId, SideQuestionText,
 };
 use sidekicks_contracts::session::events::{
     SessionAdvisorChangedPayload, SessionOutputStyleChangedPayload,
@@ -29,6 +29,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_platforms::PathRules;
+use sidekicks_policy::ask_rule::ProviderAskRule;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_workspace::git::process::NO_PROMPT_ENVIRONMENT;
@@ -46,7 +47,9 @@ use crate::driver::claude::session::answered_commands::{
 use crate::driver::claude::session::arrivals::deliver_in_session_order;
 use crate::driver::claude::session::errors::{ClaudeSessionError, record_unheard_claude_failure};
 use crate::driver::claude::session::idle_sleep::ClaudeSideQuestionHold;
-use crate::driver::claude::session::permission_level::claude_permission_mode_for;
+use crate::driver::claude::session::permission_level::{
+    claude_permission_mode_for, move_claude_permission_level,
+};
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::control::{
@@ -64,7 +67,10 @@ use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::{DriverError, ProviderCommandsSubscription};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::side_question_refusal;
-use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
+use crate::driver::session_control::{
+    ProviderCommandsListener, SessionCommandAnswer, UpdatePermissionLevelParams,
+    UpdateSessionModeParams,
+};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::session_rules::SessionRulePort;
@@ -143,14 +149,16 @@ impl ClaudeSessionControls {
     }
 
     /// Moves the session between Build and Plan from its next turn: Plan is Claude Code's `plan`
-    /// mode and Build its level's own mode, stored once Claude Code takes it. Refused
-    /// `session.mode.notOffered` in Claude Code's words when it refuses the mode; fails as the
-    /// request fails.
+    /// mode and Build its level's own mode, stored once Claude Code takes it. A move that follows
+    /// a mode Claude Code reported running sends nothing and takes that mode as the one the
+    /// process runs, the level unchanged. Refused `session.mode.notOffered` in Claude Code's words
+    /// when it refuses the mode; fails as the request fails.
     pub(crate) async fn update_session_mode(
         &self,
         live: &LiveClaudeSession,
-        mode: SessionMode,
+        params: &UpdateSessionModeParams,
     ) -> Result<(), DriverError> {
+        let mode = params.mode;
         let level = lock(&live.settings)
             .execution_posture
             .as_ref()
@@ -159,6 +167,11 @@ impl ClaudeSessionControls {
             SessionMode::Plan => ClaudePermissionMode::Plan,
             SessionMode::Build => claude_permission_mode_for(level),
         };
+        if params.is_provider_reported {
+            lock(&live.settings).session_mode = mode;
+            live.permission_mode.adopt_report(permission_mode);
+            return Ok(());
+        }
         // Held until the reply, so the report the send causes is known as the daemon's own.
         let send = live.permission_mode.begin_send(permission_mode);
         live.channel
@@ -177,6 +190,37 @@ impl ClaudeSessionControls {
             })?;
         send.acknowledge();
         lock(&live.settings).session_mode = mode;
+        Ok(())
+    }
+
+    /// Moves the live session to the level Claude Code reported running, as
+    /// [`move_claude_permission_level`] does a reported move, and tells the person when Claude
+    /// Code reported Sandboxed where the sandbox cannot start. Fails as the move fails.
+    pub(crate) async fn follow_reported_level(
+        &self,
+        live: &LiveClaudeSession,
+        params: &UpdatePermissionLevelParams,
+        can_run_sandbox: bool,
+        session_rules: &[ProviderAskRule],
+    ) -> Result<(), DriverError> {
+        let moved = move_claude_permission_level(
+            live,
+            params,
+            can_run_sandbox,
+            session_rules,
+            PathRules::NATIVE,
+        )
+        .await?;
+        if moved.sandbox_unavailable {
+            self.post_notice(
+                params.session_id,
+                SessionNotice::LevelUnavailable {
+                    session_id: params.session_id,
+                    level: PermissionLevel::Sandboxed,
+                },
+            )
+            .await;
+        }
         Ok(())
     }
 
