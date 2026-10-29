@@ -54,7 +54,7 @@ use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
 use sidekicks_workspace::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
 };
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
 use tempfile::TempDir;
@@ -64,7 +64,9 @@ use tokio_util::sync::CancellationToken;
 use super::{
     SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
 };
-use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
+use crate::daemon::process::repo_services::{
+    ManagedWritesWatermarkFile, RepoServiceStart, RepoServices, build_repo_services,
+};
 use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
@@ -99,7 +101,7 @@ struct Fixture {
     folder_watch: Arc<WorkingFolderWatcher>,
     workspaces: Arc<ManagedWorkspaceService>,
     // Stands in for the workspaces' watch as the sender of the chats' writes.
-    writes: Option<mpsc::Sender<ManagedWorkspaceWrite>>,
+    writes: Option<mpsc::Sender<ManagedWorkspaceReport>>,
     session: SessionServices,
     home: TempDir,
 }
@@ -153,6 +155,7 @@ async fn fixture() -> Fixture {
     let RepoServices {
         folder_watch,
         workspaces,
+        managed_writes_watermark,
         ..
     } = repo;
     let (writes, workspace_writes) = mpsc::channel(8);
@@ -222,6 +225,9 @@ async fn fixture() -> Fixture {
         spool_folder,
         workspaces_folder: managed_workspaces_folder(home.path()),
         workspace_writes,
+        managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
+            path: managed_writes_watermark,
+        }),
         clock,
         spawner,
         daemon_program,
@@ -335,11 +341,11 @@ async fn the_stop_records_every_write_sent_before_it() {
         std::fs::write(workspace.join(&name), format!("note {index}"))
             .expect("the test writes a file");
         writes
-            .send(ManagedWorkspaceWrite {
+            .send(ManagedWorkspaceReport::Write(ManagedWorkspaceWrite {
                 session_id,
                 relative_path: name.into(),
                 kind: ManagedWorkspaceWriteKind::File,
-            })
+            }))
             .await
             .expect("the recording reads the writes");
     }

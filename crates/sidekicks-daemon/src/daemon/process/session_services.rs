@@ -55,7 +55,7 @@ use sidekicks_terminal::{CommandLine, Terminals};
 use sidekicks_workspace::git::process::GitRunner;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
-use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::managed::write_watcher::{ManagedWorkspaceReport, ManagedWritesWatermark};
 use sidekicks_workspace::run_setup_gates::RunSetupGate;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -124,7 +124,10 @@ pub(crate) struct SessionServiceStart {
     /// The folder of the chats' managed workspaces.
     pub(crate) workspaces_folder: PathBuf,
     /// The chats' writes the managed workspaces' watch reports.
-    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceWrite>,
+    pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceReport>,
+    /// Where the recording of those writes keeps each instant the watch's walk caught up to, once
+    /// every write sent ahead of it is recorded.
+    pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
     /// The daemon's wall clock.
     pub(crate) clock: Arc<dyn WallClock>,
     /// The thread every terminal child starts on.
@@ -247,6 +250,7 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         workspace_writes,
+        managed_writes_watermark,
         clock,
         spawner,
         daemon_program,
@@ -373,7 +377,9 @@ pub(crate) fn build_session_services(
     let chat_version_recording = {
         let chat_versions = Arc::clone(&chat_versions);
         tokio::spawn(async move {
-            chat_versions.record_reported_writes(workspace_writes).await;
+            chat_versions
+                .record_reported_writes(workspace_writes, &*managed_writes_watermark)
+                .await;
         })
     };
     Ok(SessionServices {

@@ -41,7 +41,8 @@ use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLen
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_workspace::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+    ManagedWritesWatermark,
 };
 use tokio::sync::mpsc;
 
@@ -141,15 +142,25 @@ impl ChatFileVersions {
         }
     }
 
-    /// Records each write `writes` reports, one at a time, until its sender is gone; a write that
-    /// could not be recorded is logged, and the next one goes on.
-    pub async fn record_reported_writes(&self, mut writes: mpsc::Receiver<ManagedWorkspaceWrite>) {
-        while let Some(write) = writes.recv().await {
-            if let Err(error) = self.take_reported_write(write).await {
-                tracing::error!(
-                    error = &error as &(dyn Error + 'static),
-                    "a chat's write was not kept as a version"
-                );
+    /// Records each write `reports` names, one at a time, until its sender is gone, and stores
+    /// each caught-up instant through `watermark` once every write ahead of it is recorded; a
+    /// write that could not be recorded is logged, and the next one goes on.
+    pub async fn record_reported_writes(
+        &self,
+        mut reports: mpsc::Receiver<ManagedWorkspaceReport>,
+        watermark: &dyn ManagedWritesWatermark,
+    ) {
+        while let Some(report) = reports.recv().await {
+            match report {
+                ManagedWorkspaceReport::Write(write) => {
+                    if let Err(error) = self.take_reported_write(write).await {
+                        tracing::error!(
+                            error = &error as &(dyn Error + 'static),
+                            "a chat's write was not kept as a version"
+                        );
+                    }
+                }
+                ManagedWorkspaceReport::CaughtUp(instant) => watermark.store(instant).await,
             }
         }
     }
@@ -462,8 +473,10 @@ fn workspace_path_text(relative_path: &Path) -> Option<ComposedText> {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, SystemTime};
 
+    use futures::future::BoxFuture;
     use sidekicks_contracts::artifacts::id::ArtifactId;
     use sidekicks_contracts::artifacts::operations::{
         ArtifactListEntry, ArtifactPayloadSelection, ArtifactReadRequest, ArtifactReadResponse,
@@ -474,9 +487,11 @@ mod tests {
         FileToolWriteOpened, FileToolWriteOutcome, FileToolWritePort as _, FileToolWriteSettled,
     };
     use sidekicks_workspace::managed::write_watcher::{
-        ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+        ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
+        ManagedWritesWatermark,
     };
     use tempfile::TempDir;
+    use tokio::sync::mpsc;
 
     use super::ChatFileVersions;
     use crate::list::list_artifacts;
@@ -508,6 +523,30 @@ mod tests {
         )
         .await
         .expect("the artifact reads")
+    }
+
+    /// Keeps each instant stored with the count of versions recorded when it was stored.
+    struct CountingWatermark {
+        reader: Mutex<rusqlite::Connection>,
+        stored: Mutex<Vec<(SystemTime, i64)>>,
+    }
+
+    impl ManagedWritesWatermark for CountingWatermark {
+        fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()> {
+            let recorded = self
+                .reader
+                .lock()
+                .expect("no test thread panics holding the reader")
+                .query_row("SELECT count(*) FROM artifact_manifests", [], |row| {
+                    row.get(0)
+                })
+                .expect("the test counts the versions");
+            self.stored
+                .lock()
+                .expect("no test thread panics holding the instants")
+                .push((instant, recorded));
+            Box::pin(async {})
+        }
     }
 
     async fn fixture() -> Fixture {
@@ -639,6 +678,48 @@ mod tests {
         assert_eq!(newest.payload.as_bytes(), b"three");
         assert_eq!(first.payload.as_bytes(), b"one");
         assert_eq!(fixture.store.count_events("artifact.published"), 3);
+    }
+
+    /// The walk's caught-up instant is stored only once the writes the watch sent ahead of it are
+    /// recorded, so a crash before then has the next start walk for them again; killed by storing
+    /// it before the reader reaches it, or never.
+    #[tokio::test]
+    async fn a_caught_up_instant_is_stored_once_the_writes_ahead_of_it_are_recorded() {
+        let fixture = fixture().await;
+        fixture.write_file("notes.txt", "kept");
+        let caught_up = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000);
+        let (reports_sender, reports) = mpsc::channel(2);
+        for report in [
+            ManagedWorkspaceReport::Write(ManagedWorkspaceWrite {
+                session_id: fixture.store.session_id,
+                relative_path: PathBuf::from("notes.txt"),
+                kind: ManagedWorkspaceWriteKind::File,
+            }),
+            ManagedWorkspaceReport::CaughtUp(caught_up),
+        ] {
+            reports_sender
+                .send(report)
+                .await
+                .expect("the reports wait for their reader");
+        }
+        drop(reports_sender);
+        let watermark = CountingWatermark {
+            reader: Mutex::new(fixture.store.database.reader()),
+            stored: Mutex::default(),
+        };
+
+        fixture
+            .versions
+            .record_reported_writes(reports, &watermark)
+            .await;
+
+        assert_eq!(
+            *watermark
+                .stored
+                .lock()
+                .expect("no test thread panics holding the instants"),
+            [(caught_up, 1)]
+        );
     }
 
     /// A folder is one entry over the empty payload, and a second report of it, or of a file whose

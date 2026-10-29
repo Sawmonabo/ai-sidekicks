@@ -7,9 +7,8 @@
 //! the watch started again walks for every write made since the earlier one last told them all,
 //! or for every entry in a folder made again. A clean stop lets the watch send the batch under
 //! way, and [`ManagedWorkspaceService::whole_since`] then names the instant the next start walks
-//! from. Each change the watch names
-//! recounts the files in that chat's folder onto its managed mount's row, which the sessions list
-//! reads as the chat's document count.
+//! from. Each change the watch names recounts the files in that chat's folder onto its managed
+//! mount's row, which the sessions list reads as the chat's document count.
 
 use std::error::Error;
 use std::ffi::OsStr;
@@ -36,9 +35,7 @@ use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
-use crate::managed::write_watcher::{
-    ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher, ManagedWritesWatermark, MissedWrites,
-};
+use crate::managed::write_watcher::{ManagedWorkspaceReport, ManagedWorkspaceWriteWatcher};
 use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
 const MANAGED_WORKSPACES_FOLDER_NAME: &str = "workspaces";
@@ -110,8 +107,6 @@ pub struct ManagedWorkspaceService {
     write_watch: Mutex<Option<WriteWatch>>,
     // The instant before which every write a chat made has been sent, across every watch started.
     whole_since: Arc<Mutex<SystemTime>>,
-    // Where each watch started keeps how far its walk has caught up.
-    watermark: Arc<dyn ManagedWritesWatermark>,
     document_counting: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
@@ -120,31 +115,31 @@ pub struct ManagedWorkspaceService {
 struct WriteWatch {
     watcher: ManagedWorkspaceWriteWatcher,
     failure: oneshot::Receiver<SystemTime>,
-    writes: mpsc::Sender<ManagedWorkspaceWrite>,
+    reports: mpsc::Sender<ManagedWorkspaceReport>,
 }
 
 impl WriteWatch {
-    // Starts the watch, which walks for every write changed at or after `missed.since` once
+    // Starts the watch, which walks for every write changed at or after `missed_since` once
     // ready, keeping `whole_since` from that instant on.
     fn start(
         workspaces_folder: PathBuf,
-        writes: mpsc::Sender<ManagedWorkspaceWrite>,
+        reports: mpsc::Sender<ManagedWorkspaceReport>,
         changed_folders: Arc<PendingSessions>,
-        missed: MissedWrites,
+        missed_since: SystemTime,
         whole_since: &Arc<Mutex<SystemTime>>,
     ) -> Self {
-        *lock(whole_since) = missed.since;
+        *lock(whole_since) = missed_since;
         let (watcher, failure) = ManagedWorkspaceWriteWatcher::start(
             workspaces_folder,
-            writes.clone(),
+            reports.clone(),
             changed_folders,
-            missed,
+            missed_since,
             Arc::clone(whole_since),
         );
         Self {
             watcher,
             failure,
-            writes,
+            reports,
         }
     }
 
@@ -163,29 +158,28 @@ impl WriteWatch {
 impl ManagedWorkspaceService {
     /// The workspaces under `home_folder`, which is in `place` (`None` on macOS and Linux), their
     /// rows written through `repo_mounts`, each made a repository through `git`, and every write a
-    /// chat makes in one sent on `writes`; starts the watch that reports them, walking first for
-    /// every write since `missed.since` (the instant [`Self::whole_since`] named at the last clean
-    /// stop, or the one a walk stored through `missed.watermark` once it had sent every write it
-    /// walked for), and the task that recounts a chat's files on each change and names the chat to
-    /// `list_feed` when its count moved. Dropping the service ends both.
+    /// chat makes in one sent on `reports`; starts the watch that reports them, walking first for
+    /// every write since `missed_since` (the instant [`Self::whole_since`] named at the last clean
+    /// stop, or the one the reader of `reports` kept once it had recorded every write a walk sent
+    /// ahead of it), and the task that recounts a chat's files on each change and names the chat
+    /// to `list_feed` when its count moved. Dropping the service ends both.
     pub fn new(
         home_folder: &Path,
         place: Option<Place>,
         repo_mounts: Arc<RepoMountService>,
         git: GitRunner,
-        writes: mpsc::Sender<ManagedWorkspaceWrite>,
+        reports: mpsc::Sender<ManagedWorkspaceReport>,
         list_feed: Arc<dyn SessionListRefresh>,
-        missed: MissedWrites,
+        missed_since: SystemTime,
     ) -> Self {
         let workspaces_folder = managed_workspaces_folder(home_folder);
         let changed_folders = Arc::new(PendingSessions::default());
-        let whole_since = Arc::new(Mutex::new(missed.since));
-        let watermark = Arc::clone(&missed.watermark);
+        let whole_since = Arc::new(Mutex::new(missed_since));
         let write_watch = WriteWatch::start(
             workspaces_folder.clone(),
-            writes,
+            reports,
             Arc::clone(&changed_folders),
-            missed,
+            missed_since,
             &whole_since,
         );
         let document_counting = AbortOnDropHandle::new(tokio::spawn(count_documents(
@@ -202,13 +196,12 @@ impl ManagedWorkspaceService {
             changed_folders,
             write_watch: Mutex::new(Some(write_watch)),
             whole_since,
-            watermark,
             document_counting: Mutex::new(Some(document_counting)),
         }
     }
 
     /// Ends the watch of the chats' writes once the batch under way is sent, which drops the last
-    /// sender of `writes`, so their reader ends after the writes already sent, and ends the
+    /// sender of `reports`, so their reader ends after the writes already sent, and ends the
     /// recount of the chats' files, waiting for both. A write the watch had not yet sent is walked
     /// for at the next start from [`Self::whole_since`]. A create after it starts no watch. Fails
     /// only when the watch's or the recount's task panicked.
@@ -231,7 +224,7 @@ impl ManagedWorkspaceService {
     }
 
     /// The instant before which every write a chat made in its workspace has been sent on the
-    /// service's `writes`: once the reader of `writes` has kept them all after [`Self::stop`], the
+    /// service's `reports`: once their reader has recorded them all after [`Self::stop`], the
     /// instant the next start walks from.
     pub fn whole_since(&self) -> SystemTime {
         *lock(&self.whole_since)
@@ -316,12 +309,9 @@ impl ManagedWorkspaceService {
         };
         *write_watch = WriteWatch::start(
             self.workspaces_folder.clone(),
-            write_watch.writes.clone(),
+            write_watch.reports.clone(),
             Arc::clone(&self.changed_folders),
-            MissedWrites {
-                since: missed_since,
-                watermark: Arc::clone(&self.watermark),
-            },
+            missed_since,
             &self.whole_since,
         );
     }
@@ -501,7 +491,7 @@ mod tests {
     use crate::git::process::test_git_runner;
     use crate::git::worktree::schema::schema_parts;
     use crate::managed::write_watcher::{
-        ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, MissedWrites,
+        ManagedWorkspaceReport, ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
     };
     use crate::repo::mount::service::RepoMountService;
     use crate::repo::root_resolver::RepoRootResolver;
@@ -524,7 +514,7 @@ mod tests {
     async fn start_service(
         home: &tempfile::TempDir,
         database: &TestDatabase,
-        writes: mpsc::Sender<ManagedWorkspaceWrite>,
+        writes: mpsc::Sender<ManagedWorkspaceReport>,
     ) -> (mpsc::UnboundedReceiver<SessionId>, ManagedWorkspaceService) {
         let repo_mounts =
             RepoMountService::for_test(database, RepoRootResolver::new(test_git_runner())).await;
@@ -536,7 +526,7 @@ mod tests {
             test_git_runner(),
             writes,
             Arc::new(NamedSessions(named_sender)),
-            MissedWrites::unkept(std::time::SystemTime::now()),
+            std::time::SystemTime::now(),
         );
         (named, service)
     }
@@ -546,7 +536,7 @@ mod tests {
     async fn write_once_and_see_it_reported(
         service: &ManagedWorkspaceService,
         session_id: SessionId,
-        writes: &mut mpsc::Receiver<ManagedWorkspaceWrite>,
+        writes: &mut mpsc::Receiver<ManagedWorkspaceReport>,
     ) {
         let workspace = service
             .create(session_id)
@@ -554,12 +544,15 @@ mod tests {
             .expect("the workspace is made");
         fs::write(workspace.path.join("note.txt"), "written").expect("a file is written");
         let write = loop {
-            let write = timeout(WAIT, writes.recv())
+            let report = timeout(WAIT, writes.recv())
                 .await
                 .expect("a write is reported in time")
                 .expect("the watch keeps reporting");
-            // A write still told from an earlier session's workspace is passed over.
-            if write.session_id == session_id {
+            // A walk's caught-up instant, and a write still told from an earlier session's
+            // workspace, are passed over.
+            if let ManagedWorkspaceReport::Write(write) = report
+                && write.session_id == session_id
+            {
                 break write;
             }
         };

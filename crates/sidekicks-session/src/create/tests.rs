@@ -48,7 +48,6 @@ use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, SessionListRefresh};
-use sidekicks_workspace::managed::write_watcher::MissedWrites;
 use sidekicks_workspace::repo::mount::service::RepoMountService;
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceDeps};
@@ -99,7 +98,7 @@ impl SessionListRefresh for UnreadList {
 struct Fixture {
     database: TestDatabase,
     _scratch: TempDir,
-    _writes: mpsc::Receiver<sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite>,
+    _writes: mpsc::Receiver<sidekicks_workspace::managed::write_watcher::ManagedWorkspaceReport>,
     settings: Arc<StoredSettings>,
     managed_workspaces: Arc<ManagedWorkspaceService>,
     creation: SessionCreation,
@@ -177,7 +176,7 @@ impl Fixture {
             test_git_runner(),
             writes_sender,
             Arc::new(UnreadList),
-            MissedWrites::unkept(std::time::SystemTime::now()),
+            std::time::SystemTime::now(),
         ));
         let mut driver = MockProviderDriver::new();
         driver
