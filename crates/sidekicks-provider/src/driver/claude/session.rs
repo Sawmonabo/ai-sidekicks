@@ -3,7 +3,8 @@
 //! keeps, the posture its process was started with, the transport to that process and its pending
 //! control requests, its in-process tool-server calls, the commands the daemon answers itself, its
 //! name, the figures read once per build, the settings Claude Code ignores, the purge of its
-//! conversations, its Ultracode switch, and the errors a session raises.
+//! conversations, its Ultracode switch, its MCP servers' readings, and the errors a session
+//! raises.
 
 pub(super) mod answered_commands;
 pub(super) mod arrivals;
@@ -16,6 +17,7 @@ pub(super) mod establishment;
 pub(super) mod frame_observation;
 pub(super) mod idle_sleep;
 pub(super) mod ignored_settings;
+pub(super) mod mcp_server_readings;
 pub(super) mod model_figures;
 pub(super) mod naming;
 pub(super) mod permission_level;

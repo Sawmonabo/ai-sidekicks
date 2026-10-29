@@ -1,11 +1,12 @@
 //! What a Claude Code process declares about itself, as the stream reader reads it: the
 //! `initialize` reply's models, the one match of a model against them, styles and fast mode, the
-//! `system/init` handshake's commands and capabilities, and the routing facts of each inbound
-//! frame.
+//! `system/init` handshake's commands, capabilities and MCP servers, and the routing facts of each
+//! inbound frame.
 
 use std::collections::HashSet;
 
 use crate::driver::claude::event_normalizer::ClaudeSubagentLifecycleSignal;
+use crate::driver::mcp_server::status::McpServerStatusIngestResult;
 use crate::usage_delta_accountant::UsageAxisCounts;
 
 /// A fast-mode declaration as sent: `fast_mode_state` and `fast_mode_disabled_reason`, as the
@@ -33,6 +34,9 @@ pub(crate) struct ClaudeHandshakeDeclaration {
     pub(crate) capabilities: Vec<String>,
     /// The permission mode the process runs in, which may differ from the one it was asked for.
     pub(crate) permission_mode: Option<String>,
+    /// The readings of the MCP servers `mcp_servers` lists, with the rows refused; `None` where
+    /// the frame carries no list.
+    pub(crate) mcp_servers: Option<McpServerStatusIngestResult>,
 }
 
 /// One model the `initialize` reply offers.

@@ -110,11 +110,6 @@ pub(crate) enum ClaudeControlRequest {
     GetSettings {},
     /// Reads the status of each MCP server the process holds, answered by a
     /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
-    #[expect(
-        dead_code,
-        reason = "the MCP server settings' live status and the account read of connector and \
-                  organization servers send it"
-    )]
     McpStatus {},
     /// Cuts the conversation back to before one message.
     RewindConversation {

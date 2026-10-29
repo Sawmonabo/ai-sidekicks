@@ -1,18 +1,11 @@
 //! The `mcp_status` answer: each MCP server's name, status, error text, scope and tool names as
 //! a Claude Code process reports them, read with the server's configuration left unread and the
 //! error text's credentials scrubbed.
-#![cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the MCP server settings' live status and the account read of connector and \
-                  organization servers read each answer through it"
-    )
-)]
 
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
+use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_ipc::redaction::scrub_credentials;
 
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
@@ -55,9 +48,23 @@ pub(crate) struct ClaudeMcpServerStatusRow {
     /// Where the server is configured (`user`, `project`, `local`, `claudeai`, `managed`, …), as
     /// sent.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the account read of connector and organization servers reads it"
+        )
+    )]
     pub(crate) scope: Option<String>,
     /// The server's tools, each by name; sent while it is connected.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the MCP server settings list a live server's tools from it"
+        )
+    )]
     pub(crate) tools: Option<LenientList<ClaudeMcpServerTool>>,
 }
 
@@ -67,6 +74,13 @@ pub(crate) struct ClaudeMcpServerStatusRow {
 pub(crate) struct ClaudeMcpServerTool {
     /// The tool's name.
     #[serde(default, deserialize_with = "read_lenient")]
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the MCP server settings list a live server's tools from it"
+        )
+    )]
     pub(crate) name: Option<String>,
 }
 
@@ -86,14 +100,21 @@ pub(crate) enum ClaudeMcpServerStatus {
     Disabled,
 }
 
+impl ClaudeMcpServerStatus {
+    /// Reads one status word, trimmed and lower-cased, as both the `system/init` list and the
+    /// `mcp_status` answer send it; `None` for any other word.
+    pub(crate) fn from_word(word: &str) -> Option<Self> {
+        let word = word.trim_matches(is_ecmascript_whitespace).to_lowercase();
+        Self::deserialize(
+            IntoDeserializer::<serde::de::value::Error>::into_deserializer(word.as_str()),
+        )
+        .ok()
+    }
+}
+
 impl Lenient for ClaudeMcpServerStatus {
     fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
-        Ok(String::read(deserializer)?.and_then(|word| {
-            Self::deserialize(
-                IntoDeserializer::<serde::de::value::Error>::into_deserializer(word.as_str()),
-            )
-            .ok()
-        }))
+        Ok(String::read(deserializer)?.and_then(|word| Self::from_word(&word)))
     }
 }
 

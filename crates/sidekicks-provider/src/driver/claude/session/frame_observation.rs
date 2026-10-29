@@ -1,12 +1,14 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
 //! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
 //! results answer, an assistant message's usage and a turn's own usage, the `system/init`
-//! declaration and a later whole `/` list, the compaction boundary, and a start-up hook's start or
-//! end. The frame is untrusted, so it is read once into a struct naming only these members, each
-//! leniently: an absent or malformed one reads as absent, and every other member is skipped unread.
-//! `modelUsage`, the process's sum over every thread, is never read.
+//! declaration with its MCP servers' readings and a later whole `/` list, the compaction boundary,
+//! and a start-up hook's start or end. The frame is untrusted, so it is read once into a struct
+//! naming only these members, each leniently: an absent or malformed one reads as absent, and
+//! every other member is skipped unread. `modelUsage`, the process's sum over every thread, is
+//! never read.
 
 use serde::Deserialize;
+use serde_json::Value;
 use serde_json::value::RawValue;
 
 use crate::driver::claude::delivery::commands::CLAUDE_HELPER_TASK_TYPE;
@@ -19,6 +21,7 @@ use crate::driver::claude::session::transport::declarations::{
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation,
     ClaudeMessageUsageObservation,
 };
+use crate::driver::claude::tools::normalize_claude_mcp_server_init_census;
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::usage_delta_accountant::UsageAxisCounts;
 
@@ -74,6 +77,8 @@ pub(crate) struct ClaudeStreamFrameRead {
     capabilities: Option<LenientList<String>>,
     #[serde(rename = "permissionMode", default, deserialize_with = "read_lenient")]
     permission_mode: Option<String>,
+    #[serde(default)]
+    mcp_servers: Option<Value>,
     #[serde(default, deserialize_with = "read_lenient")]
     fast_mode_state: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -270,6 +275,10 @@ impl ClaudeStreamFrameRead {
             terminal_slash_commands: list_of(self.terminal_slash_commands.as_ref()),
             capabilities: list_of(self.capabilities.as_ref()),
             permission_mode: non_empty(self.permission_mode.clone()),
+            mcp_servers: self
+                .mcp_servers
+                .as_ref()
+                .map(normalize_claude_mcp_server_init_census),
         }
     }
 

@@ -705,6 +705,7 @@ impl ClaudeSessionEstablishment {
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
             messaging_socket,
+            mcp_server_readings: Mutex::default(),
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
             requested_spawn,
