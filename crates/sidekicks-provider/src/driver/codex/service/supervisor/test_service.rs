@@ -36,9 +36,11 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
 #[cfg(test)]
-pub(crate) use self::stand_in::{CODEX_HOME_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE};
+pub(crate) use self::stand_in::{
+    CODEX_HOME_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE, StandInLaunches,
+};
 pub use self::stand_in::{
-    CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, serve_as_codex_service_stand_in,
     stand_in_codex_service, write_codex_service_script,
 };
 use crate::command::askpass::command_askpass_program_path;

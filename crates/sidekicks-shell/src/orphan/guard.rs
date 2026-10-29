@@ -1,8 +1,8 @@
 //! What the daemon reports each of its own children's life to, so that none outlives the daemon
-//! unreaped: a terminal's shell, a Claude Code process and a Codex service on an account home, each
-//! recorded as its intent before the start and its process after it, and retired once its reap sees
-//! it end. The guard opens by sweeping what a previous run left, so the registry holds only this
-//! run's children.
+//! unreaped: a terminal's shell, a Claude Code process and the Codex service of a capability read,
+//! each recorded as its intent before the start and its process after it, and retired once its
+//! reap sees it end. The guard opens by sweeping what a previous run left, so the registry holds
+//! only this run's children.
 
 use std::error::Error;
 use std::io;
@@ -152,7 +152,7 @@ mod tests {
                 .expect("the guard opens"),
         );
         let script = write_codex_service_script(folder.path(), CODEX_SERVICE_STAND_IN, None);
-        let services = CodexServicesBeside::start(folder.path(), &script, &guard).await;
+        let services = CodexServicesBeside::start(folder.path(), script.path(), &guard).await;
 
         // The next start's guard sweeps while every service of this one still runs, as after the
         // daemon restarted or died.

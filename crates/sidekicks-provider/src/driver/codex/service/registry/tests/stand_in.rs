@@ -18,8 +18,9 @@ use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::registry::OneHome;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
 use crate::driver::codex::service::supervisor::test_service::{
-    CODEX_HOME_NAME, ExitsHeard, LAUNCH_ARGUMENTS_FILE, TestCodexProgram, UnheardEvents,
-    serve_as_codex_service_stand_in, test_codex_service_dependencies, write_codex_service_script,
+    CODEX_HOME_NAME, CodexServiceScript, ExitsHeard, LAUNCH_ARGUMENTS_FILE, TestCodexProgram,
+    UnheardEvents, serve_as_codex_service_stand_in, test_codex_service_dependencies,
+    write_codex_service_script,
 };
 use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
 use crate::driver::contract::error::DriverError;
@@ -53,7 +54,8 @@ fn terminal_home(folder: &Path) -> CodexServiceHome {
 }
 
 /// What the services of one test run on: the stand-in as Codex, resolved through `program` when
-/// one is given, its exits and recoveries told on the two receivers.
+/// one is given, its exits and recoveries told on the two receivers; every stand-in the test
+/// launched that still runs is ended when it drops.
 pub(super) struct StandInServices {
     /// The folder the data, logs and home sit in.
     pub(super) folder: PathBuf,
@@ -65,6 +67,8 @@ pub(super) struct StandInServices {
     pub(super) exits: mpsc::UnboundedReceiver<Option<ProcessExit>>,
     /// One message per service back after a crash.
     pub(super) recoveries: mpsc::UnboundedReceiver<()>,
+    // The script the stand-in starts through, which ends its launches when it drops.
+    _script: CodexServiceScript,
 }
 
 /// The services of one test on the person's own Codex folder under `folder`, the stand-in
@@ -95,10 +99,11 @@ fn services_on(
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
     let (heard, exits, recoveries) = ExitsHeard::new();
+    let script = write_codex_service_script(folder, APP_SERVER_STAND_IN, None);
     let dependencies = test_codex_service_dependencies(
         folder,
         program(TestCodexProgram {
-            program: write_codex_service_script(folder, APP_SERVER_STAND_IN, None),
+            program: script.path().to_owned(),
             environment: vec![(
                 CODEX_HOME_NAME.to_owned(),
                 home.codex_home.display().to_string(),
@@ -113,6 +118,7 @@ fn services_on(
         dependencies,
         exits,
         recoveries,
+        _script: script,
     }
 }
 

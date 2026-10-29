@@ -111,7 +111,7 @@ mod version;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
-    CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
+    CodexServiceScript, CodexServiceStandIn, CodexServicesBeside, ScriptedCodexService,
     serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
     write_codex_service_script,
 };

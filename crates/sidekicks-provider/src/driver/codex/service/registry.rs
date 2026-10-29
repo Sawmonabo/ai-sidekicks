@@ -134,7 +134,7 @@ impl CodexServiceRegistry {
     /// folder with [`CodexServiceRegistry::remove_capability_read_home`] whether the read
     /// succeeded or failed. Fails when the folder cannot be emptied or made.
     pub(crate) async fn capability_read_service(&self) -> Result<Arc<CodexService>, DriverError> {
-        let codex_home = self.capability_read_home();
+        let codex_home = capability_read_home(&self.dependencies.data_folder);
         self.remove_capability_read_home().await?;
         tokio::fs::create_dir_all(&codex_home)
             .await
@@ -157,18 +157,12 @@ impl CodexServiceRegistry {
     /// Removes the capability read's folder and everything its service wrote there; a folder
     /// already gone is removed. Fails as the removal fails.
     pub(crate) async fn remove_capability_read_home(&self) -> Result<(), DriverError> {
-        match tokio::fs::remove_dir_all(self.capability_read_home()).await {
+        match tokio::fs::remove_dir_all(capability_read_home(&self.dependencies.data_folder)).await
+        {
             Ok(()) => Ok(()),
             Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
             Err(error) => Err(DriverError::Internal(Box::new(error))),
         }
-    }
-
-    // The capability read's home: its folder under the data folder.
-    fn capability_read_home(&self) -> PathBuf {
-        self.dependencies
-            .data_folder
-            .join(CODEX_CAPABILITY_READ_FOLDER)
     }
 
     /// Whether terminal reach is on, read from the service: the person's own folder's service is
@@ -532,6 +526,11 @@ async fn retire_service(services: &Mutex<RegisteredServices>, service: &Arc<Code
 // Whether `home` is the person's own folder, which only the terminal service runs on.
 fn is_terminal_reach_home(home: &CodexServiceHome) -> bool {
     home.kind == CodexHomeKind::PersonalFolder
+}
+
+/// The capability read's home: its folder under the daemon's `data_folder`.
+pub(crate) fn capability_read_home(data_folder: &Path) -> PathBuf {
+    data_folder.join(CODEX_CAPABILITY_READ_FOLDER)
 }
 
 /// The home's own control socket.

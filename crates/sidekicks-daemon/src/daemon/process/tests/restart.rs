@@ -34,8 +34,11 @@ async fn a_restart_keeps_the_terminal_service_and_the_next_start_joins_it_first(
             .expect("the module path names its crate")
     );
     let home = TestHome::new();
-    let Some(stand_in) = stand_in_codex_service(&stand_in_test, &home.run_folder.socket_path)
-    else {
+    let Some(stand_in) = stand_in_codex_service(
+        &stand_in_test,
+        &home.run_folder.socket_path,
+        &home.data_folder(),
+    ) else {
         return;
     };
     let home = home.with_provider_environment(stand_in.provider_environment());

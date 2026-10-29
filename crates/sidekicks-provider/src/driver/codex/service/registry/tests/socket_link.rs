@@ -4,8 +4,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::json;
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, read_socket_link,
-    replace_socket_link, short_socket_folder,
+    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, bind_socket_listener, pin_running_process,
+    read_socket_link, replace_socket_link, short_socket_folder,
 };
 
 use super::stand_in::{
@@ -205,6 +205,9 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
         .await
         .expect("the second starts");
     let second_process = second.process_id().expect("the second runs a process");
+    let second_pinned = pin_running_process(second_process)
+        .expect("the process table reads")
+        .expect("the second runs");
     other_daemon.shutdown(DaemonStopIntent::Restart).await;
 
     let is_home_killed = send_signal(home_process, "-KILL");
@@ -213,6 +216,10 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     let is_second_running = is_running(second_process);
     daemon.shutdown(DaemonStopIntent::Stop).await;
     let is_second_stopped = wait_until_gone(second_process).await;
+    // A stop that left it running would leave it past the test.
+    if !is_second_stopped {
+        second_pinned.kill().expect("the second is killed");
+    }
 
     assert!(is_home_killed);
     assert!(
@@ -226,7 +233,7 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     );
     assert!(
         is_second_stopped,
-        "the stop left running a service a record keeps that this daemon never joined"
+        "the stop left running a service another daemon's record keeps"
     );
 }
 

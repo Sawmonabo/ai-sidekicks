@@ -1,7 +1,8 @@
 //! The stand-in Codex service a test program runs as itself: the `codex` script a service starts,
-//! which records each launch and runs one of the test program's own tests, that test's body, which
-//! listens and answers as Codex does and records each request, what a test reads of those records,
-//! and the two kinds of service one daemon starts on it side by side.
+//! which runs one of the test program's own tests, that test's body, which records its launch,
+//! listens and answers as Codex does, records each request and ends once the test program that
+//! wrote the script ends, what a test reads of those records, the guard that ends every launch a
+//! test leaves running, and the two kinds of service one daemon starts on it side by side.
 
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
@@ -9,9 +10,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use interprocess::local_socket::traits::tokio::Listener as _;
+use serde::{Deserialize, Serialize};
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, LeftoverSweep, bind_socket_listener,
-    pin_running_process, replace_file_atomically, replace_socket_link, short_socket_folder,
+    CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, LeftoverSweep, ProcessRecord,
+    bind_socket_listener, pin_running_process, replace_file_atomically, replace_socket_link,
+    short_socket_folder,
 };
 use tempfile::TempDir;
 
@@ -22,7 +25,9 @@ use super::{
 use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
-use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome, home_socket_path};
+use crate::driver::codex::service::registry::{
+    CodexServiceRegistry, OneHome, capability_read_home, home_socket_path,
+};
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
@@ -42,6 +47,13 @@ const LISTEN_ADDRESS_NAME: &str = "SIDEKICKS_TEST_LISTEN_ADDRESS";
 // The file a stand-in records the requests it answers in; only its script sets it.
 const CONNECTION_RECORD_NAME: &str = "SIDEKICKS_TEST_CONNECTION_RECORD";
 
+// The file a stand-in adds its launch to; only its script sets it.
+const LAUNCH_RECORD_NAME: &str = "SIDEKICKS_TEST_LAUNCH_RECORD";
+
+// The process record of the test program that wrote the script, whose end ends every stand-in
+// the script starts; only its script sets it.
+const OWNER_NAME: &str = "SIDEKICKS_TEST_OWNER";
+
 // The daemon socket whose presence a stand-in records at each connection's first request; only
 // its script sets it, and only where a test names one.
 const DAEMON_SOCKET_NAME: &str = "SIDEKICKS_TEST_DAEMON_SOCKET";
@@ -53,26 +65,43 @@ const EXECUTOR_OUTPUT: &str = "/dev/fd/3";
 // The address Codex's executor listens on, its standard input and output.
 const EXECUTOR_LISTEN_ADDRESS: &str = "stdio";
 
-// The file a stand-in's script adds each service start's process and Codex home to, one to a line.
+// The file each stand-in service listening on a socket adds its launch to, one to a line.
 const LAUNCHES_FILE: &str = "codex-launches";
 
 // The file a stand-in's requests are recorded in, one line each.
 const CONNECTIONS_FILE: &str = "codex-connections";
 
-/// Writes in `folder` the `codex` script a stand-in service starts through and answers its path:
-/// it keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], adds each start of a service listening on a
-/// socket to its launches with its Codex home, names its record of requests and, where `daemon_socket` is given, the
-/// socket whose presence it records, has the program ignore the hang-up where its environment
-/// asks, keeps its own standard output as [`EXECUTOR_OUTPUT`] for an executor's answers, and runs
-/// this test program's `stand_in_test`, whose own output goes nowhere. Panics where it cannot be
-/// written.
+/// The `codex` script a stand-in service starts through, with the guard over every service it
+/// launched: each one still running when the script drops is ended, and the drop fails the test
+/// where one cannot be.
+pub struct CodexServiceScript {
+    path: PathBuf,
+    launches: StandInLaunches,
+}
+
+impl CodexServiceScript {
+    /// The script's path, the program a service starts as Codex.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Writes in `folder` the `codex` script a stand-in service starts through and answers it with
+/// the guard over its launches. The script keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`],
+/// names the files its launches and requests are recorded in, the writing test program as the
+/// stand-in's owner and, where `daemon_socket` is given, the socket whose presence it records,
+/// has the program ignore the hang-up where its environment asks, keeps its own standard output as
+/// [`EXECUTOR_OUTPUT`] for an executor's answers, and runs this test program's `stand_in_test`,
+/// whose own output goes nowhere. Panics where it cannot be written.
 pub fn write_codex_service_script(
     folder: &Path,
     stand_in_test: &str,
     daemon_socket: Option<&Path>,
-) -> PathBuf {
+) -> CodexServiceScript {
     let program = std::env::current_exe().expect("the test program names itself");
-    let script = folder.join("codex");
+    let owner =
+        serde_json::to_string(&own_process_record()).expect("a process record is written as JSON");
+    let path = folder.join("codex");
     let daemon_socket = daemon_socket.map_or_else(String::new, |socket| {
         format!(
             "{DAEMON_SOCKET_NAME}='{}'; export {DAEMON_SOCKET_NAME}\n",
@@ -83,8 +112,8 @@ pub fn write_codex_service_script(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
          while [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
          {LISTEN_ADDRESS_NAME}=\"$2\"; export {LISTEN_ADDRESS_NAME}; fi\n  shift\ndone\n\
-         case \"${LISTEN_ADDRESS_NAME}\" in unix://*) \
-         printf '%s\\t%s\\n' \"$$\" \"${CODEX_HOME_NAME}\" >> '{}';; esac\n\
+         {LAUNCH_RECORD_NAME}='{}'; export {LAUNCH_RECORD_NAME}\n\
+         {OWNER_NAME}='{owner}'; export {OWNER_NAME}\n\
          {CONNECTION_RECORD_NAME}='{}'; export {CONNECTION_RECORD_NAME}\n{daemon_socket}\
          if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
          exec 3>&1\n\
@@ -94,16 +123,29 @@ pub fn write_codex_service_script(
         folder.join(CONNECTIONS_FILE).display(),
         program.display()
     );
-    replace_file_atomically(&script, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
+    replace_file_atomically(&path, body.as_bytes(), 0o755, LeftoverSweep::Unswept)
         .expect("the script is written");
-    script
+    CodexServiceScript {
+        path,
+        launches: StandInLaunches::in_folder(folder),
+    }
+}
+
+// This process's record, which a later process pins it by. Panics where it cannot be read.
+fn own_process_record() -> ProcessRecord {
+    pin_running_process(std::process::id())
+        .and_then(|process| process.expect("this process runs").record())
+        .expect("this process reads its own record")
+        .expect("this process runs")
 }
 
 /// Serves as a Codex service where a stand-in's script started this program: on a real socket of
-/// its own, with the path its `--listen` names made a link to it, answering each connection as a
-/// start needs and recording each request in the script's record; or, started as Codex's executor
-/// on its standard input and output, as that executor. Returns at once where no script started
-/// it. Panics where its socket cannot listen or its link cannot be made.
+/// its own, with the path its `--listen` names made a link to it, its launch recorded first,
+/// answering each connection as a start needs and recording each request in the script's record
+/// until the test program that wrote the script ends; or, started as Codex's executor on its
+/// standard input and output, as that executor. Returns at once where no script started it or its
+/// test program has already ended. Panics where its launch cannot be recorded, its socket cannot
+/// listen or its link cannot be made.
 pub async fn serve_as_codex_service_stand_in() {
     let Ok(address) = std::env::var(LISTEN_ADDRESS_NAME) else {
         return;
@@ -112,7 +154,14 @@ pub async fn serve_as_codex_service_stand_in() {
         serve_as_executor_stand_in();
         return;
     }
+    let owner: ProcessRecord =
+        serde_json::from_str(&std::env::var(OWNER_NAME).expect("the owner is named"))
+            .expect("the owner's record reads");
+    let Some(owner) = owner.pin().expect("the owner's process reads") else {
+        return;
+    };
     let codex_home = PathBuf::from(std::env::var(CODEX_HOME_NAME).expect("the home is named"));
+    record_launch(&codex_home);
     let link = match address.strip_prefix("unix://").expect("a socket address") {
         "" => home_socket_path(&codex_home),
         path => PathBuf::from(path),
@@ -126,7 +175,18 @@ pub async fn serve_as_codex_service_stand_in() {
         PathBuf::from(std::env::var_os(CONNECTION_RECORD_NAME).expect("the record is named"));
     let daemon_socket = std::env::var_os(DAEMON_SOCKET_NAME).map(PathBuf::from);
     let connections = Arc::new(AtomicUsize::new(0));
-    while let Ok(stream) = listener.accept().await {
+    // A stand-in outlives the daemon that launched it, so it ends with its test program however
+    // that program ends, a kill included; a watch that fails ends it too.
+    let owner_end = owner.wait_for_end();
+    tokio::pin!(owner_end);
+    loop {
+        let stream = tokio::select! {
+            accepted = listener.accept() => match accepted {
+                Ok(stream) => stream,
+                Err(_) => return,
+            },
+            _ = &mut owner_end => return,
+        };
         let mut recording = ConnectionRecording {
             record: record.clone(),
             daemon_socket: daemon_socket.clone(),
@@ -137,6 +197,23 @@ pub async fn serve_as_codex_service_stand_in() {
             recording.record(method);
         }));
     }
+}
+
+// Adds this process's launch on `codex_home` to the script's launches, in one write of a whole
+// line to a file opened to append, so lines never interleave. Panics where it cannot be recorded.
+fn record_launch(codex_home: &Path) {
+    let launch = StandInLaunch {
+        codex_home: codex_home.to_owned(),
+        process: own_process_record(),
+    };
+    let mut line = serde_json::to_string(&launch).expect("a launch is written as JSON");
+    line.push('\n');
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(std::env::var_os(LAUNCH_RECORD_NAME).expect("the launches are named"))
+        .and_then(|mut launches| launches.write_all(line.as_bytes()))
+        .expect("the launch is recorded");
 }
 
 // Answers as Codex's executor on its standard input and the script's kept output: the relay's
@@ -210,6 +287,75 @@ pub struct StandInConnection {
     pub methods: Vec<String>,
 }
 
+/// One start of a stand-in service listening on a socket, as the stand-in recorded it.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct StandInLaunch {
+    /// The Codex home it served.
+    pub(crate) codex_home: PathBuf,
+    /// Its process, pinned through the record, so a later process given its id is never taken
+    /// for it.
+    pub(crate) process: ProcessRecord,
+}
+
+/// The launches a stand-in's script recorded in one folder, and the guard over them: each launch
+/// still running when it drops is ended, and the drop fails the test where one cannot be, unless
+/// the test already fails.
+pub(crate) struct StandInLaunches {
+    file: PathBuf,
+}
+
+impl StandInLaunches {
+    /// The launches of the script in `folder`.
+    pub(crate) fn in_folder(folder: &Path) -> Self {
+        Self {
+            file: folder.join(LAUNCHES_FILE),
+        }
+    }
+
+    /// Every launch, in order; none while no service was launched. Fails where the record cannot
+    /// be read or a line does not read as a launch.
+    pub(crate) fn read(&self) -> io::Result<Vec<StandInLaunch>> {
+        let lines = match std::fs::read_to_string(&self.file) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+            read => read?,
+        };
+        lines
+            .lines()
+            .map(|line| serde_json::from_str(line).map_err(io::Error::other))
+            .collect()
+    }
+
+    // Ends every launch still running, each tried whatever the others met; fails with every
+    // error met, once all are tried.
+    fn end_running(&self) -> io::Result<()> {
+        let errors: Vec<String> = self
+            .read()?
+            .into_iter()
+            .filter_map(|launch| {
+                let ended = launch
+                    .process
+                    .pin()
+                    .and_then(|process| process.map_or(Ok(false), |process| process.kill()));
+                ended.err().map(|error| error.to_string())
+            })
+            .collect();
+        if errors.is_empty() {
+            return Ok(());
+        }
+        Err(io::Error::other(errors.join("; ")))
+    }
+}
+
+impl Drop for StandInLaunches {
+    fn drop(&mut self) {
+        let ended = self.end_running();
+        // A test already failing keeps its own failure; otherwise a launch left running fails it.
+        if !std::thread::panicking() {
+            ended.expect("every stand-in service the test launched ends");
+        }
+    }
+}
+
 /// A `codex` command alone on a daemon's search path, beside a person's own Codex folder, whose
 /// every service start runs a test program's stand-in service: a test reads the process each
 /// start launched and, connection by connection, what each asked. Ends every service it started
@@ -217,6 +363,9 @@ pub struct StandInConnection {
 pub struct CodexServiceStandIn {
     codex_home: PathBuf,
     programs_folder: PathBuf,
+    capability_read_home: PathBuf,
+    // Declared before the folder, so the launches are read before the folder is removed.
+    script: CodexServiceScript,
     _folder: TempDir,
 }
 
@@ -227,20 +376,22 @@ impl CodexServiceStandIn {
         codex_folder_environment(&self.codex_home, &self.programs_folder)
     }
 
-    /// The process of every start of a service on the person's own Codex folder, in order: one
-    /// entry per service launched there. Panics where the record cannot be read.
+    /// The process of every service start but the capability read's, in order: the services
+    /// launched on the person's own Codex folder, and any launched elsewhere. Panics where the
+    /// record cannot be read.
     pub fn launches(&self) -> Vec<u32> {
-        let codex_home = self.codex_home.display().to_string();
-        self.read_launches()
+        self.script
+            .launches
+            .read()
             .expect("the launches read")
             .into_iter()
-            .filter(|(_, home)| *home == codex_home)
-            .map(|(process_id, _)| process_id)
+            .filter(|launch| launch.codex_home != self.capability_read_home)
+            .map(|launch| launch.process.id())
             .collect()
     }
 
-    /// Each connection a service on the person's own Codex folder answered, in the order of its
-    /// first request. Panics where the record cannot be read.
+    /// Each connection a service of [`Self::launches`] answered, in the order of its first
+    /// request. Panics where the record cannot be read.
     pub fn connections(&self) -> Vec<StandInConnection> {
         let launches = self.launches();
         let lines = match std::fs::read_to_string(self.programs_folder.join(CONNECTIONS_FILE)) {
@@ -278,55 +429,17 @@ impl CodexServiceStandIn {
             .filter(|connection| launches.contains(&connection.process_id))
             .collect()
     }
-
-    // The process and Codex home of every service start, none while no service was launched.
-    fn read_launches(&self) -> io::Result<Vec<(u32, String)>> {
-        let lines = match std::fs::read_to_string(self.programs_folder.join(LAUNCHES_FILE)) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            read => read?,
-        };
-        lines
-            .lines()
-            .map(|line| {
-                let (process_id, home) = line.split_once('\t').ok_or_else(|| {
-                    io::Error::other("a launch's line holds its process and home")
-                })?;
-                let process_id = process_id.parse().map_err(io::Error::other)?;
-                Ok((process_id, home.to_owned()))
-            })
-            .collect()
-    }
-}
-
-impl Drop for CodexServiceStandIn {
-    // A lasting service outlives the daemon that started it, so one a test left running is ended
-    // here; one already gone has nothing to end.
-    fn drop(&mut self) {
-        let ended = self.read_launches().and_then(|launches| {
-            for (process_id, _) in launches {
-                if let Some(process) = pin_running_process(process_id)? {
-                    process.kill()?;
-                }
-            }
-            Ok(())
-        });
-        // A drop has no caller to fail, so a service left running is logged.
-        if let Err(error) = ended {
-            tracing::warn!(
-                error = &error as &(dyn std::error::Error + 'static),
-                "a stand-in Codex service could not be ended"
-            );
-        }
-    }
 }
 
 /// A `codex` command whose service starts run this test program's `stand_in_test`, which serves
 /// through [`serve_as_codex_service_stand_in`], recording at each connection's first request
-/// whether `daemon_socket` is there; `None` where the system links or binds no local socket.
-/// Panics where its folders or its command cannot be made.
+/// whether `daemon_socket` is there, for a daemon on `data_folder`, whose capability read's
+/// launch is told apart; `None` where the system links or binds no local socket. Panics where its
+/// folders or its command cannot be made.
 pub fn stand_in_codex_service(
     stand_in_test: &str,
     daemon_socket: &Path,
+    data_folder: &Path,
 ) -> Option<CodexServiceStandIn> {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return None;
@@ -336,10 +449,12 @@ pub fn stand_in_codex_service(
     let programs_folder = folder.path().join("bin");
     std::fs::create_dir(&codex_home).expect("the Codex folder is made");
     std::fs::create_dir(&programs_folder).expect("the programs folder is made");
-    write_codex_service_script(&programs_folder, stand_in_test, Some(daemon_socket));
+    let script = write_codex_service_script(&programs_folder, stand_in_test, Some(daemon_socket));
     Some(CodexServiceStandIn {
         codex_home,
         programs_folder,
+        capability_read_home: capability_read_home(data_folder),
+        script,
         _folder: folder,
     })
 }
