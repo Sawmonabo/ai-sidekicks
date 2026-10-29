@@ -357,7 +357,7 @@ impl SessionEventEmitError {
             Self::Append(SessionEventAppendError::Append(EventAppendError::Write(write))) => {
                 Ok(write)
             }
-            other => Err(other),
+            other @ (Self::Draft(_) | Self::Append(_)) => Err(other),
         }
     }
 }
