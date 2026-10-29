@@ -455,6 +455,8 @@ pub(super) struct WordBuilder<'s> {
     decoded: String,
     pieces: Vec<Piece>,
     positions: BytePositions,
+    // The bytes `env -S` splits may still read, the line's length at the start.
+    split_bytes_left: usize,
 }
 
 impl<'s> WordBuilder<'s> {
@@ -465,6 +467,7 @@ impl<'s> WordBuilder<'s> {
             decoded: String::new(),
             pieces: Vec::new(),
             positions: BytePositions::default(),
+            split_bytes_left: line.len(),
         }
     }
 

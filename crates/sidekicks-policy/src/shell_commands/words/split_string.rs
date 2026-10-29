@@ -1,7 +1,7 @@
 //! The words `env -S` splits its value into, as env reads the string: blanks outside quotes part
 //! the words, single and double quotes are taken off, the escapes env lists are undone, a word that
 //! starts with `#` ends the string, and so does `\c`. A `${name}` env expands, and an expansion the
-//! shell made in the value, keep their word one only the run decides.
+//! shell made in the value, each make their word one only the run decides.
 
 use super::{Piece, PieceKind, Word, WordBuilder, offset, push_piece, word_from};
 
@@ -23,13 +23,19 @@ enum Quote {
 impl WordBuilder<'_> {
     /// The words `env -S` splits `word` into; `None` when env refuses the string and so runs
     /// nothing: a quote left open, a backslash before a character env lists no escape for or ending
-    /// the string, a `$` that does not start `${name}`, or `\c` inside double quotes.
+    /// the string, a `$` that does not start `${name}`, or `\c` inside double quotes. `None` too
+    /// for a line break, vertical tab, form feed or carriage return outside quotes, a blank to GNU
+    /// env and part of a word to macOS env, and once the reading's splits, nested ones included,
+    /// would read more bytes in all than its line holds, so a reading's time grows with its line.
     pub(in crate::shell_commands) fn split_string(&mut self, word: Word) -> Option<Vec<Word>> {
+        let length = self.view(word).len();
+        self.split_bytes_left = self.split_bytes_left.checked_sub(length)?;
         let parts = self.value_parts(word);
-        let mark = self.pieces.len();
+        let (piece_mark, decoded_mark) = (self.pieces.len(), self.decoded.len());
         let words = self.split_parts(&parts);
         if words.is_none() {
-            self.pieces.truncate(mark);
+            self.pieces.truncate(piece_mark);
+            self.decoded.truncate(decoded_mark);
         }
         words
     }
@@ -87,9 +93,8 @@ impl WordBuilder<'_> {
                     quote = toggled(quote, Quote::Double);
                     word_start.get_or_insert(self.pieces.len());
                 }
-                (' ' | '\t' | '\n' | '\u{b}' | '\u{c}' | '\r', None) => {
-                    self.end_word(&mut word_start, &mut words);
-                }
+                (' ' | '\t', None) => self.end_word(&mut word_start, &mut words),
+                ('\n' | '\u{b}' | '\u{c}' | '\r', None) => return None,
                 ('#', None) if word_start.is_none() => break,
                 // Inside single quotes only `\\` and `\'` are escapes.
                 ('\\', Some(Quote::Single))
