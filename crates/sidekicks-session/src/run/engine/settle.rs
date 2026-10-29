@@ -324,12 +324,12 @@ impl RunEngine {
 
     /// Settles a run a restart left live that recovery could not resume, without a driver, as
     /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end or a lead's
-    /// pause reached, every pending interrupt applied, and its open turns' ends, each a limit's row names with that
-    /// limit and every other with `daemonRestart`, guarded on no interrupt appearing since, a
-    /// `failed` end carrying `failure_detail`. An interrupt that moved or appeared since the facts
-    /// were read refuses the write, and the run and its facts are read again once. Every write goes
-    /// under `hold` where the caller holds the run's session. Fails as [`RunEngine::transition`]
-    /// does, the second refusal returned.
+    /// pause reached, every pending interrupt applied, and its open turns' ends, each a limit's
+    /// row names with that limit and every other with `daemonRestart`, guarded on no interrupt
+    /// appearing since, a `failed` end carrying `failure_detail`. An interrupt that moved or
+    /// appeared since the facts were read refuses the write, and the run and its facts are read
+    /// again once. Every write goes under `hold` where the caller holds the run's session. Fails as
+    /// [`RunEngine::transition`] does, the second refusal returned.
     pub async fn settle_run_after_restart(
         &self,
         run: &LiveRun,

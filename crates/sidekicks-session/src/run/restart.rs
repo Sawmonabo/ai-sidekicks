@@ -1,11 +1,12 @@
-//! How a run a restart left live settles when recovery cannot resume it: interrupted when the person
-//! had asked to stop it or it was a child held when the daemon went down, interrupted or stopped
-//! with its limit when its log still owes one, left alone when it is queued behind a message
-//! still waiting to start it or is a lead the person paused, a lead's pause under way reached,
-//! failed otherwise. A run with open turns ends them as the daemon's own report, each turn a
-//! limit's interrupt row names with that limit's cause, the newest in the run's own write. And how a run moves once a resume succeeded, from its state before the restart
-//! and what its provider holds of its turn: left while the provider runs or ends its turn or the
-//! run rests, paused out of `pausing`, and interrupted with `daemonRestart` where its turn is gone.
+//! How a run a restart left live settles when recovery cannot resume it: interrupted when the
+//! person had asked to stop it or it was a child held when the daemon went down, interrupted or
+//! stopped with its limit when its log still owes one, left alone when it is queued behind a
+//! message still waiting to start it or is a lead the person paused, a lead's pause under way
+//! reached, failed otherwise. A run with open turns ends them as the daemon's own report, each turn
+//! a limit's interrupt row names with that limit's cause, the newest in the run's own write. And
+//! how a run moves once a resume succeeded, from its state before the restart and what its
+//! provider holds of its turn: left while the provider runs or ends its turn or the run rests,
+//! paused out of `pausing`, and interrupted with `daemonRestart` where its turn is gone.
 
 use std::borrow::Cow;
 use std::sync::LazyLock;
