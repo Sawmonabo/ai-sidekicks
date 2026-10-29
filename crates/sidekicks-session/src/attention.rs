@@ -5,6 +5,12 @@
 //! chosen from the run-level items under it.
 
 pub(crate) mod aggregate;
+pub mod changes;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the attention service's decision task")
+)]
+pub(crate) mod gate;
 pub(crate) mod moment;
 pub mod projection;
 pub mod schema;
