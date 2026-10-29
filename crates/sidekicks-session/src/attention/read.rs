@@ -22,7 +22,9 @@ use sidekicks_contracts::attention::{
     WorkflowNotifyTrigger,
 };
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::session::methods::SessionShape;
+use sidekicks_contracts::session::methods::{
+    SessionShape, UNTITLED_CHAT_NAME, UNTITLED_PROJECT_NAME,
+};
 use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -44,11 +46,6 @@ use crate::attention::retention::seen_entry_sql;
 /// The statements the projection read prepares: a session's name, the entries, a workflow run's
 /// name and the provider builds the record lists.
 pub const ATTENTION_STATEMENT_CAPACITY: usize = 4;
-
-/// An untitled chat's name, as the sessions list draws it.
-const UNTITLED_CHAT: &str = "New chat";
-/// An untitled project session's name, as the sessions list draws it.
-const UNTITLED_PROJECT: &str = "New session";
 
 const WAITING_WORD: &str = "Waiting on you";
 const FINISHED_WORD: &str = "Finished";
@@ -213,8 +210,8 @@ impl SessionName {
             .and_then(|name| NonEmptyText::new(name.clone()))
             .unwrap_or_else(|| {
                 let untitled = match self.shape {
-                    SessionShape::Chat => UNTITLED_CHAT,
-                    SessionShape::Project => UNTITLED_PROJECT,
+                    SessionShape::Chat => UNTITLED_CHAT_NAME,
+                    SessionShape::Project => UNTITLED_PROJECT_NAME,
                 };
                 NonEmptyText::new(untitled.to_owned()).expect("an untitled word is not empty")
             })
