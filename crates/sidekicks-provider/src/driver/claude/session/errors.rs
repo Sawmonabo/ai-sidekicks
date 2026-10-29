@@ -26,15 +26,6 @@ use crate::driver::error_causes::{
 };
 use crate::driver::registry::provider_capability_refused;
 
-/// The detail an authentication probe records once the provider answered it, naming the evidence
-/// and never a credential source the probe did not report.
-#[expect(
-    dead_code,
-    reason = "the Claude Code authentication probe records it on a reached handshake"
-)]
-pub(crate) const CLAUDE_AUTH_PROBE_REACHED_DETAIL: &str =
-    "the provider answered the zero-turn auth probe";
-
 /// Why the driver cannot carry out a session or run operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ClaudeSessionUnavailableReason {
@@ -331,6 +322,7 @@ fn missing_capability(subtype: ClaudeControlSubtype) -> Option<DriverCapabilityF
         | ClaudeControlSubtype::SetMaxThinkingTokens
         | ClaudeControlSubtype::GetSettings
         | ClaudeControlSubtype::GetContextUsage
+        | ClaudeControlSubtype::StopTask
         | ClaudeControlSubtype::SetModel
         | ClaudeControlSubtype::GetBinaryVersion
         | ClaudeControlSubtype::McpMessage

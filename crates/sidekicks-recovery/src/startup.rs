@@ -40,7 +40,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_provider::driver::contract::bound_failure_detail;
 use sidekicks_session::interventions::store::read_pending_retries;
 use sidekicks_session::interventions::unresolved::read_ended_runs_with_unresolved;
-use sidekicks_session::run::provider_choice::read_ended_runs_with_open_choices;
+use sidekicks_session::run::provider_choice::run_end::read_ended_runs_with_open_choices;
 use sidekicks_session::run::read::RunStateReader;
 use sidekicks_std::elapsed::elapsed_ms_since;
 use sidekicks_std::error_description::describe_error;

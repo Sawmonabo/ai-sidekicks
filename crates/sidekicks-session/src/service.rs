@@ -14,6 +14,7 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::{START_OF_LOG_POSITION, encode_event_cursor};
 use sidekicks_contracts::session::id::SessionId;
@@ -38,6 +39,7 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -161,6 +163,14 @@ pub enum SessionServiceError {
         /// Its session.
         session_id: SessionId,
     },
+    /// A live run's creation names no account, which admission never writes.
+    #[error("run {run_id} of session {session_id} names no account")]
+    RunNamesNoAccount {
+        /// The run.
+        run_id: RunId,
+        /// Its session.
+        session_id: SessionId,
+    },
     /// The log does not rebuild into a record.
     #[error(transparent)]
     Rebuild(#[from] SessionRebuildError),
@@ -179,6 +189,7 @@ impl From<SessionServiceError> for HandlerError {
             fault @ (SessionServiceError::Database(_)
             | SessionServiceError::Log(_)
             | SessionServiceError::RunNamesNoAgent { .. }
+            | SessionServiceError::RunNamesNoAccount { .. }
             | SessionServiceError::Rebuild(_)
             | SessionServiceError::Pool(_)) => Self::Internal(Box::new(fault)),
         }
@@ -263,6 +274,10 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// Answers the driver of a provider, `None` where no driver answers it.
+pub type ProviderDriverLookup =
+    dyn Fn(&ProviderId) -> Option<Arc<dyn ProviderDriver>> + Send + Sync;
+
 /// Reads one session through the daemon's read pool: its record and cursors from its row, its
 /// whole log or a page of it, a window of its transcript or one stored row, or its record rebuilt
 /// from that log. Each read runs on the blocking pool on a connection it borrows for the whole
@@ -270,20 +285,23 @@ static SELECT_STANDING_SEQUENCES_SQL: LazyLock<String> = LazyLock::new(|| {
 pub struct SessionService {
     pool: Arc<DatabaseReadPool>,
     read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    driver_of: Arc<ProviderDriverLookup>,
     // The cuts of ended replies its body reads keep, so a later part decodes only its frames.
     block_cuts: Arc<BlockCuts>,
 }
 
 impl SessionService {
     /// The service reading through `pool`; `read_damaged_from_sequence` says where a damaged
-    /// session's reads stop.
+    /// session's reads stop; `driver_of` answers the driver that reads a session's task-list calls.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+        driver_of: Arc<ProviderDriverLookup>,
     ) -> Self {
         Self {
             pool,
             read_damaged_from_sequence,
+            driver_of,
             block_cuts: Arc::default(),
         }
     }
@@ -300,7 +318,8 @@ impl SessionService {
     /// so no event the row, a run or a standing event reflects lies past `latest`. Fails with
     /// [`SessionServiceError::Refused`] (`session.notFound`) for a session this daemon holds no row
     /// for, [`SessionServiceError::Log`] for a standing event that is not a well-formed envelope,
-    /// and [`SessionServiceError::RunNamesNoAgent`] for a live run whose creation names no agent.
+    /// [`SessionServiceError::RunNamesNoAgent`] for a live run whose creation names no agent, and
+    /// [`SessionServiceError::RunNamesNoAccount`] for one whose creation names no account.
     pub async fn read_session(
         &self,
         request: SessionReadRequest,
@@ -360,10 +379,17 @@ impl SessionService {
         &self,
         request: TranscriptReadRequest,
     ) -> Result<TranscriptReadResponse, TranscriptReadError> {
+        let driver_of = Arc::clone(&self.driver_of);
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
-                read_transcript_window(reader, read_damaged_from_sequence, &request, MARKDOWN_PARSE)
+                read_transcript_window(
+                    reader,
+                    read_damaged_from_sequence,
+                    &*driver_of,
+                    &request,
+                    MARKDOWN_PARSE,
+                )
             },
         )
         .await
@@ -440,12 +466,14 @@ impl SessionService {
         request: TranscriptChildRunExpandRequest,
         observed_at: WireInstant,
     ) -> Result<TranscriptChildRunExpandResponse, TranscriptReadError> {
+        let driver_of = Arc::clone(&self.driver_of);
         self.run_read(
             ReadLength::Long,
             move |reader, read_damaged_from_sequence| {
                 expand_child_run(
                     reader,
                     read_damaged_from_sequence,
+                    &*driver_of,
                     &request,
                     &observed_at,
                     MARKDOWN_PARSE,
@@ -614,6 +642,13 @@ fn live_run_of(
             session_id: *session_id,
         });
     };
+    // Every run is admitted against an account its creation names.
+    let Some(admitted_provider_account_id) = facts.admitted_provider_account_id else {
+        return Err(SessionServiceError::RunNamesNoAccount {
+            run_id: row.run_id,
+            session_id: *session_id,
+        });
+    };
     Ok(SessionLiveRun {
         run_id: row.run_id,
         parent_run_id: row.parent_run_id,
@@ -621,7 +656,7 @@ fn live_run_of(
         run_version: row.run_version,
         agent_id,
         actor: facts.actor,
-        admitted_provider_account_id: facts.admitted_provider_account_id,
+        admitted_provider_account_id,
         touched_at: row
             .touched_at
             .expect("a run whose agent.run.queued reads has a readable runLifecycle event"),

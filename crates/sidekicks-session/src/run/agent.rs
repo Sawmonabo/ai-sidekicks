@@ -1,7 +1,8 @@
 //! Reads which agent a run is for, from the session's log: the agent its `agent.run.queued` names,
 //! the one minted from a saved definition with it, else the session's lead, for a lead run queued
-//! before a run named its agent; the session's lead, which `session.created` names, with the
-//! binding and the model it runs on now; and whether the log names an agent at all.
+//! before a run named its agent; the account that event admitted the run against; the session's
+//! lead, which `session.created` names, with the binding and the model it runs on now; and
+//! whether the log names an agent at all.
 
 use std::sync::LazyLock;
 
@@ -10,6 +11,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::{AgentProviderBinding, ProviderToken};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::usage::ModelRerouteScope;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::IdError;
@@ -34,6 +36,15 @@ static SELECT_RUN_AGENT_SQL: LazyLock<String> = LazyLock::new(|| {
   WHERE queued.session_id = @session_id
     AND queued.type = '{run_queued}'
     AND queued.run_id = @run_id"
+    )
+});
+
+static SELECT_RUN_ACCOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
+    let run_queued = SessionEventType::AgentRunQueued.as_str();
+    format!(
+        "SELECT json_extract(payload, '$.admittedProviderAccountId')
+   FROM session_events
+  WHERE session_id = @session_id AND type = '{run_queued}' AND run_id = @run_id"
     )
 });
 
@@ -129,7 +140,7 @@ pub struct SessionLead {
     /// The lead's agent.
     pub agent_id: AgentId,
     /// The binding it runs on now; `provider_account_id` is the account its last switch landed
-    /// on, `None` for the provider's current account.
+    /// on, `None` for the provider's current account, which a run's admission resolves.
     pub binding: AgentProviderBinding,
     /// The model it runs on now: its binding's, or the one the provider moved the rest of the
     /// session onto since.
@@ -182,8 +193,9 @@ pub(crate) fn is_agent_named(
     )
 }
 
-/// The statements [`RunAgentReader`] runs: the run's agent and the session's lead.
-pub const RUN_AGENT_STATEMENT_CAPACITY: usize = 2;
+/// The statements [`RunAgentReader`] runs: the run's agent, its admitted account and the session's
+/// lead.
+pub const RUN_AGENT_STATEMENT_CAPACITY: usize = 3;
 
 /// Why the agent of a run, or a session's lead, could not be read.
 #[derive(Debug, thiserror::Error)]
@@ -202,6 +214,19 @@ pub enum RunAgentReadError {
         .session_id
     )]
     NoRunAgent {
+        /// The session read.
+        session_id: SessionId,
+        /// The run read.
+        run_id: RunId,
+    },
+    /// The log names no account for the run, or one by text that is no account id: every run is
+    /// admitted against one, so this is a broken log.
+    #[error(
+        "run \"{}\" of session \"{}\" has no account its log names",
+        .run_id,
+        .session_id
+    )]
+    NoRunAccount {
         /// The session read.
         session_id: SessionId,
         /// The run read.
@@ -285,6 +310,33 @@ impl<'connection> RunAgentReader<'connection> {
             run_id: *run_id,
         })?;
         AgentId::new(&agent_id).map_err(RunAgentReadError::MalformedAgentId)
+    }
+
+    /// The account the run was admitted against, as its `agent.run.queued` names it. Fails with
+    /// [`RunAgentReadError::NoRunAccount`] when the log names none.
+    pub fn read_admitted_account(
+        &self,
+        session_id: &SessionId,
+        run_id: &RunId,
+    ) -> Result<ProviderAccountId, RunAgentReadError> {
+        let account_id: Option<String> = self
+            .reader
+            .prepare_cached(&SELECT_RUN_ACCOUNT_SQL)?
+            .query_row(
+                named_params! {
+                    "@session_id": session_id.text().as_str(),
+                    "@run_id": run_id.text().as_str(),
+                },
+                |row| row.get(0),
+            )
+            .optional()?
+            .flatten();
+        account_id
+            .and_then(ProviderAccountId::new)
+            .ok_or(RunAgentReadError::NoRunAccount {
+                session_id: *session_id,
+                run_id: *run_id,
+            })
     }
 }
 

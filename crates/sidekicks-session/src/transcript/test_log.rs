@@ -83,6 +83,7 @@ impl TranscriptTestLog {
                     "agentId": mint_uuid_v7().to_string(),
                     "parentRunId": parent_run_id,
                     "reachedBy": "providerSubagent",
+                    "admittedProviderAccountId": "account-1",
                 },
             }),
             None,

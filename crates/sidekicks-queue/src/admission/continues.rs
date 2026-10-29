@@ -33,11 +33,12 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) =
+            self.read_run_driver(session_id, run_id).await?;
         if !self
             .admit_continue(
                 &provider,
-                provider_account_id,
+                provider_account_id.clone(),
                 driver.as_ref(),
                 session_id,
                 run_id,
@@ -49,7 +50,7 @@ impl QueueAdmission {
         let execution_posture = self
             .deps
             .provider_sessions
-            .read_execution_posture(session_id)
+            .read_execution_posture(session_id, provider_account_id)
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let (opening, reviews_run_id) = {
@@ -246,7 +247,7 @@ impl QueueAdmission {
     async fn admit_continue(
         &self,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,

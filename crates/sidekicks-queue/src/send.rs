@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use serde_json::json;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::orchestration::OrchestrationRunConfig;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{AgentQueueItemChangeRefusedReason, QueueItemId};
 use sidekicks_contracts::run::state::RunState;
@@ -50,11 +52,15 @@ use crate::run_lifecycle::QueueRunLifecycle;
 /// Reads and writes of a send before a lead run that keeps moving under it is refused.
 const SEND_ATTEMPTS: usize = 3;
 
-/// One message as a person's send writes it: its new id, what it carries and the key it was sent
-/// under.
+/// One message as a person's send writes it: its new id, what it carries, the key it was sent
+/// under and the account a run it opens is admitted against.
 pub(crate) struct QueueSendMessage {
     /// The new item.
     pub(crate) item_id: QueueItemId,
+    /// The account the run this message opens is admitted against, resolved before the send.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// The limits the run this message opens is admitted with, read before the send.
+    pub(crate) run_config: Option<OrchestrationRunConfig>,
     /// What it carries.
     pub(crate) body: QueueMessageBody,
     /// The send's own key.
@@ -79,6 +85,10 @@ pub(crate) enum QueueSendItem {
         target: SessionReviewTarget,
         /// The start's own key.
         client_idempotency_key: ClientUuid,
+        /// The account the run this review opens is admitted against, resolved before the send.
+        provider_account_id: ProviderAccountId,
+        /// The limits the run this review opens is admitted with, read before the send.
+        run_config: Option<OrchestrationRunConfig>,
     },
 }
 
@@ -149,7 +159,14 @@ impl QueueSends {
                         RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
                     let agent_id =
                         read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
-                    let queued = lead_run_queued(session_id, run_id, agent_id);
+                    let (provider_account_id, run_config) = admitted_with(&item);
+                    let queued = lead_run_queued(
+                        session_id,
+                        run_id,
+                        agent_id,
+                        provider_account_id.clone(),
+                        run_config.clone(),
+                    );
                     (run_id, SendRoute::NewRun { queued })
                 }
             };
@@ -251,6 +268,8 @@ impl QueueSends {
                     item_id: message.item_id,
                     target: *target,
                     client_idempotency_key: message.client_idempotency_key,
+                    provider_account_id: message.provider_account_id,
+                    run_config: message.run_config,
                 };
                 self.send(hold, item, Some(replaces)).await
             }
@@ -461,6 +480,20 @@ enum SendFailure {
     Error(Box<QueueError>),
 }
 
+// The account and limits the run `item` opens is admitted against and with.
+fn admitted_with(item: &QueueSendItem) -> (&ProviderAccountId, &Option<OrchestrationRunConfig>) {
+    match item {
+        QueueSendItem::Message { message, .. } => {
+            (&message.provider_account_id, &message.run_config)
+        }
+        QueueSendItem::Review {
+            provider_account_id,
+            run_config,
+            ..
+        } => (provider_account_id, run_config),
+    }
+}
+
 // The row `item` writes for `run_id`: a message under its device and key, a review under its key.
 fn new_item(
     session_id: SessionId,
@@ -479,6 +512,7 @@ fn new_item(
             item_id,
             target,
             client_idempotency_key,
+            ..
         } => (
             *item_id,
             QueueItemBody::Review { target: *target },

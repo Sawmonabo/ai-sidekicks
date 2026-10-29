@@ -27,7 +27,7 @@ const CODEX_PROTOCOL_BUNDLE_SHA3_256: &str =
 const CODEX_PROTOCOL_RELEASE: &str = "rust-v0.163.0";
 
 /// The protocol types the provider crate sends, generated with every type they reach.
-const CODEX_SENT_TYPES: [&str; 30] = [
+const CODEX_SENT_TYPES: [&str; 31] = [
     "ThreadStartParams",
     "ThreadResumeParams",
     "ThreadForkParams",
@@ -58,6 +58,7 @@ const CODEX_SENT_TYPES: [&str; 30] = [
     "GetAccountRateLimitsParams",
     "ThreadSetNameParams",
     "ThreadReadParams",
+    "EnvironmentAddParams",
 ];
 
 /// The sent types whose members carry absent, `null` and a value as three meanings, which

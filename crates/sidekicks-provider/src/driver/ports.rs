@@ -13,11 +13,14 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_std::port_registration::PortRegistration;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::callback_tools::host::CallbackToolHost;
+use crate::command::running_set::RunningCommandSets;
 use crate::driver::run_control::DaemonTurnBindingResolver;
 use crate::driver::session_control::DriverResumeResult;
 use crate::driver::{ProviderAccountReader, SessionSpawnContextResolver};
+use crate::port::context_reading_publisher::ContextReadingPublisher;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::permission_ask::PermissionAskPort;
@@ -28,8 +31,11 @@ use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
 use crate::port::run_pause::{ContinuedMessages, RunPauses};
 use crate::port::session_advisor_store::SessionAdvisorStore;
+use crate::port::session_resume_reader::SessionResumeReader;
 use crate::port::session_rules::SessionRulePort;
+use crate::port::session_wake::SessionWaker;
 use crate::port::tool_server_route::ToolServerRoute;
+use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
 
 /// The run queue's intake of a message the provider took into a run's turn.
@@ -132,8 +138,28 @@ pub struct DriverPorts {
     pub session_relaunched: Arc<PortRegistration<Arc<dyn SessionRelaunchListener>>>,
     /// The run queue's intake of an ended process.
     pub process_gone: Arc<PortRegistration<Arc<dyn ProcessGoneListener>>>,
-    /// The usage record.
+    /// The usage record. Until it is registered a session's readings meter from a zero base and
+    /// each metered change and quota window is dropped, as the command output and the readings
+    /// ports drop theirs while the other ports refuse: the provider's stream never waits on it.
     pub usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// The running commands of every session, which each driver reports its agent's commands to
+    /// and follows each command's channel into; a command reported before it is registered is
+    /// dropped.
+    pub command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
+    /// The turn readings each run's working line reads; a reading made before it is registered is
+    /// dropped.
+    pub turn_readings: Arc<PortRegistration<Arc<dyn TurnReadingPublisher>>>,
+    /// The context reading each session's ring and `Context` section read; a reading made before
+    /// it is registered is dropped.
+    pub context_readings: Arc<PortRegistration<Arc<dyn ContextReadingPublisher>>>,
+    /// The idle sleep's wake of a sleeping session for a message its inbox received; a driver that
+    /// finds it unregistered refuses the message.
+    pub session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
+    /// The stored resume and kept schedules of a sleeping session a driver holds nothing for in
+    /// memory; a driver that finds it unregistered fails the wake.
+    pub session_resumes: Arc<PortRegistration<Arc<dyn SessionResumeReader>>>,
+    /// The database writer the calibration stores its limits through.
+    pub database_writer: Arc<PortRegistration<Arc<DatabaseWriter>>>,
     /// The approval pipeline's intake of permission asks.
     pub permission_asks: Arc<PortRegistration<Arc<dyn PermissionAskPort>>>,
     /// The questions card's intake.
@@ -182,6 +208,12 @@ impl DriverPorts {
             session_relaunched: Arc::new(PortRegistration::new("session relaunched")),
             process_gone: Arc::new(PortRegistration::new("process gone")),
             usage: Arc::new(PortRegistration::new("usage")),
+            command_output: Arc::new(PortRegistration::new("command output")),
+            turn_readings: Arc::new(PortRegistration::new("turn readings")),
+            context_readings: Arc::new(PortRegistration::new("context readings")),
+            session_wakes: Arc::new(PortRegistration::new("session wakes")),
+            session_resumes: Arc::new(PortRegistration::new("session resumes")),
+            database_writer: Arc::new(PortRegistration::new("database writer")),
             permission_asks: Arc::new(PortRegistration::new("permission asks")),
             questions: Arc::new(PortRegistration::new("questions")),
             plans: Arc::new(PortRegistration::new("plans")),

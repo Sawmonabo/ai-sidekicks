@@ -57,13 +57,6 @@ pub(crate) struct ProviderCommandEnd {
 /// Which commands a provider's list of its running commands covers: a command it covers and does
 /// not list has ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each driver names what its list of running commands covers"
-    )
-)]
 pub(crate) enum ReseedScope {
     /// Only the commands running in the background.
     BackgroundCommands,
@@ -74,13 +67,6 @@ pub(crate) enum ReseedScope {
 /// The running-commands intake, registered through a `PortRegistration`. It never blocks or fails
 /// back into the provider's stream; a fact about a command the set holds no row for is dropped,
 /// except where it adds the row.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "each driver reports its commands' starts, moves, ends and lists here"
-    )
-)]
 pub(crate) trait RunningCommandPublisher: Send + Sync {
     /// Publishes `data`, a piece of `command_id`'s output in `session_id` as it printed, as the
     /// stream's output frame.

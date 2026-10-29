@@ -61,8 +61,8 @@ pub(crate) struct RepoServiceStart {
     pub(crate) home_folder: PathBuf,
     /// The run folder, private to this account, where the askpass broker's socket goes.
     pub(crate) run_folder: PathBuf,
-    /// The daemon's own program, which git's askpass program sits beside.
-    pub(crate) daemon_program: PathBuf,
+    /// The folder of the daemon's mode links, which holds git's askpass link.
+    pub(crate) program_link_folder: PathBuf,
     /// The daemon's one git, whose failed calls' trees the stop waits for.
     pub(crate) git: GitRunner,
     /// The daemon's one read pool.
@@ -136,7 +136,7 @@ pub(crate) fn build_repo_services(
     let RepoServiceStart {
         home_folder,
         run_folder,
-        daemon_program,
+        program_link_folder,
         git,
         reads,
         writer,
@@ -165,7 +165,7 @@ pub(crate) fn build_repo_services(
         list_feed,
     ));
     let askpass = askpass_or_unavailable(
-        AskpassBroker::start(&run_folder, git_askpass_program_path(&daemon_program)),
+        AskpassBroker::start(&run_folder, git_askpass_program_path(&program_link_folder)),
         &run_folder,
     )?;
     let occupancy = MountOccupancyReader::new(Arc::clone(&reads));

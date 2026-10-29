@@ -14,6 +14,8 @@ use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::wire::text::FreeFormText;
 use strum::VariantArray;
 
+use crate::command::channel::REQUESTS_FOLDER;
+
 /// Codex's own full-access profile, which YOLO selects.
 const CODEX_FULL_ACCESS_PROFILE: &str = ":danger-full-access";
 
@@ -94,6 +96,9 @@ pub(crate) struct CodexProfileFolders {
     pub(crate) git_common_folder: Option<PathBuf>,
     /// The credential paths no level may read, absolute.
     pub(crate) deny_paths: Vec<PathBuf>,
+    /// The session's command channel folder, absolute, which the commands' wrapper and askpass
+    /// write their records in at every level.
+    pub(crate) command_channel_folder: PathBuf,
 }
 
 /// The thread members one level sets on start, resume, fork and a level move.
@@ -230,7 +235,8 @@ pub(crate) fn compose_codex_permission_config(
 }
 
 /// The daemon's own profile for a level, or `None` at YOLO, which runs under Codex's full access.
-/// The deny paths are written last, so a deny wins over every other entry for its path.
+/// Every level lets the commands write the channel folder but not its requests folder; the deny
+/// paths are written last, so a deny wins over every other entry for its path.
 fn compose_codex_daemon_profile(
     level: PermissionLevel,
     folders: &CodexProfileFolders,
@@ -254,12 +260,23 @@ fn compose_codex_daemon_profile(
         }
         PermissionLevel::Yolo => return None,
     };
+    // The daemon alone writes its requests, so no command forges one to another party.
+    let channel = [
+        (
+            compose_path_key(&folders.command_channel_folder),
+            CodexFilesystemAccess::Write,
+        ),
+        (
+            compose_path_key(&folders.command_channel_folder.join(REQUESTS_FOLDER)),
+            CodexFilesystemAccess::Read,
+        ),
+    ];
     let denies = folders
         .deny_paths
         .iter()
         .map(|denied| (compose_path_key(denied), CodexFilesystemAccess::Deny));
     let mut filesystem = BTreeMap::new();
-    for (path, access) in entries.into_iter().chain(denies) {
+    for (path, access) in entries.into_iter().chain(channel).chain(denies) {
         filesystem.insert(path, access);
     }
     Some(CodexPermissionProfile {
@@ -337,6 +354,9 @@ mod tests {
         CodexFilesystemAccess, CodexProfileFolders, compose_codex_permission_config,
         compose_codex_profile_name,
     };
+    use crate::command::channel::REQUESTS_FOLDER;
+
+    const COMMAND_CHANNEL_FOLDER: &str = "/data/command-channels/session";
 
     const DAEMON_PROFILE_LEVELS: [PermissionLevel; 4] = [
         PermissionLevel::Readonly,
@@ -354,6 +374,7 @@ mod tests {
             working_directory: working_directory.to_path_buf(),
             git_common_folder: Some(PathBuf::from("/work/repo/.git")),
             deny_paths,
+            command_channel_folder: PathBuf::from(COMMAND_CHANNEL_FOLDER),
         }
     }
 
@@ -410,12 +431,17 @@ mod tests {
     }
 
     #[test]
-    fn every_daemon_profile_denies_every_deny_path_even_one_a_repository_entry_names() {
+    fn every_daemon_profile_lets_commands_write_the_channel_and_denies_every_deny_path() {
         let git_common_folder = PathBuf::from("/work/repo/.git");
+        let channel_folder = PathBuf::from(COMMAND_CHANNEL_FOLDER);
+        let requests_folder = channel_folder.join(REQUESTS_FOLDER);
+        let denied_inside_channel = channel_folder.join("denied");
         let deny_paths = vec![
             PathBuf::from("/home/person/.ssh"),
             git_common_folder.join("config"),
             git_common_folder.clone(),
+            requests_folder.clone(),
+            denied_inside_channel,
         ];
         let worktree = folders(Path::new("/work/worktrees/feature"), deny_paths.clone());
 
@@ -425,6 +451,11 @@ mod tests {
         for level in DAEMON_PROFILE_LEVELS {
             let filesystem =
                 &config.permissions[&compose_codex_profile_name(level, &worktree)].filesystem;
+            assert_eq!(
+                filesystem[&key(&channel_folder)],
+                CodexFilesystemAccess::Write,
+                "{level:?} keeps the commands from the channel"
+            );
             for denied in &deny_paths {
                 assert_eq!(
                     filesystem[&key(denied)],
@@ -433,6 +464,17 @@ mod tests {
                     denied.display()
                 );
             }
+        }
+        let without_denies = folders(Path::new("/work/worktrees/feature"), Vec::new());
+        let config = compose_codex_permission_config(PermissionLevel::Readonly, &without_denies);
+        for level in DAEMON_PROFILE_LEVELS {
+            let filesystem =
+                &config.permissions[&compose_codex_profile_name(level, &without_denies)].filesystem;
+            assert_eq!(
+                filesystem[&key(&requests_folder)],
+                CodexFilesystemAccess::Read,
+                "{level:?} lets commands write the daemon's requests"
+            );
         }
     }
 }

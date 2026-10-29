@@ -74,6 +74,7 @@ struct ScriptedStartTables {
     creation_reads: usize,
     one_turn_replies: VecDeque<ClaudeOneTurnReply>,
     one_turns: Vec<ScriptedOneTurnRecord>,
+    one_turn_environments: Vec<Vec<(String, String)>>,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
 }
@@ -148,6 +149,11 @@ impl ScriptedStarts {
     /// Takes every one-turn process run so far.
     pub(crate) fn take_one_turns(&self) -> Vec<ScriptedOneTurnRecord> {
         std::mem::take(&mut self.lock().one_turns)
+    }
+
+    /// Takes the environment of each one-turn process run so far.
+    pub(crate) fn take_one_turn_environments(&self) -> Vec<Vec<(String, String)>> {
+        std::mem::take(&mut self.lock().one_turn_environments)
     }
 
     /// Waits until at least `count` session starts were recorded since the last take.
@@ -254,6 +260,9 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 resume_handle: request.resume_handle,
                 permission_mode: request.permission_mode,
             });
+            tables
+                .one_turn_environments
+                .push(request.spawn.legs.spawn_environment.clone());
             tables.one_turn_replies.pop_front()
         };
         async move { reply.ok_or_else(|| spawn_failure("no one-turn reply scripted")) }.boxed()

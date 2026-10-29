@@ -18,7 +18,8 @@ use crate::capability::probe::{
 };
 use crate::driver::capabilities::DriverCapabilityFlag;
 use crate::driver::codex::capabilities::read_codex_capabilities;
-use crate::driver::codex::service::supervisor::{CodexService, DetachedConnectionEvents};
+use crate::driver::codex::service::supervisor::CodexService;
+use crate::driver::codex::service::supervisor::connection_events::DetachedConnectionEvents;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::view::TURN_START_METHOD;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;

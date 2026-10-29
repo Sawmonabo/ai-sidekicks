@@ -2,7 +2,8 @@
 //! its readings (the refusal, spent retries, a failed call's words, the step messages counted),
 //! each run's start report, the rows held for their tool call's start, the blocks streaming, the
 //! events each message was written as, the steers written `now` and not yet named taken, the
-//! runs an interrupt stopped, and the turn gate. A turn's end settles its run's readings: a paused
+//! runs an interrupt stopped, the turn gate, the command and tool-server tasks running, and the
+//! running turn's tokens received and task list. A turn's end settles its run's readings: a paused
 //! run keeps them for its next turn, an interrupted one keeps them as the session's continuable
 //! run, and any other run's go with it.
 
@@ -19,6 +20,8 @@ use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::transcript::whole_patch::stored_patch_files_body;
 
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::ClaudeCommandTasks;
+use crate::driver::claude::delivery::mcp_tasks::ClaudeToolServerTasks;
 use crate::driver::claude::delivery::messages::{
     ClaudeMessageBody, ClaudeMessageRow, ClaudeMessageRowKind, ClaudeOpenToolCall,
 };
@@ -27,6 +30,7 @@ use crate::driver::claude::delivery::streamed_blocks::{
     ClaudeStreamedBlockKey, ClaudeStreamedBlocks,
 };
 use crate::driver::claude::delivery::turn_end::ClaudeTurnEnd;
+use crate::driver::claude::delivery::turn_readings::ClaudeTurnReadings;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::state::CLAUDE_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::reorder_buffer::{NormalizedEventReorderBuffer, ReorderBufferedEvent};
@@ -198,6 +202,12 @@ pub(crate) struct ClaudeStreamSession {
     pub(crate) carried_ends: HashMap<RunId, ClaudeTurnEndDelivery>,
     /// The session's terminal gate.
     pub(crate) gate: TerminalEmissionGate,
+    /// The shell and Monitor tasks running, and the lines of the calls that start them.
+    pub(crate) command_tasks: ClaudeCommandTasks,
+    /// The tool servers' background calls held open until their tasks end.
+    pub(crate) tool_server_tasks: ClaudeToolServerTasks,
+    /// What the working line reads about the lead's running turn.
+    pub(crate) turn_readings: ClaudeTurnReadings,
 }
 
 /// A turn's end as the stream delivers it on its run's binding: held while the daemon's own end
@@ -215,7 +225,7 @@ pub(crate) struct ClaudeTurnEndDelivery {
 
 impl ClaudeStreamSession {
     /// Empty readings for a process running on `provider_account_id`'s home.
-    pub(crate) fn new(provider_account_id: Option<ProviderAccountId>) -> Self {
+    pub(crate) fn new(provider_account_id: ProviderAccountId) -> Self {
         Self {
             open_tool_calls: HashMap::new(),
             buffer: NormalizedEventReorderBuffer::new(
@@ -239,6 +249,9 @@ impl ClaudeStreamSession {
             daemon_ended: HashMap::new(),
             carried_ends: HashMap::new(),
             gate: TerminalEmissionGate::new(),
+            command_tasks: ClaudeCommandTasks::default(),
+            tool_server_tasks: ClaudeToolServerTasks::default(),
+            turn_readings: ClaudeTurnReadings::default(),
         }
     }
 

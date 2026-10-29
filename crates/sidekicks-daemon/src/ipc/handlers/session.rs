@@ -1,6 +1,7 @@
 //! Session methods served on the socket.
 
 pub(crate) mod changes;
+pub(crate) mod context;
 pub(crate) mod controls;
 pub(crate) mod draft_update;
 pub(crate) mod event_subscribe;

@@ -16,22 +16,23 @@ use std::time::Duration;
 use futures::FutureExt as _;
 use rstest::rstest;
 use rusqlite::params;
-use serde_json::json;
+use serde_json::{Value, json};
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemCancelRequest, AgentQueueItemCreateRequest, QueueItemId, QueuedSkillPick,
 };
+use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, RunOpeningItem};
 use sidekicks_provider::driver::message_handing::{HandMoment, MessageHanding};
 use sidekicks_provider::driver::run_control::{
@@ -39,10 +40,13 @@ use sidekicks_provider::driver::run_control::{
     SteerTurnEndedError, WithdrawQueuedMessageResult,
 };
 use sidekicks_provider::driver::session_control::ProviderSessionHandle;
+use sidekicks_provider::driver::test_registry::registered_test_accounts;
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
+use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProcessStandIn, ProviderProcessIds};
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::runtime_binding::test_store::spawned_build;
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemReader, QueueItemRecord, QueueMessageBody,
@@ -57,6 +61,7 @@ use sidekicks_session::run::pause::RunPauseControl;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::pause_point::PausePoint;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
@@ -69,9 +74,10 @@ use crate::changes::QueueChangeSignals;
 use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
-    record_first_provider_capabilities, test_opening_composer,
+    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
+use crate::run_token_limit::RunTokenLimitReader;
 
 /// The statements the tests' read pool prepares, every reader's together.
 const READ_STATEMENT_CAPACITY: usize = 32;
@@ -254,7 +260,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
     insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
     insert_lead(&database, session_id, PROVIDERS[0].id);
     let process = Arc::new(ProcessStandIn::default());
-    let queue = queue_over(&database, &log, &home, driver, Arc::clone(&process) as _);
+    let queue = queue_over(
+        &database,
+        &log,
+        &home,
+        driver,
+        Arc::clone(&process) as _,
+        CurrentProviderAccount::Current(test_provider_account_id()),
+    );
     Fixture {
         database,
         log,
@@ -266,13 +279,14 @@ async fn fixture(driver: MockProviderDriver) -> Fixture {
 }
 
 /// A run queue over `database` and its `log`, built as the daemon's start builds it, its lead's
-/// provider answered by `driver` and its process read from `processes`.
+/// provider answered by `driver`, its process read from `processes` and its account by `account`.
 fn queue_over(
     database: &TestDatabase,
     log: &TestLog,
     home: &TempDir,
     driver: MockProviderDriver,
     processes: Arc<dyn ProviderProcessIds>,
+    account: CurrentProviderAccount,
 ) -> Arc<RunQueue> {
     let pool = Arc::new(DatabaseReadPool::new(
         database.path(),
@@ -298,6 +312,7 @@ fn queue_over(
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),
         transition_lock: Arc::new(KeyedLock::new()),
+        process_follower: Arc::new(RecordedProcessFollowing::default()),
     }));
     let memory_gate = Arc::new(MemoryGate::new(
         MemoryGateFigures {
@@ -323,7 +338,29 @@ fn queue_over(
         pauses: Arc::new(RunPauseControl::new(pool, engine, providers)),
         followers: Arc::clone(&log.followers),
         read_damaged_from_sequence,
+        provider_accounts: registered_test_accounts(account),
+        token_limits: {
+            let token_limits = PortRegistration::new("run token limits");
+            token_limits
+                .register(Arc::new(ConfiguredTokenLimit) as Arc<dyn RunTokenLimitReader>)
+                .expect("a new registration takes its port");
+            Arc::new(token_limits)
+        },
     })
+}
+
+/// The `Tokens per run` every test's daemon configuration sets.
+fn configured_tokens_per_run() -> TokensPerRun {
+    TokensPerRun(SafeInt::new(500_000).expect("the test's limit is a safe integer"))
+}
+
+// The daemon's configuration as the tests set it: every new lead run limited alike.
+struct ConfiguredTokenLimit;
+
+impl RunTokenLimitReader for ConfiguredTokenLimit {
+    fn tokens_per_run(&self, _session_id: SessionId) -> Option<TokensPerRun> {
+        Some(configured_tokens_per_run())
+    }
 }
 
 fn client_key() -> ClientUuid {
@@ -331,10 +368,19 @@ fn client_key() -> ClientUuid {
 }
 
 impl Fixture {
-    /// Writes a lead run of the session in `state`, at version 1, and answers its id.
+    /// Writes a lead run of the session in `state`, at version 1, queued on the test's account,
+    /// and answers its id.
     fn insert_run(&self, state: &str) -> RunId {
         let run_id = new_run_id();
         insert_running_run(&self.database, self.session_id, run_id);
+        self.insert_event(
+            run_id,
+            SessionEventType::AgentRunQueued,
+            &json!({
+                "runId": run_id.text().as_str(),
+                "admittedProviderAccountId": test_provider_account_id().as_str(),
+            }),
+        );
         self.set_run_state(run_id, state);
         run_id
     }
@@ -353,7 +399,15 @@ impl Fixture {
     /// Writes the interrupted end of `run_id`, `trigger` naming the limit that ended it; a
     /// person's interrupt names none.
     fn insert_interrupted_end(&self, run_id: RunId, trigger: Option<&str>) {
-        let event_type = SessionEventType::AgentRunInterrupted;
+        self.insert_event(
+            run_id,
+            SessionEventType::AgentRunInterrupted,
+            &json!({ "runId": run_id.text().as_str(), "trigger": trigger }),
+        );
+    }
+
+    /// Writes an event of `event_type` on `run_id` carrying `payload`, next in the session's log.
+    fn insert_event(&self, run_id: RunId, event_type: SessionEventType, payload: &Value) {
         let connection = self.database.reader();
         let sequence: i64 = connection
             .query_row(
@@ -374,11 +428,11 @@ impl Fixture {
                     WireInstant::now().as_str(),
                     event_type.category().as_str(),
                     event_type.as_str(),
-                    json!({ "runId": run_id.text().as_str(), "trigger": trigger }).to_string(),
+                    payload.to_string(),
                     run_id.text().as_str(),
                 ],
             )
-            .expect("the test writes the run's interrupted end");
+            .expect("the test writes the run's event");
     }
 
     /// Queues a message for `run_id`, after every one before it, and answers its id.

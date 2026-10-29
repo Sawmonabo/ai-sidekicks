@@ -7,7 +7,7 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
+use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -99,7 +99,7 @@ impl CodexFrameDelivery {
         subagent_id: &str,
     ) {
         // A helper id the transcript cannot hold names no helper a row could show.
-        let Ok(subagent_id) = FreeFormText::new(subagent_id.to_owned()) else {
+        let Ok(subagent_id) = SubagentId::new(subagent_id.to_owned()) else {
             return;
         };
         let spawn_call = record
@@ -213,6 +213,7 @@ impl CodexFrameDelivery {
             record,
             &child,
             started.parent_run_id,
+            Some(started.child_run_id),
         ));
         let row = InboundDelivery::SessionRow {
             binding: DeliveryBinding {
@@ -243,8 +244,9 @@ impl CodexFrameDelivery {
         self.send(record, end, "turn/completed").await;
     }
 
-    // The child run and its `subagent.started` row; the child's start once the run engine
-    // started it, `None` when it absorbed or refused it.
+    // The child run and its `subagent.started` row, which names the child run the engine started
+    // first; the child's start once the run engine started it, `None` when it absorbed or refused
+    // it.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
@@ -262,7 +264,10 @@ impl CodexFrameDelivery {
             },
             parent_run_id,
         };
-        let outcome = self.send(record, start, "thread/started").await;
+        let child_run_id = match self.send(record, start, "thread/started").await {
+            Some(InboundOutcome::ChildRunStarted { run_id }) => Some(run_id),
+            _ => None,
+        };
         let started_row = InboundDelivery::SessionRow {
             binding: DeliveryBinding {
                 binding_id: child.binding_id.clone(),
@@ -272,6 +277,7 @@ impl CodexFrameDelivery {
                 record,
                 child,
                 parent_run_id,
+                child_run_id,
             )),
             content: None,
         };
@@ -279,12 +285,7 @@ impl CodexFrameDelivery {
             .send(record, started_row, "thread/started")
             .await
             .and_then(|outcome| outcome.event_id().cloned());
-        let Some(InboundOutcome::ChildRunStarted {
-            run_id: child_run_id,
-        }) = outcome
-        else {
-            return None;
-        };
+        let child_run_id = child_run_id?;
         record
             .delivery
             .child_thread_id_by_run_id
@@ -297,17 +298,20 @@ impl CodexFrameDelivery {
     }
 }
 
-// A helper's `subagent.*` row, on the run it was started beneath.
+// A helper's `subagent.*` row, on the run it was started beneath, naming its own run
+// `child_run_id` where the engine started one.
 fn subagent_row(
     record: &CodexSessionRecord,
     child: &CodexChildRun,
     parent_run_id: RunId,
+    child_run_id: Option<RunId>,
 ) -> SubagentLifecyclePayload {
     SubagentLifecyclePayload {
         session_id: record.session_id,
         run_id: parent_run_id,
         provider: DESCRIPTOR.provider_id(),
         subagent_id: child.subagent_id.clone(),
+        child_run_id,
         parent_tool_call_id: child
             .parent_tool_call_id
             .clone()

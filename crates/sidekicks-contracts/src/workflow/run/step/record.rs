@@ -13,7 +13,7 @@ use crate::jsonrpc::byte_length::fits_budget;
 use crate::provider::account::record::{PROVIDER_ACCOUNT_LABEL_MAX_LEN, ProviderAccountId};
 use crate::provider::id::ProviderId;
 use crate::question::QuestionId;
-use crate::run::control::ProcessExit;
+use crate::run::control::{ProcessExitWithCode, ProcessExitWithSignal};
 use crate::session::cost::UsdMicros;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::Never;
@@ -32,6 +32,18 @@ ts_constants! {
     pub const WORKFLOW_STEP_PAYLOAD_INLINE_BYTE_CAP: usize = 64 * 1024;
     /// How a person answers a step that waited on them.
     WORKFLOW_STEP_RESOLUTION_KINDS = WorkflowStepResolutionKind::VARIANTS;
+}
+
+/// How a failed step's process ended on its own: exactly one of its exit code and the signal that
+/// ended it, and the last lines it printed. A step never ends for silence, which only a provider
+/// service the daemon ends records.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(untagged)]
+pub enum WorkflowStepProcessExit {
+    /// Ended with an exit code.
+    Code(ProcessExitWithCode),
+    /// Ended by a signal.
+    Signal(ProcessExitWithSignal),
 }
 
 /// A step payload by reference: inline items up to the cap, an artifact above it, which names how
@@ -597,8 +609,8 @@ workflow_step! {
             skip_serializing_if = "Option::is_none",
             deserialize_with = "crate::wire::present"
         )]
-        #[schemars(with = "ProcessExit")]
-        pub process_exit: Option<ProcessExit>,
+        #[schemars(with = "WorkflowStepProcessExit")]
+        pub process_exit: Option<WorkflowStepProcessExit>,
         /// Present once a person has answered this step.
         #[serde(
             default,
@@ -732,6 +744,7 @@ pub(crate) const TYPESCRIPT_MODULE: TypeScriptModule = TypeScriptModule {
         Definition::read::<WorkflowStepResolutionKind>(),
         Definition::read::<WorkflowStepResolution>().checked(),
         Definition::read::<WorkflowStepReviewPause>().checked(),
+        Definition::read::<WorkflowStepProcessExit>(),
         Definition::read::<WorkflowStepKey>().checked(),
         Definition::read::<WorkflowStep>().checked(),
     ],

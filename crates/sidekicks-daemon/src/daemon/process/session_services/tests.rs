@@ -21,21 +21,27 @@ use sidekicks_platforms::{Spawner, WallClockTimer};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
-use sidekicks_provider::driver::PROVIDERS;
 use sidekicks_provider::driver::contract::MockProviderDriver;
-use sidekicks_provider::driver::test_registry::registry_of_first_provider;
+use sidekicks_provider::driver::test_registry::{
+    registered_test_accounts, registry_of_first_provider,
+};
+use sidekicks_provider::driver::{CurrentProviderAccount, PROVIDERS};
 use sidekicks_provider::process_identity::{ProviderProcessIdentity, ProviderProcessIds};
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
-use sidekicks_provider::runtime_binding::store::{RuntimeBindingSpawnConfig, RuntimeBindingStore};
-use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
+use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
+};
 use sidekicks_queue::memory_gate::{MemoryGate, MemoryGateFigures};
 use sidekicks_queue::provider_session::test_opening::test_opening_composer;
+use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_session::run::epochs::ExecutionEpochs;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -59,6 +65,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
 };
+use crate::daemon::configuration::ConfigurationStore;
 use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
 use crate::daemon::schema::schema_parts;
 
@@ -120,13 +127,13 @@ async fn fixture() -> Fixture {
     let repo = build_repo_services(RepoServiceStart {
         home_folder: home.path().to_path_buf(),
         run_folder: home.path().join("run"),
-        daemon_program: daemon_program.clone(),
+        program_link_folder: home.path().join("bin"),
         git: git.clone(),
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),
         event_log: Arc::clone(&log.service),
         machine_id: machine.machine_id.clone(),
-        scheduler,
+        scheduler: Arc::clone(&scheduler),
         list_feed: Arc::clone(&list_feed),
         stop: CancellationToken::new(),
     })
@@ -158,6 +165,14 @@ async fn fixture() -> Fixture {
     )));
     let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> =
         Arc::new(|_: &SessionId| None::<i64>);
+    let configuration = ConfigurationStore::open(Arc::clone(&log.writer), &reads)
+        .await
+        .expect("the configuration opens");
+    let token_limits = PortRegistration::new("run token limits");
+    token_limits
+        .register(Arc::new(configuration) as Arc<dyn RunTokenLimitReader>)
+        .expect("a new registration takes its port");
+    let token_limits = Arc::new(token_limits);
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),
@@ -205,6 +220,11 @@ async fn fixture() -> Fixture {
         clock,
         spawner,
         daemon_program,
+        provider_accounts: registered_test_accounts(CurrentProviderAccount::Current(
+            test_provider_account_id(),
+        )),
+        token_limits,
+        scheduler,
     })
     .expect("the session services build");
     Fixture {
@@ -232,7 +252,7 @@ impl Fixture {
                 CreateRuntimeBindingInput {
                     run_id,
                     ..binding_input(
-                        RuntimeBindingSpawnConfig::default(),
+                        spawn_config_on(test_provider_account_id()),
                         spawned_build("2.0.0", "/opt/provider/bin"),
                     )
                 },
@@ -265,7 +285,9 @@ impl Fixture {
 async fn the_started_follows_drop_a_closed_sessions_cursors() {
     let mut fixture = fixture().await;
     let followers = Arc::clone(&fixture.log.followers);
-    let attachments = start_session_attachments(&fixture.session, &followers);
+    let attachments = start_session_attachments(&fixture.session, &followers)
+        .await
+        .expect("the attachments start");
     let session_id = test_session_id();
     let live_binding = fixture.bind_new_run(session_id).await;
     assert!(fixture.is_open(&live_binding));
@@ -325,7 +347,9 @@ async fn the_stop_records_every_write_sent_before_it() {
     }
     drop(writes);
     let followers = Arc::clone(&fixture.log.followers);
-    let attachments = start_session_attachments(&fixture.session, &followers);
+    let attachments = start_session_attachments(&fixture.session, &followers)
+        .await
+        .expect("the attachments start");
 
     let failures = attachments
         .stop(&mut fixture.session, &fixture.workspaces)

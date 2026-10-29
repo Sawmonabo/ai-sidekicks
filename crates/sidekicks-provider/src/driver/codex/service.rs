@@ -6,7 +6,7 @@
 
 pub(super) mod asks;
 pub(super) mod command;
-mod command_line;
+pub(super) mod command_line;
 mod config_warnings;
 pub(super) mod home;
 mod managed_daemon;

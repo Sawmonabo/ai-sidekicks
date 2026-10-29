@@ -51,13 +51,6 @@ fn read_bash_command(line: &str) -> Option<String> {
 
 /// The text Claude Code's line runs for the Bash tool call `command`, which a wrapper names when it
 /// starts and its row is paired by.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the Claude driver pairs each Bash command's row by the text its line runs"
-    )
-)]
 pub(super) fn bash_line_text(command: &str) -> String {
     if command.contains(['<', '$', '`']) {
         return command.to_owned();

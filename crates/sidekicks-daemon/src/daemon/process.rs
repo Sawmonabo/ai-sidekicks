@@ -44,6 +44,7 @@ use sidekicks_platforms::{
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_provider::command::channel::remove_channel_folders;
 use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -56,8 +57,8 @@ use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
 use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
-use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::DataFolderLock;
+use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
@@ -419,7 +420,7 @@ impl DaemonProcess {
         self.repo = Some(build_repo_services(RepoServiceStart {
             home_folder: home_folder.to_path_buf(),
             run_folder: run_folder.folder_path.clone(),
-            daemon_program: daemon_program.to_path_buf(),
+            program_link_folder: program_link_folder(&data_folder),
             git: git.clone(),
             reads: Arc::clone(&reads),
             writer: Arc::clone(&writer),
@@ -471,6 +472,7 @@ impl DaemonProcess {
                 git: git.clone(),
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
+                caller_processes: Arc::clone(&caller_process_reader),
             },
         );
         let backups = Backups::new(BackupDeps {
@@ -489,6 +491,14 @@ impl DaemonProcess {
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
+        // A channel a previous run left served processes that ended with it; a new one takes new
+        // keys, so a folder left behind is only logged.
+        if let Err(error) = remove_channel_folders(&data_folder).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a command channel folder a previous run left was not removed"
+            );
+        }
         let drivers = Arc::clone(&providers.registry);
         let in_flight: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
         let inputs = register_method_inputs(

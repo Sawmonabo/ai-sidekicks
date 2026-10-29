@@ -6,6 +6,7 @@
 use std::error::Error;
 use std::sync::Arc;
 
+use jiff::Timestamp;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -35,14 +36,24 @@ impl ClaudeSessionEstablishment {
     /// minted into it, or answers the session's live process when it runs that conversation at the
     /// settings `params` asks for, on the binding the resume that brought it up answered, else on
     /// the minted one; every failure answers the `Failed` arm, nothing left running.
-    pub(crate) async fn resume(&self, params: ResumeSessionParams) -> ClaudeResumeAnswer {
-        match self.try_resume(params).await {
+    pub(crate) async fn resume(&self, mut params: ResumeSessionParams) -> ClaudeResumeAnswer {
+        let session_id = params.session_id;
+        let schedules = std::mem::take(&mut params.kept_schedules);
+        let answer = match self.try_resume(params).await {
             Ok(answer) => answer,
             Err(error) => ClaudeResumeAnswer {
                 result: resume_failure(error.recovery_condition(), &error),
                 has_started_process: false,
             },
+        };
+        // The timed fires stored for the session, which a fresh process does not keep, go to a
+        // session whose process came up; a failed resume leaves none to fire.
+        if matches!(answer.result, DriverResumeResult::Resumed { .. }) {
+            self.task_services
+                .idle_sleep
+                .seed_schedules(session_id, schedules, Timestamp::now());
         }
+        answer
     }
 
     // A resume's bring-up; its failures are the caller's to answer through the `Failed` arm.
@@ -96,39 +107,43 @@ impl ClaudeSessionEstablishment {
             ultracode: requested_claude_ultracode(&params.options),
             row_values: params.row_values,
         };
-        let start = ClaudeSessionStart {
-            resumed_binding_id: Some(binding_id.clone()),
-            ..self
-                .compose_start(
-                    claim,
-                    request,
-                    resume_handle.clone(),
-                    ClaudeConversationStart::Resume {
-                        resume_handle: resume_handle.clone(),
-                    },
-                    (
-                        params.mode,
-                        params.output_speed.map(FreeFormText::into_string),
-                    ),
-                    ClaudeUsageEstablishment::Resume {
-                        prior_emitted_thread_id: resume_handle.clone(),
-                    },
-                )
-                .await?
-        };
-        // Where the conversation stood when it was resumed, read before the process adds to it.
-        let session_position =
-            match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
-                Ok(session_position) => session_position,
-                Err(source) => {
-                    start.callback_tools.roll_back();
-                    return Err(ClaudeEstablishmentError::ConversationUnreadable {
-                        resume_handle,
-                        source,
-                    });
-                }
-            };
-        let started = self.bring_up(start).await?;
+        let output_speed = params.output_speed.map(FreeFormText::into_string);
+        let (started, session_position) = self
+            .spawn_on_command_channel(session_id, async |command_channel| {
+                let start = ClaudeSessionStart {
+                    resumed_binding_id: Some(binding_id.clone()),
+                    ..self
+                        .compose_start(
+                            claim,
+                            request,
+                            command_channel,
+                            resume_handle.clone(),
+                            ClaudeConversationStart::Resume {
+                                resume_handle: resume_handle.clone(),
+                            },
+                            (params.mode, output_speed),
+                            ClaudeUsageEstablishment::Resume {
+                                prior_emitted_thread_id: resume_handle.clone(),
+                            },
+                        )
+                        .await?
+                };
+                // Where the conversation stood when it was resumed, read before the process adds
+                // to it.
+                let session_position =
+                    match read_turn_count(&start.legs.spawn_environment, &resume_handle).await {
+                        Ok(session_position) => session_position,
+                        Err(source) => {
+                            start.callback_tools.roll_back();
+                            return Err(ClaudeEstablishmentError::ConversationUnreadable {
+                                resume_handle: resume_handle.clone(),
+                                source,
+                            });
+                        }
+                    };
+                Ok((self.bring_up(start).await?, session_position))
+            })
+            .await?;
         Ok(ClaudeResumeAnswer {
             result: resumed(binding_id, session_position, resume_handle, started),
             has_started_process: true,

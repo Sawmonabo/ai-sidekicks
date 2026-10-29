@@ -1,5 +1,6 @@
 //! The driver's own calls on a Codex session's record, which its task takes in place among the
-//! frames, how one is made, and the reading a compaction's call answers.
+//! frames, how one is made, and the readings a compaction's call and a running command's read
+//! answer.
 
 use std::sync::Arc;
 
@@ -59,6 +60,24 @@ pub(crate) enum CodexLifecycleCall {
         /// Where the reading goes.
         reply: oneshot::Sender<CodexCompactionReading>,
     },
+    /// Reads where the command item `item_id` runs, while its row is open.
+    ReadRunningCommand {
+        /// The command's item.
+        item_id: String,
+        /// Where the reading goes, `None` once the command's item ended.
+        reply: oneshot::Sender<Option<CodexRunningCommandReading>>,
+    },
+}
+
+/// Where a running command runs, as the session's task read it, for a stop of its background
+/// terminal.
+pub(crate) struct CodexRunningCommandReading {
+    /// The connection, or why the service has none.
+    pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
+    /// The conversation it runs in.
+    pub(crate) thread_id: String,
+    /// Codex's own id for its process, `None` where its item named none.
+    pub(crate) terminal_process_id: Option<String>,
 }
 
 /// The conversation a compaction runs on, as the session's task read it.
@@ -66,7 +85,7 @@ pub(crate) struct CodexCompactionReading {
     /// The connection, or why the service has none.
     pub(crate) connection: Result<Arc<CodexAppServerConnection>, CodexError>,
     /// The account the conversation runs on.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation.
     pub(crate) thread_id: String,
     /// The compaction wait's key for it.

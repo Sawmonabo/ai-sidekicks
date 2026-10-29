@@ -153,6 +153,9 @@ pub(crate) fn read_steered_turn_id(reply: &RawValue) -> Option<String> {
         .filter(|turn_id| !turn_id.is_empty())
 }
 
+/// The request that starts a thread.
+pub(crate) const THREAD_START_METHOD: &str = "thread/start";
+
 /// The request that starts a turn on a thread.
 pub(crate) const TURN_START_METHOD: &str = "turn/start";
 

@@ -3,6 +3,7 @@
 //! servers, the summarized thinking display and the settings readback, any failure ending the
 //! process and failing the spawn, since nothing runs on a half-set process.
 
+use std::path::Path;
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -52,8 +53,8 @@ const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
 pub(crate) struct ClaudeSessionSpawn<'a> {
     /// The legs the process starts with.
     pub(crate) legs: &'a ClaudeSpawnBoundLegs,
-    /// The account the process runs on; `None` on the person's own home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the process runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The session's own standing rules, carried in its `--settings`.
     pub(crate) session_rules: &'a [ProviderAskRule],
     /// The session's step bound, `None` where it sets none.
@@ -80,6 +81,9 @@ pub(crate) struct ClaudeBringUpRequest<'a> {
     /// The mode it starts in in place of its level's own, as `--permission-mode` names it; `None`
     /// starts in the level's.
     pub(crate) permission_mode: Option<ClaudePermissionMode>,
+    /// The socket the process listens on for other sessions' messages; `None` for a process
+    /// no inbox passes messages to.
+    pub(crate) messaging_socket: Option<&'a Path>,
 }
 
 /// What a `get_settings` reply says the process runs with.
@@ -127,8 +131,13 @@ pub(crate) async fn bring_up_claude_process(
         legs.execution_posture.as_ref(),
         &legs.advisor,
         legs.output_style.as_deref(),
+        legs.command_channel.as_deref(),
     )?;
     let has_managed_mcp_file = has_readable_managed_mcp_file().await;
+    // A fork's predecessor keeps running on the session's channel until the fork is adopted, which
+    // binds the channel then, so a fork that fails leaves it on the predecessor's process.
+    let binds_command_channel =
+        !matches!(request.conversation, ClaudeConversationStart::Fork { .. });
     let arguments = compose_claude_arguments(&ClaudeArgumentsRequest {
         model: &legs.model,
         permission_mode: request.permission_mode.unwrap_or_else(|| {
@@ -144,6 +153,7 @@ pub(crate) async fn bring_up_claude_process(
         step_bound: spawn.step_bound,
         has_managed_mcp_file,
         conversation: request.conversation,
+        messaging_socket: request.messaging_socket,
     });
     // Under an administrator's MCP file only the daemon's own server is fronted, and Claude Code
     // loads the organization's servers itself.
@@ -162,12 +172,15 @@ pub(crate) async fn bring_up_claude_process(
                 environment: executable.environment.clone(),
                 working_folder: legs.working_directory.clone(),
                 provider_session_id: request.provider_session_id,
-                provider_account_id: spawn.provider_account_id,
+                provider_account_id: Some(spawn.provider_account_id),
             },
             request.listener,
             request.turn_holds,
         )
         .await?;
+    if binds_command_channel && let Some(channel) = &legs.command_channel {
+        channel.follow(process.identity().process_id);
+    }
     match configure(&process, legs.subagent_policy.as_ref(), in_process_servers).await {
         Ok((initialize_response, settings_readback)) => Ok(ClaudeBroughtUp {
             initialize: initialize_reply::read_claude_initialize_declaration(
@@ -236,4 +249,163 @@ async fn has_readable_managed_mcp_file() -> bool {
     tokio::fs::File::open(folder.join(CLAUDE_MANAGED_MCP_FILE))
         .await
         .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
+    use sidekicks_platforms::{
+        PathRules, ProgramStart, Spawner, StandInAnswer, StandInProgram, write_stand_in_program,
+    };
+    use sidekicks_std::port_registration::PortRegistration;
+    use tokio::runtime::Handle;
+
+    use super::{
+        ClaudeBringUpRequest, ClaudeSessionSpawn, ClaudeSpawnBoundLegs, bring_up_claude_process,
+    };
+    use crate::background_work::BackgroundWorkForms;
+    use crate::command::running_set::unbound_running_command_sets;
+    use crate::command::waiting_checks::SystemInputWaitReader;
+    use crate::driver::PROVIDERS;
+    use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
+    use crate::driver::claude::session::process::{
+        ClaudeProcessEnd, ClaudeProcessListener, ClaudeStreamFrame,
+    };
+    use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
+    use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
+    use crate::driver::claude::spawn::launch::ClaudeProcessLauncher;
+    use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+    use crate::driver::test_registry::new_session_id;
+    use crate::process_registry::ProviderProcessRegistry;
+    use crate::runtime_binding::test_store::test_provider_account_id;
+    use crate::spawned_version::ResolvedProviderExecutable;
+
+    struct NoSession;
+
+    impl ClaudeProcessListener for NoSession {
+        fn take_frame(&self, _frame: ClaudeStreamFrame) {}
+
+        fn take_request(&self, _event: ClaudeInboundRequestEvent) {}
+
+        fn take_exit(&self, _end: ClaudeProcessEnd) {}
+
+        fn is_turn_ending(&self, _frame: &ClaudeStreamFrame) -> bool {
+            true
+        }
+    }
+
+    // A fork whose process fails before its adoption leaves the session's command channel on its
+    // predecessor's process, whose commands still run. Killed by a fork's bring-up that follows
+    // the channel itself.
+    #[tokio::test]
+    async fn a_fork_that_fails_before_adoption_leaves_the_channel_on_its_predecessor() {
+        let folder = tempfile::tempdir().expect("a test folder");
+        let spawner = Spawner::new(Handle::current()).expect("a spawner");
+        let command_output = Arc::new(PortRegistration::new("running commands"));
+        command_output
+            .register(unbound_running_command_sets())
+            .expect("the running commands register once");
+        let channels = ClaudeCommandChannels::new(
+            folder.path(),
+            ClaudeCommandPrograms {
+                wrapper_program: folder.path().join("wrapper"),
+                askpass_program: folder.path().join("askpass"),
+            },
+            Arc::new(ProcessTableReader::for_this_program().expect("the reader builds")),
+            Arc::new(SystemInputWaitReader {
+                spawner: spawner.clone(),
+            }),
+            command_output,
+        );
+        let session_id = new_session_id();
+        let Some(opened) = channels.open(session_id).await.expect("the channel opens") else {
+            // A system that runs no command wrapper opens no channel to keep.
+            return;
+        };
+        let channel = Arc::clone(opened.channel());
+        let predecessor = std::process::id();
+        channel.follow(predecessor);
+        let program = write_stand_in_program(
+            folder.path(),
+            "claude",
+            &StandInProgram {
+                answers_by_first_argument: Vec::new(),
+                otherwise: StandInAnswer {
+                    standard_output: String::new(),
+                    exit_code: 0,
+                    argument_record: None,
+                },
+            },
+        )
+        .expect("the stand-in is written");
+        let executable = ResolvedProviderExecutable {
+            requested_command: "claude".to_owned(),
+            resolved_executable_path: program.clone(),
+            start: ProgramStart {
+                program,
+                leading_arguments: Vec::new(),
+            },
+            environment: Vec::new(),
+        };
+        let legs = ClaudeSpawnBoundLegs {
+            session_id,
+            model: "opus".to_owned(),
+            execution_posture: None,
+            working_directory: folder.path().to_owned(),
+            callback_tools: None,
+            subagent_policy: None,
+            tool_servers: Vec::new(),
+            output_schema: None,
+            on_callback_tool_call: None,
+            on_mcp_server_status: None,
+            credential_deny_paths: Vec::new(),
+            memory_folders: Vec::new(),
+            background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
+            spawn_environment: Vec::new(),
+            advisor: ClaudeSessionAdvisor::Unpicked,
+            output_style: None,
+            command_channel: Some(Arc::clone(&channel)),
+        };
+        let launcher = ClaudeProcessLauncher::new(
+            spawner,
+            Arc::new(ProviderProcessRegistry::default()),
+            folder.path(),
+        );
+
+        let brought_up = bring_up_claude_process(
+            &launcher,
+            &executable,
+            ClaudeBringUpRequest {
+                spawn: ClaudeSessionSpawn {
+                    legs: &legs,
+                    provider_account_id: test_provider_account_id(),
+                    session_rules: &[],
+                    step_bound: None,
+                    in_process_servers: None,
+                    path_rules: PathRules::NATIVE,
+                },
+                provider_session_id: "fork".to_owned(),
+                conversation: ClaudeConversationStart::Fork {
+                    resume_handle: "predecessor".to_owned(),
+                    forked_provider_session_id: "fork".to_owned(),
+                    resume_at_message_uuid: "message".to_owned(),
+                    dropped_turn_prompt_uuid: "prompt".to_owned(),
+                },
+                listener: Arc::new(NoSession),
+                turn_holds: None,
+                permission_mode: None,
+                messaging_socket: None,
+            },
+        )
+        .await;
+
+        assert!(brought_up.is_err(), "a process that answers nothing fails");
+        assert_eq!(channel.bound_process_id(), Some(predecessor));
+        channels
+            .close(session_id)
+            .await
+            .expect("the channel closes");
+    }
 }

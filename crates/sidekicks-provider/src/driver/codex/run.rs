@@ -5,6 +5,7 @@
 
 pub(super) mod control;
 pub(super) mod faster_model_retry;
+pub(super) mod helper_token_limit;
 pub(super) mod routes;
 pub(super) mod self_started_turns;
 pub(super) mod start;

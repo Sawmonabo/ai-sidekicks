@@ -491,9 +491,10 @@ async fn a_conversation_not_resumed_in_place_tells_the_queue(#[case] failure: Re
     );
     let service = Arc::clone(&scripted.service);
     let generation = parts.recovery.owe_resumes(&service);
-    let recovering = parts
-        .recovery
-        .recover(&service, CodexServiceRecoveryCause::Crash, generation);
+    let recovering =
+        parts
+            .recovery
+            .recover(&service, CodexServiceRecoveryCause::Crash, generation, None);
     // Held, so the script stays open while the service reads down.
     let _set_aside = match failure {
         ResumeFailure::Refused | ResumeFailure::ConnectionClosed => None,

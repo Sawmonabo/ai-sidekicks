@@ -26,6 +26,10 @@ pub(crate) enum ClaudeWireFrameKind {
     /// `system/init`.
     #[strum(serialize = "system/init")]
     SystemInit,
+    /// `system/commands_changed`: the whole `/` list again, which routing takes in place of the
+    /// list `system/init` declared; no row.
+    #[strum(serialize = "system/commands_changed")]
+    SystemCommandsChanged,
     /// `system/api_retry`.
     #[strum(serialize = "system/api_retry")]
     SystemApiRetry,
@@ -221,6 +225,17 @@ impl ClaudeWireFrameKind {
         )
     }
 
+    /// Whether the kind reports a task: its start, a move, its end or the whole background set.
+    pub(crate) const fn is_task(&self) -> bool {
+        matches!(
+            self,
+            Self::SystemTaskStarted
+                | Self::SystemTaskUpdated
+                | Self::SystemTaskNotification
+                | Self::SystemBackgroundTasksChanged
+        )
+    }
+
     // The family the thread-frame router reads the kind as.
     fn routing_family(&self) -> ThreadFrameFamilyClass {
         match self {
@@ -230,6 +245,7 @@ impl ClaudeWireFrameKind {
             | Self::SystemApiError
             | Self::RateLimitEvent
             | Self::SystemInit
+            | Self::SystemCommandsChanged
             | Self::SystemWorkerShuttingDown
             | Self::ControlRequestCanUseTool
             | Self::ControlRequestElicitation
@@ -335,6 +351,9 @@ pub(crate) struct ClaudeSubagentLifecycleSignal {
     pub(crate) parent_tool_use_id: Option<String>,
     /// The `task_id` of the helper whose agent launched this one, when a helper did.
     pub(crate) parent_task_id: Option<String>,
+    /// Whether a start runs in the foreground, where Claude Code answers the helper-tool call
+    /// only once the helper finished.
+    pub(crate) is_foreground: bool,
 }
 
 /// A helper lifecycle signal as its event and, for a start, the router's announcement.
@@ -368,6 +387,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
         subagent_id,
         parent_tool_use_id,
         parent_task_id,
+        is_foreground,
     } = lifecycle_signal;
     let (event_type, announcement) = match signal {
         ClaudeSubagentSignal::SubagentStart => {
@@ -382,6 +402,7 @@ pub(crate) fn normalize_claude_subagent_lifecycle(
                     child_thread_id: subagent_id.clone(),
                     declared_parent_thread_id,
                     subagent_id: Some(subagent_id.clone()),
+                    waiting_call_id: parent_tool_use_id.clone().filter(|_| is_foreground),
                 }),
             )
         }
@@ -455,6 +476,7 @@ mod tests {
                 subagent_id: "h2".to_owned(),
                 parent_tool_use_id: parent_tool_use_id.map(str::to_owned),
                 parent_task_id: parent_task_id.map(str::to_owned),
+                is_foreground: true,
             },
             "session",
             |task_id| registered_helpers.contains(&task_id),

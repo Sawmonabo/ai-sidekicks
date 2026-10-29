@@ -116,6 +116,16 @@ pub(crate) struct ClaudeCompactionBoundaryObservation {
     pub(crate) boundary_position: Option<u64>,
 }
 
+/// One assistant message's usage: its id and its counts so far, which a later reading of the
+/// same message raises.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ClaudeMessageUsageObservation {
+    /// The message's id.
+    pub(crate) message_id: String,
+    /// Its counts so far.
+    pub(crate) counts: UsageAxisCounts,
+}
+
 /// The routing facts of one inbound stream frame, not the frame itself.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ClaudeInboundFrameObservation {
@@ -125,8 +135,17 @@ pub(crate) struct ClaudeInboundFrameObservation {
     pub(crate) subagent_id: Option<String>,
     /// The frame's usage reading.
     pub(crate) cumulative_usage: Option<ClaudeCumulativeUsageObservation>,
+    /// An assistant message's usage.
+    pub(crate) message_usage: Option<ClaudeMessageUsageObservation>,
+    /// The whole `/` list a `system/commands_changed` frame carries again.
+    pub(crate) commands_changed: Option<Vec<String>>,
     /// The helper lifecycle signal it carries.
     pub(crate) subagent_lifecycle: Option<ClaudeSubagentLifecycleSignal>,
+    /// The helper a `task_updated` frame moves to the background.
+    pub(crate) backgrounded_helper_id: Option<String>,
+    /// The tool calls a `user` frame's tool results answer.
+    pub(crate) answered_call_ids: Vec<String>,
+
     /// The `system/init` declaration, which rides the observation so routing always sees it.
     pub(crate) handshake: Option<ClaudeHandshakeDeclaration>,
     /// The compaction boundary it carries.

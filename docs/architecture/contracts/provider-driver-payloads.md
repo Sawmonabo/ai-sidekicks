@@ -309,11 +309,10 @@ interface ProviderModeListResponse {
 // untrusted provider-output strings enumerated at the head of this section are. The list carries
 // every entry the provider publishes, with no count of the driver's own; the palette draws only the
 // rows in view. The binding an enumeration belongs to: the driver, by its open provider id
-// (`ProviderId`, checked against the registered drivers), and the account. `providerAccountId` is
-// null where the session has bound no account; absence is stated, never synthesized.
+// (`ProviderId`, checked against the registered drivers), and the account the session runs on.
 interface ProviderCommandBinding {
   providerName: ProviderId;
-  providerAccountId: string | null;
+  providerAccountId: string;
 }
 // Tagged on `kind`; only a tool server's prompt names its server and carries a title.
 type ProviderCommandEntry =
@@ -424,21 +423,25 @@ interface CreateSessionParams {
   // StartRunParams.outputSchema (turn/start.outputSchema). Named consumers: Plan-013 orchestration
   // reads
   outputSchema?: Record<string, unknown>;
-  // Provider-account identity at spawn (Plan-003 T3.45). OPAQUE TO THE DRIVER — never parsed, never
-  // used to locate credential material: the driver receives the already-constructed spawn
-  // environment, and pinning the account's credential home into it (and denying the ambient names a
-  // bound leg must not read) are obligations on the spawn path — Plan-023's fail-closed binding,
-  // consumed per CP-003-7 — not properties this member carries. RESOLVED BY THE DAEMON AND NEVER
-  // SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps it here — the account
-  // pinned by the run's saved agent definition or workflow step where one pins, and otherwise the
-  // provider's current account, the one carrying the mark on the provider surface when the run
-  // starts (provider-account-payloads.md §Plan-023 — Provider Accounts And Credential Homes). No
-  // wire request carries an account per session or per run, so there is no override to authorize
-  // and no client-supplied value to reconcile against the resolution. Spawn-bound because a run's
-  // paying account is bound for the run's LIFETIME — `ResumeSessionParams` re-realizes it below
-  // from the durable record rather than re-resolving whichever account is current at the resume.
-  // Omitting it is the unchanged default path.
-  providerAccountId?: string;
+  // Provider-account identity at spawn (Plan-003 T3.45), REQUIRED on every create and resume.
+  // OPAQUE TO THE DRIVER — never parsed, and never used by the driver to read credential material
+  // itself: the driver hands it back to the daemon, the Claude Code driver to receive the account's
+  // spawn environment with its credential store pinned in (and the ambient names a bound leg must
+  // not read denied), the Codex driver to receive the account's Codex home, whose app-server
+  // service runs the session. That pinning is an obligation on the spawn path — Plan-023's
+  // fail-closed binding, consumed per CP-003-7 — not a property this member carries. RESOLVED BY
+  // THE DAEMON AND NEVER SUPPLIED BY A CLIENT: the daemon resolves exactly one account and stamps
+  // it here — the account pinned by the run's saved agent definition or workflow step where one
+  // pins, and otherwise the provider's current account, the one carrying the mark on the provider
+  // surface when the run starts (provider-account-payloads.md §Plan-023 — Provider Accounts And
+  // Credential Homes). No wire request carries an account per session or per run, so there is no
+  // override to authorize and no client-supplied value to reconcile against the resolution.
+  // Spawn-bound because a run's paying account is bound for the run's LIFETIME —
+  // `ResumeSessionParams` re-realizes it below from the durable record rather than re-resolving
+  // whichever account is current at the resume.
+  // A provider with no account to resolve refuses the run before spawn
+  // (`provider.account.notRegistered`, `provider.account.current.notSet`).
+  providerAccountId: string;
   // THIS SESSION'S OWN bound on how many steps one turn may take, carried onto the spawn because
   // one leg realizes it as a start flag (Spec-003 §The Step Bound On A Turn). Absent means the
   // session set no bound of its own, in which case the machine's own Runtime value applies and
@@ -509,7 +512,7 @@ interface ResumeSessionParams {
   // from the durable `runtime_bindings.spawn_config` record written at the original spawn — never
   // re-resolved, and never re-supplied: no wire request carries an account, and recovery holds none
   // to take one from. Same opacity rule as on `CreateSessionParams` above.
-  providerAccountId?: string;
+  providerAccountId: string;
   // A reconstructed data leg: a resume that dropped the session's own step bound would relaunch the
   // Claude leg without its `--max-turns` backstop while the session record still holds the number
   // the person set, which is the silent shedding this list exists to prevent. Read back from
@@ -522,6 +525,11 @@ interface ResumeSessionParams {
   // re-injected census sink, pre-bound to the resumed leg's identity — the resumed leg re-emits its
   // init census through it
   onMcpServerStatus?: McpServerStatusProducer;
+  // The timed fires the idle sleep stored for the session — its wake-ups and the scheduled jobs
+  // that live only in the session's process — read from the daemon's store by the session's key
+  // on every resume, empty for a session with none. A fresh process holds none of them, so a
+  // session the idle sleep put to sleep, woken after a daemon restart, takes them back here.
+  keptSchedules: KeptSchedule[];
 }
 
 interface StartRunParams {

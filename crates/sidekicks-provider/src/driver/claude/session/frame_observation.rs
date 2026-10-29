@@ -1,14 +1,15 @@
 //! The routing facts of one stream frame Claude Code writes on its output: its kind, the helper it
-//! came from, a helper's start and end, the turn's cumulative usage, the `system/init` declaration,
-//! the compaction boundary, and a start-up hook's start or end. The frame is untrusted, so it is
-//! read once into a struct naming only these members, each leniently: an absent or malformed one
-//! reads as absent, and every other member is skipped unread.
-
-use std::collections::BTreeMap;
+//! came from, a helper's start, move to the background and end, the tool calls a `user` frame's
+//! results answer, an assistant message's usage and a turn's own usage, the `system/init`
+//! declaration and a later whole `/` list, the compaction boundary, and a start-up hook's start or
+//! end. The frame is untrusted, so it is read once into a struct naming only these members, each
+//! leniently: an absent or malformed one reads as absent, and every other member is skipped unread.
+//! `modelUsage`, the process's sum over every thread, is never read.
 
 use serde::Deserialize;
 use serde_json::value::RawValue;
 
+use crate::driver::claude::delivery::commands::CLAUDE_HELPER_TASK_TYPE;
 use crate::driver::claude::event_normalizer::{
     ClaudeSubagentLifecycleSignal, ClaudeSubagentSignal, compose_claude_wire_frame_kind,
     is_claude_result_frame_kind,
@@ -16,12 +17,10 @@ use crate::driver::claude::event_normalizer::{
 use crate::driver::claude::session::transport::declarations::{
     ClaudeCompactionBoundaryObservation, ClaudeCumulativeUsageObservation,
     ClaudeFastModeDeclaration, ClaudeHandshakeDeclaration, ClaudeInboundFrameObservation,
+    ClaudeMessageUsageObservation,
 };
-use crate::lenient_json::{Lenient, LenientElement, LenientList, lenient_object, read_lenient};
+use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 use crate::usage_delta_accountant::UsageAxisCounts;
-
-// The `task_type` of a task that is a helper; a background command is another kind of task.
-const CLAUDE_HELPER_TASK_TYPE: &str = "local_agent";
 
 // The hook events whose run Claude Code reports while it starts, which `initialize`'s wait does
 // not count.
@@ -55,8 +54,16 @@ pub(crate) struct ClaudeStreamFrameRead {
     tool_use_id: Option<String>,
     #[serde(default, deserialize_with = "read_lenient")]
     parent_task_id: Option<String>,
-    #[serde(rename = "modelUsage", default)]
-    model_usage: Option<Box<RawValue>>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    is_backgrounded: Option<bool>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    patch: Option<ClaudeTaskPatch>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    message: Option<ClaudeFrameMessage>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    usage: Option<ClaudeTokenUsage>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    commands: Option<LenientList<ClaudeListedCommand>>,
     #[serde(default, deserialize_with = "read_lenient")]
     slash_commands: Option<LenientList<String>>,
     #[serde(default, deserialize_with = "read_lenient")]
@@ -79,24 +86,67 @@ pub(crate) struct ClaudeStreamFrameRead {
     hook_event: Option<String>,
 }
 
-// One model's spend on a `result`, each member as sent.
+// A message as its frame carries it: an assistant message's id and usage so far, and the blocks
+// of either.
+#[derive(Deserialize)]
+struct ClaudeFrameMessage {
+    #[serde(default, deserialize_with = "read_lenient")]
+    id: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    usage: Option<ClaudeTokenUsage>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    content: Option<LenientList<ClaudeResultBlock>>,
+}
+
+// A content block, read only for a tool result's call; the result's own content is skipped
+// unread, since it can be a whole file.
+#[derive(Deserialize)]
+struct ClaudeResultBlock {
+    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
+    block_type: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    tool_use_id: Option<String>,
+}
+
+// What a `task_updated` frame changes of its task.
+#[derive(Deserialize)]
+struct ClaudeTaskPatch {
+    #[serde(default, deserialize_with = "read_lenient")]
+    is_backgrounded: Option<bool>,
+}
+
+// A message's or a turn's token counts, each member as sent.
 #[derive(Deserialize)]
 #[expect(
     clippy::struct_field_names,
     reason = "the members carry Claude Code's own names"
 )]
-struct ModelUsage {
-    #[serde(rename = "inputTokens", default)]
+struct ClaudeTokenUsage {
+    #[serde(default)]
     input_tokens: Option<Box<RawValue>>,
-    #[serde(rename = "cacheReadInputTokens", default)]
+    #[serde(default)]
     cache_read_input_tokens: Option<Box<RawValue>>,
-    #[serde(rename = "cacheCreationInputTokens", default)]
+    #[serde(default)]
     cache_creation_input_tokens: Option<Box<RawValue>>,
-    #[serde(rename = "outputTokens", default)]
+    #[serde(default)]
     output_tokens: Option<Box<RawValue>>,
 }
 
-lenient_object!(ClaudeStreamFrameRead, ModelUsage);
+// One entry of a whole `/` list.
+#[derive(Deserialize)]
+struct ClaudeListedCommand {
+    #[serde(default, deserialize_with = "read_lenient")]
+    name: Option<String>,
+}
+
+lenient_object!(
+    ClaudeStreamFrameRead,
+    ClaudeFrameMessage,
+    ClaudeResultBlock,
+    ClaudeTaskPatch,
+    ClaudeTokenUsage,
+    ClaudeListedCommand
+);
 
 impl ClaudeStreamFrameRead {
     /// Reads one output line's text; `None` when it is not a JSON object, which is no frame.
@@ -136,19 +186,56 @@ impl ClaudeStreamFrameRead {
     /// The observation the session routes the frame by. A helper's own frames carry its id as
     /// `agent_id`, the id its `task_started` registered; a frame that names only
     /// `parent_tool_use_id` names no registered helper, so it is held and then refused, never
-    /// shown as the lead's.
+    /// shown as the lead's. A `result`'s usage reading is its turn's own `usage`, which is the
+    /// process's whole spend only for a process that runs one turn; routing folds it into the
+    /// thread's sum of its messages.
     pub(crate) fn into_observation(self) -> ClaudeInboundFrameObservation {
         let frame_kind =
             compose_claude_wire_frame_kind(self.frame_type(), self.subtype.as_deref()).into_owned();
         let cumulative_usage = is_claude_result_frame_kind(&frame_kind)
-            .then(|| read_result_usage(self.model_usage.as_deref()))
+            .then(|| self.usage.as_ref().and_then(read_token_counts))
             .flatten()
             .map(|cumulative| ClaudeCumulativeUsageObservation {
                 named_turn_id: None,
                 cumulative,
                 declared_per_turn: None,
             });
+        let message_usage = (frame_kind == "assistant")
+            .then_some(self.message.as_ref())
+            .flatten()
+            .and_then(|message| {
+                Some(ClaudeMessageUsageObservation {
+                    message_id: non_empty(message.id.clone())?,
+                    counts: read_token_counts(message.usage.as_ref()?)?,
+                })
+            });
+        let commands_changed = (frame_kind == "system/commands_changed")
+            .then(|| self.commands.as_ref())
+            .flatten()
+            .map(|commands| {
+                commands
+                    .0
+                    .iter()
+                    .filter_map(|command| non_empty(command.name.clone()))
+                    .collect()
+            });
         let subagent_lifecycle = self.read_helper_lifecycle(&frame_kind);
+        let answered_call_ids = (frame_kind == "user")
+            .then(|| self.message.as_ref()?.content.as_ref())
+            .flatten()
+            .map(|content| {
+                content
+                    .0
+                    .iter()
+                    .filter(|block| block.block_type.as_deref() == Some("tool_result"))
+                    .filter_map(|block| non_empty(block.tool_use_id.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let backgrounded_helper_id = (frame_kind == "system/task_updated"
+            && self.patch.as_ref().and_then(|patch| patch.is_backgrounded) == Some(true))
+        .then(|| non_empty(self.task_id.clone()))
+        .flatten();
         let handshake = (frame_kind == "system/init").then(|| self.read_handshake());
         let compaction_boundary = (frame_kind == "system/compact_boundary"
             && self
@@ -162,7 +249,11 @@ impl ClaudeStreamFrameRead {
             subagent_id: non_empty(self.agent_id).or_else(|| non_empty(self.parent_tool_use_id)),
             frame_kind,
             cumulative_usage,
+            message_usage,
+            commands_changed,
             subagent_lifecycle,
+            backgrounded_helper_id,
+            answered_call_ids,
             handshake,
             compaction_boundary,
         }
@@ -198,39 +289,27 @@ impl ClaudeStreamFrameRead {
             subagent_id,
             parent_tool_use_id: non_empty(self.tool_use_id.clone()),
             parent_task_id: non_empty(self.parent_task_id.clone()),
+            is_foreground: self.is_backgrounded == Some(false),
         })
     }
 }
 
-// The turn's spend summed over every model it used; `modelUsage` on a `result` is cumulative for
-// the process, so the accountant differences one reading from the last.
-fn read_result_usage(model_usage: Option<&RawValue>) -> Option<UsageAxisCounts> {
-    let per_model: BTreeMap<String, LenientElement<ModelUsage>> =
-        serde_json::from_str(model_usage?.get()).ok()?;
-    if per_model.is_empty() {
-        return None;
-    }
-    let mut sums = UsageAxisCounts::default();
-    for usage in per_model.into_values().filter_map(|element| element.0) {
-        add_count(&mut sums.input, usage.input_tokens.as_deref());
-        add_count(
-            &mut sums.cached_input,
-            usage.cache_read_input_tokens.as_deref(),
-        );
-        add_count(
-            &mut sums.cache_write_input,
-            usage.cache_creation_input_tokens.as_deref(),
-        );
-        add_count(&mut sums.output, usage.output_tokens.as_deref());
-    }
-    Some(sums)
+// The counts a message's or a turn's `usage` carries; `None` where it carries none.
+fn read_token_counts(usage: &ClaudeTokenUsage) -> Option<UsageAxisCounts> {
+    let counts = UsageAxisCounts {
+        input: read_count(usage.input_tokens.as_deref()),
+        cached_input: read_count(usage.cache_read_input_tokens.as_deref()),
+        cache_write_input: read_count(usage.cache_creation_input_tokens.as_deref()),
+        output: read_count(usage.output_tokens.as_deref()),
+        reasoning_output: None,
+        total: None,
+    };
+    (counts != UsageAxisCounts::default()).then_some(counts)
 }
 
-// Adds one member's count to its axis; a member that is no whole count is skipped.
-fn add_count(axis: &mut Option<u64>, member: Option<&RawValue>) {
-    if let Some(count) = member.and_then(|member| serde_json::from_str::<u64>(member.get()).ok()) {
-        *axis = Some(axis.unwrap_or(0).saturating_add(count));
-    }
+// One member's count; a member that is no whole count reads as absent.
+fn read_count(member: Option<&RawValue>) -> Option<u64> {
+    member.and_then(|member| serde_json::from_str::<u64>(member.get()).ok())
 }
 
 fn list_of(list: Option<&LenientList<String>>) -> Vec<String> {

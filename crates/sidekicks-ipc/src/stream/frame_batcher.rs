@@ -79,10 +79,11 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
             if let Some(changes) = self.first_frame.take() {
                 return Ok(Some(changes));
             }
-            if self.is_read_due
-                && let Some(changes) = self.read().await?
-            {
-                return Ok(Some(changes));
+            // A read whose records are all no change, cut short, leaves the next one due at once.
+            while self.is_read_due {
+                if let Some(changes) = self.read().await? {
+                    return Ok(Some(changes));
+                }
             }
             if !self.wait_for_window().await {
                 return Ok(None);
@@ -92,24 +93,25 @@ impl<Record: ChangeRecord> FrameBatcher<Record> {
         }
     }
 
-    /// Reads the changes after the cursor and moves the cursor past them; `None` when none is
-    /// stored. A read full by count, or cut by a frame's bytes, leaves the next one due.
+    /// Reads the changes after the cursor and moves the cursor past every record read, a record
+    /// that is no change too, so none is read twice; `None` when the read holds no change. A read
+    /// cut short by its count or a frame's bytes leaves the next one due.
     async fn read(&mut self) -> Result<Option<Vec<Record::Change>>, Record::Error> {
         // Marked before the read, so a change appended after it is signaled to the wait.
         self.seen = *self.change_count.borrow_and_update();
         let RecordPage {
             changes,
-            is_cut_by_size,
+            read_through,
+            is_cut_short,
         } = self
             .record
             .read_after(&self.cursor, STREAM_FRAME_MAX_CHANGES)
             .await?;
-        self.is_read_due = changes.len() == STREAM_FRAME_MAX_CHANGES || is_cut_by_size;
-        let Some(last) = changes.last() else {
-            return Ok(None);
-        };
-        self.cursor = Record::cursor_of(last);
-        Ok(Some(changes))
+        self.is_read_due = is_cut_short;
+        if let Some(read_through) = read_through {
+            self.cursor = read_through;
+        }
+        Ok((!changes.is_empty()).then_some(changes))
     }
 
     /// Waits for the first change signaled since the last read began, then until the window it
@@ -244,25 +246,22 @@ mod tests {
             &self,
             cursor: &u64,
             max: usize,
-        ) -> BoxFuture<'_, Result<RecordPage<u64>, Infallible>> {
+        ) -> BoxFuture<'_, Result<RecordPage<u64, u64>, Infallible>> {
             let changes = self
                 .changes
                 .lock()
                 .expect("no test thread panics holding it");
-            let after = changes
+            let after: Vec<u64> = changes
                 .iter()
                 .copied()
                 .filter(|change| change > cursor)
                 .take(max)
                 .collect();
             Box::pin(std::future::ready(Ok(RecordPage {
+                read_through: after.last().copied(),
+                is_cut_short: after.len() == max,
                 changes: after,
-                is_cut_by_size: false,
             })))
-        }
-
-        fn cursor_of(change: &u64) -> u64 {
-            *change
         }
 
         fn change_count(&self) -> watch::Receiver<u64> {

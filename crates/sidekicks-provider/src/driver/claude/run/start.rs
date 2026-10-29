@@ -13,6 +13,7 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
@@ -25,6 +26,7 @@ use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::session::controls::claude_full_model_id;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
+use crate::driver::claude::session::idle_sleep::ClaudeIdleSleep;
 use crate::driver::claude::session::slots::ClaudeSessionSlots;
 use crate::driver::claude::session::state::LiveClaudeSession;
 use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
@@ -37,6 +39,7 @@ use crate::driver::run_control::{DaemonTurnBindingResolver, DriverRunRefusal};
 use crate::outbound_text::OutboundText;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::run_host::RunHost;
+use crate::port::session_wake::SessionWaker;
 use crate::run::start_request::DaemonTurnStartRequest;
 
 /// What a turn the daemon starts on a session itself opens with: words, with the blocks of the
@@ -79,15 +82,34 @@ pub(crate) struct ClaudeRunStart {
     pub(crate) attachments: Arc<dyn AttachmentResolver>,
     /// Opens the binding of a turn the daemon starts itself.
     pub(crate) bindings: Arc<dyn DaemonTurnBindingResolver>,
+    /// Which sessions the idle sleep stopped.
+    pub(crate) idle_sleep: Arc<ClaudeIdleSleep>,
+    /// The daemon's wake of a sleeping session, once registered.
+    pub(crate) session_wakes: Arc<PortRegistration<Arc<dyn SessionWaker>>>,
 }
 
 impl ClaudeRunStart {
+    /// Wakes the session where the idle sleep stopped it, answering once its process is up; a
+    /// session awake goes on at once. Fails as the wake fails, the session left asleep.
+    async fn wake_if_asleep(&self, session_id: SessionId) -> Result<(), DriverError> {
+        if !self.idle_sleep.is_asleep(session_id) {
+            return Ok(());
+        }
+        self.session_wakes
+            .require_port()
+            .map_err(|error| DriverError::Internal(Box::new(error)))?
+            .wake_for_message(session_id)
+            .await
+            .map_err(DriverError::Internal)
+    }
+
     /// Writes the run's opening words `text` to its session's live process, with the staged files
-    /// `attachments`. Claude Code takes one turn at a time, so a run already holding the turn is
-    /// refused `RunAlreadyDispatched` and one while another holds it `SessionTurnInFlight`; a run
-    /// whose last turn an interrupt is ending first waits, within the request deadline, for that
-    /// turn's end. Fails with no live session, a run the session's process cannot carry, files that
-    /// cannot be read (before anything is held), and the failed write; nothing is resent.
+    /// `attachments`, waking the session first where it sleeps. Claude Code takes one turn at a
+    /// time, so a run already holding the turn is refused `RunAlreadyDispatched` and one while
+    /// another holds it `SessionTurnInFlight`; a run whose last turn an interrupt is ending first
+    /// waits, within the request deadline, for that turn's end. Fails with no live session, a
+    /// failed wake, a run the session's process cannot carry, files that cannot be read (before
+    /// anything is held), and the failed write; nothing is resent.
     pub(crate) async fn start_run(
         &self,
         params: &StartRunParams,
@@ -97,6 +119,7 @@ impl ClaudeRunStart {
         let opening = &params.opening;
         let session_id = opening.session_id;
         let run_id = params.run_id;
+        self.wake_if_asleep(session_id).await?;
         let is_ending_for_interrupt = self
             .streams
             .get(session_id)
@@ -162,16 +185,18 @@ impl ClaudeRunStart {
     }
 
     /// Starts a turn the daemon starts on a session itself, or one Claude Code started by itself,
-    /// as the session's own run at its current posture, and answers the run's id once its opening
-    /// is written and the run is running. A text opening is refused `SessionTurnInFlight`, before
-    /// any run exists, while anything holds the session's turn; every opening is refused
-    /// `ExecutionPostureAbsent` on a session holding no posture. Fails as the run engine's start
-    /// fails, the run then ended `failed` by the engine.
+    /// as the session's own run at its current posture, waking the session first where it sleeps,
+    /// and answers the run's id once its opening is written and the run is running. A text opening
+    /// is refused `SessionTurnInFlight`, before any run exists, while anything holds the session's
+    /// turn; every opening is refused `ExecutionPostureAbsent` on a session holding no posture.
+    /// Fails as the wake fails, and as the run engine's start fails, the run then ended `failed` by
+    /// the engine.
     pub(crate) async fn start_daemon_turn(
         &self,
         session_id: SessionId,
         opening: ClaudeDaemonTurnOpening,
     ) -> Result<RunId, DriverError> {
+        self.wake_if_asleep(session_id).await?;
         let live = self.live_session(session_id)?;
         let execution_posture =
             lock(&live.settings)

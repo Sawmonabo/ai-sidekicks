@@ -19,6 +19,7 @@ pub mod test_fixture;
 pub(crate) mod tests;
 pub(crate) mod turns;
 mod unresolved_interventions;
+pub(crate) mod usage_tallies;
 
 use std::error::Error;
 use std::sync::atomic::Ordering;
@@ -66,6 +67,7 @@ use crate::run::daemon_turn::DaemonTurnQueueError;
 use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
 use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::state_change::{
@@ -77,13 +79,13 @@ use crate::run::state_change::{
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
-/// turn and every open turn, its provider, whether it ended since a version, its interventions with
-/// no outcome and one session's ended runs still holding one, the two agent reads, and the run
-/// end's reads of its held questions open or waiting for it (`UNSETTLED_HELD_OF_RUN_SQL`), its
-/// plans still holding a request (its plan holds' read) and its open choices (the newest
-/// request of each dialog and whether it was settled since), and a driver's read of a session's
-/// stored leg (the session's runs and their bindings).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
+/// turn and every open turn, its provider, whether it is a provider subagent, whether it ended
+/// since a version, its interventions with no outcome and one session's ended runs still holding
+/// one, the two agent reads, and the run end's reads of its held questions open or waiting for it
+/// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
+/// open choices (the newest request of each dialog and whether it was settled since), and a
+/// driver's read of a session's stored leg (the session's runs and their bindings).
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 22 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -244,6 +246,9 @@ pub struct RunEngineDeps {
     pub providers: Arc<ProviderRegistry>,
     /// The plans a run's end reopens as it lets their held requests go.
     pub plan_holds: Arc<dyn PlanHolds>,
+    /// The answers to a provider's choice that got no reply back, which the run's choice resolver
+    /// holds and a run's end writes as its choice's settlement once a report showed one taken.
+    pub held_choice_answers: Arc<HeldChoiceAnswers>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -271,6 +276,7 @@ pub struct RunEngine {
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
     plan_holds: Arc<dyn PlanHolds>,
+    held_choice_answers: Arc<HeldChoiceAnswers>,
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
@@ -303,6 +309,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -318,6 +325,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
@@ -348,6 +356,12 @@ impl RunEngine {
     #[cfg(any(test, feature = "test-support"))]
     pub fn restart_facts_pause(&self) -> &PausePoint {
         &self.restart_facts_pause
+    }
+
+    /// The held answers this engine's run ends read, for a test's resolver to hold its answers in.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn held_choice_answers(&self) -> &Arc<HeldChoiceAnswers> {
+        &self.held_choice_answers
     }
 
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
@@ -695,9 +709,10 @@ impl RunEngine {
         }
     }
 
-    // One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
-    // under `hold` where the caller holds the session.
-    async fn append(
+    /// One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
+    /// under `hold` where the caller holds the session. Fails as the write fails or a statement of
+    /// the prelude refuses it.
+    pub(crate) async fn append(
         &self,
         draft: SessionEventDraft,
         transactional_prelude: Vec<WriteStatement>,

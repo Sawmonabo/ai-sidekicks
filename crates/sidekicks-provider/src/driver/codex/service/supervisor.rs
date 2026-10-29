@@ -4,8 +4,10 @@
 //! event at a time and carries out each answer whole; what it starts, dials and waits on reports
 //! back as events, each under its own ticket. A process that exits is a crash, restarted on the
 //! crash window's waits; a connection that drops is redialed on a wait that grows and never gives
-//! up; a service draining toward its exit refuses new work while its turns run on.
+//! up; a service the daemon started that answers nothing for two minutes is ended as a crash; a
+//! service draining toward its exit refuses new work while its turns run on.
 
+pub(crate) mod connection_events;
 pub(crate) mod drain;
 pub(crate) mod events;
 mod reconnect;
@@ -21,8 +23,8 @@ mod transition;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::{Duration, SystemTime};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 use futures::future::{BoxFuture, join_all};
 use serde::Deserialize;
@@ -35,10 +37,12 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
 use crate::driver::codex::service::home::{CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
+use crate::driver::codex::service::supervisor::connection_events::ServiceConnectionEvents;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::CodexServiceEvents;
 use crate::driver::codex::service::supervisor::routing::{
@@ -46,8 +50,10 @@ use crate::driver::codex::service::supervisor::routing::{
 };
 use crate::driver::codex::service::supervisor::runner::{RunnerInput, ServiceRunner};
 use crate::driver::codex::service::supervisor::start::read_codex_loaded_threads;
+use crate::driver::codex::service::supervisor::transition::event::SupervisorEvent;
+use crate::driver::codex::service::supervisor::transition::state::SupervisorState;
 use crate::driver::codex::service::supervisor::transition::{
-    CodexServiceAvailability, Supervision, SupervisorEvent, SupervisorState,
+    CodexServiceAvailability, Supervision,
 };
 use crate::driver::codex::service::threads::{CodexServiceThreads, ThreadClaim};
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
@@ -58,7 +64,7 @@ use crate::driver::codex::session::inbound::{CodexSessionInbound, CodexSessionIn
 use crate::driver::codex::session::state::CODEX_THREAD_FRAME_ROUTER_CONFIG;
 use crate::driver::codex::transport::connection::{
     CodexAppServerConnection, CodexConnectionEvents, CodexConnectionHandlers,
-    CodexForgottenRequest, open_codex_connection, read_codex_object,
+    open_codex_connection, read_codex_object,
 };
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::codex::transport::socket::{CodexSocketWait, dial_codex_service_socket};
@@ -116,6 +122,8 @@ pub(crate) struct CodexServiceDependencies {
     /// The driver's tracked tasks, which the driver's shutdown waits for: a switch-off's wait to
     /// retire a service, and a joined service's check that Codex's managed daemon is free.
     pub(crate) tasks: TaskTracker,
+    /// What the account services' executor relays start and report through.
+    pub(crate) exec_relay: Arc<CodexExecRelayDependencies>,
 }
 
 /// The socket one service listens on.
@@ -194,6 +202,8 @@ pub(crate) struct CodexService {
     routed_dial: AtomicU64,
     threads: Arc<Mutex<CodexServiceThreads>>,
     routing: Mutex<CodexServiceRouting>,
+    // The executor relay its first account start made; a terminal service never has one.
+    exec_relay: OnceLock<Arc<CodexExecRelay>>,
 }
 
 impl CodexService {
@@ -233,6 +243,7 @@ impl CodexService {
                 }),
             ))),
             routing: Mutex::default(),
+            exec_relay: OnceLock::new(),
         });
         tokio::spawn(ServiceRunner::new(Arc::downgrade(&service), received).run());
         service
@@ -594,6 +605,13 @@ impl CodexService {
         }
     }
 
+    /// Records a side question's read-only copy as the session's, marked so its commands are
+    /// given no way to ask the person anything.
+    pub(crate) fn register_side_question_thread(&self, thread_id: String, session_id: SessionId) {
+        self.lock_threads().mark_side_question(thread_id.clone());
+        self.register_thread(thread_id, session_id);
+    }
+
     /// Forgets one conversation.
     pub(crate) fn release_thread(&self, thread_id: &str) {
         self.lock_threads().release(thread_id);
@@ -713,6 +731,19 @@ impl CodexService {
         &self.dependencies
     }
 
+    /// The service's executor relay, once its first account start made it.
+    pub(crate) fn exec_relay(&self) -> Option<Arc<CodexExecRelay>> {
+        self.exec_relay.get().cloned()
+    }
+
+    /// The service's executor relay, made by `make` at the first ask.
+    pub(crate) fn exec_relay_or_insert_with(
+        &self,
+        make: impl FnOnce() -> Arc<CodexExecRelay>,
+    ) -> Arc<CodexExecRelay> {
+        Arc::clone(self.exec_relay.get_or_init(make))
+    }
+
     fn is_routed_dial(&self, dial: u64) -> bool {
         self.routed_dial.load(Ordering::Acquire) == dial
     }
@@ -793,74 +824,4 @@ fn shut_down_refusal() -> CodexError {
         detail: "The Codex service was shut down with the daemon.".to_owned(),
         cause: None,
     }
-}
-
-/// What a service's connection hands its service: frames routed on the reader, its drop, the
-/// asks a close let go of and Codex's drain.
-struct ServiceConnectionEvents {
-    service: Weak<CodexService>,
-    dial: u64,
-}
-
-impl CodexConnectionEvents for ServiceConnectionEvents {
-    fn notification(&self, method: &str, params: Box<RawValue>) {
-        if let Some(service) = self.service.upgrade() {
-            service.route(self.dial, method, params);
-        }
-    }
-
-    fn dropped(&self, reason: &str) {
-        if let Some(service) = self.service.upgrade() {
-            if service.is_routed_dial(self.dial) {
-                CodexTransportDiagnostic::ServiceConnectionDropped {
-                    codex_home: service.home.codex_home.clone(),
-                    reason: reason.to_owned(),
-                }
-                .report();
-            }
-            service.send(SupervisorEvent::Dropped {
-                dial: self.dial,
-                at: std::time::Instant::now(),
-                wall_at: SystemTime::now(),
-                is_unwaited_process_gone: false,
-            });
-        }
-    }
-
-    fn held_requests_dropped(&self, dropped: Vec<CodexForgottenRequest>) {
-        if let Some(service) = self.service.upgrade() {
-            CodexServiceAsks::new(Arc::downgrade(&service)).withdraw(dropped);
-        }
-    }
-
-    fn service_draining(&self, message: &str) {
-        if let Some(service) = self.service.upgrade() {
-            service.send(SupervisorEvent::Draining {
-                dial: self.dial,
-                message: message.to_owned(),
-            });
-        }
-    }
-}
-
-/// The events of a detached connection that starts no conversation: nothing on it belongs to a
-/// session.
-pub(crate) struct DetachedConnectionEvents;
-
-impl CodexConnectionEvents for DetachedConnectionEvents {
-    fn notification(&self, method: &str, _params: Box<RawValue>) {
-        CodexTransportDiagnostic::UnconsumedServerNotification {
-            method: method.to_owned(),
-        }
-        .report();
-    }
-
-    // A drop fails the reads in flight on it, which is all it carries.
-    fn dropped(&self, _reason: &str) {}
-
-    // It starts no conversation, so Codex holds no ask on it.
-    fn held_requests_dropped(&self, _dropped: Vec<CodexForgottenRequest>) {}
-
-    // Its read fails with Codex's own words.
-    fn service_draining(&self, _message: &str) {}
 }

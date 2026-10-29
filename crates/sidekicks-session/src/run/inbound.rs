@@ -35,6 +35,8 @@ use sidekicks_provider::run::delivery::{
 use sidekicks_provider::run::state_entry::RunStateReport;
 use sidekicks_provider::run::turn_end::ProviderTurnEnd;
 use sidekicks_std::mutex_lock::lock;
+#[cfg(test)]
+use sidekicks_std::pause_point::PausePoint;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_store::events::session::appender::{
@@ -48,6 +50,7 @@ use crate::run::engine::turns::run_live_or_turn_open_statement;
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, ExecutionEpochs};
 use crate::run::inbound::absorb::absorb;
+use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{RunStateChange, refused_statement_index};
 use crate::transcript::reasoning::split_reasoning_text;
@@ -75,6 +78,10 @@ pub struct RunInboundDispatch {
     epochs: Arc<Mutex<ExecutionEpochs>>,
     run_state_publisher: Arc<dyn RunStatePublisher>,
     appender: SessionEventAppender,
+    choices: Arc<ProviderChoiceResolver>,
+    /// Where a test holds a held answer's settle between its failed try and its retry.
+    #[cfg(test)]
+    pub(super) settle_retry_pause: PausePoint,
 }
 
 // A delivery attributed to its execution, with what is left to do for it.
@@ -182,19 +189,23 @@ impl RunWork {
 
 impl RunInboundDispatch {
     /// A dispatch moving runs through `engine`, attributing on `epochs`, the cursors the binding
-    /// cursors keep, sending live states to `run_state_publisher` and appending rows to
-    /// `event_log`.
+    /// cursors keep, sending live states to `run_state_publisher`, appending rows to `event_log`
+    /// and settling an answer `choices` holds once the provider reports its run.
     pub fn new(
         engine: Arc<RunEngine>,
         epochs: Arc<Mutex<ExecutionEpochs>>,
         run_state_publisher: Arc<dyn RunStatePublisher>,
         event_log: Arc<EventLogService>,
+        choices: Arc<ProviderChoiceResolver>,
     ) -> Self {
         Self {
             engine,
             epochs,
             run_state_publisher,
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
+            choices,
+            #[cfg(test)]
+            settle_retry_pause: PausePoint::default(),
         }
     }
 
@@ -477,6 +488,29 @@ impl RunInboundDispatch {
         })
     }
 
+    // Settles the answer the provider got with no reply back before the report that shows it took,
+    // so the report finds the move made. A failed settle is tried once more; on a second failure
+    // the answer stays held and the report still applies, so the run never reads waiting for input
+    // while its provider runs. Answers whether the answer was left held that way.
+    async fn settle_held_answer(&self, run_id: RunId, reported: RunState) -> bool {
+        let mut settled = self.choices.settle_held_answer(run_id, reported).await;
+        if settled.is_err() {
+            #[cfg(test)]
+            self.settle_retry_pause.pass().await;
+            settled = self.choices.settle_held_answer(run_id, reported).await;
+        }
+        let Err(error) = settled else {
+            return false;
+        };
+        tracing::warn!(
+            run_id = %run_id,
+            error = &error as &(dyn Error + 'static),
+            "the answer held on a run's choice was not settled; it stays held and the provider's \
+             report applies"
+        );
+        true
+    }
+
     // Makes a delivery's engine call; a run that has ended absorbs it.
     async fn run(
         &self,
@@ -500,14 +534,24 @@ impl RunInboundDispatch {
                 is_daemon_interrupt_end,
             } => {
                 let run_id = change.run_id;
+                let change = RunStateChange::from(change);
+                let is_answer_left_held = self
+                    .settle_held_answer(run_id, RunState::from(change.entry.state()))
+                    .await;
                 match self
                     .engine
-                    .apply_provider_state_change(RunStateChange::from(change), turn_end)
+                    .apply_provider_state_change(change, turn_end)
                     .await
                 {
-                    Ok(written) => InboundOutcome::Transitioned {
-                        state: written.log_resend_failure(run_id).state,
-                    },
+                    Ok(written) => {
+                        // The report made the run's move, so the held answer settles alone.
+                        if is_answer_left_held {
+                            self.choices.hold_answer_as_settlement_alone(run_id);
+                        }
+                        InboundOutcome::Transitioned {
+                            state: written.log_resend_failure(run_id).state,
+                        }
+                    }
                     // The end of a turn the daemon interrupted is expected to find the run ended.
                     Err(error) if is_ended_run_refusal(&error) && is_daemon_interrupt_end => {
                         InboundOutcome::Absorbed {
@@ -577,9 +621,9 @@ fn session_row_statements(row: &SessionScopedRow) -> Vec<WriteStatement> {
             payload.advisor_model.as_ref().map(FreeFormText::as_str),
             payload.at.as_str(),
         )],
-        SessionScopedRow::SideQuestionAnswered(_) | SessionScopedRow::OutputStyleChanged(_) => {
-            Vec::new()
-        }
+        SessionScopedRow::SideQuestionAnswered(_)
+        | SessionScopedRow::UsageTokenCountRecorded(_)
+        | SessionScopedRow::OutputStyleChanged(_) => Vec::new(),
     }
 }
 

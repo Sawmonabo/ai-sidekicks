@@ -598,6 +598,7 @@ async fn a_limit_owed_through_a_choice_is_handed_once_the_answer_returns_the_run
         )),
         Arc::clone(&harness.engine),
         Arc::clone(&harness.service.providers),
+        Arc::clone(harness.engine.held_choice_answers()),
     );
 
     resolver

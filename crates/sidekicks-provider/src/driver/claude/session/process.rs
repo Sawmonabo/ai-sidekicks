@@ -79,7 +79,8 @@ pub(crate) struct ClaudeProcessLaunch {
     pub(crate) working_folder: PathBuf,
     /// The provider session the process runs, named in its diagnostics.
     pub(crate) provider_session_id: String,
-    /// The account whose home it runs on; `None` on the person's own home.
+    /// The account whose home it runs on, named in its diagnostics; `None` for a short read that
+    /// names no account.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 

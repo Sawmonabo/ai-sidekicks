@@ -38,13 +38,22 @@ const DAEMON_INBOX_PURPOSE: &str = "daemon-inbox:";
 /// The letters an inbox name starts with.
 const NAME_FIRST_LETTERS: [char; 6] = ['a', 'b', 'c', 'd', 'e', 'f'];
 
+/// The digits that follow a socket name's first letter: lowercase hex.
+const NAME_DIGITS: &[u8; 16] = b"0123456789abcdef";
+
+/// How many characters a socket name holds before its suffix: its letter and fifteen digits.
+const NAME_STEM_LENGTH: usize = 16;
+
+/// The suffix of every socket name the daemon mints.
+const SOCKET_SUFFIX: &str = ".sock";
+
 /// What Claude Code's socket folder in one POSIX place is derived from.
-pub(super) struct PlaceInboxEnvironment<'a> {
+pub(crate) struct PlaceInboxEnvironment<'a> {
     /// The place's login-shell environment captured at the daemon's start, never the daemon's own
     /// composed one, which points Claude Code's temporary folder elsewhere.
-    pub(super) login_shell: &'a [(String, String)],
+    pub(crate) login_shell: &'a [(String, String)],
     /// The person's user id in that place.
-    pub(super) user_id: u32,
+    pub(crate) user_id: u32,
 }
 
 /// Each session's inbox address, and the daemon's own, in every place: a socket named
@@ -53,7 +62,7 @@ pub(super) struct PlaceInboxEnvironment<'a> {
 /// sender pattern, starts with a letter so it never equals or reads as a process id, carries no
 /// `<pid>-` prefix Claude Code's own cleanup removes, and is fixed-length, so every address fits
 /// the socket address field.
-pub(super) struct ClaudeSessionInboxAddresser {
+pub(crate) struct ClaudeSessionInboxAddresser {
     /// Each listed POSIX place's socket folder, the computer's own system as `None`.
     folders: Vec<(Option<Place>, String)>,
 }
@@ -61,7 +70,7 @@ pub(super) struct ClaudeSessionInboxAddresser {
 impl ClaudeSessionInboxAddresser {
     /// The addresser for `places`, each POSIX place with its environment; a native Windows place
     /// needs none, since its inbox is a pipe.
-    pub(super) fn new<'a>(
+    pub(crate) fn new<'a>(
         places: impl IntoIterator<Item = (Option<Place>, PlaceInboxEnvironment<'a>)>,
     ) -> Self {
         Self {
@@ -112,13 +121,31 @@ impl SessionInboxAddresser for ClaudeSessionInboxAddresser {
     }
 }
 
+/// A fresh `<16 lowercase hex>.sock` name from the system's random source, for one process's own
+/// socket beside the session's inbox. Fails when the source cannot be read.
+pub(crate) fn fresh_socket_name() -> Result<String, getrandom::Error> {
+    let mut seed = [0_u8; 9];
+    getrandom::fill(&mut seed)?;
+    Ok(socket_name(&seed))
+}
+
+/// Whether `name` is shaped as the daemon names an inbox or a process's socket: a letter `a`–`f`,
+/// fifteen lowercase hex digits and `.sock`.
+pub(crate) fn is_inbox_socket_name(name: &str) -> bool {
+    name.strip_suffix(SOCKET_SUFFIX).is_some_and(|stem| {
+        stem.len() == NAME_STEM_LENGTH
+            && stem.starts_with(NAME_FIRST_LETTERS)
+            && stem.bytes().all(|byte| NAME_DIGITS.contains(&byte))
+    })
+}
+
 /// `<16 lowercase hex>.sock` from `digest`: a letter `a`–`f` from its first byte, then the hex of
 /// the next eight bytes less its last digit.
 fn socket_name(digest: &[u8]) -> String {
     let first = NAME_FIRST_LETTERS[usize::from(digest[0]) % NAME_FIRST_LETTERS.len()];
     let mut rest = base16ct::lower::encode_string(&digest[1..9]);
-    rest.pop();
-    format!("{first}{rest}.sock")
+    rest.truncate(NAME_STEM_LENGTH - 1);
+    format!("{first}{rest}{SOCKET_SUFFIX}")
 }
 
 /// Claude Code's default socket folder in one place: its runtime folder (else `/tmp`) plus

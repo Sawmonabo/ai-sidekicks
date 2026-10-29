@@ -2,8 +2,7 @@
 
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::sync::atomic::AtomicBool;
 
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::descent::CallerCheck;
@@ -29,16 +28,11 @@ async fn the_caller_check_refuses_the_process_serving_a_codex_service_the_driver
     }
     let folder = short_socket_folder().expect("a scratch folder is made");
     let (driver, services) = driver_on_codex_folder(folder.path());
-    driver.is_terminal_reach_on.store(true, Ordering::Release);
-    let service = driver
-        .registry
-        .service_for(None)
-        .await
-        .expect("the folder's service is made");
     listen_on_codex_folder(folder.path());
 
-    service
-        .ensure_started(Duration::from_secs(10))
+    driver
+        .registry
+        .start_terminal_service()
         .await
         .expect("the driver joins the listening service");
     let check = CallerCheck::new(

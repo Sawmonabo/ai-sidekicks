@@ -41,8 +41,8 @@ pub struct EpochBinding {
     pub(crate) run_id: RunId,
     /// The provider it runs on, as the binding names it.
     pub(crate) provider_name: ProviderId,
-    /// The account it runs under, `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account it runs under.
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 /// Which execution a delivery belongs to: the current one, the one before an undo's cut, or
@@ -377,7 +377,7 @@ impl BindingCursor {
         );
         emit_driver_diagnostic(&DriverDiagnosticRecord {
             provider: self.binding.provider_name.clone(),
-            provider_account_id: self.binding.provider_account_id.clone(),
+            provider_account_id: Some(self.binding.provider_account_id.clone()),
             kind: DriverDiagnosticKind::EpochAssociationEvicted,
             raw_wire_type: None,
             disposition_reason: EVICTION_DISPOSITION_REASON.to_owned(),
@@ -427,6 +427,7 @@ mod tests {
     use sidekicks_contracts::wire::integer::SafeInt;
     use sidekicks_provider::driver::registry::test_provider;
     use sidekicks_provider::run::delivery::DeliveryOperation;
+    use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 
     use super::{ConfirmedCut, DeliveryAttribution, EpochBinding, ExecutionEpochs};
 
@@ -452,7 +453,7 @@ mod tests {
             id: binding_id(name),
             run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
             provider_name: test_provider(),
-            provider_account_id: None,
+            provider_account_id: test_provider_account_id(),
         }
     }
 

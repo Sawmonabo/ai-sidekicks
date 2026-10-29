@@ -55,7 +55,8 @@ pub(crate) struct ClaudeOutputReader {
     pub(crate) unmapped_lines: OnceReportedDiagnostics,
     /// The provider session the process runs, named in each diagnostic.
     pub(crate) provider_session_id: String,
-    /// The account whose home the process runs on, named in each diagnostic.
+    /// The account whose home the process runs on, named in each diagnostic; `None` for a short
+    /// read that names no account.
     pub(crate) provider_account_id: Option<ProviderAccountId>,
 }
 

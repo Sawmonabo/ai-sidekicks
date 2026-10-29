@@ -30,6 +30,7 @@ use std::collections::HashMap;
 
 use serde_json::{Value, json};
 use sidekicks_contracts::context_window::ContextWindowSource;
+use sidekicks_contracts::event::usage::UsageContainment;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::cost::UsdMicros;
 use sidekicks_contracts::wire::integer::SafeInt;
@@ -118,15 +119,6 @@ pub(crate) struct CumulativeUsageReading {
     pub(crate) cumulative: UsageAxisCounts,
     /// The wire's per-turn figure, where it declares one.
     pub(crate) declared_per_turn: Option<UsageAxisCounts>,
-}
-
-/// Whether the cached input was subtracted from the normalized input.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UsageContainment {
-    /// The breakdown's sum identity showed the cached count inside input, so it was subtracted.
-    ConfirmedSubtracted,
-    /// No identity held, so input is the raw figure: an overstatement, surfaced by a diagnostic.
-    UnconfirmedUnsubtracted,
 }
 
 /// The cache read and write deltas, kept beside the normalized figures for diagnostics.
@@ -312,10 +304,11 @@ impl UsageDeltaAccountant {
         }
     }
 
-    // Input is uncached input only where `total == input + output` on the cumulative counters: a
-    // total used up by input plus output leaves the cached count nowhere to live but inside input.
-    // Otherwise input is emitted unsubtracted, an overstatement surfaced rather than a silent
-    // understatement.
+    // Input is input neither read from nor written to the cache only where `total == input +
+    // output` on the cumulative counters: a total used up by input plus output leaves the cache
+    // counts nowhere to live but inside input, so both are subtracted and every provider counts
+    // the same thing. Otherwise input is emitted unsubtracted, an overstatement surfaced rather
+    // than a silent understatement.
     fn normalize_input_tokens(
         &self,
         reading: &CumulativeUsageReading,
@@ -323,22 +316,29 @@ impl UsageDeltaAccountant {
     ) -> (u64, UsageContainment) {
         let input_delta = axis_deltas.input.unwrap_or(0);
         let cached_input_delta = axis_deltas.cached_input.unwrap_or(0);
+        let cache_write_delta = axis_deltas.cache_write_input.unwrap_or(0);
         let cumulative = &reading.cumulative;
         let is_containment_confirmed = if let (Some(total), Some(input), Some(output)) =
             (cumulative.total, cumulative.input, cumulative.output)
         {
             input.checked_add(output) == Some(total)
-                && cumulative.cached_input.unwrap_or(0) <= input
+                && cumulative
+                    .cached_input
+                    .unwrap_or(0)
+                    .checked_add(cumulative.cache_write_input.unwrap_or(0))
+                    .is_some_and(|cached| cached <= input)
         } else {
             false
         };
         if is_containment_confirmed {
             return (
-                input_delta.saturating_sub(cached_input_delta),
+                input_delta
+                    .saturating_sub(cached_input_delta)
+                    .saturating_sub(cache_write_delta),
                 UsageContainment::ConfirmedSubtracted,
             );
         }
-        if cached_input_delta > 0 {
+        if cached_input_delta > 0 || cache_write_delta > 0 {
             emit_usage_diagnostic(
                 self.provider.clone(),
                 DriverDiagnosticKind::UsageContainmentIdentityUnconfirmed,
@@ -349,6 +349,7 @@ impl UsageDeltaAccountant {
                     ("namedTurnId", json!(reading.named_turn_id)),
                     ("inputDelta", json!(input_delta)),
                     ("cachedInputDelta", json!(cached_input_delta)),
+                    ("cacheWriteDelta", json!(cache_write_delta)),
                 ],
             );
         }
@@ -607,6 +608,29 @@ mod tests {
 
         // A thread with no base is never metered.
         assert_eq!(accountant.meter_reading(reading("unknown", 10)), None);
+    }
+
+    #[test]
+    fn subtracts_cache_reads_and_writes_from_input_contained_in_it() {
+        let mut accountant = UsageDeltaAccountant::new(test_provider());
+        accountant.establish_thread("thread".to_owned(), ThreadBaseEstablishment::Fresh);
+        let metered = accountant
+            .meter_reading(CumulativeUsageReading {
+                thread_id: "thread".to_owned(),
+                named_turn_id: None,
+                cumulative: UsageAxisCounts {
+                    input: Some(100),
+                    cached_input: Some(30),
+                    cache_write_input: Some(20),
+                    output: Some(10),
+                    total: Some(110),
+                    ..UsageAxisCounts::default()
+                },
+                declared_per_turn: None,
+            })
+            .expect("the thread is established");
+        assert_eq!(metered.normalized_input_tokens, 50);
+        assert_eq!(metered.containment, UsageContainment::ConfirmedSubtracted);
     }
 
     #[test]

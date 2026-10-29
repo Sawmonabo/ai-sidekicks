@@ -71,12 +71,15 @@ impl CodexServiceEvents for CodexDriverServiceEvents {
             return;
         };
         // Marked here, in the service's own event order, before the service reads as up.
-        parts.recovery.forget_exit(service);
+        let ended = parts.recovery.take_exit(service);
         let generation = parts.recovery.owe_resumes(service);
         let tasks = parts.tasks.clone();
         let service = Arc::clone(service);
         tasks.spawn(async move {
-            parts.recovery.recover(&service, cause, generation).await;
+            parts
+                .recovery
+                .recover(&service, cause, generation, ended)
+                .await;
         });
     }
 

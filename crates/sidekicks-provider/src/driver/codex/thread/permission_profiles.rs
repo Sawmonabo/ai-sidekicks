@@ -170,6 +170,7 @@ mod tests {
                 working_directory: PathBuf::from("/work/repository"),
                 git_common_folder: None,
                 deny_paths: Vec::new(),
+                command_channel_folder: PathBuf::from("/data/command-channels/session"),
             },
             command_environment: Vec::new(),
             subagent_policy: None,

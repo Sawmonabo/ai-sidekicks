@@ -22,13 +22,17 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::TurnTasksUpdate;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
+use crate::command::running_set::RunningCommandSets;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
+use crate::driver::codex::delivery::turn_readings::deliver_codex_plan_update;
+use crate::driver::codex::run::helper_token_limit::CodexLimitStoppedHelpers;
 use crate::driver::codex::run::routes::{CodexRunBinding, CodexRunRoutes};
 use crate::driver::codex::server_requests::CodexAskKind;
 use crate::driver::codex::session::state::CodexSessionRecord;
@@ -40,7 +44,6 @@ use crate::driver::run_control::RunToolBoundary;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::run_host::RunHost;
-use crate::port::running_command_publisher::RunningCommandPublisher;
 use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
 use crate::run::turn_end::ProviderTurnEnd;
@@ -53,7 +56,7 @@ pub(crate) trait CodexFrameEffects: Send + Sync {
     fn withdraw_ask(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<&ProviderAccountId>,
+        provider_account_id: &ProviderAccountId,
         request_id: &str,
         ask_kind: CodexAskKind,
     );
@@ -82,10 +85,12 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) run_routes: Arc<CodexRunRoutes>,
     /// The approval service's intake of the reviewer's blocks.
     pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
-    /// The running-commands stream's live output; absent, a command's output is dropped.
-    pub(crate) command_output: Arc<PortRegistration<Arc<dyn RunningCommandPublisher>>>,
+    /// The running commands of every session; absent, a command's output is dropped.
+    pub(crate) command_output: Arc<PortRegistration<Arc<RunningCommandSets>>>,
     /// The compaction waits, which a compaction's own turn ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
+    /// The helpers stopped at their token limit, whose later turns are interrupted at their start.
+    pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
     /// What the rest of the driver does for a frame.
     pub(crate) effects: Arc<dyn CodexFrameEffects>,
 }
@@ -151,6 +156,8 @@ pub(crate) struct CodexFrameDispatch {
     pub(crate) run_moves: Vec<CodexRunMove>,
     /// The turns that ended.
     pub(crate) turns_ended: Vec<CodexTurnMove>,
+    /// Each turn task list that changed, whole, in frame order.
+    pub(crate) turn_tasks: Vec<TurnTasksUpdate>,
 }
 
 /// How a turn's run stands when one of its frames arrives.
@@ -248,7 +255,9 @@ impl CodexFrameDelivery {
             | "item/plan/delta"
             | "item/reasoning/summaryTextDelta"
             | "item/reasoning/summaryPartAdded"
-            | "item/reasoning/textDelta" => self.deliver_prose_delta(record, method, &members),
+            | "item/reasoning/textDelta" => {
+                self.deliver_prose_delta(record, method, &members).await;
+            }
             "item/commandExecution/outputDelta" => self.deliver_command_output(record, &members),
             "error" => self.deliver_turn_error(record, &members).await,
             "guardianWarning"
@@ -260,6 +269,7 @@ impl CodexFrameDelivery {
             "serverRequest/resolved" => {
                 dispatch.resolved_request_id = self.forget_resolved_request(record, &members);
             }
+            "turn/plan/updated" => deliver_codex_plan_update(record, &members, &mut dispatch),
             "model/safetyBuffering/updated" => {
                 self.deliver_safety_buffering(record, &members).await;
             }
@@ -301,7 +311,7 @@ impl CodexFrameDelivery {
     ) -> Option<InboundOutcome> {
         let origin = DeliveryOrigin {
             provider: DESCRIPTOR.provider_id(),
-            provider_account_id: record.provider_account_id.clone(),
+            provider_account_id: Some(record.provider_account_id.clone()),
             raw_wire_type: Some(method),
         };
         // Boxed per delivery, so the engine's dispatch never sits inside every frame's future.

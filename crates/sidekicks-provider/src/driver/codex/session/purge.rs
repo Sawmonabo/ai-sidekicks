@@ -1,7 +1,6 @@
 //! Deleting Codex's own copy of a session's conversations, each on the service of the account home
 //! it ran in, and the session's helper role files. Codex refuses to delete a conversation a fork
-//! still builds on, so they go newest first, as the daemon lists them. The person's own Codex
-//! folder keeps its conversations.
+//! still builds on, so they go newest first, as the daemon lists them.
 
 use std::path::Path;
 use std::time::Duration;
@@ -9,7 +8,6 @@ use std::time::Duration;
 use sidekicks_std::error_description::describe_error;
 
 use crate::driver::codex::app_server_protocol::ThreadDeleteParams;
-use crate::driver::codex::service::home::CodexHomeKind;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::session::helper_roles::remove_codex_helper_roles;
 use crate::driver::contract::DriverError;
@@ -33,8 +31,7 @@ pub(crate) struct CodexPurgeFailed {
 
 /// Deletes every conversation the session opened with `thread/delete`, newest first, on the
 /// service of its account's home, started within `start_bound` where it is not running, and the
-/// session's role files under `roles_folder`. A conversation in the person's own Codex folder is
-/// kept. Fails with every step that failed.
+/// session's role files under `roles_folder`. Fails with every step that failed.
 pub(crate) async fn purge_codex_conversations(
     services: &CodexServiceRegistry,
     roles_folder: &Path,
@@ -63,11 +60,8 @@ async fn delete_conversation(
     conversation: &PurgedConversation,
 ) -> Result<(), DriverError> {
     let service = services
-        .service_for(conversation.provider_account_id.as_ref())
+        .service_for(&conversation.provider_account_id)
         .await?;
-    if service.home().kind != CodexHomeKind::Account {
-        return Ok(());
-    }
     service.ensure_started(start_bound).await?;
     service
         .connection()?

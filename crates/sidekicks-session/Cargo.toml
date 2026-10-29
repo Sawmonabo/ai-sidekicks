@@ -13,6 +13,8 @@ doctest = false
 [dependencies]
 # The wire message other crates' tests split into its attachments.
 bytes = { workspace = true, optional = true }
+# The cron matches a provider's recurring job wakes a sleeping session for.
+croner.workspace = true
 diffy.workspace = true
 futures.workspace = true
 garde.workspace = true

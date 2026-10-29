@@ -4,8 +4,15 @@
 //! then is routed and delivered; what its delivery reports is applied after: each context-window
 //! reading filed on its turn's run, each steer Codex echoed taken from the queue once, each ended
 //! turn's route retired, its end recorded where no run moved, its pause or continue acted on and
-//! its owed fork let go, and the spend it metered recorded. The driver's own calls on the record
-//! take their place among the frames too.
+//! its owed fork let go, each turn's readings and the session's context reading published, and the
+//! spend it metered recorded in metering order. Each settled step publishes the session's
+//! context reading again with no usage when its model or window changed. The driver's own calls on
+//! the record take their place among the frames too.
+//!
+//! A full usage queue holds the task until the sink takes a batch, so no spend is lost: while the
+//! database writer stalls, this session's frames, asks and calls wait behind it, as every other
+//! write of the session would. Its inbound queue stays unbounded, since the connection's reader
+//! serves every session of the service, and is logged as it grows past each depth mark.
 
 use std::sync::Arc;
 
@@ -15,11 +22,13 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use sidekicks_contracts::event::usage::UsageContextWindowUpdatedPayload;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::QueueItemNotDeliveredReason;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::{ProviderTurnId, TurnUsageUpdate};
 use sidekicks_contracts::wire::integer::SafeInt;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 use tokio::time::Instant;
 
 use crate::driver::codex::delivery::frames::turns::codex_compaction_wait_key;
@@ -44,6 +53,9 @@ use crate::driver::codex::server_requests::{
     CodexInboundServerRequest, CodexServerRequestDecision,
 };
 use crate::driver::codex::session::calls::{CodexSessionTask, run_codex_session_call};
+use crate::driver::codex::session::context_reading::{
+    CodexFixedStart, CodexSessionContextReadings,
+};
 use crate::driver::codex::session::controls::{
     move_codex_permission_level, observe_codex_reasoning_effort, update_codex_session_mode,
 };
@@ -52,17 +64,32 @@ use crate::driver::codex::session::inbound::{
     CodexSessionCall, CodexSessionInboundHandler, CodexSessionInboundReceiver,
     drain_codex_session_inbound,
 };
-use crate::driver::codex::session::lifecycle_call::{CodexCompactionReading, CodexLifecycleCall};
+use crate::driver::codex::session::lifecycle_call::{
+    CodexCompactionReading, CodexLifecycleCall, CodexRunningCommandReading,
+};
 use crate::driver::codex::session::slots::{CodexSessionLetGo, let_go_codex_session};
 use crate::driver::codex::session::state::CodexSessionRecord;
 use crate::driver::codex::thread::permission_profiles;
 use crate::driver::codex::transport::connection::{CodexForgottenRequest, read_codex_object};
+use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTransportDiagnostic};
 use crate::driver::contract::DriverError;
 use crate::driver::ports::DriverPorts;
 use crate::port::run_host::RunHost;
+use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner};
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
 use crate::run::turn_end::ProviderTurnEnd;
-use crate::usage_delta_accountant::WindowTelemetry;
+use crate::usage_delta_accountant::{MeteredUsageDelta, WindowTelemetry};
+
+/// How many batches of metered spend a session's recorder holds while its sink is busy; past
+/// that the session's task waits for room.
+pub(super) const USAGE_RECORDER_QUEUE: usize = 256;
+
+/// A session's usage recorder ended while its session still metered spend.
+#[derive(Debug, thiserror::Error)]
+#[error("the usage recorder ended, so {lost} metered deltas were not recorded")]
+struct UsageRecorderEnded {
+    lost: usize,
+}
 
 /// Codex's signal that the skills it lists for a conversation changed.
 const CODEX_SKILLS_CHANGED_METHOD: &str = "skills/changed";
@@ -74,23 +101,32 @@ pub(crate) struct CodexSessionIntake {
     routing: CodexSessionRouting,
     waiters: CodexTurnEndWaiters,
     parts: Arc<CodexDriverParts>,
+    context_readings: CodexSessionContextReadings,
+    // The session's one usage recorder, fed in metering order; opened at the first spend metered
+    // once the usage service registered, and ended when the session's task ends.
+    usage_recorder: Option<mpsc::Sender<Vec<MeteredUsage>>>,
 }
 
 impl CodexSessionIntake {
-    /// The task of `record`'s session, routing through `routing`, with the record's view shown
-    /// now, so the session reads live as soon as its opening returns, before the task first runs.
+    /// The task of `record`'s session, routing through `routing`, its conversation taking its fixed
+    /// start as `fixed_start` says, with the record's view shown now, so the session reads live as
+    /// soon as its opening returns, before the task first runs.
     pub(crate) fn new(
         record: CodexSessionRecord,
         routing: CodexSessionRouting,
         parts: Arc<CodexDriverParts>,
+        fixed_start: CodexFixedStart,
     ) -> Self {
         parts.views.show(&record);
+        let session_id = record.session_id;
         Self {
-            session_id: record.session_id,
+            session_id,
             record: Some(record),
             routing,
             waiters: CodexTurnEndWaiters::default(),
             parts,
+            context_readings: CodexSessionContextReadings::new(session_id, fixed_start),
+            usage_recorder: None,
         }
     }
 
@@ -106,13 +142,17 @@ impl CodexSessionIntake {
         drain_codex_session_inbound(receiver, &mut self).await;
     }
 
-    // What a delivery reported, applied in delivery order.
+    // What a delivery reported, applied in delivery order; the session's context reading
+    // published from each usage report, and the spend it metered recorded.
     async fn apply(&mut self, routed: CodexRoutedFrames) {
         let Some(record) = self.record.as_mut() else {
             return;
         };
         let parts = &self.parts;
-        apply_codex_routed_frames(
+        for reading in &routed.context_windows {
+            self.context_readings.publish_report(parts, record, reading);
+        }
+        let usage = apply_codex_routed_frames(
             &CodexRoutedFramesIntake {
                 ports: &parts.ports,
                 engine: &parts.engine,
@@ -125,6 +165,57 @@ impl CodexSessionIntake {
             routed,
         )
         .await;
+        self.record_usage(usage).await;
+    }
+
+    // Hands `usage` to the session's recorder, which records each delta in metering order on the
+    // driver's tasks; a full queue holds the session's task until it has room, so nothing is
+    // dropped. The sink stops a run past its limit on a task of its own, so it never waits on
+    // this one.
+    async fn record_usage(&mut self, usage: Vec<MeteredUsage>) {
+        let Some(record) = &self.record else {
+            return;
+        };
+        if usage.is_empty() {
+            return;
+        }
+        let provider_account_id = record.provider_account_id.clone();
+        let session_id = self.session_id;
+        let report = move |error: Box<dyn std::error::Error + Send + Sync>| {
+            CodexTransportDiagnostic::PortDeliveryFailed {
+                provider_account_id: Some(provider_account_id.clone()),
+                port: CodexDeliveryPort::Usage,
+                session_id: Some(session_id),
+                error,
+            }
+            .report();
+        };
+        if self.usage_recorder.is_none() {
+            // Before the usage service registers its record there is nothing to record into.
+            let Some(sink) = self.parts.ports.usage.port().map(Arc::clone) else {
+                return;
+            };
+            let (sender, mut batches) = mpsc::channel::<Vec<MeteredUsage>>(USAGE_RECORDER_QUEUE);
+            let report = report.clone();
+            self.parts.tasks.spawn(async move {
+                while let Some(batch) = batches.recv().await {
+                    for metered in batch {
+                        if let Err(error) = sink.record_metered(metered).await {
+                            report(error);
+                        }
+                    }
+                }
+            });
+            self.usage_recorder = Some(sender);
+        }
+        let Some(recorder) = &self.usage_recorder else {
+            return;
+        };
+        if let Err(refused) = recorder.send(usage).await {
+            report(Box::new(UsageRecorderEnded {
+                lost: refused.0.len(),
+            }));
+        }
     }
 
     // The waits each item may have answered settled, and the record's view shown as it stands.
@@ -132,14 +223,16 @@ impl CodexSessionIntake {
         if let Some(record) = &self.record {
             self.waiters.settle(record);
             self.parts.views.show(record);
+            self.context_readings
+                .publish_settings_change(&self.parts, record);
         }
     }
 
     async fn handle_frame(&mut self, method: String, params: Box<RawValue>) {
         let parts = Arc::clone(&self.parts);
         if let Some(diverted) = parts.side_questions.divert(&method, &params) {
-            if let (Some(usage), Some(sink)) = (diverted.usage, parts.ports.usage.port()) {
-                sink.record_metered(usage.session_id, usage.delta);
+            if let Some(usage) = diverted.usage {
+                self.record_usage(vec![usage]).await;
             }
             return;
         }
@@ -237,6 +330,18 @@ impl CodexSessionIntake {
                     thread_id: record.thread_id.clone(),
                     wait_key: codex_compaction_wait_key(record, &record.thread_id),
                 });
+            }
+            CodexLifecycleCall::ReadRunningCommand { item_id, reply } => {
+                let reading = record
+                    .delivery
+                    .running_command_by_item_id
+                    .get(&item_id)
+                    .map(|command| CodexRunningCommandReading {
+                        connection: record.service.connection(),
+                        thread_id: command.thread_id.clone(),
+                        terminal_process_id: command.terminal_process_id.clone(),
+                    });
+                let _unheard = reply.send(reading);
             }
         }
     }
@@ -378,22 +483,34 @@ pub(crate) struct CodexRoutedFramesIntake<'parts> {
 }
 
 /// Applies what a delivery reported on `record`'s session, in delivery order: each
-/// context-window reading filed on its run before any turn's end retires the route, each steer
-/// Codex echoed taken from the queue once, each prompt's hook runs remembered, and for each ended
-/// turn its blocked steers refused and those a pause or a retry dropped given back, its end
-/// recorded where no run moved, its route retired, its pause or continue acted on and its owed
-/// fork let go; then the spend it metered recorded.
+/// context-window reading filed on its run and each metered delta attributed to its binding before
+/// any turn's end retires the route, each live turn's tokens received published, each steer Codex
+/// echoed taken from the queue once, each prompt's hook runs remembered, each turn's task list
+/// published, and for each ended turn its blocked steers refused and those a pause or a retry
+/// dropped given back, its end recorded where no run moved, its route retired, its pause or
+/// continue acted on and its owed fork let go. Answers the spend it metered, for the session's
+/// task to record.
 pub(crate) async fn apply_codex_routed_frames(
     intake: &CodexRoutedFramesIntake<'_>,
     record: &mut CodexSessionRecord,
     routed: CodexRoutedFrames,
-) {
+) -> Vec<MeteredUsage> {
     let session_id = record.session_id;
     // Each reading's run is read before a turn's end in the same batch retires its route.
     for reading in routed.context_windows {
         file_context_window(intake, record, reading).await;
     }
+    let mut metered_usage = Vec::with_capacity(routed.metered_usage.len());
+    for delta in routed.metered_usage {
+        publish_turn_usage(intake, record, &delta);
+        metered_usage.extend(attribute_codex_usage(intake, record, delta));
+    }
     for dispatch in routed.dispatches {
+        if let Some(publisher) = intake.ports.turn_readings.port() {
+            for tasks in dispatch.turn_tasks {
+                publisher.publish_turn_tasks(session_id, tasks);
+            }
+        }
         for taken in dispatch.taken_messages {
             let Some(message_id) =
                 take_echoed_codex_steer(record, &taken.turn_id, &taken.client_message_id)
@@ -443,11 +560,98 @@ pub(crate) async fn apply_codex_routed_frames(
             intake.config_forks.note_turn_settled(record);
         }
     }
-    if let Some(usage) = intake.ports.usage.port() {
-        for delta in routed.metered_usage {
-            usage.record_metered(session_id, delta);
-        }
+    metered_usage
+}
+
+// Adds a delta of the session's own conversation to its live turn's tokens received and publishes
+// the turn's figure; a delta that adds nothing publishes nothing, and a turn already ended keeps
+// no reading.
+fn publish_turn_usage(
+    intake: &CodexRoutedFramesIntake<'_>,
+    record: &mut CodexSessionRecord,
+    delta: &MeteredUsageDelta,
+) {
+    if delta.thread_id != record.thread_id {
+        return;
     }
+    let Some(turn_id) = delta.attributed_turn_id.as_deref() else {
+        return;
+    };
+    let Some(output_tokens) = delta.axis_deltas.output.filter(|tokens| *tokens > 0) else {
+        return;
+    };
+    if record.is_turn_settled(turn_id) {
+        return;
+    }
+    let Some((run_id, _ending)) = find_turn_run_id(record, turn_id) else {
+        return;
+    };
+    let tokens_received = record
+        .delivery
+        .turn_readings
+        .add_output_tokens(turn_id, output_tokens);
+    let (Some(publisher), Ok(turn_id), Some(tokens_received)) = (
+        intake.ports.turn_readings.port(),
+        ProviderTurnId::new(turn_id.to_owned()),
+        SafeInt::new(tokens_received),
+    ) else {
+        return;
+    };
+    publisher.publish_turn_usage(
+        record.session_id,
+        TurnUsageUpdate {
+            run_id,
+            turn_id,
+            tokens_received,
+        },
+    );
+}
+
+// The usage record's entry for a metered delta: a helper's conversation's on its child run's
+// binding as that helper's own, any other on the binding of the run its turn belongs to, else the
+// session's. One with no binding to file on is logged and left unrecorded.
+fn attribute_codex_usage(
+    intake: &CodexRoutedFramesIntake<'_>,
+    record: &CodexSessionRecord,
+    delta: MeteredUsageDelta,
+) -> Option<MeteredUsage> {
+    if let Some(child) = record.delivery.child_run_by_thread_id.get(&delta.thread_id) {
+        return Some(MeteredUsage {
+            session_id: record.session_id,
+            binding_id: child.binding_id.clone(),
+            owner: MeteredUsageOwner::Helper(child.subagent_id.clone()),
+            delta,
+        });
+    }
+    let (_run_id, binding_id) =
+        find_filing_binding(intake, record, delta.attributed_turn_id.as_deref());
+    let Some(binding_id) = binding_id else {
+        tracing::warn!("a codex usage reading has no binding to file on");
+        return None;
+    };
+    Some(MeteredUsage {
+        session_id: record.session_id,
+        binding_id,
+        owner: MeteredUsageOwner::Run,
+        delta,
+    })
+}
+
+// The run a frame of the session's own conversation naming `turn_id` belongs to, and the binding
+// it files on: that run's, else the session's, which a run's turn start adopts.
+fn find_filing_binding(
+    intake: &CodexRoutedFramesIntake<'_>,
+    record: &CodexSessionRecord,
+    turn_id: Option<&str>,
+) -> (Option<RunId>, Option<RuntimeBindingId>) {
+    let run_id = turn_id
+        .and_then(|turn_id| find_turn_run_id(record, turn_id))
+        .map(|(run_id, _ending)| run_id);
+    let binding_id = run_id
+        .and_then(|run_id| intake.run_routes.binding_for(run_id))
+        .map(|binding| binding.binding_id)
+        .or_else(|| record.binding_id.clone());
+    (run_id, binding_id)
 }
 
 // Writes the end of a turn that moved no run; a failed write is logged, the turn already gone.
@@ -470,15 +674,7 @@ async fn file_context_window(
     record: &CodexSessionRecord,
     reading: CodexContextWindowReading,
 ) {
-    let run_id = reading
-        .turn_id
-        .as_deref()
-        .and_then(|turn_id| find_turn_run_id(record, turn_id))
-        .map(|(run_id, _ending)| run_id);
-    let binding_id = run_id
-        .and_then(|run_id| intake.run_routes.binding_for(run_id))
-        .map(|binding| binding.binding_id)
-        .or_else(|| record.binding_id.clone());
+    let (run_id, binding_id) = find_filing_binding(intake, record, reading.turn_id.as_deref());
     let Some(binding_id) = binding_id else {
         tracing::debug!("a codex context-window reading has no binding to file on");
         return;

@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde::Deserialize;
+use serde_json::json;
 use serde_json::value::RawValue;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -55,6 +56,9 @@ use crate::driver::codex::transport::diagnostics::{CodexDeliveryPort, CodexTrans
 use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::contract::bound_failure_detail;
 use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
+use crate::driver::diagnostics::{
+    DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
+};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::{DriverResumeResult, ProviderBuildChange};
@@ -160,10 +164,10 @@ impl CodexServiceRecovery {
         self.lock().last_exit.insert(service.id(), exit);
     }
 
-    /// Forgets the service's remembered exit once it runs again, so a later crash loop names only
-    /// its own; called in the service's own event order.
-    pub(crate) fn forget_exit(&self, service: &CodexService) {
-        self.lock().last_exit.remove(&service.id());
+    /// Takes the service's remembered exit once it runs again, so a later crash loop names only
+    /// its own, answering it for the restart's record; called in the service's own event order.
+    pub(crate) fn take_exit(&self, service: &CodexService) -> Option<ProcessExit> {
+        self.lock().last_exit.remove(&service.id())
     }
 
     /// Marks every session on a service that came back as owed its resume by a new recovery, in
@@ -235,7 +239,8 @@ impl CodexServiceRecovery {
 
     /// Resumes every conversation of a service that runs again: after a crash, a reconnect or the
     /// person's restart of a crash loop, settling the resumes `generation` owed. After a reconnect
-    /// the conversations held for their running commands are subscribed to again first. Only the
+    /// the conversations held for their running commands are subscribed to again first. A restart
+    /// is recorded with `ended`, how the process it replaced ended, where that was read. Only the
     /// person's restart writes a notice: one `ProviderRestarted` on each session its crash loop
     /// held that the restart brought back.
     pub(crate) async fn recover(
@@ -243,6 +248,7 @@ impl CodexServiceRecovery {
         service: &Arc<CodexService>,
         cause: CodexServiceRecoveryCause,
         generation: CodexRecoveryGeneration,
+        ended: Option<ProcessExit>,
     ) {
         if cause == CodexServiceRecoveryCause::Reconnect {
             self.dependencies.release.resubscribe_service(service).await;
@@ -258,12 +264,7 @@ impl CodexServiceRecovery {
             }
             .report();
         } else {
-            tracing::info!(
-                codex_home = %service.home().codex_home.display(),
-                ?cause,
-                conversations = resumed.len(),
-                "the codex service runs again and its conversations resumed"
-            );
+            report_restarted(service, cause, ended.as_ref(), &resumed);
         }
         if cause == CodexServiceRecoveryCause::PersonRestart {
             self.announce_person_restart(service, &resumed).await;
@@ -294,10 +295,12 @@ impl CodexServiceRecovery {
                 .insert(service.id(), sessions.clone());
             state.last_exit.get(&service.id()).cloned()
         };
-        let (exit_code, signal, start_failure) = match (exit, start_failure) {
-            (Some(ProcessExit::Code(ended)), _) => (Some(ended.exit_code), None, None),
-            (Some(ProcessExit::Signal(ended)), _) => (None, Some(ended.signal), None),
+        let (exit_code, signal, silent_seconds, start_failure) = match (exit, start_failure) {
+            (Some(ProcessExit::Code(ended)), _) => (Some(ended.exit_code), None, None, None),
+            (Some(ProcessExit::Signal(ended)), _) => (None, Some(ended.signal), None, None),
+            (Some(ProcessExit::Silent(ended)), _) => (None, None, Some(ended.silent_seconds), None),
             (None, Some(failure)) => (
+                None,
                 None,
                 None,
                 Some(bound_failure_detail(
@@ -322,6 +325,7 @@ impl CodexServiceRecovery {
                     provider: DESCRIPTOR.provider_id(),
                     exit_code,
                     signal: signal.clone(),
+                    silent_seconds,
                     start_failure: start_failure.clone(),
                 },
             )
@@ -636,7 +640,7 @@ impl CodexServiceRecovery {
             return true;
         };
         CodexTransportDiagnostic::PortDeliveryFailed {
-            provider_account_id: service.home().provider_account_id.clone(),
+            provider_account_id: service.home().provider_account_id().cloned(),
             port: CodexDeliveryPort::SessionRelaunched,
             session_id: Some(session_id),
             error,
@@ -703,7 +707,7 @@ impl CodexServiceRecovery {
                     .await
                 {
                     CodexTransportDiagnostic::PortDeliveryFailed {
-                        provider_account_id: service.home().provider_account_id.clone(),
+                        provider_account_id: service.home().provider_account_id().cloned(),
                         port: CodexDeliveryPort::RunEnd,
                         session_id: Some(session_id),
                         error,
@@ -742,7 +746,7 @@ impl CodexServiceRecovery {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id: service.home().provider_account_id.clone(),
+                provider_account_id: service.home().provider_account_id().cloned(),
                 raw_wire_type: None,
             },
             InboundDelivery::SessionNotice {
@@ -869,4 +873,53 @@ fn compose_turn_completed_params(thread_id: &str, turn: &RawValue) -> Option<Box
         turn.get()
     ))
     .ok()
+}
+
+// Records that the service runs again in place of a process that ended, with how it ended where
+// that was read, counted per account so a service that keeps ending shows.
+fn report_restarted(
+    service: &CodexService,
+    cause: CodexServiceRecoveryCause,
+    ended: Option<&ProcessExit>,
+    resumed: &[(SessionId, String, DriverResumeResult)],
+) {
+    let mut details = serde_json::Map::from_iter([
+        (
+            "codexHome".to_owned(),
+            json!(service.home().codex_home.display().to_string()),
+        ),
+        ("cause".to_owned(), json!(format!("{cause:?}"))),
+        (
+            "conversations".to_owned(),
+            json!(
+                resumed
+                    .iter()
+                    .map(|(_, thread_id, _)| thread_id.as_str())
+                    .collect::<Vec<_>>()
+            ),
+        ),
+    ]);
+    let disposition_reason = match ended {
+        Some(ProcessExit::Code(ended)) => {
+            details.insert("exitCode".to_owned(), json!(ended.exit_code));
+            "the Codex service ended and was started again"
+        }
+        Some(ProcessExit::Signal(ended)) => {
+            details.insert("signal".to_owned(), json!(ended.signal));
+            "the Codex service ended and was started again"
+        }
+        Some(ProcessExit::Silent(ended)) => {
+            details.insert("silentSeconds".to_owned(), json!(ended.silent_seconds));
+            "the Codex service answered nothing, so the daemon ended it and started it again"
+        }
+        None => "the Codex service ended unread and was started again",
+    };
+    emit_driver_diagnostic(&DriverDiagnosticRecord {
+        provider: DESCRIPTOR.provider_id(),
+        provider_account_id: service.home().provider_account_id().cloned(),
+        kind: DriverDiagnosticKind::ProviderRestarted,
+        raw_wire_type: None,
+        disposition_reason: disposition_reason.to_owned(),
+        details,
+    });
 }

@@ -180,7 +180,8 @@ mod tests {
                    (id, run_id, provider_name, contract_version, cli_version_raw, resume_handle,
                     spawn_config, created_at, updated_at)
                  VALUES (?1, ?2, ?3, '1.0.0', '2.1.0', ?4,
-                         '{\"resolvedExecutablePath\":\"/bin/provider\"}',
+                         '{\"providerAccountId\":\"account-1\",
+                           \"resolvedExecutablePath\":\"/bin/provider\"}',
                          '2026-10-19T09:00:00.000Z', '2026-10-19T09:00:00.000Z')",
                 params![mint_uuid_v7().to_string(), run_id, provider, resume_handle],
             )

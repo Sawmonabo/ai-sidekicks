@@ -21,6 +21,7 @@ use sidekicks_std::error_description::describe_error;
 use sidekicks_std::mutex_lock::lock;
 use tokio::sync::{Mutex as AsyncMutex, oneshot};
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 
 use crate::driver::codex::event_normalizer::CODEX_OPT_OUT_NOTIFICATION_METHODS;
 use crate::driver::codex::server_requests::{
@@ -72,6 +73,15 @@ pub(crate) trait CodexConnectionEvents: Send + Sync {
     /// it takes no new work, while its running turns, reads and interrupts go on until it closes
     /// the connection. Called once per such answer, off the reader.
     fn service_draining(&self, message: &str);
+
+    /// A request on the still open connection went unanswered past its deadline, `silent_for`
+    /// after the send of the oldest request still unanswered or the service's last frame,
+    /// whichever came later. Called once until the service next sends anything, which
+    /// [`Self::answered_after_timeout`] reports.
+    fn request_timed_out(&self, silent_for: Duration);
+
+    /// The service sent something after a request went unanswered. Called on the reader.
+    fn answered_after_timeout(&self);
 }
 
 /// What one connection hands up: notifications and its close to `events`, routed asks to
@@ -191,13 +201,24 @@ struct ConnectionState {
     /// The id the next request takes.
     next_request_id: u64,
     /// Each request waiting for its answer, by its id.
-    pending: HashMap<u64, oneshot::Sender<RequestAnswer>>,
+    pending: HashMap<u64, PendingRequest>,
     /// Each ask the responder held for the person, by its request id as its JSON.
     held: HashMap<String, HeldServerRequest>,
     /// Held asks whose answer is being sent, so a second answer cannot send another.
     answering: HashSet<String>,
     /// How the connection closed; `None` while it is open.
     close_reason: Option<String>,
+    /// Whether a request went unanswered past its deadline with nothing from the service since.
+    is_awaiting_answer: bool,
+    /// When the service last sent a frame, which clears the silence a timeout counts.
+    last_frame_at: Option<Instant>,
+}
+
+/// A request waiting for its answer: where the answer goes, and when the request was sent, `None`
+/// until its write is done.
+struct PendingRequest {
+    answer_sender: oneshot::Sender<RequestAnswer>,
+    sent_at: Option<Instant>,
 }
 
 /// What the service answered one request: its `result`, or the code and message of its error,
@@ -254,6 +275,8 @@ impl CodexAppServerConnection {
                 held: HashMap::new(),
                 answering: HashSet::new(),
                 close_reason: None,
+                is_awaiting_answer: false,
+                last_frame_at: None,
             }),
             sent_message_byte_limit: writer.sent_message_byte_limit(),
             writer: AsyncMutex::new(Some(writer)),
@@ -315,6 +338,7 @@ impl CodexAppServerConnection {
             cause: Some(Box::new(error)),
         })?;
         self.shared.send_text(method, text).await?;
+        slot.note_sent();
         let outcome = match tokio::time::timeout(timeout, answer).await {
             Ok(Ok(Ok(result))) => Ok(result),
             Ok(Ok(Err(ErrorAnswer {
@@ -344,10 +368,13 @@ impl CodexAppServerConnection {
                     reason: self.shared.close_reason(),
                 },
             }),
-            Err(_elapsed) => Err(CodexError::Unanswered {
-                method: method.to_owned(),
-                cause: CodexUnansweredCause::Deadline { timeout },
-            }),
+            Err(_elapsed) => {
+                self.shared.note_request_timed_out();
+                Err(CodexError::Unanswered {
+                    method: method.to_owned(),
+                    cause: CodexUnansweredCause::Deadline { timeout },
+                })
+            }
         };
         drop(slot);
         outcome
@@ -395,6 +422,15 @@ struct PendingRequestSlot<'connection> {
     request_id: u64,
 }
 
+impl PendingRequestSlot<'_> {
+    // Marks the request sent now, which the silence of an unanswered connection counts from.
+    fn note_sent(&self) {
+        if let Some(pending) = self.shared.lock_state().pending.get_mut(&self.request_id) {
+            pending.sent_at = Some(Instant::now());
+        }
+    }
+}
+
 impl Drop for PendingRequestSlot<'_> {
     fn drop(&mut self) {
         self.shared.lock_state().pending.remove(&self.request_id);
@@ -430,7 +466,13 @@ impl ConnectionShared {
         }
         let request_id = state.next_request_id;
         state.next_request_id += 1;
-        state.pending.insert(request_id, answer_sender);
+        state.pending.insert(
+            request_id,
+            PendingRequest {
+                answer_sender,
+                sent_at: None,
+            },
+        );
         Ok(PendingRequestSlot {
             shared: self,
             request_id,
@@ -476,6 +518,30 @@ impl ConnectionShared {
         true
     }
 
+    // A request went unanswered: reported on an open connection, once until the service next
+    // sends anything, with the time since the oldest request still unanswered was sent or the
+    // service last sent a frame, whichever came later.
+    fn note_request_timed_out(&self) {
+        let mut state = self.lock_state();
+        if state.close_reason.is_none() && !state.is_awaiting_answer {
+            state.is_awaiting_answer = true;
+            let last_frame_at = state.last_frame_at;
+            let silent_for = state
+                .pending
+                .values()
+                .filter_map(|pending| pending.sent_at)
+                .min()
+                .map(|oldest_sent_at| {
+                    let silent_since = last_frame_at.map_or(oldest_sent_at, |last_frame_at| {
+                        last_frame_at.max(oldest_sent_at)
+                    });
+                    Instant::now().saturating_duration_since(silent_since)
+                })
+                .unwrap_or_default();
+            self.events.request_timed_out(silent_for);
+        }
+    }
+
     // The socket closed: a close the daemon did not ask for is a drop.
     fn handle_socket_closed(&self, reason: &str) {
         if self.mark_closed(reason) {
@@ -486,8 +552,16 @@ impl ConnectionShared {
     // Reads one message and hands it on; one that is no JSON-RPC message is reported by why and
     // how long it is, never by its content.
     fn receive(self: &Arc<Self>, bytes: &[u8]) {
-        if self.lock_state().close_reason.is_some() {
-            return;
+        {
+            let mut state = self.lock_state();
+            if state.close_reason.is_some() {
+                return;
+            }
+            state.last_frame_at = Some(Instant::now());
+            // Reported under the lock, so it can never pass the timeout it answers.
+            if std::mem::take(&mut state.is_awaiting_answer) {
+                self.events.answered_after_timeout();
+            }
         }
         let text = decode_inbound_json(bytes);
         let frame = match read_frame(&text) {
@@ -536,7 +610,8 @@ impl ConnectionShared {
             .parse::<u64>()
             .ok()
             .filter(|request_id| request_id.to_string() == response_id)
-            .and_then(|request_id| self.lock_state().pending.remove(&request_id));
+            .and_then(|request_id| self.lock_state().pending.remove(&request_id))
+            .map(|pending| pending.answer_sender);
         let Some(answer_sender) = answer_sender else {
             CodexTransportDiagnostic::UnknownResponseId { response_id }.report();
             return;

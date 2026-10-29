@@ -104,8 +104,8 @@ pub(crate) struct ClaudeDialogSession<'a> {
     pub(crate) running_model: &'a str,
     /// The models its process offers, in its order.
     pub(crate) offered_models: &'a [ClaudeOfferedModel],
-    /// The account the process runs on; `None` on the machine's own home.
-    pub(crate) provider_account_id: Option<&'a ProviderAccountId>,
+    /// The account the process runs on.
+    pub(crate) provider_account_id: &'a ProviderAccountId,
 }
 
 // One choice Claude Code holds a run on, under the request id its answer goes back with.

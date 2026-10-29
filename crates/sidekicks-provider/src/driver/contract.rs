@@ -53,14 +53,15 @@ use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::error_causes::{
     ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
 };
+use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
     ApplyInterventionResponse, DriverRunRefusal, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
-    WithdrawQueuedMessageResult,
+    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    PauseRunParams, PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages,
+    WithdrawQueuedMessageParams, WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, ClearSessionGoalParams, CloseSessionParams,
@@ -71,6 +72,7 @@ use crate::driver::session_control::{
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
+use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
@@ -300,11 +302,11 @@ pub trait ProviderDriver: Send + Sync {
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session. A session with
     /// no live process is weighed on `provider_account_id`, the account the run is admitted
-    /// against (`None` for the provider's current account), since it may not have run yet.
+    /// against, since it may not have run yet.
     fn starts_process(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, bool>;
 
     /// The skills `picks` names as the provider loads them for `session_id`, in the order picked,
@@ -315,7 +317,7 @@ pub trait ProviderDriver: Send + Sync {
     fn resolve_skill_picks(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>>;
 
@@ -414,7 +416,7 @@ pub trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The provider's models for a session's model control, read against the account the params
-    /// name, or the provider's default account where they name none.
+    /// name, or the provider's current account where they name none.
     fn list_models(
         &self,
         params: ListModelsParams,
@@ -426,8 +428,12 @@ pub trait ProviderDriver: Send + Sync {
     /// The driver's capability flags, tool declarations and provider version, read live.
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
 
-    /// A zero-turn authentication probe; no flag exists for it, so no driver opts out.
-    fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>>;
+    /// A zero-turn authentication probe of `provider_account_id`'s account, run in that account's
+    /// own home; no flag exists for it, so no driver opts out.
+    fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
@@ -465,6 +471,47 @@ pub trait ProviderDriver: Send + Sync {
     fn write_command_input(
         &self,
         params: WriteCommandInputParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// The holds the provider keeps on `session_id` that keep its process up: the requests it
+    /// holds open, a side question and its timed fires. A provider whose sessions never sleep
+    /// answers none. Fails when the provider's state cannot be read.
+    fn idle_sleep_holds(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>>;
+
+    /// Stops `session_id`'s idle process, keeping its conversation, account, settings and inbox
+    /// for its wake, and answers where that left it once the process exited; a provider whose
+    /// sessions never sleep leaves it awake. The idle sleep calls it under the session's lock,
+    /// once it found no hold.
+    fn sleep_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>>;
+
+    /// Resumes a sleeping `session_id` on the same conversation, account, folder, settings and
+    /// permission level, reads its command list and tool servers again, and answers once it is
+    /// up; a session that is awake answers at once. Fails with the driver's own start refusal
+    /// when the resume fails, leaving it asleep.
+    fn wake_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>>;
+
+    /// What `call`, one of the provider's tool calls, does to the agent's task list; `None` for a
+    /// call that is not a task-list call, which the transcript shows as a row.
+    fn task_list_change<'call>(&self, call: &ToolCallRecord<'call>) -> Option<TaskListChange>;
+
+    /// Stops a helper whose own run passed its token limit, alone, while its lead goes on: the
+    /// provider refuses the helper's next tool use with [`HELPER_TOKEN_LIMIT_REASON`], or ends
+    /// the helper's own turn where it cannot refuse one. Resolves once the provider has the
+    /// request.
+    ///
+    /// [`HELPER_TOKEN_LIMIT_REASON`]: crate::driver::run_control::HELPER_TOKEN_LIMIT_REASON
+    fn stop_helper_at_token_limit(
+        &self,
+        params: HelperTokenLimitParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
@@ -807,11 +854,12 @@ pub struct ListProviderCommandsParams {
 }
 
 /// Params of `list_models`: the session whose model control reads the catalog, and the account
-/// to read it against, `None` for the provider's default account.
+/// to read it against, `None` for the provider's current account, which the driver resolves.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ListModelsParams {
     /// The session, only where this is the session's own provider; `None` for any other.
     pub session_id: Option<SessionId>,
-    /// The account: the session's own bound account for its own provider.
+    /// The account: the session's own bound account for its own provider; `None` for the
+    /// provider's current account, refused as no account is registered or none is current.
     pub provider_account_id: Option<ProviderAccountId>,
 }

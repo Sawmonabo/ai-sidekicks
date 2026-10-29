@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use futures::future::BoxFuture;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::EnvironmentRow;
 use sidekicks_contracts::mcp::server::config::{McpDeclaredConfigMember, McpTransport};
 use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
@@ -15,24 +16,28 @@ use sidekicks_contracts::provider::id::{ProviderId, is_provider_id};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::voice::VoiceKind;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_platforms::{
     PathRules, PerSystem, Spawner, SystemFolders, can_create_user_namespace, find_executables,
 };
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 
 use crate::background_work::BackgroundWorkForms;
+use crate::command::waiting_checks::InputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
-use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::{DriverError, ProviderDriver};
 use crate::driver::ports::DriverPorts;
 use crate::output_validation::is_canonical_semver;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 
 pub mod attachments;
@@ -40,12 +45,14 @@ pub mod callback_tool;
 pub mod capabilities;
 mod claude;
 mod codex;
+pub(crate) mod context_window;
 pub mod contract;
 pub mod daemon_stop;
 pub(crate) mod delivery_dispatch;
 pub mod diagnostics;
 pub mod error_causes;
 pub(crate) mod hook_pauses;
+pub mod idle_sleep;
 pub mod mcp_server_status;
 pub mod message_handing;
 pub mod ports;
@@ -57,6 +64,7 @@ pub mod run_control;
 pub mod schema;
 pub mod session_control;
 pub(crate) mod streamed_text;
+pub mod task_list;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_registry;
 pub(crate) mod unified_diff;
@@ -143,10 +151,6 @@ pub struct ProviderDescriptor {
 /// its hooks', status line's and tool servers' starts.
 pub(crate) struct ShellPrefixCommand {
     /// The variable the provider reads the link's absolute path from.
-    #[expect(
-        dead_code,
-        reason = "the provider's process environment sets the link's path in this variable"
-    )]
     pub(crate) variable: &'static str,
     /// The variable the provider sets, in an agent's command's environment, to the absolute path
     /// of the shell it wrote the command's line for, which runs the line.
@@ -424,6 +428,11 @@ pub const PROVIDER_REGISTRATIONS: &[ProviderRegistration] = &[
 pub const PROVIDERS: &[&ProviderDescriptor] =
     &descriptors_of::<{ PROVIDER_REGISTRATIONS.len() }>(PROVIDER_REGISTRATIONS);
 
+/// The statements the drivers keep prepared on a read connection of the daemon's pool, which the
+/// pool's capacity counts.
+pub const DRIVERS_STATEMENT_CAPACITY: usize =
+    codex::calibration::store::CODEX_CALIBRATION_STATEMENT_CAPACITY;
+
 const _: () = assert!(
     has_valid_ids(PROVIDERS),
     "a provider id breaks the id pattern"
@@ -464,7 +473,7 @@ pub struct DriverServices {
     /// driver's dial holds and the daemon's caller check reads.
     pub provider_services: Arc<ProviderServiceProcesses>,
     /// Points a session's binding at the conversation a driver moved it onto.
-    pub runtime_bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub runtime_bindings: Arc<dyn RuntimeBindingWriter>,
     /// The daemon-wide bound on the shell-line bytes an ask's checks parse at once.
     pub shell_lines: Arc<ShellLineReadingBound>,
     /// Every provider's background work, which no agent's shell line may start.
@@ -472,6 +481,10 @@ pub struct DriverServices {
     /// Whether the daemon's program runs the hook mode a provider's hook command starts, so a
     /// driver composes and trusts a hook that runs this program only while it does.
     pub dispatches_hook_mode: bool,
+    /// Reads where a command channel's party runs, for its admission under the provider's process.
+    pub caller_processes: Arc<dyn CallerProcessReader>,
+    /// Reads whether a running command waits for input.
+    pub input_waits: Arc<dyn InputWaitReader>,
     /// The handles the daemon builds after the drivers, each registered by its start.
     pub ports: Arc<DriverPorts>,
 }
@@ -489,9 +502,8 @@ pub struct SessionSpawnContext {
     pub every_project_rows: Vec<EnvironmentRow>,
     /// The session's project's own environment rows, which win over an `Every project` row.
     pub project_rows: Vec<EnvironmentRow>,
-    /// The folders of the account the process runs on, where the app manages its home; `None` on
-    /// the person's own sign-in.
-    pub account_folders: Option<ProviderAccountFolders>,
+    /// The folders of the account the process runs on.
+    pub account_folders: ProviderAccountFolders,
     /// The session's own bound on the steps one turn may take; `None` where the person set none.
     pub step_bound: Option<SafeInt<1>>,
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
@@ -503,8 +515,8 @@ pub struct SessionSpawnContext {
     pub advisor_model: Option<Option<String>>,
 }
 
-/// The folders of an account whose home the app manages, each absolute: the configuration folder a
-/// session reads and the account's own credential store, kept apart from it.
+/// The folders of an account's home, which the app manages for every account, each absolute: the
+/// configuration folder a session reads and the account's own credential store, kept apart from it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProviderAccountFolders {
     /// The configuration folder.
@@ -516,12 +528,12 @@ pub struct ProviderAccountFolders {
 /// Resolves where a session's provider process runs. The daemon registers it on
 /// [`DriverPorts::spawn_contexts`].
 pub trait SessionSpawnContextResolver: Send + Sync {
-    /// The context `session_id` runs in on `provider_account_id`'s account, or on the person's own
-    /// sign-in when `None`. Fails when the session or its folders cannot be read.
+    /// The context `session_id` runs in on `provider_account_id`'s account. Fails when the
+    /// session or its account's folders cannot be read.
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>>;
 
     /// The folder `session_id`'s runs work in, absolute: its prepared root, else the folder its
@@ -536,13 +548,19 @@ pub trait SessionSpawnContextResolver: Send + Sync {
 /// Reads the accounts a provider runs on: an account's folders before any session runs on it, and
 /// its credential generation. The daemon registers it on [`DriverPorts::provider_accounts`].
 pub trait ProviderAccountReader: Send + Sync {
-    /// The folders of `provider_account_id`'s account where the app manages its home, `None`
-    /// where it does not; read with no session, before one exists. Fails when the account or its
-    /// folders cannot be read.
+    /// The folders of `provider_account_id`'s account, read with no session, before one exists.
+    /// Fails as [`AccountFoldersError`] says.
     fn resolve_account_folders(
         &self,
         provider_account_id: ProviderAccountId,
-    ) -> BoxFuture<'_, Result<Option<ProviderAccountFolders>, Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>>;
+
+    /// The account `provider_id`'s runs start on when no account is named: its current account,
+    /// or why it has none. Fails when the accounts cannot be read.
+    fn current_account(
+        &self,
+        provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>>;
 
     /// The current credential generation of `provider_account_id`'s account, from the accounts
     /// store, which a reading of the account carries so one from before a sign-in again reads as
@@ -551,6 +569,86 @@ pub trait ProviderAccountReader: Send + Sync {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>>;
+}
+
+/// Why an account's folders could not be resolved: the account is not registered, its home is not
+/// there to run in, or the accounts could not be read.
+#[derive(Debug, thiserror::Error)]
+pub enum AccountFoldersError {
+    /// No account of that id is registered.
+    #[error("the account is not registered")]
+    NotFound,
+    /// The account's credential home is missing or cannot be used.
+    #[error("the account's credential home is unavailable")]
+    CredentialHomeUnavailable,
+    /// The accounts could not be read.
+    #[error("the account's folders could not be read")]
+    Read(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<AccountFoldersError> for DriverError {
+    /// An account that is not registered refuses `provider.account.notFound`, a home that cannot
+    /// be used `provider.account.credentialHome.unavailable`, and a failed read is the driver's
+    /// own failure.
+    fn from(error: AccountFoldersError) -> Self {
+        match error {
+            AccountFoldersError::NotFound => Self::Refused(DomainError::new(
+                "The provider account is not registered",
+                RefusalCode::ProviderAccountNotFound,
+            )),
+            AccountFoldersError::CredentialHomeUnavailable => Self::Refused(DomainError::new(
+                "The provider account's credential home is unavailable",
+                RefusalCode::ProviderAccountCredentialHomeUnavailable,
+            )),
+            AccountFoldersError::Read(cause) => Self::Internal(cause),
+        }
+    }
+}
+
+/// The account a provider's runs start on when none is named, or why there is none: no account of
+/// the provider is registered, or none of its registered accounts is current.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CurrentProviderAccount {
+    /// The provider's current account.
+    Current(ProviderAccountId),
+    /// No account of the provider is registered.
+    NoneRegistered,
+    /// Accounts of the provider are registered and none is current.
+    NoneCurrent,
+}
+
+impl CurrentProviderAccount {
+    /// The current account. Refuses `provider.account.notRegistered` with no account of the
+    /// provider registered and `provider.account.current.notSet` with none current.
+    pub fn into_required(self) -> Result<ProviderAccountId, DriverError> {
+        match self {
+            Self::Current(provider_account_id) => Ok(provider_account_id),
+            Self::NoneRegistered => Err(DriverError::Refused(DomainError::new(
+                "No account of the provider is registered",
+                RefusalCode::ProviderAccountNotRegistered,
+            ))),
+            Self::NoneCurrent => Err(DriverError::Refused(DomainError::new(
+                "No account of the provider is current",
+                RefusalCode::ProviderAccountCurrentNotSet,
+            ))),
+        }
+    }
+}
+
+/// The current account of `provider_id`, read through `provider_accounts`. Refused
+/// `provider.account.notRegistered` or `provider.account.current.notSet` as the accounts answer;
+/// fails as no reader is registered or the accounts cannot be read.
+pub async fn read_current_account(
+    provider_accounts: &PortRegistration<Arc<dyn ProviderAccountReader>>,
+    provider_id: ProviderId,
+) -> Result<ProviderAccountId, DriverError> {
+    provider_accounts
+        .require_port()
+        .map_err(|error| DriverError::Internal(Box::new(error)))?
+        .current_account(provider_id)
+        .await
+        .map_err(DriverError::Internal)?
+        .into_required()
 }
 
 /// One registered provider: its descriptor and the function that builds its driver from the shared

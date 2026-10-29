@@ -52,14 +52,14 @@ impl CodexFrameEffects for CodexDriverEffects {
     fn withdraw_ask(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<&ProviderAccountId>,
+        provider_account_id: &ProviderAccountId,
         request_id: &str,
         ask_kind: CodexAskKind,
     ) {
         if let Some(parts) = self.link.parts() {
             parts.hand_off.withdraw(
                 session_id,
-                provider_account_id.cloned(),
+                provider_account_id.clone(),
                 request_id,
                 ask_kind,
             );

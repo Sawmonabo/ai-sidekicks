@@ -18,12 +18,15 @@ use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingVa
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
 use sidekicks_provider::callback_tools::host::CallbackToolHost;
 use sidekicks_provider::capability::refresh::{CapabilityRefresher, CapabilityRefreshing};
+use sidekicks_provider::command::running_set::RunningCommandSets;
+use sidekicks_provider::command::waiting_checks::SystemInputWaitReader;
 use sidekicks_provider::command_search::ProviderCommandSearch;
 use sidekicks_provider::compaction_wait::PendingCompactionRegistry;
 use sidekicks_provider::driver::attachments::AttachmentResolver;
@@ -46,10 +49,14 @@ use sidekicks_queue::admission::QueueAdmission;
 use sidekicks_queue::delivery::QueueDelivery;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
 use sidekicks_session::console_state::ConsoleStateAdvisors;
+use sidekicks_session::idle_sleep::SessionIdleSleep;
 use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::inbound::RunInboundDispatch;
 use sidekicks_session::run::pause::RunPauseControl;
+use sidekicks_session::usage_record::UsageRecord;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
@@ -61,6 +68,7 @@ use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::daemon::machine_settings::file::MachineSettingsFile;
+use crate::daemon::process::session_services::stored_resumes::StoredSessionResumes;
 use crate::program::dispatches_hook_mode;
 
 /// What the providers' build takes from the steps before it.
@@ -85,6 +93,8 @@ pub(crate) struct ProviderStart {
     pub(crate) base_environment: Arc<[(String, String)]>,
     /// The one bound on shell-line reads.
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
+    /// Reads where a command channel's party runs.
+    pub(crate) caller_processes: Arc<dyn CallerProcessReader>,
 }
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
@@ -157,7 +167,7 @@ pub(crate) fn build_providers(
         execution_postures: Arc::clone(&execution_postures),
         base_environment: start.base_environment,
         reserved_names: Arc::clone(&reserved_names),
-        command_search: Arc::new(ProviderCommandSearch::new(start.spawner)),
+        command_search: Arc::new(ProviderCommandSearch::new(start.spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::clone(&processes),
         provider_services: Arc::clone(&provider_services),
@@ -165,6 +175,10 @@ pub(crate) fn build_providers(
         shell_lines: start.shell_lines,
         background_work: Arc::clone(&background_work),
         dispatches_hook_mode: dispatches_hook_mode(),
+        caller_processes: start.caller_processes,
+        input_waits: Arc::new(SystemInputWaitReader {
+            spawner: start.spawner,
+        }),
         ports: Arc::clone(&ports),
     };
     let registry = Arc::new(ProviderRegistry::register_from(registrations, &services));
@@ -243,7 +257,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) plans: Arc<PlansService>,
     /// The approval pipeline's reviewer blocks.
     pub(crate) reviewer_denials: Arc<ReviewerDenials>,
-    /// The database writer, which records the advisor a provider resolved for a session.
+    /// The database writer, which records the advisor a provider resolved for a session and which
+    /// the drivers store their measured limits through.
     pub(crate) writer: Arc<DatabaseWriter>,
     /// The rules in force on each session.
     pub(crate) approval_rules: Arc<ApprovalRules>,
@@ -253,6 +268,18 @@ pub(crate) struct DriverPortOwners {
     pub(crate) callback_tool_host: Arc<CallbackToolHost>,
     /// The pause and continue of runs.
     pub(crate) run_pauses: Arc<RunPauseControl>,
+    /// The usage record, which meters each provider reading and stops a run at its token limit.
+    pub(crate) usage: Arc<UsageRecord>,
+    /// Every session's running commands, which each driver reports its agent's commands to.
+    pub(crate) running_commands: Arc<RunningCommandSets>,
+    /// Each run's latest turn readings.
+    pub(crate) turn_readings: Arc<TurnReadings>,
+    /// Each session's latest context reading.
+    pub(crate) context_readings: Arc<ContextReadings>,
+    /// The idle sleep, which wakes a sleeping session for a message.
+    pub(crate) idle_sleep: Arc<SessionIdleSleep>,
+    /// The stored resume of a sleeping session a driver holds nothing for.
+    pub(crate) session_resumes: Arc<StoredSessionResumes>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -301,6 +328,13 @@ pub(crate) fn register_driver_ports(
     ports.questions.register(owners.questions)?;
     ports.plans.register(owners.plans)?;
     ports.reviewer_denials.register(owners.reviewer_denials)?;
+    ports.usage.register(owners.usage)?;
+    ports.command_output.register(owners.running_commands)?;
+    ports.turn_readings.register(owners.turn_readings)?;
+    ports.context_readings.register(owners.context_readings)?;
+    ports.session_wakes.register(owners.idle_sleep)?;
+    ports.session_resumes.register(owners.session_resumes)?;
+    ports.database_writer.register(Arc::clone(&owners.writer))?;
     ports
         .session_advisors
         .register(Arc::new(ConsoleStateAdvisors(owners.writer)))?;
@@ -562,6 +596,7 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::wire::record::Record;
     use sidekicks_contracts::wire::text::FreeFormText;
+    use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
     use sidekicks_platforms::Spawner;
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
     use sidekicks_provider::driver::capabilities::{
@@ -636,6 +671,10 @@ mod tests {
                     ),
                     base_environment,
                     shell_lines: Arc::new(ShellLineReadingBound::new(SHELL_LINE_LIMIT)),
+                    caller_processes: Arc::new(
+                        ProcessTableReader::for_this_program()
+                            .expect("this program's reader builds"),
+                    ),
                 },
             )
         }

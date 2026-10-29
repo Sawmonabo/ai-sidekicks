@@ -42,7 +42,7 @@ use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::stream::ClaudeSessionStream;
 use crate::driver::claude::event_normalizer::is_claude_result_frame_kind;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
-use crate::driver::claude::intervention::{ClaudeForegroundHelpers, ClaudeInterventions};
+use crate::driver::claude::intervention::ClaudeInterventions;
 use crate::driver::claude::lifecycle::ClaudeSessionParts;
 use crate::driver::claude::run::routes::{ClaudeChildRunRoute, ClaudeRunRoutes};
 use crate::driver::claude::run::start::ClaudeRunStart;
@@ -63,10 +63,11 @@ use crate::driver::claude::session::transport::inbound::{
 };
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
+use crate::driver::session_control::CreateSessionParams;
 use crate::driver::test_registry::{new_run_id, new_session_id};
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_identity::ProviderProcessIdentity;
-use crate::runtime_binding::test_store::spawned_build;
+use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id};
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 fn scripted_staged_changes() -> StagedChangesWorktrees {
@@ -86,7 +87,7 @@ pub(crate) fn binding_id(name: &str) -> RuntimeBindingId {
 }
 
 /// A live session at Ask on the scripted process `channel`.
-pub(super) fn scripted_live_session(
+pub(crate) fn scripted_live_session(
     session_id: SessionId,
     channel: Arc<dyn ClaudeProcessChannel>,
 ) -> LiveClaudeSession {
@@ -122,10 +123,11 @@ pub(super) fn scripted_live_session(
             spawn_environment: Vec::new(),
             advisor: ClaudeSessionAdvisor::Unpicked,
             output_style: None,
+            command_channel: None,
         },
         initialize: ClaudeInitializeDeclaration::default(),
         command_choices: async move { choices }.boxed().shared(),
-        admitted_provider_account_id: None,
+        admitted_provider_account_id: test_provider_account_id(),
         settings: Mutex::new(ClaudeLiveSettings {
             execution_posture: Some(execution_posture),
             session_mode: SessionMode::Build,
@@ -148,6 +150,7 @@ pub(super) fn scripted_live_session(
         process_exit: OnceLock::new(),
         task_ended: SetOnce::new(),
         served_bindings: Mutex::default(),
+        messaging_socket: None,
     }
 }
 
@@ -180,8 +183,6 @@ pub(crate) struct ScriptedSession {
     pub(crate) requests: Arc<ClaudeInboundRequests>,
     /// The interventions.
     pub(crate) interventions: Arc<ClaudeInterventions>,
-    /// The helpers running in the foreground.
-    pub(crate) foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     /// The words waiting for each helper.
     pub(crate) helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     listener: Arc<dyn ClaudeProcessListener>,
@@ -195,6 +196,14 @@ impl ScriptedSession {
     /// A live session on `opus` at Ask whose process answers as scripted, with every approval port
     /// registered.
     pub(crate) async fn new() -> Self {
+        Self::created_with(create_params).await
+    }
+
+    /// A live session as [`Self::new`] makes it, created with the params `params` builds for its
+    /// session id.
+    pub(crate) async fn created_with(
+        params: impl FnOnce(SessionId) -> CreateSessionParams,
+    ) -> Self {
         let ScriptedDriver {
             driver,
             starts,
@@ -219,7 +228,7 @@ impl ScriptedSession {
         starts.script_session(Arc::clone(&channel));
         let session_id = new_session_id();
         driver
-            .create_session(create_params(session_id))
+            .create_session(params(session_id))
             .await
             .expect("the session opens");
         let started = starts.take_started().pop().expect("a start was recorded");
@@ -247,7 +256,6 @@ impl ScriptedSession {
             start: parts.run_start.clone(),
             requests: Arc::clone(&services.requests),
             interventions: Arc::clone(&parts.interventions),
-            foreground_helpers: Arc::clone(&services.foreground_helpers),
             helper_steers: Arc::clone(&services.helper_steers),
             parts,
             listener: started.listener,

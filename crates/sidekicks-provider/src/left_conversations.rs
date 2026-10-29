@@ -11,17 +11,15 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_store::database::statement::{
-    StatementBindings, WriteStatement, nullable_text_binding, text_binding,
-};
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 
 /// A conversation a session moved off, on the account whose home holds it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeftConversation {
     /// The session that left it.
     pub session_id: SessionId,
-    /// The account whose home holds it; `None` on the machine's default home.
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// The account whose home holds it.
+    pub provider_account_id: ProviderAccountId,
     /// The provider's own id for the conversation.
     pub conversation_id: String,
 }
@@ -67,12 +65,9 @@ pub(crate) fn compose_left_conversation_insert(
             text_binding("@binding_id", binding_id.as_str()),
             text_binding("@left_at", left_at),
             text_binding("@session_id", conversation.session_id.text().as_str()),
-            nullable_text_binding(
+            text_binding(
                 "@provider_account_id",
-                conversation
-                    .provider_account_id
-                    .as_ref()
-                    .map(ProviderAccountId::as_str),
+                conversation.provider_account_id.as_str(),
             ),
             text_binding("@conversation_id", &conversation.conversation_id),
         ]),
@@ -121,18 +116,13 @@ struct StoredProviderIdInvalidError;
 #[error("the stored provider account id is not a valid account id")]
 struct StoredAccountIdInvalidError;
 
-// The stored account id, `None` on the machine's default home; a value that is no valid id fails
-// the read rather than pass as the default home.
-fn read_provider_account_id(stored: Option<String>) -> rusqlite::Result<Option<ProviderAccountId>> {
-    stored
-        .map(|text| {
-            ProviderAccountId::new(text).ok_or_else(|| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    1,
-                    Type::Text,
-                    Box::new(StoredAccountIdInvalidError),
-                )
-            })
-        })
-        .transpose()
+// The stored account id; a value that is no valid id fails the read.
+fn read_provider_account_id(stored: String) -> rusqlite::Result<ProviderAccountId> {
+    ProviderAccountId::new(stored).ok_or_else(|| {
+        rusqlite::Error::FromSqlConversionFailure(
+            1,
+            Type::Text,
+            Box::new(StoredAccountIdInvalidError),
+        )
+    })
 }

@@ -76,6 +76,8 @@ struct SessionCursors {
     binding_ids_by_run: HashMap<RunId, Vec<RuntimeBindingId>>,
     ended_run_ids: HashSet<RunId>,
     driver_relaunch: Option<(RuntimeBindingId, RuntimeBinding)>,
+    // The binding held last, which the session runs on now, until its run's cursors drop.
+    current_binding: Option<(RunId, RuntimeBindingId)>,
 }
 
 // The opens and continues of one session in flight, and whether its close was heard meanwhile.
@@ -114,6 +116,13 @@ impl HeldSessions {
     fn forget(&mut self, epochs: &mut ExecutionEpochs, binding_id: &RuntimeBindingId) {
         epochs.close_binding(binding_id);
         for session in self.by_session.values_mut() {
+            if session
+                .current_binding
+                .as_ref()
+                .is_some_and(|(_, current)| current == binding_id)
+            {
+                session.current_binding = None;
+            }
             session.binding_ids_by_run.retain(|_, binding_ids| {
                 binding_ids.retain(|held| held != binding_id);
                 !binding_ids.is_empty()
@@ -199,7 +208,7 @@ impl RunBindingCursors {
         binding_id: RuntimeBindingId,
         run_id: RunId,
         provider_name: ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> Result<(), RunBindingCursorError> {
         let _in_flight = self.begin(session_id);
         self.read_held_run(run_id).await?;
@@ -381,6 +390,16 @@ impl RunBindingCursors {
         Ok(())
     }
 
+    /// The binding `session_id` runs on now: the one its cursors recorded or continued last,
+    /// `None` once that run's cursors dropped or the session closed.
+    pub fn current_binding(&self, session_id: &SessionId) -> Option<RuntimeBindingId> {
+        self.lock_sessions()
+            .by_session
+            .get(session_id)
+            .and_then(|session| session.current_binding.as_ref())
+            .map(|(_, binding_id)| binding_id.clone())
+    }
+
     // Counts an open or a continue of `session_id` in flight until the answer drops.
     fn begin(&self, session_id: SessionId) -> InFlightOperation<'_> {
         self.lock_sessions()
@@ -446,6 +465,7 @@ fn epoch_binding_of(binding: &RuntimeBinding) -> EpochBinding {
 }
 
 fn hold(session: &mut SessionCursors, run_id: RunId, binding_id: RuntimeBindingId) {
+    session.current_binding = Some((run_id, binding_id.clone()));
     session
         .binding_ids_by_run
         .entry(run_id)
@@ -455,6 +475,13 @@ fn hold(session: &mut SessionCursors, run_id: RunId, binding_id: RuntimeBindingI
 
 // Closes every cursor `run_id` holds in `session`.
 fn drop_run(session: &mut SessionCursors, epochs: &mut ExecutionEpochs, run_id: &RunId) {
+    if session
+        .current_binding
+        .as_ref()
+        .is_some_and(|(current_run_id, _)| current_run_id == run_id)
+    {
+        session.current_binding = None;
+    }
     for binding_id in session
         .binding_ids_by_run
         .remove(run_id)
@@ -478,11 +505,9 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_contracts::wire::integer::SafeInt;
-    use sidekicks_provider::runtime_binding::store::{
-        CreateRuntimeBindingInput, RuntimeBindingSpawnConfig,
-    };
+    use sidekicks_provider::runtime_binding::store::CreateRuntimeBindingInput;
     use sidekicks_provider::runtime_binding::test_store::{
-        binding_input, open_store, spawned_build,
+        binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
     };
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::{
@@ -550,7 +575,7 @@ mod tests {
                     input.id.clone(),
                     run_id,
                     input.provider_name.clone(),
-                    None,
+                    test_provider_account_id(),
                 )
                 .await
                 .expect("the cursor opens");
@@ -636,7 +661,7 @@ mod tests {
         CreateRuntimeBindingInput {
             run_id,
             ..binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("2.0.0", "/opt/provider/bin"),
             )
         }
@@ -644,12 +669,16 @@ mod tests {
 
     // Killed by a run's end dropping its cursor at once, so a late delivery finds none; by a
     // continue leaving the run marked, so the next binding drops a live run's cursor; and by the
-    // next binding, opened before its row, leaving an ended run's cursor open.
+    // next binding, opened before its row, leaving an ended run's cursor open. The session's
+    // current binding, which a command's ending is appended on, is the one recorded last: killed by
+    // `hold` leaving it unset or keeping the first one.
     #[tokio::test]
     async fn binding_cursors_drop_an_ended_run_only_at_the_sessions_next_binding() {
         let harness = Harness::new().await;
         let first_run = harness.run();
         let first_binding = harness.bind(first_run).await;
+        let current = || harness.cursors.current_binding(&harness.session_id);
+        assert_eq!(current(), Some(first_binding.clone()));
 
         let completed = SessionEventType::AgentRunCompleted;
         harness.hear_run_move(first_run, completed, RunState::Running, RunState::Completed);
@@ -660,11 +689,12 @@ mod tests {
 
         let running = SessionEventType::AgentRunRunning;
         harness.hear_run_move(first_run, running, RunState::Interrupted, RunState::Running);
-        harness.bind(harness.run()).await;
+        let second_binding = harness.bind(harness.run()).await;
         assert!(
             harness.is_open(&first_binding),
             "a continued run keeps its cursor"
         );
+        assert_eq!(current(), Some(second_binding));
 
         harness.hear_run_move(first_run, completed, RunState::Running, RunState::Completed);
         let last_binding = harness.bind_opened(harness.run()).await;
@@ -673,6 +703,7 @@ mod tests {
             "the next binding drops the ended run's"
         );
         assert!(harness.is_open(&last_binding));
+        assert_eq!(current(), Some(last_binding));
     }
 
     // Killed by an open that does not check for the session's close: a close heard while an open
@@ -699,7 +730,7 @@ mod tests {
                 opened.id.clone(),
                 run_id,
                 opened.provider_name,
-                None,
+                test_provider_account_id(),
             ),
             harness
                 .cursors
@@ -743,7 +774,7 @@ mod tests {
                 opened.id,
                 run_id,
                 opened.provider_name,
-                None,
+                test_provider_account_id(),
             ),
             harness.close_while_held(1),
         );

@@ -9,13 +9,14 @@ use std::time::Duration;
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
-use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_HANDLE_MAX_LEN;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexProseRowType, CodexRowDelivery, CodexRowRun};
+use crate::driver::codex::delivery::turn_readings::CodexTurnReadings;
 use crate::driver::reorder_buffer::NormalizedEventReorderBuffer;
 use crate::driver::streamed_text::StreamedText;
 use crate::run::turn_end::StartedTurn;
@@ -86,7 +87,7 @@ pub(crate) struct CodexChildRun {
     /// The binding the helper's deliveries go on.
     pub(crate) binding_id: RuntimeBindingId,
     /// Codex's id for the helper.
-    pub(crate) subagent_id: FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>,
+    pub(crate) subagent_id: SubagentId,
     /// The tool call that spawned it, where one did.
     pub(crate) parent_tool_call_id: Option<String>,
 }
@@ -100,6 +101,8 @@ pub(crate) struct CodexRunningCommand {
     pub(crate) row: CodexRowRun,
     /// When it started, in Unix milliseconds.
     pub(crate) started_at_ms: u64,
+    /// Codex's own id for its process, which a stop of its background terminal names.
+    pub(crate) terminal_process_id: Option<String>,
 }
 
 /// An item whose prose is being streamed: the run its pieces go on and the row each is written as.
@@ -166,6 +169,10 @@ pub(crate) struct CodexDeliveryMemory {
     /// The turns Codex holds for a safety check, by turn id, with the run each hold shows on;
     /// each leaves as its hold is lifted.
     pub(crate) safety_hold_run_by_turn_id: HashMap<String, CodexRowRun>,
+    /// Each turn's output tokens and task list.
+    pub(crate) turn_readings: CodexTurnReadings,
+    /// Turns whose safety hold was released, never held again.
+    pub(crate) spent_safety_hold_turn_ids: HashSet<String>,
     /// The tool rows waiting for their start.
     pub(crate) reorder_buffer: NormalizedEventReorderBuffer<CodexRowDelivery>,
     /// The replies, reasoning and plans being streamed, by item id, sent as stored pieces.
@@ -200,6 +207,8 @@ impl CodexDeliveryMemory {
             unowned_turn_ids: HashSet::new(),
             self_started_turn_ids: HashSet::new(),
             safety_hold_run_by_turn_id: HashMap::new(),
+            turn_readings: CodexTurnReadings::default(),
+            spent_safety_hold_turn_ids: HashSet::new(),
             reorder_buffer: NormalizedEventReorderBuffer::new(
                 DESCRIPTOR.provider_id(),
                 REORDER_MAX_BUFFERED_EVENTS,

@@ -1,68 +1,54 @@
-//! The account's rate-limit readings as the daemon files them: a complete read at each start and
+//! The account's rate-limit readings as the daemon records them: a complete read at each start and
 //! reconnect of a service, kept as the service's readings, and each window whose reading changed,
-//! read or pushed, filed as one `usage.rateLimit.updated` row under the machine's sentinel session
-//! with the account's credential generation, so a reading from before a sign-in again reads as
-//! stale.
+//! read or pushed, handed to the usage record as the account's quota windows, which stamps them
+//! with the account's credential generation.
 
 use std::collections::HashMap;
 use std::mem;
 use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
-use sidekicks_contracts::event::usage::UsageRateLimitUpdatedPayload;
-use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
-use sidekicks_contracts::wire::integer::SafeSignedInt;
-use sidekicks_contracts::wire::number::Number;
-use sidekicks_contracts::wire::text::BoundedText;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
-use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::app_server_protocol::GetAccountRateLimitsParams;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::usage_limit_signal::{
     CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD, CodexRateLimitObservation,
-    codex_epoch_seconds_to_wire_instant, observe_codex_rate_limit_read,
+    observe_codex_rate_limit_read, read_codex_epoch_seconds,
 };
-use crate::driver::delivery_dispatch::{DeliveryOrigin, dispatch_delivery};
-use crate::port::inbound_dispatch::InboundDispatch;
-use crate::run::delivery::{InboundDelivery, MachineScopedRow};
+use crate::port::usage_sink::{ProviderQuotaWindow, UsageSink};
 
-/// Reads and files an account's rate-limit readings. A clone files through the same record of what
-/// was filed, so a reading one clone filed is not filed again by another.
+/// Reads an account's rate-limit readings and records the windows that moved. A clone records
+/// through the same memory of what was recorded, so a window one clone recorded is not recorded
+/// again by another.
 #[derive(Clone)]
 pub(crate) struct CodexRateLimitFiling {
-    /// The run engine's dispatch, which files each row.
-    dispatch: Arc<dyn InboundDispatch>,
-    /// Reads the account's credential generation.
-    provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
-    /// What was last filed, shared by every clone. Never held across an await.
+    /// The usage record, which takes each account's quota windows.
+    usage: Arc<PortRegistration<Arc<dyn UsageSink>>>,
+    /// What was last recorded, shared by every clone. Never held across an await.
     filed: Arc<Mutex<FiledRateLimits>>,
-    /// Held per account through each filing, shared by every clone.
+    /// Held per account through each recording, shared by every clone.
     filings: Arc<KeyedLock<ProviderAccountId>>,
 }
 
-// The rows last filed for each account, and whether a reading with no account to file under was
-// logged.
+// The windows last recorded for each account, and whether a reading with no account to record
+// under was logged.
 #[derive(Default)]
 struct FiledRateLimits {
-    rows_by_account: HashMap<ProviderAccountId, Vec<UsageRateLimitUpdatedPayload>>,
+    windows_by_account: HashMap<ProviderAccountId, Vec<ProviderQuotaWindow>>,
     is_unfiled_reading_logged: bool,
 }
 
 impl CodexRateLimitFiling {
-    /// A filing through `dispatch` with the credential generations `provider_accounts` reads, having
-    /// filed nothing yet.
-    pub(crate) fn new(
-        dispatch: Arc<dyn InboundDispatch>,
-        provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
-    ) -> Self {
+    /// A filing into the usage record `usage` registers, having recorded nothing yet.
+    pub(crate) fn new(usage: Arc<PortRegistration<Arc<dyn UsageSink>>>) -> Self {
         Self {
-            dispatch,
-            provider_accounts,
+            usage,
             filed: Arc::default(),
             filings: Arc::new(KeyedLock::new()),
         }
@@ -94,134 +80,104 @@ impl CodexRateLimitFiling {
         Ok(())
     }
 
-    /// Files `service`'s readings as they stand, one row per window whose reading changed since
-    /// the account's last filing; a row the dispatch refused is filed again with the next reading.
-    /// A service on the machine's default home names no account, which a row requires, so its
-    /// readings stay unfiled, logged once.
+    /// Records `service`'s readings as they stand: the windows whose reading changed since the
+    /// account's last recording, in one sparse set; a set the record refused is recorded again
+    /// with the next reading. A service no account owns, the terminal service on the person's own
+    /// folder, names no account, which the record requires, so its readings stay unrecorded,
+    /// logged once; so do readings that come before the usage record registers.
     pub(crate) async fn file(&self, service: &CodexService) {
-        let Some(provider_account_id) = service.home().provider_account_id.clone() else {
+        let Some(provider_account_id) = service.home().provider_account_id().cloned() else {
             if !mem::replace(&mut lock(&self.filed).is_unfiled_reading_logged, true) {
                 tracing::debug!(
-                    "the default home's rate limits name no account, so no usage row is filed"
+                    "the person's own folder's rate limits name no account, so no usage row is \
+                     filed"
                 );
             }
             return;
         };
-        // Held through the filing, so a reading one clone is filing is not filed again by another.
+        let Some(usage) = self.usage.port().map(Arc::clone) else {
+            return;
+        };
+        // Held through the recording, so a reading one clone is recording is not recorded again
+        // by another.
         let _filing = self.filings.acquire(provider_account_id.clone()).await;
-        let read = match self.provider_accounts.require_port() {
-            Ok(provider_accounts) => {
-                provider_accounts
-                    .read_credential_generation(provider_account_id.clone())
-                    .await
-            }
-            Err(error) => Err(error.into()),
-        };
-        let credential_generation = match read {
-            Ok(generation) => generation,
-            Err(error) => {
-                tracing::warn!(
-                    error = &*error as &(dyn std::error::Error + 'static),
-                    "the account's credential generation could not be read for its rate limits"
-                );
-                return;
-            }
-        };
-        let rows = compose_codex_rate_limit_rows(
-            &service.rate_limit_observation(),
-            &provider_account_id,
-            credential_generation,
-        );
-        let changed: Vec<UsageRateLimitUpdatedPayload> = select_changed_codex_rate_limit_rows(
+        let windows = compose_codex_quota_windows(&service.rate_limit_observation());
+        let changed = select_changed_codex_quota_windows(
             lock(&self.filed)
-                .rows_by_account
+                .windows_by_account
                 .get(&provider_account_id)
                 .map_or(&[], Vec::as_slice),
-            &rows,
-        )
-        .into_iter()
-        .cloned()
-        .collect();
-        let mut answered = Vec::new();
-        for row in changed {
-            let outcome = Box::pin(dispatch_delivery(
-                &*self.dispatch,
-                DeliveryOrigin {
-                    provider: DESCRIPTOR.provider_id(),
-                    provider_account_id: Some(provider_account_id.clone()),
-                    raw_wire_type: None,
-                },
-                InboundDelivery::MachineEvent {
-                    row: MachineScopedRow::UsageRateLimitUpdated(row.clone()),
-                },
-            ))
-            .await;
-            if outcome.is_some() {
-                answered.push(row);
-            }
+            &windows,
+        );
+        if changed.is_empty() {
+            return;
         }
-        keep_filed_codex_rate_limit_rows(
+        let recorded = usage
+            .record_quota_windows(
+                DESCRIPTOR.provider_id(),
+                provider_account_id.clone(),
+                changed,
+            )
+            .await;
+        if let Err(error) = &recorded {
+            tracing::warn!(
+                error = &**error as &(dyn std::error::Error + 'static),
+                "the codex account's rate limits could not be recorded"
+            );
+        }
+        keep_recorded_codex_quota_windows(
             lock(&self.filed)
-                .rows_by_account
+                .windows_by_account
                 .entry(provider_account_id)
                 .or_default(),
-            rows,
-            &answered,
+            windows,
+            recorded.is_ok(),
         );
     }
 }
 
-// The rows of `rows` that `filed` does not hold as they are: a window whose reading is unchanged
-// since it was filed, its credential generation included, is not filed again.
-fn select_changed_codex_rate_limit_rows<'r>(
-    filed: &[UsageRateLimitUpdatedPayload],
-    rows: &'r [UsageRateLimitUpdatedPayload],
-) -> Vec<&'r UsageRateLimitUpdatedPayload> {
-    rows.iter().filter(|row| !filed.contains(row)).collect()
+// The windows of `windows` that `filed` does not hold as they are: a window whose reading is
+// unchanged since it was recorded is not recorded again.
+fn select_changed_codex_quota_windows(
+    filed: &[ProviderQuotaWindow],
+    windows: &[ProviderQuotaWindow],
+) -> Vec<ProviderQuotaWindow> {
+    windows
+        .iter()
+        .filter(|window| !filed.contains(window))
+        .cloned()
+        .collect()
 }
 
-// `filed` then holds each row of `rows` it already held or whose filing `answered` names, so a
-// refused row reads as changed again.
-fn keep_filed_codex_rate_limit_rows(
-    filed: &mut Vec<UsageRateLimitUpdatedPayload>,
-    rows: Vec<UsageRateLimitUpdatedPayload>,
-    answered: &[UsageRateLimitUpdatedPayload],
+// `filed` then holds each of `windows` it already held, and all of them once `is_recorded`, so a
+// refused set reads as changed again.
+fn keep_recorded_codex_quota_windows(
+    filed: &mut Vec<ProviderQuotaWindow>,
+    windows: Vec<ProviderQuotaWindow>,
+    is_recorded: bool,
 ) {
-    *filed = rows
+    *filed = windows
         .into_iter()
-        .filter(|row| filed.contains(row) || answered.contains(row))
+        .filter(|window| is_recorded || filed.contains(window))
         .collect();
 }
 
-// One row per window that names its length and its share used; `resetsAt` in seconds, as Codex
-// sends it.
-fn compose_codex_rate_limit_rows(
+// One window per reading that names its length and its share used; `resetsAt` in seconds, as
+// Codex sends it.
+fn compose_codex_quota_windows(
     observation: &CodexRateLimitObservation,
-    provider_account_id: &ProviderAccountId,
-    credential_generation: CredentialGeneration,
-) -> Vec<UsageRateLimitUpdatedPayload> {
+) -> Vec<ProviderQuotaWindow> {
     observation
         .windows()
         .filter_map(|(limit_id, window)| {
-            let window_mins = window
-                .get("windowDurationMins")
-                .and_then(Value::as_i64)
-                .and_then(SafeSignedInt::new)?;
-            let used_percent = window
-                .get("usedPercent")
-                .and_then(Value::as_f64)
-                .and_then(Number::new)?;
-            Some(UsageRateLimitUpdatedPayload {
-                provider: DESCRIPTOR.provider_id(),
-                provider_account_id: provider_account_id.clone(),
-                credential_generation,
-                limit_id: BoundedText::new(limit_id.to_owned()),
-                window_mins,
-                used_percent,
+            Some(ProviderQuotaWindow {
+                limit_id: limit_id.to_owned(),
+                window_mins: window.get("windowDurationMins").and_then(Value::as_i64)?,
+                used_percent: window.get("usedPercent").and_then(Value::as_f64)?,
                 resets_at: window
                     .get("resetsAt")
                     .and_then(Value::as_f64)
-                    .and_then(codex_epoch_seconds_to_wire_instant),
+                    .and_then(read_codex_epoch_seconds),
             })
         })
         .collect()
@@ -230,45 +186,32 @@ fn compose_codex_rate_limit_rows(
 #[cfg(test)]
 mod tests {
     use serde_json::json;
-    use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 
     use super::{
-        UsageRateLimitUpdatedPayload, compose_codex_rate_limit_rows,
-        keep_filed_codex_rate_limit_rows, select_changed_codex_rate_limit_rows,
+        ProviderQuotaWindow, compose_codex_quota_windows, keep_recorded_codex_quota_windows,
+        select_changed_codex_quota_windows,
     };
     use crate::driver::codex::usage_limit_signal::{
-        CodexRateLimitObservation, observe_codex_rate_limit_read, observe_codex_rate_limit_update,
+        observe_codex_rate_limit_read, observe_codex_rate_limit_update,
     };
 
-    // Files the rows of `rows` that changed since `filed`, each answered but the `refused` one;
-    // answers the rows filed.
+    // Records the windows of `windows` that changed since `filed`, the record refusing them where
+    // `is_refused`; answers the windows handed to the record.
     fn file(
-        filed: &mut Vec<UsageRateLimitUpdatedPayload>,
-        rows: Vec<UsageRateLimitUpdatedPayload>,
-        refused: Option<&UsageRateLimitUpdatedPayload>,
-    ) -> Vec<UsageRateLimitUpdatedPayload> {
-        let changed: Vec<UsageRateLimitUpdatedPayload> =
-            select_changed_codex_rate_limit_rows(filed, &rows)
-                .into_iter()
-                .cloned()
-                .collect();
-        let answered: Vec<UsageRateLimitUpdatedPayload> = changed
-            .iter()
-            .filter(|row| Some(*row) != refused)
-            .cloned()
-            .collect();
-        keep_filed_codex_rate_limit_rows(filed, rows, &answered);
+        filed: &mut Vec<ProviderQuotaWindow>,
+        windows: Vec<ProviderQuotaWindow>,
+        is_refused: bool,
+    ) -> Vec<ProviderQuotaWindow> {
+        let changed = select_changed_codex_quota_windows(filed, &windows);
+        keep_recorded_codex_quota_windows(filed, windows, !is_refused);
         changed
     }
 
-    // Each reading is merged and composed as the service's are, then compared with what was filed.
-    // Killed by filing every window on each reading, and by recording a row as filed before its
-    // dispatch answered, so a refused window is not filed again until its reading changes.
+    // Each reading is merged and composed as the service's are, then compared with what was
+    // recorded. Killed by recording every window on each reading, and by keeping a set as recorded
+    // before the record took it, so a refused set is not recorded again until its reading changes.
     #[test]
-    fn only_a_window_whose_reading_changed_or_was_refused_is_filed_again() {
-        let account = ProviderAccountId::new("account-1".to_owned()).expect("an account id");
-        let generation: CredentialGeneration =
-            serde_json::from_value(json!(1)).expect("1 is a credential generation");
+    fn only_windows_whose_reading_changed_or_were_refused_are_recorded_again() {
         let read = observe_codex_rate_limit_read(&json!({
             "rateLimits": {
                 "limitId": "codex",
@@ -280,15 +223,11 @@ mod tests {
                 "secondary": {"usedPercent": 40, "windowDurationMins": 10_080},
             },
         }));
-        let compose = |observation: &CodexRateLimitObservation| {
-            compose_codex_rate_limit_rows(observation, &account, generation)
-        };
         let mut filed = Vec::new();
 
-        let refused = compose(&read)[1].clone();
-        let first = file(&mut filed, compose(&read), Some(&refused));
-        let after_refusal = file(&mut filed, compose(&read), None);
-        let repeated = file(&mut filed, compose(&read), None);
+        let refused = file(&mut filed, compose_codex_quota_windows(&read), true);
+        let after_refusal = file(&mut filed, compose_codex_quota_windows(&read), false);
+        let repeated = file(&mut filed, compose_codex_quota_windows(&read), false);
         let pushed = observe_codex_rate_limit_update(
             read,
             &json!({
@@ -298,20 +237,15 @@ mod tests {
                 },
             }),
         );
-        let after_push = file(&mut filed, compose(&pushed), None);
+        let after_push = file(&mut filed, compose_codex_quota_windows(&pushed), false);
 
-        assert_eq!(first.len(), 2);
-        assert_eq!(
-            after_refusal,
-            [refused],
-            "only the refused window is filed again"
-        );
+        assert_eq!(refused.len(), 2);
+        assert_eq!(after_refusal, refused, "the refused set is recorded again");
         assert!(repeated.is_empty(), "{repeated:?}");
         assert_eq!(
             after_push,
-            compose(&pushed)[1..],
-            "only the secondary window is filed"
+            compose_codex_quota_windows(&pushed)[1..],
+            "only the secondary window is recorded"
         );
-        assert_ne!(after_push[0], first[1]);
     }
 }

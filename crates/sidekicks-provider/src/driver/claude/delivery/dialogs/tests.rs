@@ -1,8 +1,9 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use futures::FutureExt;
 use rstest::rstest;
 use serde_json::value::RawValue;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::provider_choice::{RunRefusalChoice, RunUsageCreditsChoice};
@@ -23,6 +24,7 @@ use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
 use crate::run::delivery::{InboundDelivery, InboundOutcome, UnstampedRow};
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // What each delivery was, in the order handed over: a row's kind or a move's target state.
 type Delivered = Arc<Mutex<Vec<String>>>;
@@ -94,13 +96,16 @@ fn dialogs(
     ClaudeProviderDialogs::new(ports)
 }
 
+// The account every test's session runs on.
+static ACCOUNT: LazyLock<ProviderAccountId> = LazyLock::new(test_provider_account_id);
+
 fn session(channel: &MockClaudeProcessChannel) -> ClaudeDialogSession<'_> {
     ClaudeDialogSession {
         session_id: SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id"),
         channel,
         running_model: "claude-opus-5",
         offered_models: &[],
-        provider_account_id: None,
+        provider_account_id: &ACCOUNT,
     }
 }
 

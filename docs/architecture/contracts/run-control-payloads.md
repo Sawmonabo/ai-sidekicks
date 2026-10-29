@@ -399,12 +399,14 @@ interface RunStateChangeEvent {
   // The provider's own failure prose on an `agent.run.failed` with failureCategory
   // "providerFailure", shown as given; a typed cause is `failureCause`, never this text.
   providerFailureDetail?: string;
-  // Present only on an `agent.run.failed` whose provider process ended on its own under the turn:
-  // exactly one of the exit code and the signal, and the last lines the process printed. A process
-  // the daemon closed itself, or a sleep, records none.
+  // Present only on an `agent.run.failed` whose provider process ended on its own under the turn,
+  // or a Codex service the daemon ended for answering nothing for 2 minutes: exactly one of the
+  // exit code, the signal and the seconds it answered nothing, and the last lines the process
+  // printed. A process the daemon closed itself for any other reason, or a sleep, records none.
   processExit?:
-    | { exitCode: number; signal?: never; outputTail: string }
-    | { signal: string; exitCode?: never; outputTail: string };
+    | { exitCode: number; signal?: never; silentSeconds?: never; outputTail: string }
+    | { signal: string; exitCode?: never; silentSeconds?: never; outputTail: string }
+    | { silentSeconds: number; exitCode?: never; signal?: never; outputTail: string };
   // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent
   // on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run
   // Lifecycle "Intended-close discriminator")

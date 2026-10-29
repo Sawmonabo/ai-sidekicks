@@ -11,6 +11,7 @@ pub mod provider_session;
 pub(crate) mod recorder;
 pub(crate) mod refusals;
 pub(crate) mod run_lifecycle;
+pub mod run_token_limit;
 pub(crate) mod send;
 pub mod service;
 pub(crate) mod session_lock;

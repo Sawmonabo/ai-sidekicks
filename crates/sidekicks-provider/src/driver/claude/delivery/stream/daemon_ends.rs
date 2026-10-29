@@ -228,13 +228,13 @@ impl ClaudeSessionStream {
     /// A steer the run carried its turn over for was taken back or never written; settled on the
     /// session's task.
     pub(crate) fn release_carried_turn(&self, run_id: RunId) {
-        self.arrivals.push(ClaudeSessionArrival::Deliver(
+        self.arrivals().push(ClaudeSessionArrival::Deliver(
             ClaudeOwnDelivery::CarriedRelease { run_id },
         ));
     }
 
     fn settle_on_task(&self, run_id: RunId, settlement: ClaudeDaemonEndSettlement) {
-        self.arrivals.push(ClaudeSessionArrival::Deliver(
+        self.arrivals().push(ClaudeSessionArrival::Deliver(
             ClaudeOwnDelivery::DaemonEnd { run_id, settlement },
         ));
     }

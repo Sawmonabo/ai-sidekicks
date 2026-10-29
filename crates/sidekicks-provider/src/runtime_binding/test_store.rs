@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde_json::Map;
-#[cfg(test)]
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
@@ -46,6 +45,24 @@ pub fn spawned_build(version: &str, path: &str) -> SpawnedVersionBindingCarriers
     }
 }
 
+/// The account a test's bindings run on.
+pub fn test_provider_account_id() -> ProviderAccountId {
+    ProviderAccountId::new("account-1".to_owned()).expect("the test's account id is valid")
+}
+
+/// A spawn record on `provider_account_id`'s account with no other leg.
+pub fn spawn_config_on(provider_account_id: ProviderAccountId) -> RuntimeBindingSpawnConfig {
+    RuntimeBindingSpawnConfig {
+        execution_posture: None,
+        callback_tools: None,
+        subagent_policy: None,
+        tool_servers: None,
+        output_schema: None,
+        provider_account_id,
+        output_speed: None,
+    }
+}
+
 /// A binding of a fresh run on the table's first provider, on conversation `conversation-1`.
 pub fn binding_input(
     spawn_config: RuntimeBindingSpawnConfig,
@@ -76,10 +93,7 @@ pub(crate) async fn record_session_leg(
     resume_handle: &str,
 ) {
     let mut input = binding_input(
-        RuntimeBindingSpawnConfig {
-            provider_account_id: Some(provider_account_id),
-            ..RuntimeBindingSpawnConfig::default()
-        },
+        spawn_config_on(provider_account_id),
         spawned_build("1.0.0", "/opt/provider/bin"),
     );
     input.resume_handle = Some(resume_handle.to_owned());

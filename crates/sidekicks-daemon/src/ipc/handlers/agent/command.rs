@@ -88,10 +88,6 @@ impl From<SessionReadError> for HandlerError {
 /// Registers `agent.command.subscribe`, `.stop`, `.background` and `.write` over `sources`; a
 /// session this daemon holds no row for, or for an act no binding, is refused with
 /// `session.notFound`. Fails the start when one is already registered.
-#[expect(
-    dead_code,
-    reason = "the daemon's start registers the command methods over the running set"
-)]
 pub(crate) fn register_command_methods(
     registry: &mut MethodRegistryBuilder,
     sources: &Arc<CommandMethodSources>,

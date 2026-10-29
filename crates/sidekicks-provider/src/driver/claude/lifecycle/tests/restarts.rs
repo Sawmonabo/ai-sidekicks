@@ -36,6 +36,7 @@ use crate::driver::session_control::{
     ResumeSessionParams, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.
@@ -399,12 +400,12 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
         },
         provider_account_id: match ask {
             RelaunchResume::OtherAccount => {
-                Some(ProviderAccountId::new("other".to_owned()).expect("an account id"))
+                ProviderAccountId::new("other".to_owned()).expect("an account id")
             }
             RelaunchResume::Same
             | RelaunchResume::OtherConversation
             | RelaunchResume::OtherLevel
-            | RelaunchResume::OwnStyle => None,
+            | RelaunchResume::OwnStyle => test_provider_account_id(),
         },
         row_values,
         ..resume_params(session_id)

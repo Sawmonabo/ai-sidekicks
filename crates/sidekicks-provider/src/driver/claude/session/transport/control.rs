@@ -124,7 +124,16 @@ pub(crate) enum ClaudeControlRequest {
         message_uuid: String,
     },
     /// Reads the context usage of the running model.
-    GetContextUsage {},
+    GetContextUsage {
+        /// How the categories are counted.
+        detail: ClaudeContextUsageDetail,
+    },
+    /// Stops one running background task (a command, a helper), answered once Claude Code has
+    /// stopped it.
+    StopTask {
+        /// The task, as its `task_started` named it.
+        task_id: String,
+    },
     /// Moves a live process to another model.
     SetModel {
         /// The model, as Claude Code takes `--model`.
@@ -169,7 +178,8 @@ impl ClaudeControlRequest {
             Self::GetSettings {} => ClaudeControlSubtype::GetSettings,
             Self::RewindConversation { .. } => ClaudeControlSubtype::RewindConversation,
             Self::CancelAsyncMessage { .. } => ClaudeControlSubtype::CancelAsyncMessage,
-            Self::GetContextUsage {} => ClaudeControlSubtype::GetContextUsage,
+            Self::GetContextUsage { .. } => ClaudeControlSubtype::GetContextUsage,
+            Self::StopTask { .. } => ClaudeControlSubtype::StopTask,
             Self::SetModel { .. } => ClaudeControlSubtype::SetModel,
             Self::GetBinaryVersion {} => ClaudeControlSubtype::GetBinaryVersion,
             Self::McpMessage { .. } => ClaudeControlSubtype::McpMessage,
@@ -204,6 +214,8 @@ pub(crate) enum ClaudeControlSubtype {
     CancelAsyncMessage,
     /// `get_context_usage`.
     GetContextUsage,
+    /// `stop_task`.
+    StopTask,
     /// `set_model`.
     SetModel,
     /// `get_binary_version`.
@@ -234,6 +246,7 @@ impl ClaudeControlSubtype {
             Self::RewindConversation => "rewind_conversation",
             Self::CancelAsyncMessage => "cancel_async_message",
             Self::GetContextUsage => "get_context_usage",
+            Self::StopTask => "stop_task",
             Self::SetModel => "set_model",
             Self::GetBinaryVersion => "get_binary_version",
             Self::McpMessage => "mcp_message",
@@ -243,6 +256,15 @@ impl ClaudeControlSubtype {
             Self::NegativeControl => "zzq_nonexistent_subtype",
         }
     }
+}
+
+/// How `get_context_usage` counts its categories.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ClaudeContextUsageDetail {
+    /// From the last response's usage and local estimates, with no token-count call per
+    /// category.
+    Summary,
 }
 
 /// The thinking display `set_max_thinking_tokens` asks for.
@@ -447,6 +469,9 @@ pub(crate) struct ClaudeSandboxSettings {
 pub(crate) struct ClaudeSandboxFilesystem {
     /// The folders commands may write in, absolute.
     pub(crate) allow_write: Vec<String>,
+    /// The folders inside those that commands may not write in, absolute.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(crate) deny_write: Vec<String>,
 }
 
 /// The flag settings changed on a live process. Each top-level key is merged whole, so

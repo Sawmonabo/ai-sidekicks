@@ -11,7 +11,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::service::home::CodexServiceHome;
+use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::registry::{CodexHomeResolver, CodexServiceRegistry};
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
@@ -29,8 +29,8 @@ const NOTHING_SENT_BOUND: Duration = Duration::from_secs(5);
 /// The conversation the session's stored leg names.
 const STORED_THREAD: &str = "stored-thread";
 
-// The scripted service's home for the one account a test names; any other account, the default
-// one among them, has no home.
+// The scripted service's home for the one account a test names; any other account has no home,
+// and the person's own folder is one no service runs on.
 struct AccountHome {
     provider_account_id: ProviderAccountId,
     home: CodexServiceHome,
@@ -39,12 +39,19 @@ struct AccountHome {
 impl CodexHomeResolver for AccountHome {
     fn codex_home_for<'call>(
         &'call self,
-        provider_account_id: Option<&'call ProviderAccountId>,
+        provider_account_id: &'call ProviderAccountId,
     ) -> BoxFuture<'call, Result<CodexServiceHome, DriverError>> {
-        let home = (provider_account_id == Some(&self.provider_account_id))
+        let home = (provider_account_id == &self.provider_account_id)
             .then(|| self.home.clone())
             .ok_or_else(|| DriverError::Internal("no home for that account".into()));
         Box::pin(async move { home })
+    }
+
+    fn terminal_reach_home(&self) -> CodexServiceHome {
+        CodexServiceHome {
+            codex_home: self.home.codex_home.join("personal-folder"),
+            kind: CodexHomeKind::PersonalFolder,
+        }
     }
 }
 
@@ -82,8 +89,8 @@ fn driver_on_account(
     driver
 }
 
-// Killed by resolving the resting session's service on the default account, which has no home
-// here, and by dropping the stored handle from `thread/name/set`.
+// Killed by resolving the resting session's service on any account but its stored leg's, which
+// has no home here, and by dropping the stored handle from `thread/name/set`.
 #[tokio::test]
 async fn a_resting_session_is_renamed_on_its_stored_accounts_service_with_its_stored_handle() {
     let mut scripted = start_scripted_codex_service();

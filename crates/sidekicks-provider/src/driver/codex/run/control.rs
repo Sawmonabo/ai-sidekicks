@@ -278,11 +278,7 @@ impl CodexRunControl {
 
     // Reports the run `run_id` paused, its pause's interrupted turn ended; a run with no binding
     // left is already ended.
-    async fn report_run_paused(
-        &self,
-        run_id: RunId,
-        provider_account_id: Option<ProviderAccountId>,
-    ) {
+    async fn report_run_paused(&self, run_id: RunId, provider_account_id: ProviderAccountId) {
         let Some(binding) = self.dependencies.run_routes.binding_for(run_id) else {
             return;
         };
@@ -294,7 +290,7 @@ impl CodexRunControl {
             &*self.dependencies.dispatch,
             DeliveryOrigin {
                 provider: DESCRIPTOR.provider_id(),
-                provider_account_id,
+                provider_account_id: Some(provider_account_id),
                 raw_wire_type: Some("turn/completed"),
             },
             InboundDelivery::RunLifecycle {

@@ -7,12 +7,14 @@
 
 pub(super) mod answered_commands;
 pub(super) mod arrivals;
+pub(super) mod context_reading;
 mod control_requests;
 pub(super) mod controls;
 pub(crate) mod conversation_file;
 pub(crate) mod errors;
 pub(super) mod establishment;
 pub(super) mod frame_observation;
+pub(super) mod idle_sleep;
 pub(super) mod ignored_settings;
 pub(super) mod model_figures;
 pub(super) mod naming;

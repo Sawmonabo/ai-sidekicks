@@ -7,13 +7,15 @@ use interprocess::local_socket::traits::tokio::Listener as _;
 use rstest::rstest;
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
+use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::short_socket_folder;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
 use super::test_service::{
-    TestCodexProgram, UnheardEvents, bind_test_listener, test_codex_service_dependencies,
+    ExitsHeard, TestCodexProgram, UnheardEvents, bind_test_listener,
+    start_scripted_account_service_reporting_to, test_codex_service_dependencies,
     write_failing_codex,
 };
 use super::{
@@ -154,10 +156,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     let service = CodexService::new(
         CodexServiceHome {
             codex_home,
-            provider_account_id: None,
-            kind: CodexHomeKind::PersonalFolder {
-                is_terminal_reach_on: true,
-            },
+            kind: CodexHomeKind::PersonalFolder,
         },
         CodexServiceSocket {
             path: socket.clone(),
@@ -198,4 +197,29 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     assert!(!is_checked_on_a_close_with_one_left);
     assert!(is_checked_once_none_left);
     assert!(is_checked_on_a_close_with_none_left);
+}
+
+// A request the service leaves unanswered from 0 s times out at 60 s, and the service is ended at
+// 120 s with 120 silent seconds. Killed by a watch that waits its whole limit after the timeout,
+// which ends the service at 180 s.
+#[tokio::test(start_paused = true)]
+async fn a_service_silent_since_a_request_is_ended_at_the_limit_after_its_send() {
+    let (heard, mut exits, _recoveries) = ExitsHeard::new();
+    let scripted = start_scripted_account_service_reporting_to(Arc::new(heard));
+    scripted.mark_started();
+    let connection = scripted
+        .service
+        .connection()
+        .expect("the scripted connection is up");
+    let sent = tokio::time::Instant::now();
+    tokio::spawn(async move { connection.request("thread/read", &json!({})).await });
+
+    let exit = exits.recv().await.expect("the service's end is told");
+    let ended_after = sent.elapsed();
+
+    assert_eq!(ended_after, Duration::from_secs(120));
+    let Some(ProcessExit::Silent(silent)) = exit else {
+        panic!("the service ended as {exit:?}");
+    };
+    assert_eq!(silent.silent_seconds.get(), 120);
 }
