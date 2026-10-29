@@ -9,6 +9,7 @@
 //! run has ended, and a failed resume once the session's next run starts.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::error::Error;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::daemon::recovery::{
@@ -35,14 +36,12 @@ use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEve
 /// The statements the status read runs: the read of a halted run's stored state.
 pub const RECOVERY_STATUS_STATEMENT_CAPACITY: usize = 1;
 
-/// Why the status read could not check its halted runs against their stored states.
+// Why the status read could not check its halted runs against their stored states.
 #[derive(Debug, thiserror::Error)]
-pub enum RecoveryStatusReadError {
-    /// A read of a halted run's stored state failed.
-    #[error("the halted runs' stored states could not be read")]
+enum HaltCheckError {
+    #[error("a halted run's stored state could not be read or decoded")]
     Read(#[from] rusqlite::Error),
-    /// The read pool failed the read.
-    #[error("the halted runs' stored states could not be read")]
+    #[error("the read pool could not run the halted runs' read")]
     Pool(#[from] DatabaseReadError),
 }
 
@@ -329,12 +328,10 @@ impl RecoveryStatusTracker {
     /// every damaged session and every session with a halted run. The sessions the pass has yet to
     /// rebuild are left out; the daemon reads rebuilding while it runs. A halt on a diverged resume
     /// whose run has ended is forgotten first, through one short read on `reads` while any such
-    /// halt is marked; fails when that read fails.
-    pub async fn read(
-        &self,
-        reads: &DatabaseReadPool,
-    ) -> Result<DaemonRecoveryStatus, RecoveryStatusReadError> {
-        self.forget_ended_halts(reads).await?;
+    /// halt is marked and the store has not failed; when that read fails, every halt is listed as
+    /// marked and the failure is logged.
+    pub async fn read(&self, reads: &DatabaseReadPool) -> DaemonRecoveryStatus {
+        self.forget_ended_halts(reads).await;
         let state = self.lock();
         let session_ids: BTreeSet<SessionId> = state
             .sessions
@@ -342,54 +339,73 @@ impl RecoveryStatusTracker {
             .chain(state.halted_runs.keys())
             .copied()
             .collect();
-        Ok(DaemonRecoveryStatus {
+        DaemonRecoveryStatus {
             overall: state.overall(),
             sessions: session_ids
                 .into_iter()
                 .map(|session_id| state.describe_session(session_id))
                 .collect(),
-        })
+        }
     }
 
-    // Forgets each halt on a diverged resume whose run has ended since, which no answer reaches.
-    // A failed resume's mark names a run already ended and stays until the session's next run.
-    async fn forget_ended_halts(
-        &self,
-        reads: &DatabaseReadPool,
-    ) -> Result<(), RecoveryStatusReadError> {
-        let halts: Vec<(SessionId, RunId)> = self
-            .lock()
-            .halted_runs
-            .iter()
-            .flat_map(|(session_id, runs)| {
-                runs.values()
-                    .filter(|run| run.failure_category.is_none())
-                    .map(|run| (*session_id, run.run_id))
-            })
-            .collect();
+    // Forgets each halt on a diverged resume whose run has ended since, which no answer reaches,
+    // unless its mark has changed since it was read. A failed resume's mark names a run already
+    // ended and stays until the session's next run. A store that has failed is not read.
+    async fn forget_ended_halts(&self, reads: &DatabaseReadPool) {
+        let halts: Vec<(SessionId, DaemonRecoveryHaltedRun)> = {
+            let state = self.lock();
+            if state.has_store_failed {
+                return;
+            }
+            state
+                .halted_runs
+                .iter()
+                .flat_map(|(session_id, runs)| {
+                    runs.values()
+                        .filter(|run| run.failure_category.is_none())
+                        .map(|run| (*session_id, run.clone()))
+                })
+                .collect()
+        };
         if halts.is_empty() {
-            return Ok(());
+            return;
         }
         let ended = reads
             .read(ReadLength::Short, move |reader| {
                 let runs = RunStateReader::new(reader);
                 let mut ended = Vec::new();
-                for (session_id, run_id) in halts {
+                for (session_id, halt) in halts {
                     if runs
-                        .read_run(&run_id)?
+                        .read_run(&halt.run_id)?
                         .is_some_and(|run| run.state.is_terminal())
                     {
-                        ended.push((session_id, run_id));
+                        ended.push((session_id, halt));
                     }
                 }
-                Ok::<_, RecoveryStatusReadError>(ended)
+                Ok::<_, HaltCheckError>(ended)
             })
-            .await?;
+            .await;
+        let ended = match ended {
+            Ok(ended) => ended,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the status read lists its halted runs unchecked"
+                );
+                return;
+            }
+        };
         let mut state = self.lock();
-        for (session_id, run_id) in ended {
-            state.forget_halted_run(&session_id, &run_id);
+        for (session_id, halt) in ended {
+            let is_unchanged = state
+                .halted_runs
+                .get(&session_id)
+                .and_then(|runs| runs.get(&halt.run_id))
+                == Some(&halt);
+            if is_unchanged {
+                state.forget_halted_run(&session_id, &halt.run_id);
+            }
         }
-        Ok(())
     }
 
     fn mark_session_damaged(&self, session_id: &SessionId, recovery: SessionRecovery) {

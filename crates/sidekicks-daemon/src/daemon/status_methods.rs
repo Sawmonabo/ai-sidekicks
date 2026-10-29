@@ -107,11 +107,7 @@ async fn read_status(deps: &StatusMethodsDeps) -> Result<DaemonStatusReadRespons
         ),
         None => (None, None),
     };
-    let recovery = deps
-        .recovery
-        .read(&deps.reads)
-        .await
-        .map_err(|error| HandlerError::Internal(Box::new(error)))?;
+    let recovery = deps.recovery.read(&deps.reads).await;
     let secrets_file = deps
         .secret_items
         .secrets_file()

@@ -42,9 +42,12 @@ impl CommandWrapper {
             .map(|&word| builder.view(word))
             .take_while(|word| word.starts_with("-") && !word.is("-") && !word.is("--"))
             .any(|word| {
-                word.chars()
-                    .skip(1)
-                    .any(|letter| self.describing_letters.contains(letter))
+                // A letter an expansion makes is only the run's to decide.
+                word.is_decided()
+                    && word
+                        .chars()
+                        .skip(1)
+                        .any(|letter| self.describing_letters.contains(letter))
             })
     }
 }

@@ -14,6 +14,14 @@ const LIMIT: usize = 64 * 1024;
 #[case::xargs_with_a_reading_program("xargs cat", false)]
 #[case::line_not_read_whole("cat 'a", false)]
 #[case::rg_pre("rg --pre sh x", false)]
+// An option's value is skipped unchecked, so a value of `--` ends no option and one that reads as
+// an option is no option.
+#[case::rg_value_of_dashes("rg -e -- --pre=sh x", false)]
+#[case::diff_value_of_dashes("diff -x -- --paginate a b", false)]
+#[case::rg_long_value_of_dashes("rg --regexp -- --pre=sh x", false)]
+#[case::rg_pattern_like_an_option("rg -e -z src", true)]
+// Git's `-U` takes only the value inside its word, so the next word is git's own option.
+#[case::git_diff_attached_value("git diff -U --output=f", false)]
 #[case::git_log_output("git log --output=f", false)]
 #[case::git_config_option("git -c core.pager=x log", false)]
 #[case::find_fls("find . -fls f", false)]
@@ -31,14 +39,31 @@ const LIMIT: usize = 64 * 1024;
 #[case::arithmetic_test_operand("[[ 'a[$(touch f)]' -eq 0 ]]", false)]
 #[case::substitution_in_a_subscript("echo ${a['$(touch f)']}", false)]
 #[case::assignment_in_a_subscript("echo ${a[PATH=0]}; ls", false)]
+#[case::variable_test_in_a_subscript("[[ -v 'a[$(touch f)]' ]]", false)]
 #[case::file_test_and_read("[[ -f a ]] && cat a", true)]
+// A `${…}` offset is arithmetic, `!` reads the variable a value names, `@P` runs a value as a
+// prompt, and a pattern's `$(…)` runs; `$_` hands each the previous command's last word.
+#[case::expression_as_an_offset("echo ${HOME:(PATH=0)}; ls", false)]
+#[case::indirect_expansion("echo 'a[$(touch f)]'; echo ${!_}", false)]
+#[case::prompt_transform("echo '$(touch f)'; echo ${_@P}", false)]
+#[case::substitution_in_a_pattern("echo ${HOME#$(touch f)}", false)]
+#[case::reading_expansions("echo ${HOME:0:2} ${HOME:-a} ${HOME##*/} ${HOME/a/b} ${#HOME}", true)]
+// zsh evaluates `[…]` right after `$name` as a subscript, in a word, a string or a here-document.
+#[case::zsh_subscript_assignment("echo $a[PATH=0]; ls", false)]
+#[case::zsh_subscript_substitution("echo $a['$(touch f)']", false)]
+#[case::zsh_subscript_in_a_string("echo \"$a[PATH=0]\"; ls", false)]
+#[case::zsh_subscript_in_a_here_document("cat <<EOF\n$a[PATH=0]\nEOF\nls", false)]
+// `{name}` before a redirect assigns the descriptor it opens to `name`.
+#[case::descriptor_name("echo hi {PATH}>/dev/null; ls", false)]
 #[case::ls_long("ls -la", true)]
 #[case::rg_search("rg foo src", true)]
 #[case::git_status("git status", true)]
 #[case::git_log_count("git log --oneline -5", true)]
 #[case::cat_into_head("cat a | head -3", true)]
 #[case::errors_to_null("rg x 2>/dev/null", true)]
-#[case::output_to_standard_devices("rg x 2>'/dev/null' >/dev/stderr", true)]
+#[case::errors_to_quoted_null("rg x 2>'/dev/null'", true)]
+// `/dev/stdout` reopens the file behind the descriptor, which a write truncates.
+#[case::output_to_standard_output("cat a >/dev/stdout", false)]
 #[case::errors_to_output("rg x 2>&1", true)]
 #[case::cd_and_list("cd sub && ls", true)]
 #[case::wrapped_reader("/bin/zsh -lc 'git diff --stat'", true)]

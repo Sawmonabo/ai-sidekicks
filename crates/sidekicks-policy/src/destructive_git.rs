@@ -215,6 +215,8 @@ mod tests {
     #[case::lease_with_value("git push --force-with-lease=x", true)]
     #[case::branch_delete("git branch -D x", true)]
     #[case::push_cluster("git push -qf", true)]
+    // A letter an expansion makes is no `command -v`, so `command` runs the push.
+    #[case::undecided_lookup_option("command -$v git push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

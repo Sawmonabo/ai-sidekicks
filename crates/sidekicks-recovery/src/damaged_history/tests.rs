@@ -150,7 +150,7 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
         fixture.store.database.path(),
         SESSION_SERVICE_STATEMENT_CAPACITY,
     ));
-    let status = fixture.status.read(&reads).await.expect("the status reads");
+    let status = fixture.status.read(&reads).await;
     assert_eq!(
         status
             .sessions
