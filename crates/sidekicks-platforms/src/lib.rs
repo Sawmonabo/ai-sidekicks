@@ -106,6 +106,7 @@ mod run_folder;
 mod running_program;
 #[cfg(any(test, feature = "test-support"))]
 mod scratch_volume;
+mod service_registration;
 mod session_child;
 mod shell_folder_start;
 mod shell_line_command;
@@ -254,6 +255,8 @@ pub use macos::processes::list_user_process_ids;
 pub use macos::read_command_argument_limit;
 #[cfg(target_os = "macos")]
 pub use macos::responsibility::become_own_root;
+#[cfg(target_os = "macos")]
+pub use macos::service_registration::{ServiceRegistration, service_registration};
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
@@ -429,6 +432,9 @@ pub use run_folder::{DaemonRunFolder, RunFolderRefused, askpass_socket_path};
 pub use running_program::{RUNNING_ARCH, RunningProgramPath, read_running_program_path};
 #[cfg(any(test, feature = "test-support"))]
 pub use scratch_volume::{ScratchVolume, scratch_volume};
+pub use service_registration::{ServiceInstall, ServiceOwner, ServiceRegistrationError};
+#[cfg(not(target_os = "macos"))]
+pub use service_registration::{ServiceRegistration, service_registration};
 pub use session_child::SessionCommand;
 #[cfg(any(test, feature = "test-support"))]
 pub use shell_folder_start::ShellFolderProbe;

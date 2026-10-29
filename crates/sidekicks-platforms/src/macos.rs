@@ -7,7 +7,7 @@
 //! the wakes of a folder's and a file's watch, whether a terminal's program waits for input, the
 //! machine's wakes from sleep, whether it runs on AC power, a wall-clock timer, the login keychain,
 //! the Region setting's locale and hour cycle, an address's opening in the application
-//! registered for it and the shells the live test opens on a folder.
+//! registered for it, the service's login agent and the shells the live test opens on a folder.
 
 pub(crate) mod address_opening;
 pub(crate) mod bash_start;
@@ -26,6 +26,7 @@ pub(crate) mod processes;
 pub(crate) mod responsibility;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) mod scratch_volume;
+pub(crate) mod service_registration;
 pub(crate) mod session_child;
 pub(crate) mod shell_start_confirmation;
 pub(crate) mod system_locale;

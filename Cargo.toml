@@ -115,6 +115,7 @@ objc2-security = { version = "0.3.2", default-features = false }
 objc2-service-management.version = "0.3.2"
 objc2-service-management.default-features = false
 objc2-service-management.features = ["SMAppService", "objc2", "objc2-foundation", "std"]
+plist = "1.10.3"
 polling = "3.8"
 process-wrap = { version = "10.0.1", default-features = false, features = ["tokio1"] }
 rustix-openpty = "0.2.0"
