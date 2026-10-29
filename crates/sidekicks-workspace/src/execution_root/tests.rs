@@ -12,6 +12,7 @@ use sidekicks_store::database::writer::test_file::test_run_id;
 use super::ExecutionRootError;
 use super::test_fixture::{ExecutionRootFixture, MOUNT_ID, SESSION_ID};
 use crate::git::process::{GitLimits, GitRunner};
+use crate::git::worktree::schema::schema_parts;
 use crate::test_rows::PARENT_ROWS_AT;
 
 const WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e82";
@@ -37,7 +38,7 @@ async fn a_wire_prepare_of_a_worktree_with_no_branch_is_refused_before_any_git_c
         Arc::from(Vec::new()),
         GitLimits::DAEMON,
     );
-    let fixture = ExecutionRootFixture::with_git(no_git).await;
+    let fixture = ExecutionRootFixture::with(schema_parts(), no_git).await;
     let root = fixture.repository.to_string_lossy();
     fixture
         .rows
@@ -165,7 +166,7 @@ async fn work_under_one_preparation_hold_never_waits_on_that_hold() {
             .expect("the run's prepare binds the stored folder");
         let moved = fixture
             .service
-            .move_to_folder_held(&hold, &person_tree)
+            .move_to_folder_held(&hold, &person_tree, None)
             .await
             .expect("the move under the same hold lands");
         (prepared, moved)

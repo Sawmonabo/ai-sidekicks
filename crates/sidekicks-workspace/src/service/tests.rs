@@ -231,7 +231,7 @@ async fn a_retry_from_root_lost_clears_the_last_failure() {
         .workspace_id;
 
     service
-        .fail_root_preparation(workspace_id, "fatal: the worktree could not be made")
+        .fail_root_preparation(workspace_id, "fatal: the worktree could not be made", None)
         .await
         .expect("the failure is recorded");
     let failed = service.list(&list_request()).await.expect("the list reads");
@@ -239,7 +239,7 @@ async fn a_retry_from_root_lost_clears_the_last_failure() {
     assert!(failed[0].last_error.is_some(), "the failure is kept");
 
     service
-        .begin_root_preparation(workspace_id, ExecutionMode::BoundRoot)
+        .begin_root_preparation(workspace_id, ExecutionMode::BoundRoot, None)
         .await
         .expect("a lost workspace is prepared again");
     let retried = service.list(&list_request()).await.expect("the list reads");
@@ -255,6 +255,7 @@ async fn a_retry_from_root_lost_clears_the_last_failure() {
                 execution_mode: None,
                 bound_root: None,
             },
+            None,
         )
         .await
         .expect("the retry completes");

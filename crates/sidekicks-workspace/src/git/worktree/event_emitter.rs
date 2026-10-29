@@ -24,6 +24,7 @@ use sidekicks_contracts::worktree::lifecycle::{
     RemovedWorktreeId, WorktreeId, WorktreeLifecyclePayload, WorktreeState,
 };
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventEmitError,
     SessionEventLinkage,
@@ -158,15 +159,19 @@ impl WorktreeEventEmitter {
     }
 
     /// Appends `session.sweptToCheckout`: a removal moved the session back to the repository's
-    /// checkout, or cleared its pending move into the removed tree. Fails as
-    /// [`SessionEventEmitError`] says.
-    pub(crate) async fn emit_session_swept_to_checkout(
+    /// checkout, or cleared its pending move into the removed tree; under `append_hold` where the
+    /// caller holds the session. Fails as [`SessionEventEmitError`] says.
+    pub async fn emit_session_swept_to_checkout(
         &self,
         payload: SessionSweptToCheckoutPayload,
         linkage: SessionEventLinkage,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<EventLogAppendReceipt, SessionEventEmitError> {
         let draft = SessionEventDraft::new(payload, SessionEvent::SessionSweptToCheckout)?;
-        self.append(draft, linkage).await
+        match append_hold {
+            Some(hold) => Ok(self.appender.append_held(hold, draft, linkage).await?),
+            None => self.append(draft, linkage).await,
+        }
     }
 
     /// Appends `session.branch.changed`: the branch the session's folder is on changed outside the

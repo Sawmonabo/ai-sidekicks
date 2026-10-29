@@ -21,7 +21,7 @@ use crate::git::worktree::setup::{WorktreeSetupError, WorktreeSetupSources};
 
 /// The branch pattern every test tree is named by: the title alone, so a test reads its branch as
 /// the tail it gave.
-pub(crate) fn title_only_pattern() -> BranchNamePattern {
+pub fn title_only_pattern() -> BranchNamePattern {
     BranchNamePattern::new(
         BranchNamePatternChange::new("{title}".to_owned()).expect("a bounded pattern"),
     )
@@ -29,7 +29,7 @@ pub(crate) fn title_only_pattern() -> BranchNamePattern {
 }
 
 /// The project's naming facts: slug `app` and the title-only pattern; the session has no title.
-pub(crate) struct FixedNaming;
+pub struct FixedNaming;
 
 impl WorktreeNamingSources for FixedNaming {
     fn read_project_naming<'a>(
@@ -61,7 +61,7 @@ impl WorktreeNamingSources for FixedNaming {
 }
 
 /// A project with no setup steps of its own.
-pub(crate) struct NoSetupSteps;
+pub struct NoSetupSteps;
 
 impl WorktreeSetupSources for NoSetupSteps {
     fn require_worktree<'a>(
@@ -103,9 +103,9 @@ impl WorktreeSetupSources for NoSetupSteps {
 /// Answers each read with the next scripted list of live runs, and none once the script is spent,
 /// standing in for the session crate's reader.
 #[derive(Default)]
-pub(crate) struct ScriptedLiveRuns {
+pub struct ScriptedLiveRuns {
     /// The lists still to answer, in order.
-    pub(crate) answers: Mutex<VecDeque<Vec<LiveRunFolder>>>,
+    pub answers: Mutex<VecDeque<Vec<LiveRunFolder>>>,
 }
 
 impl LiveRunFolderReader for ScriptedLiveRuns {

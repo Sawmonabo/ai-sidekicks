@@ -10,6 +10,7 @@ use sidekicks_contracts::repo::mount::WorkspaceState;
 use sidekicks_contracts::worktree::lifecycle::BranchContextId;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 use super::bind::{
     DELETE_BRANCH_CONTEXT_SQL, MaterializedRoot, RootMaterialization, RootProvenance,
@@ -36,15 +37,17 @@ pub(super) enum BracketGate {
 
 impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
     /// Opens the bracket unless it is open already, behind the gate `gate` names, materializes the
-    /// root, writes its branch context and completes the bracket. A failure once the bracket is
-    /// open parks the workspace `rootLost` and undoes a tree this call made; a failure after the
-    /// carried work's stash was pushed names the stash.
+    /// root, writes its branch context and completes the bracket, each of its events appended
+    /// under `append_hold` where the caller holds the workspace's session. A failure once the
+    /// bracket is open parks the workspace `rootLost` and undoes a tree this call made; a failure
+    /// after the carried work's stash was pushed names the stash.
     pub(super) async fn run_bracket(
         &self,
         workspace: &WorkspaceRow,
         mount: &AttachedMount,
         gate: BracketGate,
         materialization: RootMaterialization,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<PreparedExecutionRoot, ExecutionRootError> {
         let workspace_id = workspace.id;
         let execution_mode = materialization.execution_mode();
@@ -63,7 +66,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
                     self.workspaces.assert_writable(workspace_id).await?;
                 }
                 self.workspaces
-                    .begin_root_preparation(workspace_id, execution_mode)
+                    .begin_root_preparation(workspace_id, execution_mode, append_hold)
                     .await?;
             }
         }
@@ -72,7 +75,9 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
             Ok(materialized) => materialized,
             // Nothing stands to undo: what the creation made, it undid itself.
             Err(failure) => {
-                return Err(self.fail_preparation(workspace, failure, Vec::new()).await);
+                return Err(self
+                    .fail_preparation(workspace, failure, Vec::new(), append_hold)
+                    .await);
             }
         };
         let branch_context_id = match self.write_branch_context(workspace_id, &materialized).await {
@@ -82,7 +87,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
                 let undo_failures = self.undo_created_root(&materialized, None).await;
                 let failure = naming_carried_stash(&materialized, failure);
                 return Err(self
-                    .fail_preparation(workspace, failure, undo_failures)
+                    .fail_preparation(workspace, failure, undo_failures, append_hold)
                     .await);
             }
         };
@@ -94,7 +99,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
         };
         if let Err(failure) = self
             .workspaces
-            .complete_root_preparation(workspace_id, &completed)
+            .complete_root_preparation(workspace_id, &completed, append_hold)
             .await
         {
             let undo_failures = self
@@ -132,10 +137,11 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
         workspace: &WorkspaceRow,
         failure: ExecutionRootError,
         mut cleanup_failures: Vec<Box<dyn Error + Send + Sync>>,
+        append_hold: Option<&SessionAppendHold>,
     ) -> ExecutionRootError {
         if let Err(recording) = self
             .workspaces
-            .fail_root_preparation(workspace.id, &last_error_detail(&failure))
+            .fail_root_preparation(workspace.id, &last_error_detail(&failure), append_hold)
             .await
         {
             cleanup_failures.push(Box::new(recording));

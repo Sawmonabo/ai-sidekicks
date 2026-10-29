@@ -899,7 +899,7 @@ fn branch_ref_name(name: &WorktreeName) -> GitRefName {
     GitRefName::new(name.branch_name.clone()).expect("a branch name git's rule took is text")
 }
 
-#[cfg(test)]
-pub(crate) mod test_sources;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_sources;
 #[cfg(test)]
 mod tests;

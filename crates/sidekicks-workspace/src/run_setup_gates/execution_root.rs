@@ -164,17 +164,22 @@ pub trait SessionFolderMoves: Send + Sync {
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Applies the move `session_id` held during a run that has ended, taking the workspace's hold
-    /// itself; does nothing when none is held.
+    /// itself; does nothing when none is held. `hold` is the caller's hold on the session's append
+    /// lock, which the move's events are appended under.
     fn apply_pending<'a>(
         &'a self,
         session_id: &'a SessionId,
+        hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>>;
 
     /// Moves `session_id` out of a tree removed under it, back to its repository's checkout,
     /// taking each swept workspace's hold itself; does nothing while it works in no removed tree.
+    /// `hold` is the caller's hold on the session's append lock, which that session's events are
+    /// appended under.
     fn sweep_from_removed_tree<'a>(
         &'a self,
         session_id: &'a SessionId,
+        hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>>;
 }
 
@@ -282,9 +287,10 @@ impl<W: Watcher + Send + 'static> ExecutionRootSetupGate<W> {
         context: &RunSetupContext,
         before: &RunWorkspace,
     ) -> Result<(), RunSetupGateError> {
-        // Before the hold: a sweep takes each swept workspace's own hold, one at a time.
+        // Before the hold: a sweep takes each swept workspace's own hold, one at a time. A run's
+        // setup holds no session.
         self.moves
-            .sweep_from_removed_tree(&context.session_id)
+            .sweep_from_removed_tree(&context.session_id, None)
             .await
             .map_err(RunSetupGateError::Failed)?;
         let hold = self.execution_roots.hold_preparation(before.id).await;
@@ -533,7 +539,7 @@ impl<W: Watcher + Send + Sync + 'static> RunSetupGate for ExecutionRootSetupGate
     fn on_run_terminal<'a>(
         &'a self,
         context: &'a RunTerminalContext,
-        _hold: Option<&'a SessionAppendHold>,
+        hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
             let now = WireInstant::now();
@@ -548,12 +554,13 @@ impl<W: Watcher + Send + Sync + 'static> RunSetupGate for ExecutionRootSetupGate
                 }])
                 .await
                 .map_err(failed)?;
+            // The run may end under the engine's hold of its session, which the moves append under.
             self.moves
-                .sweep_from_removed_tree(&context.session_id)
+                .sweep_from_removed_tree(&context.session_id, hold)
                 .await
                 .map_err(RunSetupGateError::Failed)?;
             self.moves
-                .apply_pending(&context.session_id)
+                .apply_pending(&context.session_id, hold)
                 .await
                 .map_err(RunSetupGateError::Failed)?;
             self.list_feed.refresh_sessions(&[context.session_id]);

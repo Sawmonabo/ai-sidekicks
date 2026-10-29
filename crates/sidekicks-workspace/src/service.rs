@@ -343,6 +343,7 @@ impl WorkspaceService {
                     actor: None,
                 },
                 prelude(insert),
+                None,
             )
             .await;
         if appended

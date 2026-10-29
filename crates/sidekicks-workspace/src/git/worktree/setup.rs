@@ -884,7 +884,7 @@ async fn end_all(
         .map_err(WorktreeSetupError::CommandsNotEnded)
 }
 
-#[cfg(test)]
-pub(crate) mod test_runner;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_runner;
 #[cfg(test)]
 mod tests;

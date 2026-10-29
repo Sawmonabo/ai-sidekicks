@@ -15,8 +15,8 @@
 
 mod bind;
 mod bracket;
-#[cfg(test)]
-pub(crate) mod test_fixture;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_fixture;
 #[cfg(test)]
 mod tests;
 
@@ -47,6 +47,7 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 pub(crate) use self::bind::last_error_detail;
 use self::bind::{ExistingWorktree, NewWorktree, RootMaterialization};
@@ -420,12 +421,15 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
     /// daemon made becomes its `provisionedWorktree` root and keeps that tree's branches; any other,
     /// the repository's own checkout and a tree the person made included, binds as a `boundRoot`
     /// checkout. Ungated, since a move is how a `rootLost` workspace leaves a folder that went
-    /// away. Refuses as [`ExecutionRootService::require_listed_tree`] does, and
-    /// `repoMount.notFound`; a failure inside the bracket parks the workspace `rootLost`.
+    /// away. The bracket's events are appended under `append_hold` where the caller holds the
+    /// workspace's session, as a run's end does. Refuses as
+    /// [`ExecutionRootService::require_listed_tree`] does, and `repoMount.notFound`; a failure
+    /// inside the bracket parks the workspace `rootLost`.
     pub async fn move_to_folder_held(
         &self,
         hold: &WorkspacePreparationHold<'_>,
         folder: &Path,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<PreparedExecutionRoot, ExecutionRootError> {
         let workspace = self
             .workspaces
@@ -443,8 +447,14 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
             Some(tree) => RootMaterialization::ExistingWorktree(tree),
             None => RootMaterialization::MovedBoundRoot(tree_root),
         };
-        self.run_bracket(&workspace, &mount, BracketGate::Ungated, materialization)
-            .await
+        self.run_bracket(
+            &workspace,
+            &mount,
+            BracketGate::Ungated,
+            materialization,
+            append_hold,
+        )
+        .await
     }
 
     /// Admits `folder` as a move target of `workspace_id`, so a move held for a run's end names a
@@ -496,8 +506,14 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
             .workspaces
             .require_attached_mount(workspace.repo_mount_id)
             .await?;
-        self.run_bracket(&workspace, &mount, BracketGate::Gated, materialization)
-            .await
+        self.run_bracket(
+            &workspace,
+            &mount,
+            BracketGate::Gated,
+            materialization,
+            None,
+        )
+        .await
     }
 
     // The tree's top level, each link resolved, which the workspace then roots at.

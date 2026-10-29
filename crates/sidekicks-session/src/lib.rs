@@ -32,3 +32,4 @@ pub mod service;
 pub mod staged_attachments;
 pub mod tags;
 pub mod transcript;
+pub mod working_folder;

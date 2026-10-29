@@ -1,6 +1,6 @@
 //! The execution roots over a test database, for the tests of the execution roots and of the
-//! services built on them: the session [`SESSION_ID`] and the attached mount [`MOUNT_ID`] of the
-//! repository `app` on `main`, every path resolved.
+//! services built on them, in this crate and others: the session [`SESSION_ID`] and the attached
+//! mount [`MOUNT_ID`] of the repository `app` on `main`, every path resolved.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,6 +15,7 @@ use sidekicks_contracts::worktree::lifecycle::WorkspaceExecutionRootPrepareReque
 use sidekicks_platforms::real_path;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::schema::SchemaParts;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
@@ -39,31 +40,40 @@ use crate::service::{WorkspaceService, WorkspaceServiceDeps};
 use crate::test_rows::project_and_mount_rows;
 
 /// The session the fixture stores.
-pub(crate) const SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
+pub const SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e80";
 /// The attached mount the fixture stores, at the repository.
-pub(crate) const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
+pub const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e81";
 
 const READ_STATEMENT_CAPACITY: usize = 32;
 
 /// The execution roots over a test database holding the session `SESSION_ID` and the attached
 /// mount `MOUNT_ID` of the repository `app` on `main`, every path resolved.
-pub(crate) struct ExecutionRootFixture {
-    pub(crate) _database: TestDatabase,
-    pub(crate) log: TestLog,
-    pub(crate) scratch: TempDir,
-    pub(crate) git: GitRunner,
-    pub(crate) repository: PathBuf,
-    pub(crate) rows: Connection,
-    pub(crate) reads: Arc<DatabaseReadPool>,
-    pub(crate) workspaces: Arc<WorkspaceService>,
-    pub(crate) service: Arc<ExecutionRootService<NullWatcher>>,
+pub struct ExecutionRootFixture {
+    /// The database, kept open while the fixture lives.
+    pub _database: TestDatabase,
+    /// The event log and writer on the database.
+    pub log: TestLog,
+    /// The scratch folder the repository and its trees sit in.
+    pub scratch: TempDir,
+    /// The test's own git, for the trees a test makes by hand.
+    pub git: GitRunner,
+    /// The repository, resolved.
+    pub repository: PathBuf,
+    /// A connection for the rows a test stores and reads by hand.
+    pub rows: Connection,
+    /// The read pool every service reads through.
+    pub reads: Arc<DatabaseReadPool>,
+    /// The workspace lifecycle.
+    pub workspaces: Arc<WorkspaceService>,
+    /// The execution roots.
+    pub service: Arc<ExecutionRootService<NullWatcher>>,
 }
 
 impl ExecutionRootFixture {
-    /// The fixture whose every git call goes through `git`, its repository made with the test's
-    /// own git.
-    pub(crate) async fn with_git(git: GitRunner) -> Self {
-        let database = TestDatabase::new(schema_parts());
+    /// The fixture over a database made from `schema`, which holds at least the worktree tables,
+    /// whose every git call goes through `git`, its repository made with the test's own git.
+    pub async fn with(schema: SchemaParts, git: GitRunner) -> Self {
+        let database = TestDatabase::new(schema);
         let log = open_log(&database, None).await;
         let scratch = tempfile::tempdir().expect("a scratch folder");
         let scratch_root = real_path(scratch.path()).expect("the scratch folder resolves");
@@ -138,12 +148,13 @@ impl ExecutionRootFixture {
         }
     }
 
-    pub(crate) async fn new() -> Self {
-        Self::with_git(test_git_runner()).await
+    /// The fixture over the worktree tables and the test's own git.
+    pub async fn new() -> Self {
+        Self::with(schema_parts(), test_git_runner()).await
     }
 
     /// Binds the session to the repository as a `boundRoot` checkout, which lands `preparing`.
-    pub(crate) async fn bind(&self) -> WorkspaceId {
+    pub async fn bind(&self) -> WorkspaceId {
         self.workspaces
             .bind(&WorkspaceBindRequest {
                 session_id: SessionId::new(SESSION_ID).expect("the id is a UUID"),
@@ -157,7 +168,7 @@ impl ExecutionRootFixture {
     }
 
     /// A tree `git worktree add` makes beside the repository on a new branch `branch`, resolved.
-    pub(crate) async fn add_tree(&self, branch: &str) -> PathBuf {
+    pub async fn add_tree(&self, branch: &str) -> PathBuf {
         let folder = real_path(self.scratch.path())
             .expect("the scratch folder resolves")
             .join(branch);
@@ -178,7 +189,7 @@ impl ExecutionRootFixture {
     }
 
     /// The workspace's state, mode, `lastError` and `boundRoot` as stored.
-    pub(crate) fn workspace(&self, workspace_id: WorkspaceId) -> StoredWorkspace {
+    pub fn workspace(&self, workspace_id: WorkspaceId) -> StoredWorkspace {
         self.rows
             .query_row(
                 "SELECT state, execution_mode, json_extract(metadata, '$.lastError'), \
@@ -196,13 +207,15 @@ impl ExecutionRootFixture {
             .expect("the workspace is read")
     }
 
-    pub(crate) fn count(&self, sql: &str) -> i64 {
+    /// The count `sql` reads.
+    pub fn count(&self, sql: &str) -> i64 {
         self.rows
             .query_row(sql, [], |row| row.get(0))
             .expect("the test counts rows")
     }
 
-    pub(crate) async fn prepare(
+    /// The wire's prepare of `workspace_id` under its own hold, naming `branch_name` when given.
+    pub async fn prepare(
         &self,
         workspace_id: WorkspaceId,
         branch_name: Option<&str>,
@@ -223,20 +236,26 @@ impl ExecutionRootFixture {
             .map(drop)
     }
 
-    pub(crate) async fn move_to(
+    /// Moves `workspace_id` into `folder` under its own hold.
+    pub async fn move_to(
         &self,
         workspace_id: WorkspaceId,
         folder: &Path,
     ) -> Result<PreparedExecutionRoot, ExecutionRootError> {
         let hold = self.service.hold_preparation(workspace_id).await;
-        self.service.move_to_folder_held(&hold, folder).await
+        self.service.move_to_folder_held(&hold, folder, None).await
     }
 }
 
+/// A workspace's row as a test reads it back.
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) struct StoredWorkspace {
-    pub(crate) state: String,
-    pub(crate) execution_mode: String,
-    pub(crate) last_error: Option<String>,
-    pub(crate) bound_root: Option<String>,
+pub struct StoredWorkspace {
+    /// Its state.
+    pub state: String,
+    /// Its execution mode.
+    pub execution_mode: String,
+    /// Its `lastError`.
+    pub last_error: Option<String>,
+    /// Its `boundRoot`.
+    pub bound_root: Option<String>,
 }

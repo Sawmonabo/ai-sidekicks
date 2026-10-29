@@ -20,6 +20,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::test_run_id;
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 use super::{ExecutionRootSetupGate, ExecutionRootSetupGateDeps, SessionFolderMoves};
 use crate::event_emitter::WorkspaceEventEmitter;
@@ -78,7 +79,7 @@ impl SessionFolderMoves for StandInMoves {
         async move {
             if let Some(folder) = pending {
                 self.execution_roots
-                    .move_to_folder_held(hold, &folder)
+                    .move_to_folder_held(hold, &folder, None)
                     .await?;
             }
             Ok(())
@@ -89,6 +90,7 @@ impl SessionFolderMoves for StandInMoves {
     fn apply_pending<'a>(
         &'a self,
         _session_id: &'a SessionId,
+        _hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Ok(()) }.boxed()
     }
@@ -96,6 +98,7 @@ impl SessionFolderMoves for StandInMoves {
     fn sweep_from_removed_tree<'a>(
         &'a self,
         _session_id: &'a SessionId,
+        _hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         self.sweeps.fetch_add(1, Ordering::SeqCst);
         async { Ok(()) }.boxed()

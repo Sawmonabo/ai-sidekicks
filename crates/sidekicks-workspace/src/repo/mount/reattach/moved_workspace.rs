@@ -66,6 +66,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                             actor: None,
                         },
                         SessionEventLinkage::default(),
+                        None,
                     )
                     .await
                     .map_err(WorkspaceServiceError::Append)?;
@@ -76,7 +77,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                 if workspace.execution_mode == ExecutionMode::BoundRoot =>
             {
                 self.workspaces
-                    .begin_root_preparation(workspace.id, ExecutionMode::BoundRoot)
+                    .begin_root_preparation(workspace.id, ExecutionMode::BoundRoot, None)
                     .await?;
                 self.admit_root(&workspace, &bound_root, Admission::Completing)
                     .await
@@ -116,7 +117,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
                     bound_root: None,
                 };
                 self.workspaces
-                    .complete_root_preparation(workspace.id, &completed)
+                    .complete_root_preparation(workspace.id, &completed, None)
                     .await?;
             }
             Ok::<(), WorkspaceServiceError>(())
@@ -133,7 +134,7 @@ impl<W: Watcher + Send + 'static> RepoMountReattachService<W> {
         let failure = ExecutionRootError::from(failure);
         let recorded = self
             .workspaces
-            .fail_root_preparation(workspace.id, &last_error_detail(&failure))
+            .fail_root_preparation(workspace.id, &last_error_detail(&failure), None)
             .await;
         let failure = match recorded {
             Ok(()) if is_refused_folder => return Ok(()),

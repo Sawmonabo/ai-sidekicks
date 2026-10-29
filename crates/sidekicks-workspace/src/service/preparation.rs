@@ -11,6 +11,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, nullable_text_binding, text_binding,
 };
+use sidekicks_store::events::session::append_lock::SessionAppendHold;
 
 use super::{WorkspaceRow, WorkspaceService, WorkspaceServiceError, prelude};
 use crate::errors::{WorkspaceServiceInvariantError, WorkspaceServiceInvariantKind};
@@ -91,13 +92,15 @@ pub(crate) struct CompletedRootPreparation {
 
 impl WorkspaceService {
     /// Enters the preparation, `ready` or `rootLost` to `preparing`, in `target_mode`, with
-    /// `workspace.preparing`. Refuses `workspace.notFound`, `repoMount.notFound` for a mount no
-    /// longer attached and `workspace.modeUnsupported`; fails with an illegal-transition invariant
-    /// from any other state, or when the row moved before the write committed.
+    /// `workspace.preparing`, appended under `append_hold` where the caller holds the workspace's
+    /// session. Refuses `workspace.notFound`, `repoMount.notFound` for a mount no longer attached
+    /// and `workspace.modeUnsupported`; fails with an illegal-transition invariant from any other
+    /// state, or when the row moved before the write committed.
     pub(crate) async fn begin_root_preparation(
         &self,
         workspace_id: WorkspaceId,
         target_mode: ExecutionMode,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<(), WorkspaceServiceError> {
         let row = self.require_workspace_row(workspace_id).await?;
         let mount = self.require_attached_mount(row.repo_mount_id).await?;
@@ -119,14 +122,15 @@ impl WorkspaceService {
         };
         let appended = self
             .events
-            .emit_workspace_preparing(event_input(&row), prelude(statement))
+            .emit_workspace_preparing(event_input(&row), prelude(statement), append_hold)
             .await;
         expect_single_row_changed(appended, workspace_id, "begin preparing", "it")?;
         Ok(())
     }
 
     /// Finishes the preparation, `preparing` to `ready`, with `workspace.prepared`, keeping the
-    /// root, checkout, mode and bound folder `completed` names and clearing any recorded failure.
+    /// root, checkout, mode and bound folder `completed` names and clearing any recorded failure;
+    /// the event is appended under `append_hold` where the caller holds the workspace's session.
     /// Fails with a non-absolute-root invariant for a path that names no complete location, and
     /// with an illegal-transition invariant from any state but `preparing`; refuses
     /// `workspace.notFound`.
@@ -134,6 +138,7 @@ impl WorkspaceService {
         &self,
         workspace_id: WorkspaceId,
         completed: &CompletedRootPreparation,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<(), WorkspaceServiceError> {
         // Each path becomes a scope or a snapshot root, so none may need the daemon to complete it.
         assert_absolute_execution_root(&completed.execution_root, workspace_id)?;
@@ -167,20 +172,22 @@ impl WorkspaceService {
         };
         let appended = self
             .events
-            .emit_workspace_prepared(event_input(&row), prelude(statement))
+            .emit_workspace_prepared(event_input(&row), prelude(statement), append_hold)
             .await;
         expect_single_row_changed(appended, workspace_id, "finish preparing", "it")?;
         Ok(())
     }
 
     /// Abandons the preparation, `preparing` to `rootLost`, with `workspace.rootLost`, keeping
-    /// `failure_detail` scrubbed and cut as `lastError` (none when nothing publishable is left).
+    /// `failure_detail` scrubbed and cut as `lastError` (none when nothing publishable is left);
+    /// the event is appended under `append_hold` where the caller holds the workspace's session.
     /// Refuses `workspace.notFound`; fails with an illegal-transition invariant from any state but
     /// `preparing`.
     pub(crate) async fn fail_root_preparation(
         &self,
         workspace_id: WorkspaceId,
         failure_detail: &str,
+        append_hold: Option<&SessionAppendHold>,
     ) -> Result<(), WorkspaceServiceError> {
         let row = self.require_workspace_row(workspace_id).await?;
         refuse_illegal_predecessor(
@@ -197,7 +204,7 @@ impl WorkspaceService {
         );
         let appended = self
             .events
-            .emit_workspace_root_lost(event_input(&row), prelude(statement))
+            .emit_workspace_root_lost(event_input(&row), prelude(statement), append_hold)
             .await;
         expect_single_row_changed(
             appended,
@@ -237,7 +244,7 @@ impl WorkspaceService {
         );
         match self
             .events
-            .emit_workspace_root_lost(event_input(&row), prelude(statement))
+            .emit_workspace_root_lost(event_input(&row), prelude(statement), None)
             .await
         {
             Ok(_receipt) => Ok(true),
