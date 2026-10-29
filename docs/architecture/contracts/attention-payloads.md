@@ -27,8 +27,10 @@ interface AttentionItem {
   // The MOMENT this entry speaks for — the session or run and the episode it is in, or on a
   // `providerBuild` entry the provider and its build, minted by the projection and never composed
   // by a client: `run:<runId>`, `workflowRun:<workflowRunId>`, `plan:<planId>`,
-  // `session:<sessionId>`, and for a Notify step `notify:` and 32 hex digits of the BLAKE3 hash of
-  // its run, node and execution index, which is also that entry's `id`. Every form fits the 64
+  // `session:<sessionId>`, for a Notify step `notify:` and 32 hex digits of the BLAKE3 hash of
+  // its run, node and execution index, and for a `providerBuild` entry `providerBuild:` and 32 hex
+  // digits of the BLAKE3 hash of the provider and the build; each of the last two is also that
+  // entry's `id`. Every form fits the 64
   // bytes a banner's tag and a push's collapse id hold. Every operating-system notification carries it, so a subject that moves from
   // waiting to finished while nobody is looking REPLACES its banner in place instead of standing a
   // second one beside it: the waiting entry and the finished one that follows it share this id. It
@@ -39,7 +41,9 @@ interface AttentionItem {
   // console window is focused (a workflow's Notify step posts either way), and it withdraws the
   // banner when the entry resolves, when its session or run is deleted, or when the daemon stops
   // keeping its entry (seen, more than a day old and with no web-address message waiting), a Notify
-  // step's never — so answering on another device clears it here. With the app not running, the daemon starts the
+  // step's never — so answering on another device clears it here. A `providerBuild` line leaves
+  // when the provider's next build takes its place, at once, and a line for a build installed also
+  // a day after it was recorded; a line for a build only available never leaves on a timer. With the app not running, the daemon starts the
   // app's own program with no window to post the banner, and that process exits.
   momentId: string;
   sessionId?: SessionId; // absent exactly on a `providerBuild` entry, which belongs to no session
@@ -55,7 +59,7 @@ interface AttentionItem {
   // listed under `Earlier` and never counted, and a workflow's Notify step (`workflowNotify`),
   // listed under `Earlier`, never counted and never withdrawn. A Notify step is one informational
   // entry with no event of its own. A provider's new build (`providerBuild`) is none of the four:
-  // one informational entry per build under `Earlier`, never counted, written `withheld` and
+  // one informational entry per build under `Earlier`, never counted, always `withheld` and
   // carried by no notification, push, web-address message or digest line; its line opens that
   // provider's section of Settings › Providers.
   trigger:
@@ -71,14 +75,21 @@ interface AttentionItem {
   // Present exactly on a `providerBuild` entry: the line reads `Claude Code updated · 2.1.293 →
   // 2.1.294` with `What's new`, which opens the provider's official release notes for the new
   // version, or, with no `fromVersion`, a build only available to a provider the person keeps from
-  // updating itself, `Claude Code 2.1.294 available`.
-  providerBuild?: { provider: ProviderId; fromVersion?: string; toVersion: string };
+  // updating itself, `Claude Code 2.1.294 available`. `releaseNotesAddress` is that `https:`
+  // address, minted by the provider's driver for the new version, present exactly with
+  // `fromVersion`.
+  providerBuild?: {
+    provider: ProviderId;
+    fromVersion?: string;
+    toVersion: string;
+    releaseNotesAddress?: string;
+  };
   severity: "actionable" | "informational";
   // What became of the entry's banner; absent until the daemon decides it, and the main process
   // posts only a `pending` entry. The daemon writes `withheld` when it decides the entry for a kind
-  // this machine's settings switch off, for the master switch off, for a muted session's `Finished`
-  // or `Failed`, and for every `providerBuild` entry, and starts no windowless app for it, and
-  // `pending` otherwise; the main process settles a `pending` entry once through
+  // this machine's settings switch off, for the master switch off, or for a muted session's
+  // `Finished` or `Failed`, and starts no windowless app for it, and `pending` otherwise; a
+  // `providerBuild` entry is always `withheld`, written by no decision; the main process settles a `pending` entry once through
   // `attention.banner.settle`, so a banner is never posted twice. The daemon itself writes
   // `withdrawn` over a `pending` or `posted` entry when its moment resolves, and over a `Finished`
   // or `Failed` one on `session.muted`; when the entry is deleted with its session or run, or

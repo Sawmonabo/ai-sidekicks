@@ -846,6 +846,7 @@ The attention service keeps four tables of its own, none referring to another, s
 - **`attention_deliveries`** holds what became of each entry's banner and web-address message, decided once per entry, and when an email digest carried it, so no entry is listed twice and the digest's one timer is restored from it at start. No row, or a NULL `banner_state`, is a banner not yet decided, which the wire carries as an absent `bannerState`. A rebuild never writes it, so what was decided survives one; an entry a crash left undecided is decided at the next start.
 - **`attention_seen`** holds how far the person has seen each subject, a session or a workflow run in it, as the session's newest event sequence when they looked, so an entry raised after the look, even in the same millisecond, reads unseen.
 - **`attention_versions`** holds a count per scope that every attention change raises, the whole machine's and each session's, which a live subscriber follows, and for each session the sequence up to which its entries are past keeping. An entry goes once its sequence is at or below that cut and it is an informational entry its subject has seen or a resolved wait; the cut is the session's newest event more than a day old, held below its first entry with a web-address message still waiting. The live writes and a rebuild apply the same cut from this row, so the two give the same entries; an open wait is never retired.
+- **`provider_builds`** is the record of each provider's builds, kept in the provider drivers' part of the schema (`crates/sidekicks-provider/src/build_record.rs`), and the one source of every `providerBuild` entry: the attention read lists each row not retired when it reads the whole projection, and no attention table holds a copy, so no channel, gate, sweep or purge meets one. A row with a `from_version` is a build the provider's command moved to, written by the capability declare in the same write that moves the stored version; one without is a build only available, written by the marker check. A provider's next build removes its earlier rows in its own write, and every record write bumps the machine's count in `attention_versions`. A moved-to row retires a day after it was recorded, at the retention advance, which bumps the count; an only-available row never retires on a timer. A retired row stays, so the same build named again lists nothing.
 - **A session purge** deletes the session's deliveries, entries, seen marks and versions before its `sessions` row, and `workflow.run.deleted` deletes that run's deliveries and entries, its Notify entries among them, in the event's own write.
 - **Each delivery channel** — the web address and the email digest — keeps one outcome row: when the last attempt ran, its result (`delivered`, `refused`, `unreachable`, `timedOut`, `signInRefused`, `notEncrypted` or `notAnAddress`), the HTTP status where there was one, and how many moments are undelivered. The row is overwritten on each attempt and removed with the channel's secret; `attention.delivery.list` returns it.
 - **The session row's `muted_at`** ([Session Tables §Session Directory](local-sqlite-session-tables.md#session-directory-plan-001)) keeps a muted session's `Finished` and `Failed` moments out of both channels.
@@ -916,6 +917,18 @@ CREATE TABLE attention_versions (
   scope_key                  TEXT PRIMARY KEY,
   version                    INTEGER NOT NULL CHECK(version >= 1),
   retained_through_sequence  INTEGER         -- a session's retention cut; NULL on the machine's row
+) STRICT;
+
+-- Owner: Plan-023 (T4.9)
+-- One row per provider and build; versions as the provider's command printed them, at most 128
+-- code points with no NUL.
+CREATE TABLE provider_builds (
+  provider_name  TEXT NOT NULL,
+  version        TEXT NOT NULL,                -- the build
+  from_version   TEXT,                         -- the build the command moved from; NULL on a build only available
+  recorded_at    TEXT NOT NULL,
+  retired_at     TEXT,                         -- set once the line leaves the list; NULL while listed
+  PRIMARY KEY (provider_name, version)
 ) STRICT;
 
 -- Owner: Plan-016 (T3.6)
