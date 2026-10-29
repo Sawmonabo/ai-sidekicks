@@ -18,7 +18,6 @@ use sidekicks_contracts::workflow::run::step::record::WorkflowStepKey;
 
 /// What one entry speaks for. Its id is the banner's tag and the push's collapse id, so a later
 /// state of the same moment replaces what was posted for it.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionMoment {
     /// An agent run: its waits and its end share one moment.
@@ -28,6 +27,7 @@ pub(crate) enum AttentionMoment {
     /// A workflow run: every waiting step and its end share one moment.
     WorkflowRun(WorkflowRunId),
     /// The session's own aggregate.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the session aggregate's read"))]
     Session(SessionId),
     /// One execution of a workflow's Notify step.
     Notify {
@@ -44,7 +44,6 @@ impl AttentionMoment {
     /// The moment's id, at most 64 bytes, the bound of a banner's tag and a push's collapse id: a
     /// Notify step's is a fixed-length hash of its run, node and execution, since a node id has no
     /// bound.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
     pub(crate) fn id(&self) -> AttentionId {
         let id = match self {
             Self::Run(run_id) => format!("run:{run_id}"),
@@ -97,7 +96,6 @@ pub(crate) enum AttentionSubject {
 }
 
 /// A wait on the person that an event opens and a later event resolves.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionWait {
     /// An agent run waiting on an approval or an answer.
@@ -110,7 +108,6 @@ pub(crate) enum AttentionWait {
 
 impl AttentionWait {
     /// The moment an entry for this wait speaks for: a step's is its workflow run's.
-    #[expect(dead_code, reason = "the attention projection")]
     pub(crate) fn moment(&self) -> AttentionMoment {
         match self {
             Self::Run(run_id) => AttentionMoment::Run(*run_id),
@@ -121,7 +118,6 @@ impl AttentionWait {
 }
 
 /// The open entries an event resolves.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionOpenEntries {
     /// Every open entry of an agent run's moment: its wait, and the failed end a limit raised,
@@ -136,7 +132,6 @@ pub(crate) enum AttentionOpenEntries {
 }
 
 /// A run's end that raises an entry.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionEnd {
     /// An agent run's end, raised only for a lead run, which the statement writing it checks,
@@ -148,7 +143,6 @@ pub(crate) enum AttentionEnd {
 
 impl AttentionEnd {
     /// The moment the end speaks for: its run's.
-    #[expect(dead_code, reason = "the attention projection")]
     pub(crate) fn moment(self) -> AttentionMoment {
         match self {
             Self::Run(run_id) => AttentionMoment::Run(run_id),
@@ -158,7 +152,6 @@ impl AttentionEnd {
 }
 
 /// A new entry an event raises.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionRaise {
     /// A wait on the person opens; a later event resolves it.
@@ -177,7 +170,6 @@ pub(crate) enum AttentionRaise {
     },
 }
 
-#[expect(dead_code, reason = "the attention projection")]
 impl AttentionRaise {
     /// The moment the entry speaks for.
     pub(crate) fn moment(&self) -> AttentionMoment {
@@ -205,7 +197,6 @@ impl AttentionRaise {
 }
 
 /// What one event does to the attention entries.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionChange {
     /// A new entry.
@@ -229,7 +220,6 @@ pub(crate) enum AttentionChange {
 }
 
 /// What `event` does to the attention entries, read from the event alone.
-#[cfg_attr(not(test), expect(dead_code, reason = "the attention projection"))]
 pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
     // A run moving into a wait resolves whatever its moment still has open, the other wait
     // included, so one run holds one open wait.

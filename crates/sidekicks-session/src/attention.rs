@@ -8,3 +8,5 @@
 pub(crate) mod aggregate;
 pub mod banner_launcher;
 pub(crate) mod moment;
+pub mod projection;
+pub mod schema;
