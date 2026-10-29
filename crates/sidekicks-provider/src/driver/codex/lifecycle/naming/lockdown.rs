@@ -4,11 +4,9 @@
 //! merges an override into the config it loaded, so only each server's `enabled` member changes.
 
 use serde::{Deserialize, Serialize as _};
-use serde_json::value::RawValue;
 use serde_json::{Map, Value, json};
 
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::transport::connection::read_codex_object;
 
 /// The switches a title conversation turns off.
 const SWITCHES_OFF: [&str; 26] = [
@@ -47,7 +45,7 @@ const WEB_SEARCH_OFF: (&str, &str) = ("web_search", "disabled");
 const READ_ONLY_PERMISSIONS: (&str, &str) = ("default_permissions", ":read-only");
 
 /// The config table of the MCP servers.
-const MCP_SERVERS_KEY: &str = "mcp_servers";
+pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
 
 /// The config overrides of a title conversation, each a dotted key and its value, with each of
 /// `server_names` disabled under the server table, where a name may hold a dot.
@@ -100,27 +98,11 @@ pub(super) fn read_listed_server_names(listing: &str) -> Result<Vec<String>, Cod
     Ok(servers.into_iter().map(|server| server.name).collect())
 }
 
-// The members of a `config/read` reply the pass reads: the effective config, its TOML keys at
-// the top.
-#[derive(Deserialize)]
-struct ConfigReadReply {
-    config: Map<String, Value>,
-}
-
-/// The MCP servers a `config/read` reply's effective config names. Fails with
-/// `CodexError::Transport` on a reply that carries no config, so a pass never runs with a server
-/// it could not name.
-pub(super) fn read_config_server_names(reply: &RawValue) -> Result<Vec<String>, CodexError> {
-    let reply =
-        read_codex_object::<ConfigReadReply>(reply.get()).ok_or_else(|| CodexError::Transport {
-            detail: "Codex's config/read reply carried no config to name its MCP servers by."
-                .to_owned(),
-            cause: None,
-        })?;
-    Ok(reply
-        .config
+/// The MCP servers the effective config `config` names, its TOML keys at the top.
+pub(super) fn read_config_server_names(config: &Map<String, Value>) -> Vec<String> {
+    config
         .get(MCP_SERVERS_KEY)
         .and_then(Value::as_object)
         .map(|servers| servers.keys().cloned().collect())
-        .unwrap_or_default())
+        .unwrap_or_default()
 }

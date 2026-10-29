@@ -112,6 +112,7 @@ async fn start_terminal_service_on(
         },
         CodexServiceKind::Terminal,
         dependencies,
+        Vec::new(),
     );
     tokio::time::timeout(
         deadline,
@@ -233,7 +234,7 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     };
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, None));
         }
     });
 
@@ -327,6 +328,7 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
         },
         CodexServiceKind::Account,
         dependencies,
+        Vec::new(),
     );
 
     let mut tokens = Vec::new();
