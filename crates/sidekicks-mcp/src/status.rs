@@ -3,6 +3,7 @@
 //! binding's first observation in this process, handed on to be recorded.
 
 mod legs;
+pub mod machine_probe;
 pub mod normalizer;
 pub mod notices;
 
@@ -14,7 +15,7 @@ use sidekicks_contracts::mcp::governance::{
     McpServerStatusChangedNotice, McpServerStatusChangedType,
 };
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
@@ -30,13 +31,6 @@ use self::notices::{McpNoticeBoard, McpNoticeKey, McpNoticeKind, McpNoticeOrigin
 use crate::binding::store::McpBindingKey;
 
 /// A binding's status as the inventory reads it.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the inventory reads each binding's status through it"
-    )
-)]
 pub(crate) struct McpBindingStatusReading {
     /// The most severe status among the legs in the aggregate, else the machine probe's newest
     /// reading, else `unknown`.
@@ -45,6 +39,9 @@ pub(crate) struct McpBindingStatusReading {
     pub(crate) legs: Vec<McpServerLegStatus>,
     /// When the newest leg in the aggregate, else the probe, observed it.
     pub(crate) observed_at: Option<WireInstant>,
+    /// The names of the server's tools in the newest list the tracker holds, the machine
+    /// probe's; empty where none is held.
+    pub(crate) tool_names: Vec<McpToolName>,
 }
 
 /// The one keeper of every binding's MCP status. Its state sits behind one lock that is never held
@@ -59,10 +56,6 @@ pub struct McpServerStatusTracker {
     first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the machine probe and the inventory call it")
-)]
 impl McpServerStatusTracker {
     /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
     /// leg reports or the probe reads through `first_observations`, whose drain records it.
@@ -118,18 +111,20 @@ impl McpServerStatusTracker {
         }
     }
 
-    /// Stores the machine probe's newest reading of `binding`, which stands for the binding while
-    /// no live leg holds a status; a `machineProbe` notice goes out when the probe's own reading
-    /// changed, and the binding goes to the drain as a leg's reading does.
+    /// Stores the machine probe's newest reading of `binding` with its server's `tool_names`; its
+    /// status stands for the binding while no live leg holds one, a `machineProbe` notice goes
+    /// out when the probe's own status changed, and the binding goes to the drain as a leg's
+    /// reading does.
     pub(crate) fn record_probe(
         &self,
         binding: &McpServerBindingRef,
         status: McpServerStatus,
         failure_text: Option<String>,
+        tool_names: Vec<McpToolName>,
     ) {
         let observed_at = WireInstant::now();
         let mut legs = lock(&self.legs);
-        let outcome = legs.record_probe(binding, status, failure_text, observed_at);
+        let outcome = legs.record_probe(binding, status, failure_text, tool_names, observed_at);
         self.apply(outcome);
     }
 
@@ -471,8 +466,8 @@ mod tests {
             .expect("the test writes a binding ref")
         });
 
-        tracker.record_probe(&bindings[0], Failed, None);
-        tracker.record_probe(&bindings[1], Connected, None);
+        tracker.record_probe(&bindings[0], Failed, None, Vec::new());
+        tracker.record_probe(&bindings[1], Connected, None, Vec::new());
 
         let ids: Vec<McpServerBindingId> = waiting_notices(&mut subscriber)
             .into_iter()
@@ -664,7 +659,7 @@ mod tests {
                         .expect("the case opened a sink");
                     drop(sink);
                 }
-                Step::Probe(status) => tracker.record_probe(&binding, status, None),
+                Step::Probe(status) => tracker.record_probe(&binding, status, None, Vec::new()),
             }
             // Read after each step, so each notice is seen before a later one under its key
             // replaces it.

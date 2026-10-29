@@ -11,11 +11,11 @@ pub(crate) mod precedence;
 use std::path::PathBuf;
 
 use futures::future::join_all;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
+use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_store::data_folder::plugin_home;
 
 use self::config::{ClaudeMcpConfigSources, ClaudeMcpRoot, read_claude_mcp_config};
-use self::machine_probe::{ClaudeMcpProbeSources, probe_claude_mcp_servers};
+use self::machine_probe::{ClaudeMcpProbeSources, claude_probe_target, probe_claude_mcp_servers};
 use self::organization::has_readable_managed_mcp_file;
 use self::precedence::{ClaudeMcpAccountServers, rank_claude_mcp_servers};
 use crate::driver::claude::DESCRIPTOR;
@@ -30,9 +30,10 @@ use crate::driver::mcp_server::status::McpServerReading;
 /// person's config ranked under each requested account's connectors and organization servers, a
 /// refresh also re-reading each account and each live session's server status and answering what
 /// each account's process reported of its connectors as their probe readings, and the probe's
-/// readings when targets are given. A connector is never probed, since its account's process
-/// already reports it; with no account no Claude Code process can run, so each target reads
-/// `unknown`. Fails as the config read, an account read or the probe does.
+/// readings of each declared binding the request's probe scope names. A connector is never
+/// probed, since its account's process already reports it; with no account no Claude Code process
+/// can run, so each target reads `unknown`. Fails as the config read, an account read or the probe
+/// does.
 pub(crate) async fn read_claude_mcp_servers(
     driver: &ClaudeDriver,
     request: McpServersReadRequest,
@@ -91,10 +92,17 @@ pub(crate) async fn read_claude_mcp_servers(
     } else {
         Vec::new()
     };
-    let probe_targets: Vec<McpProbeTarget> = request
-        .probe_targets
-        .into_iter()
-        .filter(|target| !matches!(target.binding, McpServerBindingRef::Connector { .. }))
+    let probe_targets: Vec<McpProbeTarget> = ranking
+        .declarations
+        .iter()
+        .chain(
+            ranking
+                .account_servers
+                .iter()
+                .flat_map(|account| &account.declarations),
+        )
+        .filter(|declaration| request.probe.contains(&declaration.binding))
+        .filter_map(|declaration| claude_probe_target(&declaration.binding))
         .collect();
     if !probe_targets.is_empty() {
         match accounts.first() {

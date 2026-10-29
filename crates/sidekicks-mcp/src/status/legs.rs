@@ -9,6 +9,7 @@ use std::mem;
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
 use sidekicks_contracts::mcp::server::{
     MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerBindingRef, McpServerName, McpServerStatus,
+    McpToolName,
 };
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
@@ -55,6 +56,7 @@ struct Leg {
 struct ProbeReading {
     status: McpServerStatus,
     failure_text: Option<String>,
+    tool_names: Vec<McpToolName>,
     observed_at: WireInstant,
 }
 
@@ -69,10 +71,6 @@ struct BindingStatus {
 }
 
 /// Where a status change came from.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker sends a notice per change")
-)]
 pub(super) enum ChangeOrigin {
     /// A live leg's own status changed.
     SessionFeed {
@@ -126,10 +124,6 @@ pub(super) struct McpLegs {
     bindings: HashMap<McpBindingKey, BindingStatus>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps its state in it")
-)]
 impl McpLegs {
     /// No leg, no binding.
     pub(super) fn new() -> Self {
@@ -305,13 +299,15 @@ impl McpLegs {
         changes
     }
 
-    /// Stores the machine probe's newest reading of `binding`, which stands for the binding only
-    /// while no live leg holds a status; a change answers when the probe's own reading moved.
+    /// Stores the machine probe's newest reading of `binding` with its server's tool names; its
+    /// status stands for the binding only while no live leg holds one, and a change answers when
+    /// the probe's own status moved.
     pub(super) fn record_probe(
         &mut self,
         binding: &McpServerBindingRef,
         status: McpServerStatus,
         failure_text: Option<String>,
+        tool_names: Vec<McpToolName>,
         observed_at: WireInstant,
     ) -> ObservationOutcome {
         let key = McpBindingKey::of(binding);
@@ -326,6 +322,7 @@ impl McpLegs {
         binding_status.probe = Some(ProbeReading {
             status,
             failure_text: failure_text.clone(),
+            tool_names,
             observed_at,
         });
         self.refold(&key);
@@ -345,14 +342,15 @@ impl McpLegs {
         }
     }
 
-    /// `key`'s status and the legs in its aggregate; `unknown` with no leg for a binding nothing
-    /// reports.
+    /// `key`'s status, the legs in its aggregate and the probe's newest tool names; `unknown` with
+    /// no leg and no tools for a binding nothing reports.
     pub(super) fn reading(&self, key: &McpBindingKey) -> McpBindingStatusReading {
         let Some(binding_status) = self.bindings.get(key) else {
             return McpBindingStatusReading {
                 status: McpServerStatus::Unknown,
                 legs: Vec::new(),
                 observed_at: None,
+                tool_names: Vec::new(),
             };
         };
         let fold = fold(&self.legs, key, binding_status);
@@ -369,6 +367,11 @@ impl McpLegs {
             status: fold.status,
             legs,
             observed_at: fold.observed_at,
+            tool_names: binding_status
+                .probe
+                .as_ref()
+                .map(|probe| probe.tool_names.clone())
+                .unwrap_or_default(),
         }
     }
 

@@ -21,10 +21,6 @@ use crate::binding::store::{McpBindingKey, McpStoredBinding, McpStoredBindings};
 
 /// One binding as the inventory lists it: the driver's declaration, under the binding it is
 /// served as, and what the store keeps for it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the inventory service and the producer wiring")
-)]
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct McpBindingRow {
     /// The declaration; an emulated `local` binding carries the user entry's declaration under
@@ -40,10 +36,6 @@ pub(crate) struct McpBindingRow {
 /// declare, matching a user entry of the same name that is off by default, is the emulated
 /// `local` binding: that user entry lists as `local` under the row's root and not as `user`. A
 /// `local` row matching no declaration lists nothing. With no `stored`, nothing is emulated.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the inventory service and the producer wiring")
-)]
 pub(crate) fn resolve_binding_rows(
     reading: &ProviderMcpServersReading,
     stored: Option<&McpStoredBindings>,
@@ -180,10 +172,6 @@ impl McpAttributionTable {
     /// Replaces whole what `provider` loads at each root by its own config with what its newest
     /// read says: a root missing from `roots` resolves no provider-loaded name afterwards. Where a
     /// root's list names a server twice, its first binding stands.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the inventory service and the producer wiring")
-    )]
     pub(crate) fn replace_provider_loaded(&self, provider: &ProviderId, roots: &[McpRootReading]) {
         let loaded = roots
             .iter()

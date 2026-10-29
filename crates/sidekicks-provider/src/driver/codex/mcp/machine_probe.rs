@@ -38,7 +38,7 @@ use crate::driver::codex::tools::{
 };
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::mcp_server::read::{
-    McpProbeReading, McpProbeStart, McpProbeTarget, McpServerPolicyEntry,
+    McpProbeReading, McpProbeStart, McpProbeTarget, McpServerDeclaration, McpServerPolicyEntry,
 };
 use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusIngestResult,
@@ -97,6 +97,33 @@ pub(crate) enum CodexProbedServerStart {
     SwitchedOnByName,
     /// Its entry, as Codex's config takes it, credential values included.
     Sent(Map<String, Value>),
+}
+
+/// The probe target of `declaration`: a plugin's server sent whole, since only the daemon's plugin
+/// home declares it; an entry its own config switches off switched on by name; every other loaded
+/// by Codex's own config. `None` for a connector, which Codex does not declare.
+pub(crate) fn codex_probe_target(declaration: &McpServerDeclaration) -> Option<McpProbeTarget> {
+    let start = match &declaration.binding {
+        McpServerBindingRef::Connector { .. } => return None,
+        McpServerBindingRef::Plugin { .. } => McpProbeStart::DeclarationSent,
+        McpServerBindingRef::User { .. }
+        | McpServerBindingRef::Project { .. }
+        | McpServerBindingRef::Local { .. }
+        | McpServerBindingRef::Managed { .. } => {
+            let (McpServerConfigView::Stdio { enabled, .. }
+            | McpServerConfigView::Http { enabled, .. }
+            | McpServerConfigView::Sse { enabled, .. }) = &declaration.config;
+            if *enabled == Some(false) {
+                McpProbeStart::SwitchedOnByName
+            } else {
+                McpProbeStart::LoadedByProvider
+            }
+        }
+    };
+    Some(McpProbeTarget {
+        binding: declaration.binding.clone(),
+        start,
+    })
 }
 
 /// The conversations the probe of `targets` starts: one per attached root holding a target, or

@@ -95,6 +95,22 @@ struct ProbeStatus {
     is_failed_by_set: bool,
 }
 
+/// The probe target of `binding`, sent with its declaration, since the probe's process loads none
+/// of the person's files; `None` for a connector, which its account's own process reports.
+pub(crate) fn claude_probe_target(binding: &McpServerBindingRef) -> Option<McpProbeTarget> {
+    match binding {
+        McpServerBindingRef::Connector { .. } => None,
+        McpServerBindingRef::User { .. }
+        | McpServerBindingRef::Project { .. }
+        | McpServerBindingRef::Local { .. }
+        | McpServerBindingRef::Plugin { .. }
+        | McpServerBindingRef::Managed { .. } => Some(McpProbeTarget {
+            binding: binding.clone(),
+            start: McpProbeStart::DeclarationSent,
+        }),
+    }
+}
+
 /// Probes `targets` through `sources`, one process per attached root in turn: a `project` or
 /// `local` binding at its own root, every other binding at the first attached root. An
 /// organization's server is sent as its managed settings declare it, and every other declaration
@@ -402,7 +418,7 @@ mod tests {
     use tokio::runtime::Handle;
     use tokio::time::Instant;
 
-    use super::{ClaudeMcpProbeSources, probe_claude_mcp_servers};
+    use super::{ClaudeMcpProbeSources, claude_probe_target, probe_claude_mcp_servers};
     use crate::command_search::ProviderCommandSearch;
     use crate::driver::claude::DESCRIPTOR;
     use crate::driver::claude::session::scripted::channel::{ScriptedAnswer, ScriptedChannel};
@@ -412,7 +428,7 @@ mod tests {
         ClaudeInstalledBuild, ClaudeProcessStarts,
     };
     use crate::driver::contract::DriverError;
-    use crate::driver::mcp_server::read::{McpProbeReading, McpProbeStart, McpProbeTarget};
+    use crate::driver::mcp_server::read::{McpProbeReading, McpProbeTarget};
     use crate::driver::mcp_server::status::McpServerReading;
     use crate::process_registry::ProviderProcessRegistry;
     use crate::runtime_binding::test_store::test_provider_account_id;
@@ -428,15 +444,13 @@ mod tests {
         home
     }
 
-    // The `user` server `name`, sent with its declaration.
+    // The `user` server `name`, as the composition targets it.
     fn user_target(name: &str) -> McpProbeTarget {
-        McpProbeTarget {
-            binding: McpServerBindingRef::User {
-                provider: DESCRIPTOR.provider_id(),
-                server_name: McpServerName::new(name.to_owned()).expect("a server name"),
-            },
-            start: McpProbeStart::DeclarationSent,
-        }
+        claude_probe_target(&McpServerBindingRef::User {
+            provider: DESCRIPTOR.provider_id(),
+            server_name: McpServerName::new(name.to_owned()).expect("a server name"),
+        })
+        .expect("a user binding is probed")
     }
 
     // Probes `targets` declared in `home` with no root attached, through `starts`.

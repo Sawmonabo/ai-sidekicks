@@ -438,7 +438,8 @@ pub trait ProviderDriver: Send + Sync {
 
     /// Reads the provider's MCP servers for `request`: what its config, its project roots, its
     /// plugins and its accounts declare, and what each root's sessions load. A refresh reads again
-    /// what the driver keeps between reads; an empty `probe_targets` starts no probe.
+    /// what the driver keeps between reads; the request's probe scope names the bindings the driver
+    /// probes, each started as the driver's own declaration of it says.
     fn read_mcp_servers(
         &self,
         request: McpServersReadRequest,

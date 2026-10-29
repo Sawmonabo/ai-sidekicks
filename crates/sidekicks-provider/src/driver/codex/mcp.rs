@@ -15,15 +15,19 @@ use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
 use crate::driver::codex::mcp::config::{
     CodexMcpConfigSources, CodexMcpRoot, read_codex_mcp_config,
 };
-use crate::driver::codex::mcp::machine_probe::{plan_codex_mcp_probe, probe_codex_mcp_servers};
+use crate::driver::codex::mcp::machine_probe::{
+    codex_probe_target, plan_codex_mcp_probe, probe_codex_mcp_servers,
+};
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::read::{
+    McpProbeTarget, McpServersReadRequest, ProviderMcpServersReading,
+};
 
 /// What Codex's MCP servers are on this computer for `request`: the declarations, roots and allow
 /// list the config read finds on `registry`'s service on the person's own Codex folder, `home`
-/// being the person's home folder, and what the machine probe read of each of the request's probe
-/// targets, which runs only when there is one. Codex brings no account's servers and keeps nothing
+/// being the person's home folder, and what the machine probe read of each declared binding the
+/// request's probe scope names, which runs only when it names one. Codex brings no account's servers and keeps nothing
 /// between reads, so a refresh reads as any read does. Fails as the config read fails, or as the
 /// probe's service cannot be started or a probe request fails.
 pub(crate) async fn read_codex_mcp_servers(
@@ -49,12 +53,18 @@ pub(crate) async fn read_codex_mcp_servers(
         managed_settings_folder: managed_settings_folder.as_deref(),
     };
     let reading = read_codex_mcp_config(&sources).await?;
-    let probe_readings = if request.probe_targets.is_empty() {
+    let probe_targets: Vec<McpProbeTarget> = reading
+        .declarations
+        .iter()
+        .filter(|declaration| request.probe.contains(&declaration.binding))
+        .filter_map(codex_probe_target)
+        .collect();
+    let probe_readings = if probe_targets.is_empty() {
         Vec::new()
     } else {
         let plugin_servers = read_plugin_server_entries(sources.plugin_home).await;
         let sites = plan_codex_mcp_probe(
-            &request.probe_targets,
+            &probe_targets,
             &reading,
             sources.roots,
             sources.home,

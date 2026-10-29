@@ -26,6 +26,11 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 /// The distinct statements the binding store keeps prepared on each read connection.
 pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 3;
 
+/// The scopes of a server the provider brings itself, a connector and an organization's server,
+/// whose per-project switch the daemon keeps in `mcp_project_server_switches`.
+pub(crate) const PROJECT_SWITCH_SCOPES: [McpBindingScope; 2] =
+    [McpBindingScope::Connector, McpBindingScope::Managed];
+
 /// A binding's whole identity as the store keys it: provider, scope, the scope's reference and the
 /// distribution a project root is in (each `''` where the scope has none), and the server's name.
 /// One path in two distributions is two keys, and same-named servers in two scopes stay two keys.
@@ -229,10 +234,6 @@ impl McpBindingStore {
     /// Reads every row `provider`'s bindings hold: each binding's switch, its tool overrides, the
     /// projects it is switched off for and the `local` bindings, in one short read. Fails with
     /// [`McpBindingStoreError::Database`] or [`McpBindingStoreError::Pool`] as the read fails.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the inventory service and the producer wiring")
-    )]
     pub(crate) async fn read_provider_bindings(
         &self,
         provider: &ProviderId,
@@ -485,7 +486,7 @@ mod tests {
     async fn a_binding_only_the_probe_reads_gets_its_row() {
         let (database, _writer, tracker, run) = tracker_over_a_drain().await;
 
-        tracker.record_probe(&user_binding("docs"), Connected, None);
+        tracker.record_probe(&user_binding("docs"), Connected, None, Vec::new());
         // The drain ends once the tracker, holding its outlet, is gone and what waits is written.
         drop(tracker);
         run.await.expect("the drain's run ends");
@@ -541,10 +542,10 @@ mod tests {
 
         leg_reports_docs();
         leg_switches_off_news();
-        tracker.record_probe(&user_binding("mail"), Connected, None);
+        tracker.record_probe(&user_binding("mail"), Connected, None, Vec::new());
         // The drain writes one binding at a time in order, and a failed write commits nothing, so
         // the next commit is this binding's, after the failed ones.
-        tracker.record_probe(&user_binding("github"), Connected, None);
+        tracker.record_probe(&user_binding("github"), Connected, None, Vec::new());
         tokio::time::timeout(COMMIT_BOUND, commits.changed())
             .await
             .expect("the drain writes the third binding in time")
@@ -558,7 +559,7 @@ mod tests {
         leg_reports_docs();
         // The leg's switch-off again: no longer its first report of the binding.
         leg_switches_off_news();
-        tracker.record_probe(&user_binding("mail"), Connected, None);
+        tracker.record_probe(&user_binding("mail"), Connected, None, Vec::new());
         // The sink holds the tracker, which holds the drain's outlet.
         drop(sink);
         drop(tracker);

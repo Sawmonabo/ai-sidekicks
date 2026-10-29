@@ -1,10 +1,9 @@
 //! The MCP server inventory: every binding each provider's driver reads, joined with its status,
 //! what the binding store keeps for it and its server's newest tools, as `mcp.server.list` and
-//! `mcp.server.read` answer it. Each read reads every source again, so nothing here is a copy of a
-//! provider's config; only each binding's newest tool names are kept between reads.
+//! `mcp.server.read` answer it. Each read reads every source again and keeps nothing between
+//! reads: a refresh's probe readings go to the status tracker, which the next read reads.
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use futures::future::try_join_all;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
@@ -23,10 +22,10 @@ use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::account_homes::{AccountHome, AccountHomesReadError, read_account_homes};
 use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
-    McpProbeReading, McpProbeTarget, McpServerToolDefaults, McpServersReadRequest,
+    McpProbeReading, McpProbeScope, McpServerToolDefaults, McpServersReadRequest,
 };
+use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 use sidekicks_provider::driver::registry::ProviderRegistry;
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
@@ -34,9 +33,12 @@ use sidekicks_workspace::project::records::{ProjectReadError, ProjectRecords};
 use crate::binding::resolver::{
     McpAttributionTable, McpBindingRow, attached_root_path, resolve_binding_rows,
 };
-use crate::binding::store::{McpBindingKey, McpBindingStore};
+use crate::binding::store::{McpBindingKey, McpBindingStore, PROJECT_SWITCH_SCOPES};
 use crate::errors::McpRefusal;
 use crate::status::McpServerStatusTracker;
+use crate::status::machine_probe::{
+    McpMachineProbeGate, McpMachineProbeTurn, wait_for_machine_probe,
+};
 
 /// Builds the arm of the inventory entry `$entry` for `$binding`, the binding's identity moved into
 /// the arm beside the named locals.
@@ -108,36 +110,31 @@ macro_rules! entry_for_binding {
 }
 
 /// What the inventory reads: the providers' drivers, the database the accounts are read from, the
-/// attached projects, the binding store, the bindings' statuses and the attribution table each
-/// read refreshes.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's mcp.server.list and mcp.server.read handlers build it"
-    )
-)]
-pub(crate) struct McpInventorySources {
+/// attached projects, the binding store, the bindings' statuses, the attribution table each read
+/// refreshes and the gate that keeps one machine probe per provider.
+pub struct McpInventorySources {
     /// The registered providers, each with its driver.
-    pub(crate) providers: Arc<ProviderRegistry>,
+    pub providers: Arc<ProviderRegistry>,
     /// The read pool the provider accounts are read on.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The meter the accounts read's time is charged to.
-    pub(crate) meter: ProcessorMeter,
+    pub meter: ProcessorMeter,
     /// The attached projects, whose roots each driver reads.
-    pub(crate) projects: Arc<ProjectRecords>,
+    pub projects: Arc<ProjectRecords>,
     /// The bindings' switches, tool overrides and per-project switches.
-    pub(crate) store: McpBindingStore,
-    /// Each binding's status.
-    pub(crate) tracker: Arc<McpServerStatusTracker>,
+    pub store: McpBindingStore,
+    /// Each binding's status and its server's newest tool names.
+    pub tracker: Arc<McpServerStatusTracker>,
     /// Which binding a server name a session reports resolves to, replaced at each read.
-    pub(crate) attribution: Arc<McpAttributionTable>,
+    pub attribution: Arc<McpAttributionTable>,
+    /// Which providers a machine probe runs for.
+    pub probe_gate: Arc<McpMachineProbeGate>,
 }
 
 /// Why the inventory did not answer: a binding it does not hold, or a source that could not be
 /// read. A list fails only with a source's failure.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum McpInventoryError {
+pub enum McpInventoryError {
     /// No provider declares the binding asked for.
     #[error(transparent)]
     Refused(#[from] McpRefusal),
@@ -164,19 +161,10 @@ pub(crate) enum McpInventoryError {
     },
 }
 
-/// The inventory `mcp.server.list` and `mcp.server.read` answer from. It keeps only each binding's
-/// newest tool names between reads, bounded by the bindings the providers declare.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's mcp.server.list and mcp.server.read handlers call it"
-    )
-)]
-pub(crate) struct McpInventoryService {
+/// The inventory `mcp.server.list` and `mcp.server.read` answer from. It keeps nothing between
+/// reads.
+pub struct McpInventoryService {
     sources: McpInventorySources,
-    /// The tool names each binding's newest reading listed, kept for the reads that bring none.
-    newest_tool_names: Mutex<HashMap<McpBindingKey, Vec<McpToolName>>>,
 }
 
 /// The sources one read shares across its providers: the attached roots and every account.
@@ -185,32 +173,24 @@ struct McpInventoryContext {
     accounts: Vec<AccountHome>,
 }
 
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's mcp.server.list and mcp.server.read handlers call it"
-    )
-)]
 impl McpInventoryService {
-    /// An inventory over `sources`, holding no tool names yet.
-    pub(crate) fn new(sources: McpInventorySources) -> Self {
-        Self {
-            sources,
-            newest_tool_names: Mutex::new(HashMap::new()),
-        }
+    /// An inventory over `sources`.
+    pub fn new(sources: McpInventorySources) -> Self {
+        Self { sources }
     }
 
-    /// Every binding each provider declares, in the providers' order; a refresh has each driver
-    /// read again what it keeps between reads. Fails as a source cannot be read.
-    pub(crate) async fn list(
+    /// Every binding each provider declares, in the providers' order. A refresh has each driver
+    /// read again what it keeps between reads and probe every binding it can, one probe per
+    /// provider at a time: a refresh that finds its provider's probe running waits for it and
+    /// reads what it recorded. Fails as a source cannot be read.
+    pub async fn list(
         &self,
         request: &McpServerListRequest,
     ) -> Result<Vec<McpServerInventoryEntry>, McpInventoryError> {
         let is_refresh = request.refresh == Some(true);
         let context = self.read_context().await?;
         let providers = try_join_all(self.sources.providers.drivers().map(|(provider, driver)| {
-            self.read_provider_rows(provider, driver.as_ref(), &context, is_refresh, Vec::new())
+            self.list_provider(provider, driver.as_ref(), &context, is_refresh)
         }))
         .await?;
         Ok(providers
@@ -222,7 +202,7 @@ impl McpInventoryService {
 
     /// The binding `binding` names. Refuses with [`McpRefusal::ServerNotFound`] where its
     /// provider is not registered or does not declare it, and fails as a source cannot be read.
-    pub(crate) async fn read(
+    pub async fn read(
         &self,
         binding: &McpServerBindingRef,
     ) -> Result<McpServerInventoryEntry, McpInventoryError> {
@@ -238,13 +218,53 @@ impl McpInventoryService {
             .ok_or_else(not_found)?;
         let context = self.read_context().await?;
         let entries = self
-            .read_provider_rows(provider, driver.as_ref(), &context, false, Vec::new())
+            .read_provider_rows(
+                provider,
+                driver.as_ref(),
+                &context,
+                false,
+                McpProbeScope::None,
+            )
             .await?;
         entries
             .into_iter()
             .find(|(entry_key, _entry)| *entry_key == key)
             .map(|(_key, entry)| entry)
             .ok_or_else(|| not_found().into())
+    }
+
+    // One provider's rows for a list: with no probe, or on a refresh the provider's one probe
+    // through the gate, a refresh that finds it running reading after it ends without a probe or a
+    // refresh of its own, since the running one refreshed what the driver keeps.
+    async fn list_provider(
+        &self,
+        provider: &ProviderId,
+        driver: &dyn ProviderDriver,
+        context: &McpInventoryContext,
+        is_refresh: bool,
+    ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
+        if !is_refresh {
+            return self
+                .read_provider_rows(provider, driver, context, false, McpProbeScope::None)
+                .await;
+        }
+        match self.sources.probe_gate.enter(provider) {
+            McpMachineProbeTurn::Run(_hold) => {
+                self.read_provider_rows(
+                    provider,
+                    driver,
+                    context,
+                    true,
+                    McpProbeScope::EveryBinding,
+                )
+                .await
+            }
+            McpMachineProbeTurn::Wait(running) => {
+                wait_for_machine_probe(running).await;
+                self.read_provider_rows(provider, driver, context, false, McpProbeScope::None)
+                    .await
+            }
+        }
     }
 
     // The attached roots and the accounts, read once for every provider of one read.
@@ -265,18 +285,19 @@ impl McpInventoryService {
         })
     }
 
-    /// Reads `provider`'s bindings through `driver`, asking it to probe `probe_targets` and, on
-    /// `is_refresh`, to read again what it keeps; this is the one read a probe trigger calls. Each
-    /// row is keyed by its binding. The attribution table takes the provider's roots, and each
-    /// probe reading the driver answers lands in [`Self::keep_probe_readings`]. Fails as the
-    /// driver's read fails; a store that does not answer gives each row the store-unavailable arm.
+    /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
+    /// names and, on `is_refresh`, to read again what it keeps; this is the one read a probe
+    /// trigger calls. Each row is keyed by its binding. The attribution table takes the provider's
+    /// roots, and each probe reading the driver answers lands in [`Self::keep_probe_readings`].
+    /// Fails as the driver's read fails; a store that does not answer gives each row the
+    /// store-unavailable arm.
     async fn read_provider_rows(
         &self,
         provider: &ProviderId,
         driver: &dyn ProviderDriver,
         context: &McpInventoryContext,
         is_refresh: bool,
-        probe_targets: Vec<McpProbeTarget>,
+        probe: McpProbeScope,
     ) -> Result<Vec<(McpBindingKey, McpServerInventoryEntry)>, McpInventoryError> {
         let provider_account_ids = context
             .accounts
@@ -291,7 +312,7 @@ impl McpInventoryService {
             attached_roots: context.attached_roots.clone(),
             provider_account_ids,
             is_refresh,
-            probe_targets,
+            probe,
         };
         let (reading, stored) = tokio::join!(
             driver.read_mcp_servers(request),
@@ -315,14 +336,7 @@ impl McpInventoryService {
                 );
             })
             .ok();
-        let rows = resolve_binding_rows(&reading, stored.as_ref());
-        let keys: HashSet<McpBindingKey> = rows
-            .iter()
-            .map(|row| McpBindingKey::of(&row.declaration.binding))
-            .collect();
-        lock(&self.newest_tool_names)
-            .retain(|key, _tool_names| key.provider != *provider || keys.contains(key));
-        Ok(rows
+        Ok(resolve_binding_rows(&reading, stored.as_ref())
             .into_iter()
             .map(|row| {
                 let key = McpBindingKey::of(&row.declaration.binding);
@@ -332,14 +346,19 @@ impl McpInventoryService {
             .collect())
     }
 
-    /// Keeps the tool names of each binding a probe reading names, its newest reading.
+    /// Records in the status tracker each probe reading that observed its server, with its error
+    /// text and tool names; a switched-off reading leaves the binding's newest reading as it was.
     fn keep_probe_readings(&self, readings: &[McpProbeReading]) {
-        let mut newest_tool_names = lock(&self.newest_tool_names);
         for reading in readings {
-            newest_tool_names.insert(
-                McpBindingKey::of(&reading.binding),
-                reading.tool_names.clone(),
-            );
+            match reading.reading {
+                McpServerReading::Observed(status) => self.sources.tracker.record_probe(
+                    &reading.binding,
+                    status,
+                    reading.failure_text.clone(),
+                    reading.tool_names.clone(),
+                ),
+                McpServerReading::SwitchedOff => {}
+            }
         }
     }
 
@@ -361,7 +380,13 @@ impl McpInventoryService {
         let Some(stored) = stored else {
             let binding_store_unavailable = True::default();
             let enabled = (!declaration.is_switch_kept_by_daemon).then_some(provider_enabled);
-            let disabled_in = unique_places(declaration.disabled_in);
+            // Where the per-project switch lives in the store, the driver's roots alone would read
+            // as switched off nowhere else, so the member is absent.
+            let disabled_in = if PROJECT_SWITCH_SCOPES.contains(&key.scope) {
+                None
+            } else {
+                unique_places(declaration.disabled_in)
+            };
             return McpServerInventoryEntry::StoreUnavailable(entry_for_binding!(
                 McpStoreUnavailableInventoryEntry,
                 declaration.binding,
@@ -390,12 +415,8 @@ impl McpInventoryService {
                 .chain(stored.switched_off_in)
                 .collect(),
         );
-        let tool_names = lock(&self.newest_tool_names)
-            .get(key)
-            .cloned()
-            .unwrap_or_default();
         let tools = tool_readings(
-            tool_names,
+            status_reading.tool_names,
             &declaration.tool_defaults,
             &stored.tool_overrides,
         );
@@ -496,223 +517,4 @@ fn setting<OverrideValue, ServerValue>(
 }
 
 #[cfg(test)]
-mod tests {
-    use std::sync::{Arc, OnceLock};
-
-    use futures::FutureExt;
-    use futures::future::ready;
-    use rstest::rstest;
-    use rusqlite::{Connection, params};
-    use sidekicks_contracts::mcp::server::config::McpServerConfigView;
-    use sidekicks_contracts::mcp::server::inventory::{
-        McpAnsweredInventoryEntry, McpServerIdempotencyClass, McpServerInventoryEntry,
-        McpToolReading, McpToolSetting,
-    };
-    use sidekicks_contracts::mcp::server::requests::McpServerListRequest;
-    use sidekicks_contracts::mcp::server::{
-        McpApprovalMode, McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
-    };
-    use sidekicks_contracts::project::ProjectId;
-    use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_provider::driver::contract::MockProviderDriver;
-    use sidekicks_provider::driver::mcp_server::read::{
-        McpProbeReading, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
-        ProviderMcpServersReading,
-    };
-    use sidekicks_provider::driver::mcp_server::status::McpServerReading;
-    use sidekicks_provider::driver::test_registry::registry_of_first_provider;
-    use sidekicks_std::scheduler::budget::ProcessorMeter;
-    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
-    use sidekicks_store::database::writer::test_file::TestDatabase;
-    use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
-    use sidekicks_workspace::project::records::{
-        ProjectRecords, ProjectSessionActivity, ProjectSessionFacts,
-    };
-
-    use super::{McpInventoryService, McpInventorySources};
-    use crate::binding::resolver::McpAttributionTable;
-    use crate::binding::store::{McpBindingStore, open_first_observation_drain};
-    use crate::schema::schema_parts;
-    use crate::status::McpServerStatusTracker;
-    use crate::status::notices::McpNoticeBoard;
-
-    /// The statements a read connection keeps prepared: the store's, the accounts' and the roots'.
-    const READ_STATEMENT_CAPACITY: usize = 8;
-
-    /// No project has a session; the inventory reads only the attached roots.
-    struct NoProjectSessions;
-
-    impl ProjectSessionActivity for NoProjectSessions {
-        fn read_session_facts(
-            &self,
-            _reader: &Connection,
-            _project_ids: Option<&[ProjectId]>,
-        ) -> rusqlite::Result<Vec<ProjectSessionFacts>> {
-            Ok(Vec::new())
-        }
-    }
-
-    /// Which of the inventory's two reads the test asks.
-    enum InventoryRead {
-        List,
-        Read,
-    }
-
-    fn tool(name: &str) -> McpToolName {
-        McpToolName::new(name.to_owned()).expect("a tool name")
-    }
-
-    fn docs_binding(provider: &ProviderId) -> McpServerBindingRef {
-        McpServerBindingRef::User {
-            provider: provider.clone(),
-            server_name: McpServerName::new("docs".to_owned()).expect("a server name"),
-        }
-    }
-
-    /// The driver's reading: one `user` server whose newest reading lists two tools.
-    fn reading_of(binding: McpServerBindingRef) -> ProviderMcpServersReading {
-        ProviderMcpServersReading {
-            declarations: vec![McpServerDeclaration {
-                binding: binding.clone(),
-                config: McpServerConfigView::Stdio {
-                    command: "docs-server".to_owned(),
-                    args: None,
-                    env_var_names: None,
-                    enabled: None,
-                    required: None,
-                    startup_timeout_sec: None,
-                    tool_timeout_sec: None,
-                },
-                superseded_in: Vec::new(),
-                disabled_in: Vec::new(),
-                is_read_only: false,
-                sign_in_client: None,
-                is_switch_kept_by_daemon: true,
-                tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
-            }],
-            roots: Vec::new(),
-            is_machine_managed: false,
-            server_policy: McpServerPolicy::default(),
-            account_servers: Vec::new(),
-            probe_readings: vec![McpProbeReading {
-                binding,
-                reading: McpServerReading::Observed(McpServerStatus::Connected),
-                failure_text: None,
-                tool_names: vec![tool("search"), tool("delete")],
-            }],
-        }
-    }
-
-    /// A tool whose override sets a facet reads the override's value with the server's own value
-    /// beside it, and a tool with none reads the server's own; through the list and through one
-    /// binding's read. Killed by the override join dropped, which reads a person's deny as allowed.
-    #[rstest]
-    #[case::list(InventoryRead::List)]
-    #[case::read(InventoryRead::Read)]
-    #[tokio::test]
-    async fn an_overrides_value_wins_and_keeps_the_servers_own_value(
-        #[case] inventory_read: InventoryRead,
-    ) {
-        let database = TestDatabase::new(schema_parts());
-        let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens its database"),
-        );
-        let reads = Arc::new(DatabaseReadPool::new(
-            database.path(),
-            READ_STATEMENT_CAPACITY,
-        ));
-        let store = McpBindingStore::new(writer, Arc::clone(&reads));
-        let (outlet, _drain) = open_first_observation_drain(store.clone()).await;
-        let provider_of_registry: Arc<OnceLock<ProviderId>> = Arc::new(OnceLock::new());
-        let mut driver = MockProviderDriver::new();
-        let provider_of_driver = Arc::clone(&provider_of_registry);
-        driver.expect_read_mcp_servers().returning(move |_request| {
-            let provider = provider_of_driver
-                .get()
-                .expect("the registry names the provider");
-            ready(Ok(reading_of(docs_binding(provider)))).boxed()
-        });
-        let providers = Arc::new(registry_of_first_provider(Arc::new(driver)));
-        let (provider, _driver) = providers.drivers().next().expect("one provider");
-        let provider = provider.clone();
-        provider_of_registry
-            .set(provider.clone())
-            .expect("the provider is named once");
-        database
-            .reader()
-            .execute(
-                "INSERT INTO mcp_server_bindings
-                   (provider, scope, server_name, first_observed_at, updated_at)
-                 VALUES (?1, 'user', 'docs', 't', 't')",
-                params![provider.as_str()],
-            )
-            .expect("the binding's row is stored");
-        database
-            .reader()
-            .execute(
-                "INSERT INTO mcp_tool_overrides
-                   (provider, scope, server_name, tool_name, enabled, created_at, updated_at)
-                 VALUES (?1, 'user', 'docs', 'delete', 0, 't', 't')",
-                params![provider.as_str()],
-            )
-            .expect("the person's deny is stored");
-        let service = McpInventoryService::new(McpInventorySources {
-            providers,
-            reads: Arc::clone(&reads),
-            meter: ProcessorMeter::default(),
-            projects: Arc::new(ProjectRecords::new(reads, Arc::new(NoProjectSessions))),
-            store,
-            tracker: Arc::new(McpServerStatusTracker::new(
-                Arc::new(McpNoticeBoard::default()),
-                outlet,
-            )),
-            attribution: Arc::new(McpAttributionTable::default()),
-        });
-
-        let entry = match inventory_read {
-            InventoryRead::List => {
-                let entries = service
-                    .list(&McpServerListRequest { refresh: None })
-                    .await
-                    .expect("the inventory lists");
-                let [entry] = <[_; 1]>::try_from(entries).expect("one entry");
-                entry
-            }
-            InventoryRead::Read => service
-                .read(&docs_binding(&provider))
-                .await
-                .expect("the binding is read"),
-        };
-
-        let McpServerInventoryEntry::Answered(McpAnsweredInventoryEntry::User { tools, .. }) =
-            &entry
-        else {
-            panic!("the user binding's answered entry: {entry:?}");
-        };
-        let server_reading = |tool_name: &str, enabled| McpToolReading {
-            tool_name: tool(tool_name),
-            enabled,
-            approval_mode: McpToolSetting::Server {
-                value: McpApprovalMode::Auto,
-            },
-            idempotency_class: McpToolSetting::Server {
-                value: McpServerIdempotencyClass::Value,
-            },
-        };
-        assert_eq!(
-            *tools,
-            [
-                server_reading("search", McpToolSetting::Server { value: true }),
-                server_reading(
-                    "delete",
-                    McpToolSetting::Override {
-                        value: false,
-                        server_value: true,
-                    }
-                ),
-            ]
-        );
-    }
-}
+mod tests;

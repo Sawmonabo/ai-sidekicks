@@ -23,24 +23,46 @@ pub struct McpServersReadRequest {
     /// Whether the person asked for a refresh, so the driver reads again what it keeps between
     /// reads.
     pub is_refresh: bool,
-    /// The bindings the driver starts in a process of its own and reads once; empty when no
-    /// probe is asked for.
-    pub probe_targets: Vec<McpProbeTarget>,
+    /// The bindings the driver starts in a process of its own and reads once.
+    pub probe: McpProbeScope,
+}
+
+/// Which of its bindings a driver's read probes; the driver builds each probe's start from its own
+/// declarations.
+#[derive(Clone, Debug, PartialEq)]
+pub enum McpProbeScope {
+    /// No probe runs.
+    None,
+    /// Every binding the driver declares that its probe can start.
+    EveryBinding,
+    /// The named bindings among those.
+    Bindings(Vec<McpServerBindingRef>),
+}
+
+impl McpProbeScope {
+    /// Whether the scope takes `binding`.
+    pub(crate) fn contains(&self, binding: &McpServerBindingRef) -> bool {
+        match self {
+            Self::None => false,
+            Self::EveryBinding => true,
+            Self::Bindings(bindings) => bindings.contains(binding),
+        }
+    }
 }
 
 /// One binding the probe starts, and what the provider must be sent to start it.
 #[derive(Clone, Debug, PartialEq)]
-pub struct McpProbeTarget {
+pub(crate) struct McpProbeTarget {
     /// The binding.
-    pub binding: McpServerBindingRef,
+    pub(crate) binding: McpServerBindingRef,
     /// What the provider must be sent to start it.
-    pub start: McpProbeStart,
+    pub(crate) start: McpProbeStart,
 }
 
 /// What a probe sends the provider to start one binding. The declaration never travels with it:
 /// where one is sent, the driver re-reads it from where it lives.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum McpProbeStart {
+pub(crate) enum McpProbeStart {
     /// The provider loads it by its own config at the binding's root; nothing is sent.
     LoadedByProvider,
     /// Its entry in the person's config is off by default and is switched on by its name.
