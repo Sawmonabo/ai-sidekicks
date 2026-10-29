@@ -466,8 +466,8 @@ impl SessionCreation {
     }
 
     // Appends `session.created` with the request's record and its guards, answering the binding
-    // the lead was born on and its account. A refused account guard means the current account moved since it was
-    // read, so it is read again and the write tried again.
+    // the lead was born on and its account. A refused account guard means the current account
+    // moved since it was read, so it is read again and the write tried again.
     async fn append_created(
         &self,
         new_session: &NewSession<'_>,

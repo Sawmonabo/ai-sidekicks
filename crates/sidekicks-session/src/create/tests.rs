@@ -193,7 +193,7 @@ impl Fixture {
             .boxed()
         });
         let settings = Arc::new(StoredSettings(Mutex::new(MachineSettings::default())));
-        // The driver's own rule stands in as one refusal: it refuses every lead that sets an effort.
+        // The driver's own rule stands in as one refusal: it refuses every lead setting an effort.
         driver
             .expect_check_lead_binding()
             .returning(|params| match params.effort {
