@@ -44,6 +44,15 @@ struct FiledRateLimits {
     is_unfiled_reading_logged: bool,
 }
 
+/// What one whole read of an account's rate limits answered beside the windows it filed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CodexRateLimitRead {
+    /// Whether the reply named any window.
+    pub(crate) has_windows: bool,
+    /// The limit resets the account can redeem, `None` where the reply carried no count.
+    pub(crate) reset_credits_available: Option<u32>,
+}
+
 impl CodexRateLimitFiling {
     /// A filing into the usage record `usage` registers, having recorded nothing yet.
     pub(crate) fn new(usage: Arc<PortRegistration<Arc<dyn UsageSink>>>) -> Self {
@@ -54,9 +63,13 @@ impl CodexRateLimitFiling {
         }
     }
 
-    /// Reads the account's rate limits whole on `service`, keeps them as its readings and files
-    /// them. Fails as the read fails, the readings then left as they were.
-    pub(crate) async fn read(&self, service: &CodexService) -> Result<(), CodexError> {
+    /// Reads the account's rate limits whole on `service`, keeps them as its readings, files them
+    /// and answers what else the reply said. Fails as the read fails, the readings then left as
+    /// they were.
+    pub(crate) async fn read(
+        &self,
+        service: &CodexService,
+    ) -> Result<CodexRateLimitRead, CodexError> {
         let reply = service
             .connection()?
             .request(
@@ -75,9 +88,18 @@ impl CodexRateLimitFiling {
                     .to_owned(),
                 cause: Some(Box::new(error)),
             })?;
-        service.store_rate_limit_read(observe_codex_rate_limit_read(&reply));
+        let observation = observe_codex_rate_limit_read(&reply);
+        let read = CodexRateLimitRead {
+            has_windows: observation.windows().next().is_some(),
+            reset_credits_available: reply
+                .get("rateLimitResetCredits")
+                .and_then(|credits| credits.get("availableCount"))
+                .and_then(Value::as_u64)
+                .and_then(|count| u32::try_from(count).ok()),
+        };
+        service.store_rate_limit_read(observation);
         self.file(service).await;
-        Ok(())
+        Ok(read)
     }
 
     /// Records `service`'s readings as they stand: the windows whose reading changed since the

@@ -12,6 +12,8 @@
 //!   never moves the generation. A home reset always raises it, with the sign-in stored as gone.
 //! - An account's place on the limits read's throttle ladder is kept on its row, so a restart
 //!   resumes a hold where it stood.
+//! - The limit resets an account can redeem are kept from its last limits read, none where that
+//!   read carried no count.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -180,6 +182,14 @@ static CLEAR_READ_HOLD_SQL: LazyLock<String> = LazyLock::new(|| {
      SET read_hold_rung = 0, read_held_until = NULL, updated_at = {DATABASE_NOW_SQL}
    WHERE account_id = @account_id
      AND (read_hold_rung != 0 OR read_held_until IS NOT NULL)"
+    )
+});
+
+static RECORD_RESET_CREDITS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "UPDATE provider_accounts
+     SET reset_credits_available = @reset_credits_available, updated_at = {DATABASE_NOW_SQL}
+   WHERE account_id = @account_id AND removal_intent = 0"
     )
 });
 
@@ -660,6 +670,29 @@ impl ProviderAccountRegistry {
         }])
         .await?;
         Ok(())
+    }
+
+    /// Stores `available`, the limit resets `account_id` can redeem as its last limits read
+    /// counted them, `None` where the read carried no count. Fails with
+    /// [`ProviderAccountRegistryError::NotFound`] for an account not registered or being removed.
+    pub async fn record_reset_credits(
+        &self,
+        account_id: &ProviderAccountId,
+        available: Option<u32>,
+    ) -> Result<(), ProviderAccountRegistryError> {
+        self.write(vec![WriteStatement {
+            sql: Cow::Borrowed(RECORD_RESET_CREDITS_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![
+                text_binding("@account_id", account_id.as_str()),
+                (
+                    Cow::Borrowed("@reset_credits_available"),
+                    available.map_or(Value::Null, |count| Value::Integer(i64::from(count))),
+                ),
+            ]),
+            expected_row_count: Some(1),
+        }])
+        .await
+        .map(drop)
     }
 
     /// Marks `account_id` for removal, the first write of its removal: refused while a workflow

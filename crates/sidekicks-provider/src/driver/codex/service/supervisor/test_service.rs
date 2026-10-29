@@ -14,6 +14,8 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 #[cfg(test)]
 use serde_json::{Value, json};
+#[cfg(test)]
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
@@ -281,6 +283,20 @@ pub(crate) fn start_scripted_account_service_reporting_to(
         CodexServiceKind::Account,
         Arc::new(UnstartedProgram),
         events,
+    )
+}
+
+/// Starts a service on `provider_account_id`'s home whose connection the test scripts. Must be
+/// called within a runtime.
+#[cfg(test)]
+pub(crate) fn start_scripted_account_service_for(
+    provider_account_id: ProviderAccountId,
+) -> ScriptedCodexService {
+    start_scripted_codex_service_on(
+        CodexHomeKind::Account(provider_account_id),
+        CodexServiceKind::Account,
+        Arc::new(UnstartedProgram),
+        Arc::new(UnheardEvents),
     )
 }
 
