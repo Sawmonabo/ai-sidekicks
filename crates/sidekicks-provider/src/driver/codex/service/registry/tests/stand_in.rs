@@ -12,6 +12,7 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::pin_running_process;
 use tokio::sync::mpsc;
 
+use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::registry::OneHome;
@@ -84,6 +85,7 @@ pub(super) fn stand_in_services(
             )],
         }),
         Arc::new(heard),
+        Arc::new(UnrecordedChildren),
     );
     StandInServices {
         folder: folder.to_owned(),
@@ -103,6 +105,7 @@ pub(super) fn another_daemon(services: &StandInServices) -> CodexServiceRegistry
             &services.folder,
             Arc::clone(&services.dependencies.program),
             Arc::new(UnheardEvents),
+            Arc::new(UnrecordedChildren),
         ),
     )
 }

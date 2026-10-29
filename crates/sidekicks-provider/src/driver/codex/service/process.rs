@@ -19,7 +19,7 @@ use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_platforms::{
     CAN_SIGNAL_A_STOP, ChildEnd, LastingChild, LastingCommand, PinnedProcess, ProcessRecord,
     Spawner, ask_child_to_stop, connect_unix_domain_socket, lasting_child_asked_end,
-    leave_daemon_scope, read_child_exit, spawn_lasting_child, wrap_child_command,
+    leave_daemon_scope, read_child_exit, spawn_lasting_child,
 };
 use sidekicks_std::output_tail::{OUTPUT_CHUNK_BYTES, OutputTail};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite};
@@ -27,6 +27,9 @@ use tokio::process::{ChildStderr, ChildStdout, Command};
 use tokio::sync::{oneshot, watch};
 use tokio_tungstenite::tungstenite::{self, Message};
 
+use crate::driver::child_records::{
+    ChildRecord, DaemonChildRecords, RecordedChild, spawn_recorded_child,
+};
 use crate::process_exit::compose_process_exit;
 use crate::service_log::{open_provider_service_log, read_provider_service_log_tail};
 
@@ -97,7 +100,8 @@ fn share_service_exit(answer: oneshot::Receiver<io::Result<ProcessExit>>) -> Cod
 }
 
 /// One Codex service on an account home the daemon manages: a child of the daemon, prepared as
-/// every one is, killed when this handle drops, with the tail of what it printed kept for its exit.
+/// every one is and recorded in the daemon's child records until its reap, killed when this handle
+/// drops, with the tail of what it printed kept for its exit.
 pub(crate) struct ManagedCodexService {
     process_id: Option<u32>,
     // The end asked last; a kill is never replaced by a stop.
@@ -138,10 +142,12 @@ impl ManagedCodexService {
 }
 
 /// Starts a Codex service on an account home the daemon manages, on `spawner`'s thread, prepared
-/// as every child of the daemon is, its standard input closed and both outputs kept in one tail.
-/// Fails with the spawn's error, or the spawner's when its thread has ended.
+/// as every child of the daemon is and recorded in `child_records` until its reap, its standard
+/// input closed and both outputs kept in one tail. Fails with the record's error, the spawn's, or
+/// the spawner's when its thread has ended.
 pub(crate) async fn start_managed_codex_service(
     spawner: &Spawner,
+    child_records: &Arc<dyn DaemonChildRecords>,
     launch: CodexProcessLaunch,
 ) -> io::Result<ManagedCodexService> {
     let mut command = launch.into_command();
@@ -149,15 +155,12 @@ pub(crate) async fn start_managed_codex_service(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let daemon_pid = std::process::id();
-    let child = spawner
-        .run(move || wrap_child_command(command, daemon_pid).spawn())
-        .await
-        .and_then(|spawned| spawned)?;
+    let RecordedChild { child, record } =
+        spawn_recorded_child(spawner, child_records, command).await?;
     let process_id = child.id();
     let (ends, ends_received) = watch::channel(None);
     let (exit, exit_received) = oneshot::channel();
-    tokio::spawn(own_managed_child(child, ends_received, exit));
+    tokio::spawn(own_managed_child(child, record, ends_received, exit));
     Ok(ManagedCodexService {
         process_id,
         ends,
@@ -165,10 +168,12 @@ pub(crate) async fn start_managed_codex_service(
     })
 }
 
-// Owns a managed service's child: ends it as asked, a dropped handle as a kill, and answers its
-// exit once it has exited and both its outputs have ended.
+// Owns a managed service's child: ends it as asked, a dropped handle as a kill, retires its record
+// once its reap saw it end, and answers its exit once it has exited and both its outputs have
+// ended.
 async fn own_managed_child(
     mut child: Box<dyn ChildWrapper>,
+    record: ChildRecord,
     mut ends: watch::Receiver<Option<ChildEnd>>,
     exit: oneshot::Sender<io::Result<ProcessExit>>,
 ) {
@@ -183,7 +188,7 @@ async fn own_managed_child(
     let waiting = async {
         let mut asked_end = None;
         let mut is_handle_held = true;
-        loop {
+        let waited = loop {
             tokio::select! {
                 biased;
                 status = child.wait() => break status.map(|status| (status, asked_end)),
@@ -214,7 +219,12 @@ async fn own_managed_child(
                     asked_end = Some(end);
                 }
             }
+        };
+        // A wait that failed leaves the record for the next start's sweep.
+        if waited.is_ok() {
+            record.retire().await;
         }
+        waited
     };
     let (waited, read) = tokio::join!(waiting, read_output_tail(standard_output, standard_error));
     let composed = match (waited, read) {

@@ -442,10 +442,10 @@ mod tests {
     use sidekicks_contracts::terminal::{TerminalId, TerminalOpenRequest};
     use sidekicks_contracts::wire::id::ClientUuid;
     use sidekicks_ipc::registry::HandlerError;
+    use sidekicks_provider::driver::child_records::SPAWN_NONCE_ENVIRONMENT_NAME;
     use tokio::sync::watch;
 
     use super::end_processes_inside;
-    use crate::orphan::registry::SPAWN_NONCE_ENVIRONMENT_NAME;
     use crate::output::stream::ShellOutputEnd;
     use crate::record::ShellRecord;
     use crate::table::TableShared;

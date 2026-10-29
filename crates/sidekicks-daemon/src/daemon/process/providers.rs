@@ -33,6 +33,7 @@ use sidekicks_provider::driver::attachments::AttachmentResolver;
 use sidekicks_provider::driver::capabilities::writer::{
     CapabilityHydration, DriverCapabilitiesWriter,
 };
+use sidekicks_provider::driver::child_records::DaemonChildRecords;
 use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::contract::params_and_results::ApplyRowValueParams;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
@@ -97,6 +98,8 @@ pub(crate) struct ProviderStart {
     pub(crate) shell_lines: Arc<ShellLineReadingBound>,
     /// Reads where a command channel's party runs.
     pub(crate) caller_processes: Arc<dyn CallerProcessReader>,
+    /// The daemon's record of its own children, opened and swept before the providers are built.
+    pub(crate) child_records: Arc<dyn DaemonChildRecords>,
 }
 
 /// The providers the daemon runs: their registry, the ports their drivers read, the capability
@@ -172,6 +175,7 @@ pub(crate) fn build_providers(
         command_search: Arc::new(ProviderCommandSearch::new(start.spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::clone(&processes),
+        child_records: start.child_records,
         provider_services: Arc::clone(&provider_services),
         runtime_bindings: Arc::clone(&runtime_bindings) as _,
         shell_lines: start.shell_lines,
@@ -613,8 +617,8 @@ mod tests {
     use sidekicks_provider::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
     };
+    use sidekicks_provider::driver::child_records::UnrecordedChildren;
     use sidekicks_provider::driver::contract::MockProviderDriver;
-    use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::contract::params_and_results::{
         ApplyRowValueParams, DriverCliVersionReport, GetCapabilitiesResult,
     };
@@ -688,6 +692,7 @@ mod tests {
                         ProcessTableReader::for_this_program()
                             .expect("this program's reader builds"),
                     ),
+                    child_records: Arc::new(UnrecordedChildren),
                 },
             )
         }

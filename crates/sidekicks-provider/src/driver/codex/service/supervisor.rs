@@ -37,6 +37,7 @@ use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::sync::CancellationToken;
 use tokio_util::task::TaskTracker;
 
+use crate::driver::child_records::DaemonChildRecords;
 use crate::driver::codex::exec_relay::{CodexExecRelay, CodexExecRelayDependencies};
 use crate::driver::codex::server_requests::CodexServerRequestResponder;
 use crate::driver::codex::service::asks::CodexServiceAsks;
@@ -98,6 +99,9 @@ pub(crate) struct CodexServiceDependencies {
     pub(crate) provider_services: Arc<ProviderServiceProcesses>,
     /// The daemon's provider processes, whose one spawn count each process pinned draws from.
     pub(crate) processes: Arc<ProviderProcessRegistry>,
+    /// The daemon's record of its own children, which a service on an account home is recorded
+    /// in; a lasting service keeps its own record and never enters it.
+    pub(crate) child_records: Arc<dyn DaemonChildRecords>,
     /// Resolves the Codex command at each start.
     pub(crate) program: Arc<dyn CodexProgramResolver>,
     /// The daemon's data folder, where the lasting service's record and the services' working

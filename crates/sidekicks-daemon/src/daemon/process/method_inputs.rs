@@ -142,7 +142,7 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The plan store's holds, the same the session list reads.
     pub(crate) plan_holds: Arc<dyn PlanHolds>,
-    /// The record of every terminal child, opened by the start.
+    /// The record of every child of the daemon, opened by the start.
     pub(crate) orphan_guard: Arc<OrphanGuard>,
     /// The copy the recovery pass copies the store's files aside with.
     pub(crate) copier: Arc<DatabaseFileCopier>,

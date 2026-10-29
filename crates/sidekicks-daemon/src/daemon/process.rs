@@ -149,7 +149,7 @@ pub(crate) struct DaemonProcess {
     pub(crate) git: Option<GitRunner>,
     /// The serving socket, while it serves.
     pub(crate) gateway: Option<LocalGateway>,
-    /// The record of every terminal child, closed once the terminals have drained.
+    /// The record of every child of the daemon, closed once the terminals have drained.
     pub(crate) orphan_guard: Option<Arc<OrphanGuard>>,
     /// The crash monitor, ended before the data folder's lock goes.
     pub(crate) crash_monitor: Option<CrashMonitor>,
@@ -475,6 +475,7 @@ impl DaemonProcess {
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
                 caller_processes: Arc::clone(&caller_process_reader),
+                child_records: Arc::clone(&orphan_guard) as _,
             },
         );
         let backups = Backups::new(BackupDeps {
