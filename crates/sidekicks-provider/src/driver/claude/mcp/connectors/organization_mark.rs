@@ -10,7 +10,9 @@ use std::time::Duration;
 
 use base64::Engine;
 use reqwest::StatusCode;
-use reqwest::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT};
+use reqwest::header::{
+    ACCEPT, ACCEPT_ENCODING, AUTHORIZATION, CONTENT_TYPE, HeaderValue, USER_AGENT,
+};
 use serde::Deserialize;
 use sidekicks_platforms::PathRules;
 use tokio::sync::OnceCell;
@@ -20,6 +22,9 @@ use zeroize::Zeroizing;
 use super::{ClaudeAccountServerAnswers, lists_connectors};
 use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
 use crate::lenient_json::{LenientList, lenient_object, read_lenient};
+
+#[cfg(test)]
+mod tests;
 
 /// Where Claude Code reads the connector list from unless its account names another approved host.
 const CLAUDE_API_BASE: &str = "https://api.anthropic.com";
@@ -57,6 +62,10 @@ const MCP_PROTOCOL_VERSION: &str = "2025-11-25";
 
 /// The `Accept` Claude Code's HTTP library sends on every request.
 const ACCEPT_ANY_TEXT: &str = "application/json, text/plain, */*";
+
+/// The `Accept-Encoding` Claude Code's HTTP library sends on every request; the reply is decoded
+/// from whichever of them the server picks but `compress`, which no server sends.
+const ACCEPT_ENCODINGS: &str = "gzip, compress, deflate, br";
 
 /// How long one try may take.
 const ATTEMPT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -172,15 +181,11 @@ impl ClaudeOrganizationMarks {
     }
 }
 
-// The client the list is read through: one idle connection, no decompression asked for, since
-// the request names no `Accept-Encoding`.
+// The client the list is read through: one idle connection, decoding a gzip, deflate or brotli
+// reply; the request's own `Accept-Encoding` keeps the client from naming its own.
 async fn build_http_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
         .pool_max_idle_per_host(IDLE_CONNECTIONS_PER_HOST)
-        .no_gzip()
-        .no_brotli()
-        .no_zstd()
-        .no_deflate()
         .build()
 }
 
@@ -341,6 +346,7 @@ impl ConnectorListRequest {
             )
             .header("MCP-Protocol-Version", MCP_PROTOCOL_VERSION)
             .header(ACCEPT, ACCEPT_ANY_TEXT)
+            .header(ACCEPT_ENCODING, ACCEPT_ENCODINGS)
             .timeout(ATTEMPT_TIMEOUT)
             .send()
             .await
@@ -451,242 +457,4 @@ fn normalize_connector_address(address: &str) -> String {
         |_unparsed| address.to_owned(),
         |parsed| parsed.as_str().trim_end_matches('/').to_owned(),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use std::sync::{Arc, Mutex};
-
-    use axum::extract::{Request, State};
-    use axum::http::StatusCode;
-    use serde_json::json;
-    use serde_json::value::to_raw_value;
-    use sidekicks_contracts::mcp::server::McpServerBindingRef;
-    use sidekicks_platforms::CredentialStore;
-    use zeroize::Zeroizing;
-
-    use super::ClaudeOrganizationMarks;
-    use crate::driver::claude::account_credentials::{ClaudeAiSignIn, ClaudeSignInReader};
-    use crate::driver::claude::mcp::config::ClaudeMcpConfigReading;
-    use crate::driver::claude::mcp::connectors::{
-        ClaudeAccountServerAnswers, read_claude_account_servers,
-    };
-    use crate::driver::claude::mcp::precedence::rank_claude_mcp_servers;
-    use crate::driver::mcp_server::read::McpServerPolicy;
-    use crate::runtime_binding::test_store::test_provider_account_id;
-
-    // One request the loopback list received: its method, path and query, and every header but
-    // `host`, sorted by name.
-    #[derive(Debug, PartialEq)]
-    struct ReceivedRequest {
-        method: String,
-        path_and_query: String,
-        headers: Vec<(String, String)>,
-    }
-
-    type ReceivedRequests = Arc<Mutex<Vec<ReceivedRequest>>>;
-
-    // A loopback list answering every request with `status` and `body`, and what it received.
-    async fn serve_list(status: StatusCode, body: serde_json::Value) -> (String, ReceivedRequests) {
-        let received = ReceivedRequests::default();
-        let router = axum::Router::new()
-            .fallback(
-                move |State(received): State<ReceivedRequests>, request: Request| {
-                    let body = body.to_string();
-                    async move {
-                        let mut headers: Vec<(String, String)> = request
-                            .headers()
-                            .iter()
-                            .filter(|(name, _value)| name.as_str() != "host")
-                            .map(|(name, value)| {
-                                (
-                                    name.as_str().to_owned(),
-                                    value.to_str().expect("a text header").to_owned(),
-                                )
-                            })
-                            .collect();
-                        headers.sort();
-                        received
-                            .lock()
-                            .expect("not poisoned")
-                            .push(ReceivedRequest {
-                                method: request.method().as_str().to_owned(),
-                                path_and_query: request
-                                    .uri()
-                                    .path_and_query()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_default(),
-                                headers,
-                            });
-                        (status, body)
-                    }
-                },
-            )
-            .with_state(Arc::clone(&received));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("a loopback port");
-        let address = listener.local_addr().expect("the port's address");
-        tokio::spawn(async move { axum::serve(listener, router).await });
-        (format!("http://{address}"), received)
-    }
-
-    fn sign_in(scopes: &[&str]) -> ClaudeAiSignIn {
-        ClaudeAiSignIn {
-            access_token: Zeroizing::new("planted-access-token".to_owned()),
-            scopes: scopes.iter().map(|scope| (*scope).to_owned()).collect(),
-            refresh_token: None,
-            expires_at: None,
-            client_id: None,
-        }
-    }
-
-    fn marks() -> ClaudeOrganizationMarks {
-        ClaudeOrganizationMarks::new(ClaudeSignInReader::with_keychain(
-            CredentialStore::in_memory(),
-        ))
-    }
-
-    // The list is asked for with the line and the whole header set Claude Code sends, its user
-    // agent built from the build's version. Killed by any header dropped, renamed, added or given
-    // another value, and by another path or query.
-    #[tokio::test]
-    async fn the_list_is_asked_for_with_exactly_claude_codes_headers() {
-        let (base, received) = serve_list(StatusCode::OK, json!({ "data": [] })).await;
-
-        let read = marks()
-            .read_list(
-                &base,
-                &sign_in(&["user:inference", "user:mcp_servers"]),
-                "2.1.312",
-            )
-            .await;
-
-        assert!(read.is_some());
-        let expected = ReceivedRequest {
-            method: "GET".to_owned(),
-            path_and_query: "/v1/mcp_servers?limit=1000&include_additional_installs=true"
-                .to_owned(),
-            headers: [
-                ("accept", "application/json, text/plain, */*"),
-                (
-                    "anthropic-mcp-client-capabilities",
-                    "eyJyb290cyI6eyJsaXN0Q2hhbmdlZCI6dHJ1ZX0sImVsaWNpdGF0aW9uIjp7fX0=",
-                ),
-                ("anthropic-beta", "mcp-servers-2025-12-04"),
-                ("anthropic-version", "2023-06-01"),
-                ("authorization", "Bearer planted-access-token"),
-                ("content-type", "application/json"),
-                ("mcp-protocol-version", "2025-11-25"),
-                ("user-agent", "claude-code/2.1.312"),
-            ]
-            .into_iter()
-            .map(|(name, value)| (name.to_owned(), value.to_owned()))
-            .collect(),
-        };
-        assert_eq!(*received.lock().expect("not poisoned"), [expected]);
-    }
-
-    // A token without the list's scope sends nothing. Killed by a read that asks anyway.
-    #[tokio::test]
-    async fn a_token_without_the_lists_scope_sends_no_request() {
-        let (base, received) = serve_list(StatusCode::OK, json!({ "data": [] })).await;
-
-        let read = marks()
-            .read_list(&base, &sign_in(&["user:inference"]), "2.1.312")
-            .await;
-
-        assert!(read.is_none());
-        assert!(received.lock().expect("not poisoned").is_empty());
-    }
-
-    // The list marks a connector row by its normalized id, an `mcprs` entry matching the row's
-    // `mcpsrv` id, a later entry at the same address its sibling, and leaves a connector the list
-    // lacks absent, through the declaration the read hands on. Killed by a raw id compare, and by
-    // `false` where absent belongs.
-    #[tokio::test]
-    async fn the_list_marks_each_connector_by_its_normalized_id() {
-        let (base, _received) = serve_list(
-            StatusCode::OK,
-            json!({ "data": [
-                {
-                    "id": "mcprs_slack",
-                    "url": "https://mcp.slack.example.com/mcp",
-                    "display_name": "Slack",
-                    "enterprise_managed": true
-                },
-                {
-                    "id": "mcpsrv_slack_sibling",
-                    "url": "https://mcp.slack.example.com/mcp/",
-                    "enterprise_managed": false
-                },
-                {
-                    "id": "mcpsrv_notes",
-                    "url": "https://notes.example.com/mcp",
-                    "enterprise_managed": false
-                }
-            ] }),
-        )
-        .await;
-        let read = marks()
-            .read_list(&base, &sign_in(&["user:mcp_servers"]), "2.1.312")
-            .await
-            .expect("the list is read");
-        assert_eq!(read.mark("mcpsrv_slack_sibling"), Some(true));
-        let row = |name: &str, id: &str, url: &str| {
-            json!({
-                "name": name,
-                "status": "connected",
-                "scope": "claudeai",
-                "source": "claudeai",
-                "config": { "type": "claudeai-proxy", "url": url, "id": id }
-            })
-        };
-        let answers = ClaudeAccountServerAnswers {
-            mcp_status: Some(
-                to_raw_value(&json!({ "mcpServers": [
-                    row("claude.ai Slack", "mcpsrv_slack", "https://mcp.slack.example.com/mcp"),
-                    row("claude.ai Notes", "mcpsrv_notes", "https://notes.example.com/mcp"),
-                    row("claude.ai Calendar", "mcpsrv_calendar", "https://cal.example.com/mcp"),
-                ] }))
-                .expect("a test reply serializes"),
-            ),
-            settings: None,
-            build_version: Some("2.1.312".to_owned()),
-        };
-        let account = test_provider_account_id();
-
-        let servers = read_claude_account_servers(&account, &answers, Some(&read));
-        let reading = ClaudeMcpConfigReading {
-            user_servers: Vec::new(),
-            plugin_servers: Vec::new(),
-            roots: Vec::new(),
-            server_policy: McpServerPolicy::default(),
-        };
-        let ranking = rank_claude_mcp_servers(&reading, &[servers], false);
-
-        let [account_servers] = ranking.account_servers.as_slice() else {
-            panic!("one account: {:?}", ranking.account_servers);
-        };
-        let mut marked: Vec<(&str, Option<bool>)> = account_servers
-            .declarations
-            .iter()
-            .map(|declaration| {
-                let McpServerBindingRef::Connector { server_name, .. } = &declaration.binding
-                else {
-                    panic!("a connector: {:?}", declaration.binding);
-                };
-                (server_name.as_str(), declaration.organization_managed)
-            })
-            .collect();
-        marked.sort_unstable();
-        assert_eq!(
-            marked,
-            [
-                ("claude.ai Calendar", None),
-                ("claude.ai Notes", Some(false)),
-                ("claude.ai Slack", Some(true)),
-            ]
-        );
-    }
 }

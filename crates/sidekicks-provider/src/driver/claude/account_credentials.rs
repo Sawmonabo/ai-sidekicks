@@ -396,4 +396,46 @@ mod tests {
             "a log line holds the token: {logged}"
         );
     }
+
+    // The keychain item's name: the base name where neither folder is named or the secure-storage
+    // folder is named empty, else suffixed with the first eight hex digits of the SHA-256 of the
+    // secure-storage folder where named, else of the config home, each in NFC. Killed by the salt
+    // taken from the wrong variable, by the suffix dropped, and by a salt read without NFC.
+    #[test]
+    fn the_keychain_service_is_suffixed_by_the_folder_claude_code_salts_with() {
+        let service = |variables: &[(&str, &str)]| {
+            let environment: Vec<(String, String)> = variables
+                .iter()
+                .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                .collect();
+            claude_keychain_service(&environment)
+        };
+        let config_home = ("CLAUDE_CONFIG_DIR", "/accounts/work/.claude");
+
+        assert_eq!(service(&[]), "Claude Code-credentials");
+        assert_eq!(
+            service(&[("CLAUDE_SECURESTORAGE_CONFIG_DIR", ""), config_home]),
+            "Claude Code-credentials"
+        );
+        assert_eq!(service(&[config_home]), "Claude Code-credentials-22d54fbb");
+        assert_eq!(
+            service(&[
+                ("CLAUDE_SECURESTORAGE_CONFIG_DIR", "/accounts/work/secure"),
+                config_home
+            ]),
+            "Claude Code-credentials-c8d32363"
+        );
+        // A decomposed `é` salts as the composed one.
+        assert_eq!(
+            service(&[(
+                "CLAUDE_SECURESTORAGE_CONFIG_DIR",
+                "/accounts/re\u{301}sume\u{301}"
+            )]),
+            "Claude Code-credentials-bdce0c9c"
+        );
+        assert_eq!(
+            service(&[("CLAUDE_CONFIG_DIR", "/accounts/re\u{301}sume\u{301}")]),
+            "Claude Code-credentials-bdce0c9c"
+        );
+    }
 }

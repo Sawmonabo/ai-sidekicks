@@ -164,7 +164,7 @@ interprocess = { version = "2.4.6", features = ["tokio"] }
 jsonschema = { version = "0.58.6", default-features = false }
 percent-encoding = "2.3.2"
 psl = "2.1.241"
-reqwest = { version = "0.13.5", features = ["json", "stream"] }
+reqwest = { version = "0.13.5", features = ["brotli", "deflate", "gzip", "json", "stream"] }
 rmcp = {
   version = "3.7.0",
   features = [
