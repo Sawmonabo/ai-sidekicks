@@ -390,7 +390,6 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
     /// The run setup gate's prepare of the held workspace for `run_id`: a non-blank `tail` makes a
     /// worktree named from it, taking the first free ordinal; none prepares the stored mode. Fails
     /// as [`ExecutionRootService::prepare_held`] does.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the run setup gate"))]
     pub(crate) async fn prepare_for_run_held(
         &self,
         hold: &WorkspacePreparationHold<'_>,
