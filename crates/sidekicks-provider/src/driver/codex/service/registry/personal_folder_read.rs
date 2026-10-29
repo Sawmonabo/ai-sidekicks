@@ -20,25 +20,18 @@ use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket
 use crate::driver::codex::session::errors::CodexError;
 
 /// What a read on the person's own Codex folder is, which decides the service it runs on.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex MCP server read and the machine probe")
-)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PersonalFolderRead {
     /// Codex's config read, which starts no conversation, so any service on the folder serves it.
     Config,
     /// The machine probe, whose throwaway conversation must unload as its connection drops: only
     /// the terminal service, or a transient one that unloads at once.
+    #[cfg_attr(not(test), expect(dead_code, reason = "the Codex machine probe"))]
     Probe,
 }
 
 /// The service one read on the person's own folder runs on, and whether it was started for that
 /// read alone.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the Codex MCP server read and the machine probe")
-)]
 pub(super) struct PersonalFolderService {
     /// The service.
     pub(super) service: Arc<CodexService>,
@@ -52,7 +45,6 @@ impl CodexServiceRegistry {
     /// terminal service while it serves; otherwise a transient service started for the read and
     /// stopped once the read settled and the service is free. Fails as the transient service's
     /// socket cannot be named or its folder made, as the start fails, and as `read` fails.
-    #[expect(dead_code, reason = "the Codex MCP server read and the machine probe")]
     pub(crate) async fn read_on_personal_folder<Answer, Reading>(
         &self,
         purpose: PersonalFolderRead,
@@ -82,10 +74,6 @@ impl CodexServiceRegistry {
 
     // The service `purpose` runs on: one of the daemon's on the folder that fits and serves, else
     // a transient one, made but not started and held among the transient services.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the Codex MCP server read and the machine probe")
-    )]
     pub(super) fn personal_folder_service(
         &self,
         purpose: PersonalFolderRead,
@@ -132,7 +120,6 @@ impl CodexServiceRegistry {
 
     // Stops `service`, a read's transient one, on the driver's tracked tasks once it is free to
     // stop, and forgets it; a shutdown meanwhile ends the wait, the shutdown stopping it.
-    #[expect(dead_code, reason = "the Codex MCP server read and the machine probe")]
     fn retire_transient(&self, service: Arc<CodexService>) {
         let services = Arc::clone(&self.services);
         self.dependencies.tasks.spawn(async move {
@@ -156,7 +143,6 @@ impl CodexServiceRegistry {
 }
 
 // Makes the folder of `service`'s own socket, which Codex listens in.
-#[expect(dead_code, reason = "the Codex MCP server read and the machine probe")]
 fn make_socket_folder(service: &CodexService) -> Result<(), CodexError> {
     let folder = service
         .socket_path()

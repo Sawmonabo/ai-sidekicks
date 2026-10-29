@@ -81,6 +81,7 @@ mod hooks;
 mod input_limit;
 mod intervention;
 mod lifecycle;
+mod mcp;
 mod model_windows;
 mod native_program;
 mod notification_routing;
