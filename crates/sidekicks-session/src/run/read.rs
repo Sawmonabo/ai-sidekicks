@@ -82,6 +82,13 @@ pub struct LiveRun {
     pub(crate) reached_by: Option<ChildRunProvenance>,
 }
 
+impl LiveRun {
+    /// Whether it is a lead run, reached from no other run.
+    pub fn is_lead(&self) -> bool {
+        self.parent_run_id.is_none()
+    }
+}
+
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
 
 // Walks up from the run through each provider subagent to the parent whose process it runs in, and
