@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use sidekicks_contracts::approval::{ApprovalCategory, ApprovalScope};
 use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
+use sidekicks_contracts::mcp::server::{McpServerName, McpToolName};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
@@ -67,9 +68,9 @@ pub struct ApprovalResourceDescriptor {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ToolServerTool {
     /// The server's name.
-    pub(crate) server: String,
+    pub(crate) server: McpServerName,
     /// The tool's name on that server.
-    pub(crate) tool: String,
+    pub(crate) tool: McpToolName,
 }
 
 impl ApprovalResourceDescriptor {

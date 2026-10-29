@@ -121,8 +121,8 @@ impl StepActionAsk for StepAction {
         match self {
             Self::FileWrite { .. } => None,
             Self::McpCall { server, tool, .. } => Some(ToolServerTool {
-                server: server.as_str().to_owned(),
-                tool: tool.as_str().to_owned(),
+                server: server.clone(),
+                tool: tool.clone(),
             }),
         }
     }
