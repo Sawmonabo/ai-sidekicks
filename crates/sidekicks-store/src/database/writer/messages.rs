@@ -122,8 +122,9 @@ pub(crate) struct CommittedBatch {
     pub(crate) outcomes: Vec<WriteJobOutcome>,
     /// The thread's count of the batches that committed a write, this one among them when it did.
     pub(crate) commit_count: u64,
-    /// Why each read run after the batch's commit that failed did, in the reads' order.
-    pub(crate) after_commit_failures: Vec<rusqlite::Error>,
+    /// The name of each read run after the batch's commit that failed and why it did, in the
+    /// reads' order.
+    pub(crate) after_commit_failures: Vec<(&'static str, rusqlite::Error)>,
 }
 
 /// The thread's answer to one batch: the batch once it committed, or why it did not.

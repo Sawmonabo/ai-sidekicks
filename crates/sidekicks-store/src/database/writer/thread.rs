@@ -65,12 +65,16 @@ impl ThreadCommits {
     }
 
     // Counts a batch that committed a write and runs every read after it, a failed one skipping
-    // none after it; answers the reads' failures in order.
-    fn count_commit(&mut self, connection: &Connection) -> Vec<rusqlite::Error> {
+    // none after it; answers each failed read's name and failure in order.
+    fn count_commit(&mut self, connection: &Connection) -> Vec<(&'static str, rusqlite::Error)> {
         self.count += 1;
         self.after_commits
             .iter_mut()
-            .filter_map(|read| read(connection).err())
+            .filter_map(|commit_read| {
+                (commit_read.read)(connection)
+                    .err()
+                    .map(|failure| (commit_read.name, failure))
+            })
             .collect()
     }
 }
