@@ -151,6 +151,7 @@ impl TestHome {
             ),
             stop,
             base_environment: ProviderBaseEnvironment::Given(Arc::from([])),
+            credential_store: TestStoreAccess::new(CredentialStore::in_memory()) as _,
             service_log_files: open_service_log(&data_folder, io::sink()).files(),
         })
         .await

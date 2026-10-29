@@ -40,7 +40,7 @@ use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_platforms::{
     Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
-    read_command_argument_limit, secret_store_offer,
+    read_command_argument_limit,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -55,7 +55,7 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
-use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
+use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::data_folder::lock::DataFolderLock;
 use sidekicks_store::database::connection::writer_open::{
@@ -85,7 +85,9 @@ use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{DatabaseFile, DatabaseFileStart, open_database_file};
 use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, schedule_jobs};
-use crate::daemon::process::method_inputs::{MethodInputsStart, register_method_inputs};
+use crate::daemon::process::method_inputs::{
+    MethodInputsStart, device_id_of, register_method_inputs,
+};
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
@@ -268,6 +270,7 @@ impl DaemonProcess {
             caller_process_reader,
             stop: _,
             base_environment,
+            credential_store,
             service_log_files,
         } = options;
         self.data_folder_lock = Some(data_folder_lock);
@@ -372,6 +375,7 @@ impl DaemonProcess {
             self.work_stop.clone(),
         ))));
         let machine = read_or_mint_local_machine(&reads, &writer, &self.spawner).await?;
+        let machine_device_id = device_id_of(&machine.machine_id)?;
         let wall_clock: Arc<dyn WallClock> =
             Arc::new(WallClockTimer::new().map_err(DaemonStartError::WallClock)?);
         // With no wake heard, a wall-clock job still runs at its instant, only not at once after
@@ -434,9 +438,7 @@ impl DaemonProcess {
             data_folder: data_folder.clone(),
             // The service starts only as the per-user agent or the app's child.
             runs_while_logged_out: false,
-            access: Arc::new(SystemCredentialStore {
-                offer: secret_store_offer(),
-            }),
+            access: credential_store,
             call_timeout: KEYCHAIN_CALL_TIMEOUT,
         })
         .map_err(DaemonStartError::SecretItems)?;
@@ -505,6 +507,7 @@ impl DaemonProcess {
                 providers: &providers,
                 artifacts: &artifacts,
                 machine,
+                machine_device_id: machine_device_id.clone(),
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
                 clock: wall_clock,
@@ -562,7 +565,7 @@ impl DaemonProcess {
         );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
-            device_id: None,
+            device_id: Some(machine_device_id),
             dispatch: gates.dispatch,
             registry,
             negotiator,
