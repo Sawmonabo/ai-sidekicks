@@ -108,6 +108,13 @@ impl PinnedProcess {
         self.stop(grace)
     }
 
+    /// Ends the daemon's process as [`Self::stop`] does, the caller having asked it to stop by the
+    /// program's own means first; a lasting child, which breaks away into a job of its own,
+    /// outlives it.
+    pub fn stop_sparing_lasting_sessions(&self, grace: Duration) -> io::Result<ChildEnd> {
+        self.stop(grace)
+    }
+
     /// Asks the process to end by itself, which Windows has no signal for, so it fails with
     /// `Unsupported`: the caller asks it by the program's own means.
     pub fn hang_up(&self) -> io::Result<bool> {
