@@ -50,6 +50,8 @@ mockall.workspace = true
 rstest.workspace = true
 # The credit gate the list feed's tests read through.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
+# The status tracker the session directory's port is built over in its tests.
+sidekicks-mcp = { workspace = true, features = ["test-support"] }
 # The illegal byte sequence check the tests read.
 sidekicks-platforms = { workspace = true, features = ["test-support"] }
 # The test driver registry, the mock driver, the recorded diagnostics, the runtime binding's test

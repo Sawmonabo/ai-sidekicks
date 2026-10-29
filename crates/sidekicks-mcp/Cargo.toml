@@ -56,7 +56,8 @@ sidekicks-store = { workspace = true, features = ["test-support"] }
 tokio = { workspace = true, features = ["test-util"] }
 
 [features]
-# What other crates' tests use: the notice board's probe notice.
+# What other crates' tests use: the notice board's probe notice and a status tracker over
+# fresh feeds.
 test-support = []
 
 [lints]

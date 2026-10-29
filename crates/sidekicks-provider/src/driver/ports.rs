@@ -37,6 +37,7 @@ use crate::port::session_wake::SessionWaker;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::port::turn_reading_publisher::TurnReadingPublisher;
 use crate::port::usage_sink::UsageSink;
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 
 /// The run queue's intake of a message the provider took into a run's turn.
 pub trait MessageTakenListener: Send + Sync {
@@ -78,14 +79,15 @@ pub trait ProcessGoneListener: Send + Sync {
 pub trait SessionRelaunchListener: Send + Sync {
     /// Opens the event cursor of `binding_id`, which the driver minted for its resume of
     /// `session_id`'s conversation, where the cursor of the session's newest binding stands, before
-    /// the resume runs, so the resumed process can deliver at once; a session with no binding yet
+    /// the resume runs, so the resumed process can deliver at once, and answers the binding's
+    /// function legs, which the driver hands the resumed process; a session with no binding yet
     /// has no cursor to carry on, and nothing opens. Fails when the cursor cannot be opened, and
     /// the driver then does not resume and reports the relaunch failed.
     fn open_relaunch_binding(
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>>;
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
 
     /// Records what `session_id`'s relaunch did: a `Resumed` one's binding row, under the cursor
     /// `open_relaunch_binding` opened, which it does not open again; a `Failed` one forgets that
