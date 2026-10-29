@@ -17,6 +17,7 @@ use crate::wire::integer::{BoundedInt, SafeInt};
 use crate::wire::text::{FreeFormText, NonEmptyText};
 use crate::wire::{Never, NullableSchema, literal, nullable};
 use crate::workflow::definition::document::WorkflowNodeId;
+use crate::workflow::run::id::WorkflowRunId;
 
 ts_constants! {
     /// The longest id an attention entry carries: its own, its moment's, its run's and its source
@@ -164,8 +165,8 @@ macro_rules! attention_item {
             /// operating-system banner in place: `run:<runId>`, `workflowRun:<workflowRunId>`,
             /// `plan:<planId>` or `session:<sessionId>`, and for a Notify step, which is also its
             /// entry's id, `notify:` and 32 hex digits of the BLAKE3 hash of its run, node and
-            /// execution index. Each form fits the 64 bytes a banner's tag and a push's collapse id
-            /// hold.
+            /// execution index. The daemon mints each form within the 64 bytes a banner's tag and a
+            /// push's collapse id hold.
             pub moment_id: AttentionId,
             /// The session.
             pub session_id: SessionId,
@@ -366,17 +367,16 @@ pub struct AttentionBannerSettleRequest {
 /// workflow run in it, sends it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[garde(allow_unvalidated)]
 pub struct AttentionSeenUpdateRequest {
     /// What was seen.
-    #[garde(dive)]
     pub subject: AttentionSeenSubject,
 }
 
 /// What `attention.seen.update` marks seen: a session, or one workflow run in it, which keeps its
 /// own seen fact.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[garde(allow_unvalidated)]
 pub struct AttentionSeenSubject {
     /// The session.
     pub session_id: SessionId,
@@ -386,8 +386,8 @@ pub struct AttentionSeenSubject {
         skip_serializing_if = "Option::is_none",
         deserialize_with = "crate::wire::present"
     )]
-    #[schemars(with = "AttentionId")]
-    pub run_id: Option<AttentionId>,
+    #[schemars(with = "WorkflowRunId")]
+    pub run_id: Option<WorkflowRunId>,
 }
 
 /// The two ways a moment leaves the machine.
@@ -615,12 +615,13 @@ methods! {
             result: EmptyPayload,
             refusals: [],
         },
-        /// Marks a session, or a workflow run in it, seen.
+        /// Marks a session, or a workflow run in it, seen; a run the session does not hold is
+        /// refused `workflow.run.notFound`.
         AttentionSeenUpdate = mutation "attention.seen.update" {
             mutating: true,
             params: AttentionSeenUpdateRequest,
             result: EmptyPayload,
-            refusals: [SessionNotFound],
+            refusals: [SessionNotFound, WorkflowRunNotFound],
         },
         /// What each delivery channel last did.
         AttentionDeliveryList = query "attention.delivery.list" {
