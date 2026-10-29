@@ -22,11 +22,11 @@ use crate::driver::codex::exec_relay::executor::CodexExecutor;
 use crate::driver::codex::exec_relay::terminate_hold::WrapperStop;
 use crate::driver::codex::exec_relay::{CodexExecRelay, RelayedCommand};
 use crate::driver::codex::lifecycle::CodexDriver;
-use crate::driver::codex::lifecycle::intake::call_codex_lifecycle;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::background_terminals::terminate_codex_running_command;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::CodexLifecycleCall;
+use crate::driver::codex::session::lifecycle_call::call_codex_lifecycle;
 use crate::driver::contract::DriverError;
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 

@@ -39,7 +39,7 @@ use crate::run::delivery::LateAppendableRow;
 use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
 use crate::runtime_binding::resume::{ResumeFunctionLegs, compose_resume_session_params};
-use crate::runtime_binding::store::read_binding;
+use crate::runtime_binding::store::{mint_runtime_binding_id, read_binding};
 
 // Real time under a timeout, since the session's task applies each frame on its own task. Two
 // handlers run on each prompt: the opening prompt's second blocks, the first steer
@@ -665,6 +665,7 @@ async fn the_conversations_fixed_start_is_kept_on_its_binding_for_a_resume() {
         live.session_id,
         AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         &binding,
+        mint_runtime_binding_id(),
         FreeFormText::new("gpt-5".to_owned()).expect("a model"),
         None,
         SessionMode::Build,

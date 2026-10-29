@@ -689,7 +689,7 @@ pub(crate) fn create_session_params(session_id: SessionId) -> CreateSessionParam
         subagent_policy: None,
         tool_servers: None,
         output_schema: None,
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         on_mcp_server_status: None,
     }
 }

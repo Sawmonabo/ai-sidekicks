@@ -32,7 +32,8 @@ use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::run::posture::compose_execution_posture;
 use crate::runtime_binding::resume::{ResumeFunctionLegs, compose_resume_session_params};
 use crate::runtime_binding::store::{
-    RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore, read_binding,
+    RuntimeBinding, RuntimeBindingRelaunch, RuntimeBindingStore, mint_runtime_binding_id,
+    read_binding,
 };
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
@@ -60,6 +61,7 @@ fn resume_params(session_id: SessionId, binding: &RuntimeBinding) -> ResumeSessi
         session_id,
         AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
         binding,
+        mint_runtime_binding_id(),
         FreeFormText::new("gpt-5".to_owned()).expect("a model"),
         None,
         SessionMode::Build,

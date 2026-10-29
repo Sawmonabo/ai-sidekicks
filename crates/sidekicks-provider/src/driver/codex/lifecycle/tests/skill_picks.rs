@@ -17,7 +17,8 @@ use super::super::CodexDriver;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::supervisor::test_service::start_scripted_codex_service;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
-use crate::driver::{SessionSpawnContext, SessionSpawnContextResolver};
+use crate::driver::{ProviderAccountFolders, SessionSpawnContext, SessionSpawnContextResolver};
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The folder every session's process starts in.
 const WORKING_DIRECTORY: &str = "/sessions/worktree";
@@ -32,7 +33,7 @@ impl SessionSpawnContextResolver for RunFolderApart {
     fn resolve_spawn_context(
         &self,
         _session_id: SessionId,
-        _provider_account_id: Option<ProviderAccountId>,
+        _provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn std::error::Error + Send + Sync>>> {
         async {
             Ok(SessionSpawnContext {
@@ -40,7 +41,10 @@ impl SessionSpawnContextResolver for RunFolderApart {
                 git_common_folder: None,
                 every_project_rows: Vec::new(),
                 project_rows: Vec::new(),
-                account_folders: None,
+                account_folders: ProviderAccountFolders {
+                    configuration_folder: PathBuf::from(WORKING_DIRECTORY),
+                    credential_store_folder: PathBuf::from(WORKING_DIRECTORY),
+                },
                 step_bound: None,
                 advisor_model: None,
             })
@@ -77,7 +81,7 @@ async fn a_skill_pick_with_no_live_listing_is_read_in_the_run_folder() {
     };
 
     let (picked, ()) = tokio::join!(
-        driver.resolve_skill_picks(new_session_id(), None, vec![pick]),
+        driver.resolve_skill_picks(new_session_id(), test_provider_account_id(), vec![pick]),
         async {
             let sent = scripted.script.next_sent().await;
             assert_eq!(sent["method"], "skills/list", "{sent}");

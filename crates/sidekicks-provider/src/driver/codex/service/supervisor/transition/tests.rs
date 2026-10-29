@@ -234,7 +234,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(dropped(1, 10, true)),
         boxed(started(2, CodexServiceKind::Account)),
     ],
-    "Up { launch: 2, dial: 2, attempt: 0, up for: 0ns, draining: None }",
+    "Up { launch: 2, dial: 2, attempt: 0, up for: 0ns, draining: None, silence: None }",
     &["AdoptStart { launch: 2 }", "ReportRecovered(Crash)", "Publish(Up)"],
 )]
 #[case::a_redial_that_reconnects_reports_its_recovery_before_it_reads_up(
@@ -243,10 +243,10 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Start),
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, false)),
-        boxed(reconnected(2, 20)),
+        boxed(reconnected(3, 20)),
     ],
-    "Up { launch: 1, dial: 2, attempt: 1, up for: 20s, draining: None }",
-    &["AdoptDial { dial: 2 }", "ReportRecovered(Reconnect)", "Publish(Up)"],
+    "Up { launch: 1, dial: 3, attempt: 1, up for: 20s, draining: None, silence: None }",
+    &["ClearSilence", "AdoptDial { dial: 3 }", "ReportRecovered(Reconnect)", "Publish(Up)"],
 )]
 #[case::a_joined_service_whose_process_ended_is_redialed(
     CodexServiceKind::Joined,
@@ -690,8 +690,8 @@ fn a_fifth_silent_end_within_thirty_minutes_leaves_the_service_down() {
             .collect::<Vec<_>>(),
         [
             "ReportSilentEnd { silent_for: 120s }",
-            "ReportCrashLoop(None)",
-            "Publish(CrashLoop)"
+            "Publish(CrashLoop)",
+            "ReportCrashLoop(None)"
         ]
     );
 }
