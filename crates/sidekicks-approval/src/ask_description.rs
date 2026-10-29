@@ -4,10 +4,10 @@
 //!
 //! - A command's subject is its program and, where the word right after it reads as one, its
 //!   first subcommand (`npm run`, `git push`); git's own options are read past to its subcommand.
-//!   Only a line read whole, of one plain command, has one: a rule over a line of several, over the
-//!   string an `sh -c` or `eval` runs, over a command run through another (`sudo`, `env`, `xargs`),
-//!   or over a git command whose options change what it runs, would answer commands the card never
-//!   named.
+//!   Only a line read whole, of one plain command, has one: a rule over a line of several, over a
+//!   program that hands a shell a line (`sh`, `su`, `eval`), with or without one this time, over a
+//!   command run through another (`sudo`, `env`, `xargs`), or over a git command whose options
+//!   change what it runs, would answer commands the card never named.
 //! - A force push or a branch delete, wherever the line runs it, is `destructiveGit` and takes no
 //!   standing allow, and no rule in force answers it: it always reaches the card. So does an ask
 //!   the provider's own safety check flagged.
@@ -24,7 +24,9 @@ use sidekicks_contracts::free_form_string::FILE_PATH_MAX_LEN;
 use sidekicks_contracts::wire::text::{NonEmptyText, TextError, is_ecmascript_whitespace};
 use sidekicks_policy::destructive_git::{read_git_subcommand, runs_destructive_git};
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_policy::shell_commands::{ShellCommand, ShellLineReader, ShellLineReading, WordText};
+use sidekicks_policy::shell_commands::{
+    ShellCommand, ShellLineReader, ShellLineReading, WordText, hands_a_shell_a_line,
+};
 use sidekicks_provider::port::permission_ask::{ProviderAskAction, ProviderPermissionAsk};
 use sidekicks_std::text_cut::cut_to_code_points;
 use tokio::task::JoinError;
@@ -64,10 +66,8 @@ pub(crate) fn describe_provider_ask(
     ask: &ProviderPermissionAsk,
 ) -> Result<ProviderAskDescription, AskDescriptionError> {
     let action = &ask.action;
-    // The category first: its walk rereads the line's `-c` and `eval` strings, which the
-    // subject's walk then takes from the reader's keep.
     let category = category_of(reader, reading, action);
-    let derived_subject = derive_rule_subject(reader, reading, action);
+    let derived_subject = derive_rule_subject(reading, action);
     let tool_name =
         NonEmptyText::new(ask.tool_name.clone()).ok_or(AskDescriptionError::EmptyToolName)?;
     let scope = match bounded_wire_text(&target_text_of(action)) {
@@ -107,7 +107,7 @@ pub(crate) fn may_allow_stand(
     ask: &ProviderPermissionAsk,
 ) -> bool {
     let category = category_of(reader, reading, &ask.action);
-    let subject = derive_rule_subject(reader, reading, &ask.action);
+    let subject = derive_rule_subject(reading, &ask.action);
     may_allow_stand_on(ask, category, subject.as_deref())
 }
 
@@ -115,7 +115,6 @@ pub(crate) fn may_allow_stand(
 /// to a running command, a change to several files, or a line that is not one plain command read
 /// whole. `reading` is as [`describe_provider_ask`] takes it.
 pub(crate) fn derive_rule_subject(
-    reader: &mut ShellLineReader,
     reading: Option<&ShellLineReading>,
     action: &ProviderAskAction,
 ) -> Option<String> {
@@ -124,7 +123,7 @@ pub(crate) fn derive_rule_subject(
             let reading = reading.filter(|reading| reading.is_whole())?;
             let mut commands = reading.commands();
             match (commands.next(), commands.next()) {
-                (Some(only), None) => command_subject_of(reader, only),
+                (Some(only), None) => command_subject_of(only),
                 (None, _) | (Some(_), Some(_)) => None,
             }
         }
@@ -167,11 +166,12 @@ fn may_allow_stand_on(
         && subject.is_some()
 }
 
-fn command_subject_of(reader: &mut ShellLineReader, command: ShellCommand<'_>) -> Option<String> {
-    // A wrapper's name, even one that only describes the command, makes a rule on every program.
+fn command_subject_of(command: ShellCommand<'_>) -> Option<String> {
+    // A wrapper's name, even one that only describes the command, makes a rule on every program,
+    // and a rule on a program that hands a shell a line covers every line it is handed.
     if command.wrappers().next().is_some()
         || command.is_program_a_wrapper()
-        || reader.read_command_string(command).is_some()
+        || hands_a_shell_a_line(command.program())
     {
         return None;
     }
@@ -290,6 +290,9 @@ mod tests {
         None,
         ApprovalCategory::DestructiveGit
     )]
+    // A rule on a program that hands a shell a line would cover its every `-c` line.
+    #[case::shell_of_another_user("su -", None, ApprovalCategory::ToolExecution)]
+    #[case::shell_running_a_file("bash x.sh", None, ApprovalCategory::ToolExecution)]
     #[case::force_push_in_a_shell_string(
         "bash -c 'git push --force origin main'",
         None,
@@ -308,7 +311,7 @@ mod tests {
 
         assert_eq!(category_of(&mut reader, Some(&reading), &action), category);
         assert_eq!(
-            derive_rule_subject(&mut reader, Some(&reading), &action).as_deref(),
+            derive_rule_subject(Some(&reading), &action).as_deref(),
             subject
         );
     }

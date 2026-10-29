@@ -103,13 +103,13 @@ fn holds_destructive_git(
     rereads: &mut Vec<Arc<ShellLineReading>>,
 ) -> bool {
     for command in reading.commands() {
-        match reader.read_command_string(command) {
-            Some(reread) => rereads.push(reread),
-            None => {
-                if is_destructive_git(command) {
-                    return true;
-                }
+        let strings = reader.read_command_strings(command);
+        if strings.is_empty() {
+            if is_destructive_git(command) {
+                return true;
             }
+        } else {
+            rereads.extend(strings);
         }
     }
     false
@@ -245,6 +245,10 @@ mod tests {
     #[case::su_command_string("su -c 'git push --force'", true)]
     #[case::su_command_after_the_long_option("su --command='git push --force'", true)]
     #[case::ksh_value_before_the_command_string("ksh -R f -c 'git push --force'", true)]
+    // The words after su's user go to the shell, whose own `-c` string runs.
+    #[case::shell_string_after_the_user("su root -sc 'git push --force'", true)]
+    // A priority only the run decides is still `chrt`'s priority.
+    #[case::undecided_priority("chrt $P git push --force", true)]
     #[case::dry_run("git push --dry-run origin main", false)]
     #[case::branch_long_option_with_d("git branch --edit-description", false)]
     fn a_line_reads_destructive_git(#[case] line: &str, #[case] is_destructive: bool) {

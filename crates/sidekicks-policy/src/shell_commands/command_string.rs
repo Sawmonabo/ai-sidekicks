@@ -1,4 +1,4 @@
-//! The line a command hands a shell: an `eval`'s words, the string a shell runs with `-c`, or the
+//! The lines a command hands a shell: an `eval`'s words, the string a shell runs with `-c`, or the
 //! command `su` hands the target user's shell; and the line a provider's `<shell> -lc '…'` wrapper
 //! hands its shell.
 
@@ -6,10 +6,12 @@ use std::borrow::Cow;
 
 use super::words::{PositionedByte, WordText, long_option_named, short_option_named};
 
-/// The command line `line` runs when it is a provider's argv joined by `shlex`, one `sh`, `bash`,
-/// `zsh`, `dash`, `ksh` or `eval` handing a shell its whole line, as a provider wraps a command in
-/// `/bin/zsh -lc '…'`; any other line, one with an operator outside the quotes among them, is
-/// returned as it is. No tree is built for the outer line, so no cap applies to it.
+/// The command line `line` runs when it is a provider's argv joined by `shlex`: one `sh`, `bash`,
+/// `zsh`, `dash` or `ksh` handed its whole line in a provider's own form, `-c`, a cluster of `l`
+/// and `c` such as `-lc`, or `-l -c`, as a provider wraps a command in `/bin/zsh -lc '…'`. Any
+/// other line is returned as it is: one with an operator outside the quotes, one with words after
+/// the string, and one whose shell takes any other option, which can run or write a file first.
+/// No tree is built for the outer line, so no cap applies to it.
 pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
     let Some(words) = shlex::split(line) else {
         return Cow::Borrowed(line);
@@ -28,18 +30,39 @@ pub fn unwrap_shell_command_line(line: &str) -> Cow<'_, str> {
     let program = first
         .rsplit_once('/')
         .map_or(first.as_str(), |(_, name)| name);
-    // `su` runs its command as another user, so it is never a provider's wrapper.
-    match shell_line_words(program, rest.iter().map(String::as_str)) {
-        Some(CommandStringWords::Every) => Cow::Owned(rest.join(" ")),
-        Some(CommandStringWords::One {
-            index,
-            skipped_bytes,
-        }) => Cow::Owned(rest[index][skipped_bytes..].to_owned()),
-        None => Cow::Borrowed(line),
+    let is_shell = matches!(
+        shell_line_program(program),
+        Some(ShellLineProgram::Shell(_))
+    );
+    match rest.split_last() {
+        Some((command_line, options)) if is_shell && is_provider_line_form(options) => {
+            Cow::Owned(command_line.clone())
+        }
+        Some(_) | None => Cow::Borrowed(line),
     }
 }
 
-/// Which of a command's argument words make the line it hands a shell.
+// Whether a shell's words before its string are a provider's own: `-c`, one cluster of `l` and
+// `c` with a `c` in it, or `-l -c`.
+fn is_provider_line_form(options: &[String]) -> bool {
+    match options {
+        [cluster] => cluster.strip_prefix('-').is_some_and(|letters| {
+            letters.contains('c') && letters.chars().all(|letter| matches!(letter, 'l' | 'c'))
+        }),
+        [login, line] => login == "-l" && line == "-c",
+        _ => false,
+    }
+}
+
+/// Whether `program` hands a shell a line: `eval`, `su`, or a shell that runs a `-c` string,
+/// whether or not this command's words hand it one, since a rule on the program covers its every
+/// line.
+pub fn hands_a_shell_a_line(program: impl WordText) -> bool {
+    shell_line_program(program).is_some()
+}
+
+/// Which of a command's argument words make a line it hands a shell.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum CommandStringWords {
     /// An `eval`'s words, joined by spaces.
     Every,
@@ -48,15 +71,48 @@ pub(super) enum CommandStringWords {
     One { index: usize, skipped_bytes: usize },
 }
 
-/// The words of `program`'s arguments that make the line it hands a shell, if it hands one.
+/// The words of `program`'s arguments that make each line it hands a shell, none when it hands
+/// none: `su` hands its own command and the target shell's `-c` string both.
 pub(super) fn command_string_words<W: WordText>(
     program: W,
-    argument_words: impl Iterator<Item = W>,
-) -> Option<CommandStringWords> {
-    if program.is("su") {
-        return su_command_string(argument_words);
+    argument_words: impl Iterator<Item = W> + Clone,
+) -> Vec<CommandStringWords> {
+    match shell_line_program(program) {
+        None => Vec::new(),
+        Some(ShellLineProgram::Eval) => vec![CommandStringWords::Every],
+        Some(ShellLineProgram::Su) => su_command_strings(argument_words),
+        Some(ShellLineProgram::Shell(options_with_value)) => {
+            shell_command_string_index(argument_words, options_with_value)
+                .map(|index| CommandStringWords::One {
+                    index,
+                    skipped_bytes: 0,
+                })
+                .into_iter()
+                .collect()
+        }
     }
-    shell_line_words(program, argument_words)
+}
+
+// A program that hands a shell a line, and how its words make it.
+#[derive(Clone, Copy)]
+enum ShellLineProgram {
+    Eval,
+    Su,
+    // A shell with the options of its own that take the next word as their value.
+    Shell(&'static [&'static str]),
+}
+
+fn shell_line_program(program: impl WordText) -> Option<ShellLineProgram> {
+    if program.is("eval") {
+        return Some(ShellLineProgram::Eval);
+    }
+    if program.is("su") {
+        return Some(ShellLineProgram::Su);
+    }
+    COMMAND_STRING_SHELLS
+        .iter()
+        .find(|(shell, _)| program.is(shell))
+        .map(|&(_, options_with_value)| ShellLineProgram::Shell(options_with_value))
 }
 
 // Shells whose `-c`, alone or in a cluster such as `-lc`, runs the first word after the options as
@@ -70,24 +126,6 @@ const COMMAND_STRING_SHELLS: &[(&str, &[&str])] = &[
     ("ksh", &["-R"]),
 ];
 const SHELL_OPTIONS_WITH_VALUE: &[&str] = &["-o", "+o", "-O", "+O", "--rcfile", "--init-file"];
-
-fn shell_line_words<W: WordText>(
-    program: W,
-    argument_words: impl Iterator<Item = W>,
-) -> Option<CommandStringWords> {
-    if program.is("eval") {
-        return Some(CommandStringWords::Every);
-    }
-    let &(_, options_with_value) = COMMAND_STRING_SHELLS
-        .iter()
-        .find(|(shell, _)| program.is(shell))?;
-    shell_command_string_index(argument_words, options_with_value).map(|index| {
-        CommandStringWords::One {
-            index,
-            skipped_bytes: 0,
-        }
-    })
-}
 
 // The command line a shell runs: with `-c` among its short options, the first word after the
 // options; the words after it are the line's own `$0` and arguments.
@@ -144,22 +182,37 @@ const SU_OPTIONS_WITH_VALUE: &[&str] = &[
     "--whitelist-environment",
 ];
 
-// The command `su` hands the target user's shell: the value of its last `-c`, `--command` or
-// `--session-command`, read as `getopt_long` reads su's options. Words that are no option, `-` and
-// the user among them, are passed over, since such an option after the user is su's own, or is
-// handed to the shell, which runs it as its own `-c`.
-fn su_command_string<W: WordText>(
-    argument_words: impl Iterator<Item = W>,
-) -> Option<CommandStringWords> {
+// The lines `su` hands the target user's shell: the value of its last `-c`, `--command` or
+// `--session-command`, read as `getopt_long` reads su's options up to `--`; and the `-c` string
+// the shell itself finds in the words su hands it, those after the user, as macOS's su hands them
+// all, or after `--`.
+fn su_command_strings<W: WordText>(
+    argument_words: impl Iterator<Item = W> + Clone,
+) -> Vec<CommandStringWords> {
     let options = || {
         let commands = SU_COMMAND_OPTIONS.iter().map(|&option| (option, true));
         let valued = SU_OPTIONS_WITH_VALUE.iter().map(|&option| (option, false));
         commands.chain(valued)
     };
     let mut command = None;
-    let mut words = argument_words.enumerate();
+    // Where the words su hands the shell may start.
+    let mut shell_words_from = Vec::new();
+    let mut has_user = false;
+    let mut words = argument_words.clone().enumerate();
     while let Some((index, word)) = words.next() {
-        if !word.starts_with("-") || word.is("-") || word.is("--") {
+        if word.is("--") {
+            // A user not yet named is the word after `--`.
+            shell_words_from.push(index + if has_user { 1 } else { 2 });
+            break;
+        }
+        if word.is("-") {
+            continue;
+        }
+        if !word.starts_with("-") {
+            if !has_user {
+                has_user = true;
+                shell_words_from.push(index + 1);
+            }
             continue;
         }
         let read = if word.starts_with("--") {
@@ -184,5 +237,19 @@ fn su_command_string<W: WordText>(
             command = value;
         }
     }
-    command
+    let mut strings: Vec<CommandStringWords> = command.into_iter().collect();
+    for start in shell_words_from {
+        let Some(index) = shell_command_string_index(argument_words.clone().skip(start), &[])
+        else {
+            continue;
+        };
+        let string = CommandStringWords::One {
+            index: start + index,
+            skipped_bytes: 0,
+        };
+        if !strings.contains(&string) {
+            strings.push(string);
+        }
+    }
+    strings
 }

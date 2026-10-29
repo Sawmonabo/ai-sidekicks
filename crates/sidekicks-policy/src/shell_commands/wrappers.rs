@@ -3,6 +3,7 @@
 
 use std::collections::VecDeque;
 
+use super::is_variable_assignment;
 use super::words::{ShellWord, Word, WordBuilder, WordText, long_option_named, short_option_named};
 
 /// How a program that runs the command after it reads its own words first: its options that take
@@ -26,7 +27,8 @@ pub(super) struct CommandWrapper {
 enum LeadingOperand {
     Absent,
     AnyWord,
-    // A word of digits alone; any other word is the command, as `chrt`'s optional priority is.
+    // A word of digits alone, or one only the run decides; any other word is the command, as
+    // `chrt`'s optional priority is.
     Digits,
 }
 
@@ -57,9 +59,9 @@ pub(super) enum WrapperRead {
     /// The command's program is the next word left, if any.
     CommandFollows,
     /// The wrapper itself is the program and the words left are its arguments: one of its
-    /// options runs no command, env refuses its split string, or a word only the run decides
-    /// stands where the wrapper reads an option that may take a value, or where a split string's
-    /// word is read.
+    /// options runs no command, env refuses its split string or has split as much as the line
+    /// holds, or a word only the run decides stands where the wrapper reads an option that may
+    /// take a value, or where a split string's word is read.
     WrapperIsProgram,
 }
 
@@ -205,6 +207,10 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
             "--other-user",
             "-R",
             "--chroot",
+            "-a",
+            "--auth-type",
+            "-c",
+            "--login-class",
         ]),
     ),
     ("doas", CommandWrapper::new(&["-a", "-C", "-u"])),
@@ -220,6 +226,7 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
                 "--max-args",
                 "-P",
                 "--max-procs",
+                "--process-slot-var",
                 "-s",
                 "--max-chars",
                 "-d",
@@ -304,19 +311,28 @@ pub(super) fn command_wrapper(program: ShellWord<'_>) -> Option<CommandWrapper> 
 /// Takes a wrapper's own words off the front of `pending`: its options, an option's value and its
 /// leading operand. `env -S` puts the words its value splits into in their place, whether the value
 /// is the next word or attached, as in `-S'…'`, `-vS'…'` or `--split-string=…`, and reads them
-/// again as its own arguments.
+/// again as its own arguments, assignments among them. Sets `has_undecided_wrapper_word` when a
+/// word taken off is one only the run decides, which bash can split into an option or a program.
 pub(super) fn take_wrapper_words(
     builder: &mut WordBuilder<'_>,
     wrapper: CommandWrapper,
     pending: &mut VecDeque<Word>,
+    has_undecided_wrapper_word: &mut bool,
 ) -> WrapperRead {
     let mut words = WrapperWords {
         pending,
         split_words: 0,
+        has_undecided_word: has_undecided_wrapper_word,
     };
     let mut have_options_ended = false;
     while let Some(word) = words.front() {
         let view = builder.view(word);
+        // env reads a split string's assignments before its program, and no option after one.
+        if words.is_front_split() && is_variable_assignment(view) {
+            words.pop_front();
+            have_options_ended = true;
+            continue;
+        }
         let is_option = !have_options_ended
             && view.starts_with("-")
             && (!view.is("-") || wrapper.is_lone_dash_an_option);
@@ -328,7 +344,7 @@ pub(super) fn take_wrapper_words(
                 break;
             }
             // A letter an expansion makes is no option of the wrapper's this read can name.
-            words.pop_front();
+            words.pass_over(builder);
             continue;
         }
         if !is_option {
@@ -353,13 +369,13 @@ pub(super) fn take_wrapper_words(
         words.pop_front();
         if !splits {
             if attached_from.is_none() {
-                words.pop_front();
+                words.pass_over(builder);
             }
             continue;
         }
         let value = match attached_from {
             Some(bytes) => builder.word_after(word, bytes),
-            None => words.pop_front(),
+            None => words.pass_over(builder),
         };
         let Some(value) = value else {
             continue;
@@ -374,19 +390,22 @@ pub(super) fn take_wrapper_words(
         LeadingOperand::AnyWord => true,
         LeadingOperand::Digits => words.front().is_some_and(|word| {
             let view = builder.view(word);
-            view.is_decided() && view.len() > 0 && view.chars().all(|digit| digit.is_ascii_digit())
+            !view.is_decided()
+                || (view.len() > 0 && view.chars().all(|digit| digit.is_ascii_digit()))
         }),
     };
     if takes_operand {
-        words.pop_front();
+        words.pass_over(builder);
     }
     WrapperRead::CommandFollows
 }
 
-// The words left of a command, and how many at their front a split string made.
+// The words left of a command, how many at their front a split string made, and whether a word
+// taken off as the wrapper's own was one only the run decides.
 struct WrapperWords<'p> {
     pending: &'p mut VecDeque<Word>,
     split_words: usize,
+    has_undecided_word: &'p mut bool,
 }
 
 impl WrapperWords<'_> {
@@ -397,6 +416,14 @@ impl WrapperWords<'_> {
     fn pop_front(&mut self) -> Option<Word> {
         self.split_words = self.split_words.saturating_sub(1);
         self.pending.pop_front()
+    }
+
+    // Takes off a word the read passes over unread: an option's value, an operand, or an option
+    // an expansion makes.
+    fn pass_over(&mut self, builder: &WordBuilder<'_>) -> Option<Word> {
+        let word = self.pop_front()?;
+        *self.has_undecided_word |= !builder.view(word).is_decided();
+        Some(word)
     }
 
     fn push_split(&mut self, split_words: Vec<Word>) {

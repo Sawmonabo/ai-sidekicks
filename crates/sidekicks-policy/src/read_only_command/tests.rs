@@ -82,6 +82,19 @@ const LIMIT: usize = 64 * 1024;
 #[case::errors_to_output("rg x 2>&1", true)]
 #[case::cd_and_list("cd sub && ls", true)]
 #[case::wrapped_reader("/bin/zsh -lc 'git diff --stat'", true)]
+// Only a provider's own `-c`, `-lc` or `-l -c` form is taken off, its argv joined as `shlex` joins
+// it; a shell given any other word can write or run a file first, and is no listed program.
+#[case::login_line_of_zsh("/bin/zsh -lc 'ls -la'", true)]
+#[case::login_line_of_bash("/bin/bash -lc 'ls -la'", true)]
+#[case::line_of_sh("/bin/sh -c 'ls -la'", true)]
+#[case::login_option_apart("zsh -l -c ls", true)]
+#[case::cross_reference_file_of_ksh("ksh -R f -c ls", false)]
+#[case::startup_file_of_bash("bash -i --rcfile f -c ls", false)]
+#[case::words_after_the_string("bash -c ls x", false)]
+// Bash splits a wrapper's own word that only the run decides, so with `x='p rm'` it runs `rm ls`.
+#[case::undecided_option_of_a_wrapper("command -$x ls", false)]
+#[case::undecided_operand_of_a_wrapper("timeout $t ls", false)]
+#[case::undecided_value_of_a_wrapper("nice -n $n ls", false)]
 #[case::time_keyword("time ls", true)]
 // A primary's value that starts with `-` is no primary.
 #[case::find_value_with_a_dash("find . -mtime -7", true)]

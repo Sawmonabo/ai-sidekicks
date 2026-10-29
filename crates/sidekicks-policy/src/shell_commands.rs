@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use tree_sitter::{Node, Parser};
 
-pub use self::command_string::unwrap_shell_command_line;
 use self::command_string::{CommandStringWords, command_string_words};
+pub use self::command_string::{hands_a_shell_a_line, unwrap_shell_command_line};
 use self::words::{
     BytePositions, JoinedWords, Piece, PieceTexts, ShellText, Word, WordBuilder, node_text, offset,
 };
@@ -49,13 +49,15 @@ struct LineEffects {
 }
 
 // A command's words in the reading, by index: wrappers from `first` to `program`, then the
-// program, then its arguments up to `end`; and whether a folder named the program or a wrapper.
+// program, then its arguments up to `end`; whether a folder named the program or a wrapper; and
+// whether a wrapper's read passed over a word of its own that only the run decides.
 #[derive(Clone, Copy)]
 struct CommandEntry {
     first: u32,
     program: u32,
     end: u32,
     is_named_by_path: bool,
+    has_undecided_wrapper_word: bool,
 }
 
 impl ShellLineReading {
@@ -150,7 +152,7 @@ impl<'r> ShellCommand<'r> {
     }
 
     /// The words after the program.
-    pub fn argument_words(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
+    pub fn argument_words(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> + Clone {
         (self.entry.program + 1..self.entry.end).map(move |index| self.reading.word(index))
     }
 
@@ -161,7 +163,8 @@ impl<'r> ShellCommand<'r> {
 
     /// Whether the program is a wrapper's name, as it is when one of the wrapper's options runs no
     /// command, as `command -v` does, when its own words leave no command after them, as `sudo -s`
-    /// does, which runs a shell, or when a word only the run decides stops the read of its words.
+    /// does, which runs a shell, when env refuses its split string or has split as much as the
+    /// line holds, or when a word only the run decides stops the read of its words.
     pub fn is_program_a_wrapper(self) -> bool {
         command_wrapper(self.program()).is_some()
     }
@@ -172,25 +175,30 @@ impl<'r> ShellCommand<'r> {
         self.entry.is_named_by_path
     }
 
-    // The words this command hands a shell as its line: an `eval`'s words, the string a shell
-    // runs with `-c`, or the command `su` hands one.
-    fn command_string(self) -> Option<JoinedWords<'r>> {
+    /// Whether a wrapper's read passed over an option, a value or an operand of its own that only
+    /// the run decides, as in `timeout $t ls`: bash splits such a word, and any piece of it can be
+    /// an option of the wrapper's or the program it runs.
+    pub(crate) fn has_undecided_wrapper_word(self) -> bool {
+        self.entry.has_undecided_wrapper_word
+    }
+
+    // The words this command hands a shell as each of its lines: an `eval`'s words, the string a
+    // shell runs with `-c`, or a command `su` hands one.
+    fn command_strings(self) -> impl Iterator<Item = JoinedWords<'r>> {
         let reading = self.reading;
         let arguments = &reading.words[self.entry.program as usize + 1..self.entry.end as usize];
-        let (words, skipped_bytes) =
-            match command_string_words(self.program(), self.argument_words())? {
-                CommandStringWords::Every => (arguments, 0),
-                CommandStringWords::One {
-                    index,
-                    skipped_bytes,
-                } => (&arguments[index..=index], skipped_bytes),
-            };
-        Some(JoinedWords::new(
-            reading.texts(),
-            &reading.pieces,
-            words,
-            skipped_bytes,
-        ))
+        command_string_words(self.program(), self.argument_words())
+            .into_iter()
+            .map(move |string| {
+                let (words, skipped_bytes) = match string {
+                    CommandStringWords::Every => (arguments, 0),
+                    CommandStringWords::One {
+                        index,
+                        skipped_bytes,
+                    } => (&arguments[index..=index], skipped_bytes),
+                };
+                JoinedWords::new(reading.texts(), &reading.pieces, words, skipped_bytes)
+            })
     }
 }
 
@@ -232,14 +240,17 @@ impl ShellLineReader {
         self.read_text(line)
     }
 
-    /// Reads the line `command` hands a shell, an `eval`'s words joined by spaces, the string a
-    /// shell runs with `-c` or the command `su -c` hands one, as `read` reads a line; `None` when
-    /// the command hands a shell none.
-    pub fn read_command_string(
+    /// Reads each line `command` hands a shell, an `eval`'s words joined by spaces, the string a
+    /// shell runs with `-c`, or a command `su` hands one, as `read` reads a line; none when the
+    /// command hands a shell none.
+    pub fn read_command_strings(
         &mut self,
         command: ShellCommand<'_>,
-    ) -> Option<Arc<ShellLineReading>> {
-        command.command_string().map(|text| self.read_text(text))
+    ) -> Vec<Arc<ShellLineReading>> {
+        command
+            .command_strings()
+            .map(|text| self.read_text(text))
+            .collect()
     }
 
     // The length is read first, so a repeat or a string past what is left builds nothing.
@@ -670,6 +681,7 @@ fn resolve_command(
     let first_word = words.len();
     let piece_mark = builder.piece_count();
     let mut is_named_by_path = false;
+    let mut has_undecided_wrapper_word = false;
     loop {
         while pending
             .front()
@@ -685,6 +697,7 @@ fn resolve_command(
                     program: offset(words.len() - 1),
                     end: offset(words.len()),
                     is_named_by_path,
+                    has_undecided_wrapper_word,
                 });
             }
             builder.truncate(piece_mark);
@@ -697,7 +710,7 @@ fn resolve_command(
         words.push(program);
         let is_program = match wrapper {
             Some(wrapper) => matches!(
-                take_wrapper_words(builder, wrapper, pending),
+                take_wrapper_words(builder, wrapper, pending, &mut has_undecided_wrapper_word),
                 WrapperRead::WrapperIsProgram
             ),
             None => true,
@@ -710,6 +723,7 @@ fn resolve_command(
                 program,
                 end: offset(words.len()),
                 is_named_by_path,
+                has_undecided_wrapper_word,
             });
         }
     }

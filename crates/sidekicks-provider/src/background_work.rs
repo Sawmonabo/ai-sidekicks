@@ -97,17 +97,15 @@ fn refusal_in(
     rereads: &mut Vec<Arc<ShellLineReading>>,
 ) -> Option<&'static str> {
     for command in reading.commands() {
-        match reader.read_command_string(command) {
-            Some(reread) => rereads.push(reread),
-            None => {
-                if let Some(refusal) = forms
-                    .providers
-                    .iter()
-                    .find_map(|provider| background_work_refusal(provider, command))
-                {
-                    return Some(refusal);
-                }
-            }
+        let strings = reader.read_command_strings(command);
+        if !strings.is_empty() {
+            rereads.extend(strings);
+        } else if let Some(refusal) = forms
+            .providers
+            .iter()
+            .find_map(|provider| background_work_refusal(provider, command))
+        {
+            return Some(refusal);
         }
     }
     None

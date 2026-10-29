@@ -202,7 +202,7 @@ impl PermissionCheck {
                 AskReading {
                     command_refusal: line
                         .and_then(|line| refuse_background_work(&background_work, reader, line)),
-                    subject: derive_rule_subject(reader, line, &read_ask.action),
+                    subject: derive_rule_subject(line, &read_ask.action),
                     may_allow_stand: may_allow_stand(reader, line, &read_ask),
                     description: describe_provider_ask(reader, line, &read_ask),
                 }

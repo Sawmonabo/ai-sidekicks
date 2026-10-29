@@ -128,6 +128,20 @@ fn assert_unread(reading: &ShellLineReading) {
     vec![command("env", &["git", "push", "-f"], &[])],
     true
 )]
+// A line break outside quotes parts GNU env's words but not macOS env's.
+#[case::split_string_line_break(
+    "env -S'A=1\nx git push --force'",
+    vec![command("env", &[], &[])],
+    true
+)]
+// Splits nested in splits read no more bytes in all than the line holds.
+#[case::split_strings_past_the_line("env -S-S-S-Sx", vec![command("env", &[], &[])], true)]
+// A split string's assignments come before its program, which here only the run decides.
+#[case::undecided_program_after_a_split_assignment(
+    "env -S'A=1 ${P} push'",
+    vec![command("env", &["${P}", "push"], &[])],
+    true
+)]
 #[case::assignments_only("FOO=1 BAR=2", vec![], true)]
 #[case::shell_command_string(
     "bash -lc 'git status'",
@@ -248,7 +262,7 @@ fn reads_the_commands_of_a_line(
     let mut commands = Vec::new();
     for command in reading.commands() {
         commands.push(ReadCommand::from(command));
-        if let Some(command_string) = reader.read_command_string(command) {
+        for command_string in reader.read_command_strings(command) {
             commands.extend(commands_of(&command_string));
         }
     }
@@ -339,14 +353,16 @@ fn a_string_read_again_costs_nothing_and_reads_the_same() {
         .next()
         .expect("the line runs `bash`");
     let inner_reading = reader
-        .read_command_string(shell)
+        .read_command_strings(shell)
+        .pop()
         .expect("`bash -c` runs a string");
     // A string spending what is left of the bound.
     let filler = "x".repeat(2 * LIMIT - line.len() - inner.len());
     assert!(reader.read(&filler).is_whole());
 
     let reread = reader
-        .read_command_string(shell)
+        .read_command_strings(shell)
+        .pop()
         .expect("`bash -c` runs a string");
 
     assert!(Arc::ptr_eq(&reread, &inner_reading));

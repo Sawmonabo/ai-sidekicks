@@ -11,7 +11,8 @@ use crate::shell_commands::{
 /// Whether `line`, a provider's command line, only reads: it reads whole on `reader` after any
 /// `<shell> -lc '…'` wrapper is taken off, holds at most 10,000 characters, writes no file through
 /// a redirect, sets no shell variable, runs no `git` beside a `cd`, and runs only listed programs,
-/// through listed wrappers, each named without a folder, with listed options.
+/// through listed wrappers, each named without a folder and given no word of its own that only the
+/// run decides, with listed options.
 pub fn is_read_only_command(reader: &mut ShellLineReader, line: &str) -> bool {
     if line.chars().nth(MAX_LINE_CHARACTERS).is_some() {
         return false;
@@ -545,10 +546,11 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
 ];
 
 // Whether one simple command only reads: each wrapper and its program listed and named without a
-// folder, since only the system program of a listed name reads, and every option word on the
-// program's closed set.
+// folder, since only the system program of a listed name reads, no wrapper given a word of its own
+// that bash can split into another option or program, and every option word on the program's
+// closed set.
 fn is_reading_command(command: ShellCommand<'_>) -> bool {
-    if command.is_named_by_path() {
+    if command.is_named_by_path() || command.has_undecided_wrapper_word() {
         return false;
     }
     if !command
