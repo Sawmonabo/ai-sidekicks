@@ -336,6 +336,7 @@ mod recorded_events {
         }
 
         /// The counter of each diagnostic recorded, in order.
+        #[cfg(test)]
         pub(crate) fn counters(&self) -> Vec<String> {
             self.fields_where(|_fields| true, "counter")
         }

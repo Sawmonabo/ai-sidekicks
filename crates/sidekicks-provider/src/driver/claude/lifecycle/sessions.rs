@@ -245,14 +245,13 @@ impl ClaudeDriver {
         let live = self
             .composed_parts()
             .and_then(|parts| parts.slots().live_session(params.session_id));
-        let account = match &live {
-            Some(live) => live.admitted_provider_account_id.clone(),
-            None => {
-                let Some(leg) = self.read_session_leg(params.session_id).await? else {
-                    return Ok(None);
-                };
-                leg.spawn_config.provider_account_id
-            }
+        let account = if let Some(live) = &live {
+            live.admitted_provider_account_id.clone()
+        } else {
+            let Some(leg) = self.read_session_leg(params.session_id).await? else {
+                return Ok(None);
+            };
+            leg.spawn_config.provider_account_id
         };
         name_claude_session(
             live.as_deref(),

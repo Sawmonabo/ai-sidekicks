@@ -118,8 +118,8 @@ pub(super) struct StartedService {
 pub(super) struct StartFailure {
     /// Why.
     pub(super) error: CodexError,
-    /// What it launched, if anything.
-    pub(super) process: Option<CodexServiceProcess>,
+    /// What it launched, if anything, boxed so the failure stays small.
+    pub(super) process: Option<Box<CodexServiceProcess>>,
 }
 
 impl From<CodexError> for StartFailure {
@@ -199,7 +199,7 @@ async fn start_relayed_service(
         Ok(_added) => Ok(started),
         Err(error) => Err(StartFailure {
             error,
-            process: started.process,
+            process: started.process.map(Box::new),
         }),
     }
 }
@@ -270,7 +270,10 @@ async fn start_account_service(
             physical_socket,
             is_restart_owed: false,
         }),
-        Err(error) => Err(StartFailure { error, process }),
+        Err(error) => Err(StartFailure {
+            error,
+            process: process.map(Box::new),
+        }),
     }
 }
 

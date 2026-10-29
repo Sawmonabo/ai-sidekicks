@@ -360,12 +360,9 @@ impl ClaudeDriver {
     /// its background work other than commands (a tool server's call, a helper's or a workflow's
     /// task), a side question running, and the wake-ups and jobs its calls keep. A session the
     /// driver holds nothing for answers no hold.
-    pub(crate) async fn idle_sleep_holds(
-        &self,
-        session_id: SessionId,
-    ) -> Result<IdleSleepHolds, DriverError> {
+    pub(crate) fn idle_sleep_holds(&self, session_id: SessionId) -> IdleSleepHolds {
         let Some(parts) = self.composed_parts() else {
-            return Ok(IdleSleepHolds::default());
+            return IdleSleepHolds::default();
         };
         let task_services = &parts.establishment.task_services;
         // Background work holds the session as an open request does: a stop would kill it.
@@ -377,11 +374,11 @@ impl ClaudeDriver {
             .requests
             .open_request_count(session_id)
             .saturating_add(u32::try_from(background_work).unwrap_or(u32::MAX));
-        Ok(parts.establishment.task_services.idle_sleep.holds(
+        parts.establishment.task_services.idle_sleep.holds(
             session_id,
             open_requests,
             Timestamp::now(),
-        ))
+        )
     }
 
     /// Stops the session's process for the idle sleep: its input closes, so Claude Code finishes

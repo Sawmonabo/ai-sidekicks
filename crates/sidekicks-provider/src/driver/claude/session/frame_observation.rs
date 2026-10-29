@@ -210,7 +210,7 @@ impl ClaudeStreamFrameRead {
                 })
             });
         let commands_changed = (frame_kind == "system/commands_changed")
-            .then(|| self.commands.as_ref())
+            .then_some(self.commands.as_ref())
             .flatten()
             .map(|commands| {
                 commands

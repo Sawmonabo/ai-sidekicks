@@ -318,7 +318,10 @@ impl ServiceRunner {
                         at: SystemTime::now(),
                         failure: Arc::new(failure.error),
                     },
-                    parked: Some((launch, Parked::Failed(failure.process))),
+                    parked: Some((
+                        launch,
+                        Parked::Failed(failure.process.map(|process| *process)),
+                    )),
                     exit: None,
                     start_lock: None,
                 },

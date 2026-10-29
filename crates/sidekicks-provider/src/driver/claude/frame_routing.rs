@@ -170,7 +170,7 @@ impl ClaudeFrameRouting {
         let released = band
             .router
             .register_session_thread(provider_session_id.to_owned());
-        self.route_released(band, released);
+        Self::route_released(band, released);
     }
 
     /// Routes one frame of `session_id`'s process and answers what the band read off it. A
@@ -212,7 +212,7 @@ impl ClaudeFrameRouting {
         if let Some(signal) = &observation.subagent_lifecycle
             && signal.signal == ClaudeSubagentSignal::SubagentStart
         {
-            self.register_helper(
+            Self::register_helper(
                 band,
                 session_id,
                 provider_session_id,
@@ -245,7 +245,6 @@ impl ClaudeFrameRouting {
     // Registers a started helper's child thread at a zero usage base and reports its start once;
     // a repeat announcement is recorded and starts nothing.
     fn register_helper(
-        &self,
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
         provider_session_id: &str,
@@ -288,17 +287,13 @@ impl ClaudeFrameRouting {
                 parent_tool_call_id: normalized.parent_tool_use_id,
             });
         }
-        self.route_released(band, released_frames);
+        Self::route_released(band, released_frames);
     }
 
     // Routes again each frame a registration released; what it metered waits for the next
     // frame's routing to carry it, and its rows were a helper's own, which the session's
     // transcript never shows.
-    fn route_released(
-        &self,
-        band: &mut ClaudeSessionRoutingBand,
-        released: Vec<ClaudeRoutableFrame>,
-    ) {
+    fn route_released(band: &mut ClaudeSessionRoutingBand, released: Vec<ClaudeRoutableFrame>) {
         for frame in released {
             let route = band.router.route_frame(&frame, Instant::now());
             let mut released_routed = ClaudeRoutedObservation {

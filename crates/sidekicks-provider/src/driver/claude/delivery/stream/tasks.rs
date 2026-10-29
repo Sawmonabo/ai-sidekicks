@@ -31,6 +31,10 @@ impl ClaudeDeliveryStream {
     /// Takes one task frame of `kind`, read once off `text`: a helper's end moves its child run,
     /// and the frame's command or tool-server task is read on the run that started it, the
     /// helper's child run where a helper started it and `lead` otherwise.
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "only the task frames reach this read, and only a start or an end moves a hold"
+    )]
     pub(super) async fn take_task_frame(
         &self,
         session: &ClaudeSessionStream,

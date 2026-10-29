@@ -439,6 +439,10 @@ impl ClaudeSessionEstablishment {
 
     // The start of a create or resume: the context resolved, the legs and callback tools bound,
     // and the creation figures read beside the spawn.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the claim, the request and each part of the start a create and a resume differ in"
+    )]
     async fn compose_start(
         &self,
         claim: ClaudeSlotClaim,

@@ -509,10 +509,6 @@ pub struct SessionSpawnContext {
     pub step_bound: Option<SafeInt<1>>,
     /// The session's own advisor: `None` where it has none of its own, `Some(None)` where it is
     /// off.
-    #[expect(
-        clippy::option_option,
-        reason = "a session with no advisor of its own differs from one whose advisor is off"
-    )]
     pub advisor_model: Option<Option<String>>,
 }
 

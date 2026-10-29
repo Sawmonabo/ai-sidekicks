@@ -372,6 +372,10 @@ pub trait ProviderDriver: Send + Sync {
 
     /// What `call`, one of the provider's tool calls, does to the agent's task list; `None` for a
     /// call that is not a task-list call, which the transcript shows as a row.
+    #[expect(
+        clippy::elidable_lifetime_names,
+        reason = "the mock the trait derives needs the call's lifetime named"
+    )]
     fn task_list_change<'call>(&self, call: &ToolCallRecord<'call>) -> Option<TaskListChange>;
 
     /// Stops a helper whose own run passed its token limit, alone, while its lead goes on: the

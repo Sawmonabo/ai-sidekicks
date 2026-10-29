@@ -61,6 +61,13 @@ pub(crate) enum ReseedScope {
     /// Only the commands running in the background.
     BackgroundCommands,
     /// Every command.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the Codex attach that seeds the running commands from the provider's full list"
+        )
+    )]
     EveryCommand,
 }
 

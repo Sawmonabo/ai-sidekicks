@@ -12,7 +12,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::command::running_set::takes_no_input;
 use crate::driver::attachments::{compose_message_text, resolve_message_attachments};
 use crate::driver::claude::ClaudeDriver;
 use crate::driver::claude::attachments::compose_claude_attachment_blocks;
@@ -21,7 +20,6 @@ use crate::driver::claude::delivery::dialogs::{ClaudeDialogSession, ClaudeProvid
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
 use crate::driver::claude::delivery::reviewer::compose_claude_override_sentence;
 use crate::driver::claude::delivery::stream::daemon_ends::ClaudeStreamDialogPorts;
-use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::hooks::callbacks::answer_claude_request;
 use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
@@ -50,10 +48,9 @@ use crate::driver::run_control::{
     OverrideDenialParams, PauseRunParams, ResumeRunParams, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
-use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::lenient_json::{lenient_object, read_lenient};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
-use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
+use crate::port::running_command_publisher::RunningCommandParams;
 
 #[derive(Default, serde::Deserialize)]
 struct CancelAsyncMessageReply {
@@ -567,21 +564,6 @@ impl ClaudeDriver {
         self.live_run_controls(params.session_id)?
             .move_command_to_background(&params)
             .await
-    }
-
-    /// Refuses the person's input to a running command: Claude Code's commands take none, so the
-    /// refusal is `agent.command.takesNoInput`.
-    pub(crate) fn write_command_input(
-        &self,
-        params: &WriteCommandInputParams,
-    ) -> Result<(), DriverError> {
-        Err(takes_no_input(&params.command.command_id).into())
-    }
-
-    /// What one of Claude Code's tool calls does to the agent's task list; `None` for a tool that
-    /// is no task-list tool.
-    pub(crate) fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
-        read_claude_task_list_change(call)
     }
 
     /// Stops a helper at its token limit by denying its tool uses from the next on. Fails
