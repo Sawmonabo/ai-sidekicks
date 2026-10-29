@@ -176,8 +176,8 @@ pub struct QuestionsService {
     pub(super) held_or_recorded: tokio::sync::Notify,
 }
 
-/// How a question's record is written: open, waiting for its run, or open where its run reads
-/// running and else waiting for it.
+/// The three ways a question's record is written: open, waiting for its run, or open where its
+/// run reads running and else waiting for it.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum QuestionRecording {
     /// Open.
@@ -225,24 +225,9 @@ impl QuestionsService {
         question: ProviderQuestion,
         answered_by: HeldRequestAnswerer,
     ) -> Result<QuestionId, QuestionError> {
-        self.record_question(question, answered_by, QuestionAskedState::Open)
-            .await
-    }
-
-    /// Records `question` as [`Self::take_question`] does when `state` is open; waiting for its
-    /// run, in a write of its own with the run unmoved, its request kept for the answer. Fails as
-    /// the draft, the move or the write fails.
-    pub(super) async fn record_question(
-        &self,
-        question: ProviderQuestion,
-        answered_by: HeldRequestAnswerer,
-        state: QuestionAskedState,
-    ) -> Result<QuestionId, QuestionError> {
-        let recording = match state {
-            QuestionAskedState::Open => QuestionRecording::Open,
-            QuestionAskedState::WaitingForRun => QuestionRecording::WaitingForRun,
-        };
-        let (question_id, _state) = self.record(question, answered_by, recording).await?;
+        let (question_id, _state) = self
+            .record(question, answered_by, QuestionRecording::Open)
+            .await?;
         Ok(question_id)
     }
 
@@ -298,7 +283,7 @@ impl QuestionsService {
         };
         // Taken before the read of settled holds, which keeps a hold whose record is unwritten.
         if is_agent_waiting || state == QuestionAskedState::WaitingForRun {
-            self.hold_request(question_id, held.clone());
+            self.hold_request(question_id, held);
         }
         let mut recorded = match self.forget_settled_requests().await {
             Ok(()) => {
@@ -315,7 +300,6 @@ impl QuestionsService {
         {
             // The run does not read running, so the question waits for it.
             state = QuestionAskedState::WaitingForRun;
-            self.hold_request(question_id, held);
             recorded = self
                 .write_record(asked(state), session_id, run_id, is_run_moved(state))
                 .await;
