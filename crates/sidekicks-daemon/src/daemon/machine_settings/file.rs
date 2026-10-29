@@ -3,8 +3,10 @@
 //! defaults and is written with them, with nothing for the page to say. A broken file, one that is
 //! not JSON or that the schema refuses, reads as the defaults and is rewritten with them, and the
 //! repair is carried on every reading until the next change is written, so the page can say both
-//! happened. Reads, writes and repairs run one at a time, so a change never interleaves with
-//! another and a new listener's first reading is never older than a change announced after it.
+//! happened. A rewrite that fails still reads as the defaults, its failure logged and no repair
+//! kept, since the settings are known. Reads, writes and repairs run one at a time, so a change
+//! never interleaves with another and a new listener's first reading is never older than a change
+//! announced after it.
 
 use std::error::Error;
 use std::io;
@@ -83,7 +85,8 @@ impl MachineSettingsFile {
     }
 
     /// The file as it stands, with the repair made since the last change, if any. Fails with
-    /// [`MachineSettingsFileError`] when the file cannot be read or rewritten.
+    /// [`MachineSettingsFileError::Read`] when the file cannot be read; a missing or broken file
+    /// whose rewrite fails reads as the defaults.
     pub(crate) async fn read(&self) -> Result<MachineSettingsReading, MachineSettingsFileError> {
         let mut repair = self.repair.lock().await;
         self.read_from_disk(&mut repair).await
@@ -153,7 +156,7 @@ impl MachineSettingsFile {
             Ok(file_text) => file_text,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let settings = MachineSettings::default();
-                self.write(&settings).await?;
+                self.write_defaults(&settings).await;
                 return Ok(reading_of(settings, repair.as_ref()));
             }
             Err(error) => return Err(MachineSettingsFileError::Read(error)),
@@ -166,7 +169,9 @@ impl MachineSettingsFile {
             },
         };
         let settings = MachineSettings::default();
-        self.write(&settings).await?;
+        if !self.write_defaults(&settings).await {
+            return Ok(reading_of(settings, repair.as_ref()));
+        }
         *repair = Some(SettingsFileRepair {
             repaired_at: WireInstant::now(),
             cause,
@@ -174,6 +179,22 @@ impl MachineSettingsFile {
         let reading = reading_of(settings, repair.as_ref());
         self.announce(&reading);
         Ok(reading)
+    }
+
+    // Writes the defaults over a missing or broken file and answers whether it did; a failed write
+    // is logged and fails no read, since the defaults are known.
+    async fn write_defaults(&self, defaults: &MachineSettings) -> bool {
+        match self.write(defaults).await {
+            Ok(()) => true,
+            Err(error) => {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the machine settings file could not be written with the defaults; they are \
+                     read as the settings"
+                );
+                false
+            }
+        }
     }
 
     // A reader sees the old file or the new one, never half of either.
@@ -278,6 +299,30 @@ mod tests {
     };
 
     use super::{MachineSettingsFile, machine_settings_file_path};
+
+    // A missing file whose folder cannot be made reads as the defaults, with no repair claimed.
+    // Killed by failing the read on the rewrite's failure.
+    #[tokio::test]
+    async fn a_missing_file_that_cannot_be_written_reads_as_the_defaults() {
+        let home_folder = tempfile::tempdir().expect("a scratch folder is made");
+        let permissions = std::fs::metadata(home_folder.path())
+            .expect("the scratch folder's metadata reads")
+            .permissions();
+        let mut read_only = permissions.clone();
+        read_only.set_readonly(true);
+        std::fs::set_permissions(home_folder.path(), read_only)
+            .expect("the scratch folder is read-only");
+        let file = MachineSettingsFile::new(machine_settings_file_path(home_folder.path()));
+
+        let reading = file.read().await;
+
+        std::fs::set_permissions(home_folder.path(), permissions)
+            .expect("the permissions are put back");
+        let reading = reading.expect("the missing file reads");
+        assert_eq!(reading.settings, MachineSettings::default());
+        assert_eq!(reading.repair, None);
+        assert!(!machine_settings_file_path(home_folder.path()).exists());
+    }
 
     // A broken file reads as the defaults with its repair until a change is written, and a
     // reader of the watch holds the settings and hears the change. Killed by a watch the
