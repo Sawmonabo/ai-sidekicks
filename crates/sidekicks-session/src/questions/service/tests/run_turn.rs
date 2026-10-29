@@ -1,5 +1,6 @@
 //! A question asked while its run waits on another: recorded at once waiting for the run, opened
-//! only once the run reads running, and canceled with the run's end while it still waits.
+//! only once the run reads running, and canceled with the run's end while it still waits; and a
+//! question its provider withdraws while it waits, or while its record is still being written.
 
 use std::pin::Pin;
 use std::sync::Arc;
@@ -12,6 +13,7 @@ use sidekicks_provider::port::question::{
     ProviderQuestionWithdrawal, QuestionLinePlace, QuestionTurnEnd, ToolServerQuestionAnswer,
     take_question_in_turn,
 };
+use sidekicks_store::events::session::append_lock::SESSION_APPEND_LOCK;
 
 use super::RecordingTaskAnswer;
 use crate::questions::service::HeldRequestAnswerer;
@@ -36,11 +38,22 @@ fn sequence_of(fixture: &Fixture, event_type: &str) -> i64 {
         .expect("the event's sequence reads")
 }
 
-/// Polls `take` until the log records `count` questions; fails the test should the take end
-/// first, as a question taken while its run waited, or 60 s pass.
-async fn drive_until_asked(fixture: &Fixture, count: usize, mut take: Pin<&mut impl Future>) {
+/// Polls `take` until the log records `count` questions and the request `request_id` is held, so
+/// a withdrawal of it finds it; fails the test should the take end first, as a question taken
+/// while its run waited, or 60 s pass.
+async fn drive_until_asked(
+    fixture: &Fixture,
+    count: usize,
+    request_id: &str,
+    mut take: Pin<&mut impl Future>,
+) {
     let asked = async {
-        while fixture.payloads("question.asked").len() < count {
+        while fixture.payloads("question.asked").len() < count
+            || fixture
+                .questions
+                .held_question_of(fixture.session_id, request_id)
+                .is_none()
+        {
             tokio::select! {
                 _ = &mut take => panic!("the question was taken while its run waited"),
                 () = tokio::time::sleep(Duration::from_millis(10)) => {}
@@ -90,7 +103,7 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         std::future::pending(),
     );
     tokio::pin!(second);
-    drive_until_asked(&fixture, 2, second.as_mut()).await;
+    drive_until_asked(&fixture, 2, "request-2", second.as_mut()).await;
     let waiting = asked_id(&fixture, 1);
     assert_eq!(
         fixture.payloads("question.asked")[1]["state"],
@@ -128,7 +141,7 @@ async fn a_question_asked_while_its_run_waits_opens_once_the_first_answer_moves_
         std::future::pending(),
     );
     tokio::pin!(third);
-    drive_until_asked(&fixture, 3, third.as_mut()).await;
+    drive_until_asked(&fixture, 3, "request-3", third.as_mut()).await;
     let (ended, third_end) = bounded(async {
         tokio::join!(
             fixture.engine.transition(
@@ -224,7 +237,7 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once(
         std::future::pending(),
     );
     tokio::pin!(head);
-    drive_until_asked(&fixture, 2, head.as_mut()).await;
+    drive_until_asked(&fixture, 2, "request-2", head.as_mut()).await;
     let mut behind = is_behind_another.then(|| {
         Box::pin(take_question_in_turn(
             &fixture.questions,
@@ -236,7 +249,7 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once(
     });
     let (withdrawn_id, withdrawn) = match behind.as_mut() {
         Some(behind) => {
-            drive_until_asked(&fixture, 3, behind.as_mut()).await;
+            drive_until_asked(&fixture, 3, "request-3", behind.as_mut()).await;
             ("request-3", behind.as_mut())
         }
         None => ("request-2", head.as_mut()),
@@ -266,4 +279,56 @@ async fn a_waiting_question_its_provider_withdraws_ends_its_turn_at_once(
         assert_eq!(fixture.state(asked_id(&fixture, 1)), "waitingForRun");
     }
     assert_eq!(fixture.run_state(), "waitingForInput");
+}
+
+// A withdrawal that lands while its question's record is still being written waits for the record
+// and then cancels the question, moving the run back to `running`, so no question stays open for
+// a request its provider dropped. The session's appends are held so the record stops inside its
+// write. Killed by holding the request only after the record's write, which answers the withdrawal
+// as a request no question holds.
+#[tokio::test]
+async fn a_withdrawal_during_its_questions_record_ends_the_question() {
+    let fixture = Fixture::new().await;
+    let appends_held = SESSION_APPEND_LOCK.acquire(fixture.session_id).await;
+    let held_alone = SESSION_APPEND_LOCK.queue_handle_count(fixture.session_id);
+    let record = fixture.questions.take_question(
+        fixture.question("request-1", json!([choice_page()]), true),
+        HeldRequestAnswerer::Driver,
+    );
+    tokio::pin!(record);
+    bounded(async {
+        tokio::select! {
+            _ = &mut record => panic!("the question was recorded while its appends were held"),
+            () = SESSION_APPEND_LOCK.wait_for_queue_past(fixture.session_id, held_alone) => {}
+        }
+    })
+    .await;
+    let withdrawal = fixture
+        .questions
+        .withdraw_question(ProviderQuestionWithdrawal {
+            session_id: fixture.session_id,
+            request_id: "request-1".to_owned(),
+        });
+    tokio::pin!(withdrawal);
+    assert!(
+        futures::poll!(withdrawal.as_mut()).is_pending(),
+        "the withdrawal waits for the question's record"
+    );
+
+    drop(appends_held);
+    let (recorded, withdrawn) = bounded(async { tokio::join!(record, withdrawal) }).await;
+
+    let question_id = recorded.expect("the question is recorded");
+    withdrawn.expect("the withdrawal is taken");
+    assert_eq!(fixture.state(question_id), "canceled");
+    let canceled = fixture.payloads("question.canceled");
+    assert_eq!(canceled.len(), 1);
+    assert_eq!(canceled[0]["reason"], "withdrawn");
+    assert_eq!(fixture.run_state(), "running");
+    assert!(
+        fixture
+            .questions
+            .held_question_of(fixture.session_id, "request-1")
+            .is_none()
+    );
 }

@@ -86,6 +86,9 @@ pub(super) struct HeldRequest {
     pub(super) request_id: String,
     /// Who sends the answer on.
     pub(super) answered_by: HeldRequestAnswerer,
+    /// Whether its question's record is written; until then a read of the settled questions
+    /// keeps it.
+    pub(super) is_recorded: bool,
 }
 
 /// Who sends a held question's answer to whoever asked it.
@@ -243,7 +246,22 @@ impl QuestionsService {
         let _question_hold = self.question_lock.acquire(question_id).await;
         self.forget_settled_requests().await?;
         let is_waiting_for_run = state == QuestionAskedState::WaitingForRun;
-        if !is_agent_waiting || is_waiting_for_run {
+        let is_held = is_agent_waiting || is_waiting_for_run;
+        // Held before its record's write, so a withdrawal that lands meanwhile finds it, waits on
+        // this question's lock for the record, and settles it.
+        if is_held {
+            self.hold_request(
+                question_id,
+                HeldRequest {
+                    session_id,
+                    run_id,
+                    request_id,
+                    answered_by,
+                    is_recorded: false,
+                },
+            );
+        }
+        let recorded: Result<(), QuestionError> = if !is_agent_waiting || is_waiting_for_run {
             self.appender
                 .append(
                     event,
@@ -252,50 +270,42 @@ impl QuestionsService {
                         ..SessionEventLinkage::default()
                     },
                 )
-                .await?;
-            if is_waiting_for_run {
-                self.hold_request(
-                    question_id,
-                    HeldRequest {
-                        session_id,
-                        run_id,
-                        request_id,
-                        answered_by,
+                .await
+                .map(drop)
+                .map_err(Into::into)
+        } else {
+            self.engine
+                .transition(
+                    RunStateChange {
+                        expected_state: Some(RunState::Running),
+                        ..RunStateChange::new(run_id, RunStateEntry::WaitingForInput)
                     },
-                );
-            }
-            return Ok(question_id);
+                    RunStateChangeCompanions {
+                        statements: vec![insert],
+                        preceding_events: vec![event],
+                        ..RunStateChangeCompanions::default()
+                    },
+                )
+                .await
+                .map(drop)
+                .map_err(Into::into)
+        };
+        if let Err(failure) = recorded {
+            self.forget_held_request(&question_id);
+            return Err(failure);
         }
-        self.engine
-            .transition(
-                RunStateChange {
-                    expected_state: Some(RunState::Running),
-                    ..RunStateChange::new(run_id, RunStateEntry::WaitingForInput)
-                },
-                RunStateChangeCompanions {
-                    statements: vec![insert],
-                    preceding_events: vec![event],
-                    ..RunStateChangeCompanions::default()
-                },
-            )
-            .await?;
-        self.hold_request(
-            question_id,
-            HeldRequest {
-                session_id,
-                run_id,
-                request_id,
-                answered_by,
-            },
-        );
+        if let Some(held) = lock(&self.held_requests).get_mut(&question_id) {
+            held.is_recorded = true;
+        }
         Ok(question_id)
     }
 
     /// Cancels the open question the provider asked under `withdrawal`'s request, in the write
     /// that moves its run back to `running`, or in a write of its own while it waits for its run:
-    /// `interrupted` when the run has an interrupt recorded, else `withdrawn`. A request no open or
-    /// waiting question holds, its question answered or settled by its run's end, is left as it
-    /// is. Fails as the read or the move fails, the question left as it was.
+    /// `interrupted` when the run has an interrupt recorded, else `withdrawn`. A question whose
+    /// record is still being written is canceled once it lands. A request no open or waiting
+    /// question holds, its question answered or settled by its run's end, or its record's write
+    /// failed, is left as it is. Fails as the read or the move fails, the question left as it was.
     pub(crate) async fn withdraw_question(
         &self,
         withdrawal: ProviderQuestionWithdrawal,
@@ -382,9 +392,14 @@ impl QuestionsService {
     }
 
     // Lets go every held request whose question a run's end settled with no word from its driver,
-    // so the map holds only open questions. A request taken after the read is kept.
+    // so the map holds only open questions. A request taken after the read, or whose question's
+    // record is still being written, is kept.
     async fn forget_settled_requests(&self) -> Result<(), QuestionError> {
-        let held: Vec<QuestionId> = lock(&self.held_requests).keys().copied().collect();
+        let held: Vec<QuestionId> = lock(&self.held_requests)
+            .iter()
+            .filter(|(_, held)| held.is_recorded)
+            .map(|(question_id, _)| *question_id)
+            .collect();
         if held.is_empty() {
             return Ok(());
         }
