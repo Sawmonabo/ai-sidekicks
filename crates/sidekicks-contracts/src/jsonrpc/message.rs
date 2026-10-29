@@ -12,7 +12,8 @@ use serde_json::value::RawValue;
 
 use crate::jsonrpc::byte_length::json_utf8_byte_length;
 use crate::jsonrpc::negotiation::CONNECTION_INITIALIZE_METHOD;
-use crate::jsonrpc::refusal::{RefusalCategory, RefusalCode};
+use crate::jsonrpc::refusal::RefusalCode;
+use crate::jsonrpc::refusal::category::RefusalCategory;
 use crate::schema::doc_description;
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire;
