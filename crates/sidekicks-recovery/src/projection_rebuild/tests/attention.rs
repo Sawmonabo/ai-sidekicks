@@ -51,8 +51,8 @@ async fn rebuild(log: &AttentionTestLog) {
 
 // The entries a rebuild writes are the entries the live writes kept: a resolved wait and a lead
 // run's end, both years old, the end seen, under no cut, and a Notify step's entry, which no event
-// raises. Each delivery stands as it was. Killed by a clear that takes deliveries or Notify entries,
-// and by a fold that reads the clock, which would date the rows or cut the old seen end.
+// raises. Each delivery stands as it was. Killed by a clear that takes deliveries or Notify
+// entries, and by a fold that reads the clock, which would date the rows or cut the old seen end.
 #[tokio::test]
 async fn a_rebuild_writes_the_entries_the_live_writes_kept_and_keeps_their_deliveries() {
     let log = AttentionTestLog::new().await;

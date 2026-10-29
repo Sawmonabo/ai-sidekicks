@@ -151,8 +151,9 @@ impl From<AttentionReadError> for HandlerError {
 }
 
 /// The projection `request` asks for, read on `reader` in one snapshot: with no session, every
-/// stored entry and then every provider build the record lists; a session alone, its entries and its aggregate; a session's `session` scope, the
-/// aggregate alone; its `run` scope, that run's entries. Fails with
+/// stored entry and then every provider build the record lists; a session alone, its entries and
+/// its aggregate; a session's `session` scope, the aggregate alone; its `run` scope, that run's
+/// entries. Fails with
 /// [`AttentionReadError::Refused`] (`session.notFound`) for a named session this daemon holds
 /// no row for.
 pub fn read_attention_projection(

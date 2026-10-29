@@ -522,8 +522,8 @@ impl ClaudeInboundRequests {
     }
 
     // A plan the agent proposes is recorded from the ask's own input, Claude Code's `plan` text and
-    // the plan file it wrote beside it; the ask goes on to the approval pipeline and stays held until
-    // answered, so the plan holds its request.
+    // the plan file it wrote beside it; the ask goes on to the approval pipeline and stays held
+    // until answered, so the plan holds its request.
     fn record_plan(&self, session_id: SessionId, run: &ClaudeBoundRun, input: &Map<String, Value>) {
         let Some(text) = input
             .get("plan")

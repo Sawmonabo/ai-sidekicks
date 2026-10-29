@@ -169,7 +169,9 @@ mod tests {
     )]
     #[case::address_without_from_version(
         build_item(
-            &json!({ "provider": "claude", "toVersion": "2.1.294", "releaseNotesAddress": ADDRESS }),
+            &json!({
+                "provider": "claude", "toVersion": "2.1.294", "releaseNotesAddress": ADDRESS,
+            }),
             &json!({}),
         ),
         None
