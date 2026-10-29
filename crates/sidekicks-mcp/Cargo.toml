@@ -7,20 +7,15 @@ description = "The MCP client a session's tool servers are reached through, its 
 license.workspace = true
 publish.workspace = true
 
-[package.metadata.cargo-shear]
-ignored = [
-  # The MCP sign-in's keys, thumbprints and proofs.
-  "jwt-simple",
-  "p256",
-]
-
 [lib]
 doctest = false
 
 [dependencies]
+base64.workspace = true
 blake3.workspace = true
 bytes.workspace = true
 futures.workspace = true
+getrandom.workspace = true
 jwt-simple.workspace = true
 p256.workspace = true
 process-wrap.workspace = true
@@ -28,6 +23,7 @@ reqwest.workspace = true
 rmcp.workspace = true
 rusqlite.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-ipc.workspace = true
 sidekicks-platforms.workspace = true

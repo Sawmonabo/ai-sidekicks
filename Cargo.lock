@@ -8609,9 +8609,11 @@ name = "sidekicks-mcp"
 version = "0.0.0"
 dependencies = [
  "axum",
+ "base64 0.23.1",
  "blake3",
  "bytes",
  "futures",
+ "getrandom 0.4.3",
  "jwt-simple",
  "p256 0.14.0",
  "process-wrap",
@@ -8620,6 +8622,7 @@ dependencies = [
  "rstest",
  "rusqlite",
  "serde_json",
+ "sha2 0.11.1",
  "sidekicks-contracts",
  "sidekicks-ipc",
  "sidekicks-platforms",
