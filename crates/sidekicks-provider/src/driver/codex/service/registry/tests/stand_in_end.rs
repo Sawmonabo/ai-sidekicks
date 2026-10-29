@@ -12,7 +12,8 @@ use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
 use crate::driver::codex::service::supervisor::test_service::StandInLaunches;
 use crate::runtime_binding::test_store::test_provider_account_id;
 
-/// The test the killed test program runs: it launches a lasting stand-in and waits forever.
+/// The test the killed test program runs: it launches a lasting stand-in and waits for its input
+/// to end.
 const LAUNCHING_TEST: &str =
     "driver::codex::service::registry::tests::stand_in_end::a_test_killed_while_its_service_runs";
 
@@ -22,7 +23,8 @@ const LAUNCH_FOLDER_NAME: &str = "SIDEKICKS_TEST_LAUNCH_FOLDER";
 /// The line the launching test writes once its service started.
 const SERVICE_STARTED: &str = "the stand-in service started";
 
-// Launches a lasting stand-in on the folder its killer names, says so and waits to be killed.
+// Launches a lasting stand-in on the folder its killer names, says so and waits until its input
+// ends, which the killer holds open while it runs, so the killer's end by any signal ends it too.
 // Skips unless that test started it.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "run only by the test that kills it"]
@@ -40,7 +42,9 @@ async fn a_test_killed_while_its_service_runs() {
         .await
         .expect("the service starts");
     writeln!(std::io::stdout().lock(), "{SERVICE_STARTED}").expect("the start is told");
-    std::future::pending::<()>().await;
+    tokio::io::copy(&mut tokio::io::stdin(), &mut tokio::io::sink())
+        .await
+        .expect("the input reads");
 }
 
 // Fails when a stand-in Codex service outlives the test program that launched it once that
@@ -64,7 +68,8 @@ async fn a_stand_in_ends_once_the_test_that_launched_it_is_killed() {
         "--nocapture",
     ])
     .env(LAUNCH_FOLDER_NAME, folder.path())
-    .stdin(Stdio::null())
+    // Kept open on `launching` while this test runs; its close ends the launching test.
+    .stdin(Stdio::piped())
     .stdout(Stdio::piped())
     .stderr(Stdio::null())
     .kill_on_drop(true)
