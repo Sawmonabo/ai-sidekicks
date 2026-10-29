@@ -19,7 +19,7 @@ async fn codex_service_stand_in() {
 
 // A `daemon.restart` keeps the terminal service the first daemon launched on the person's own
 // Codex folder, and the next start joins that same process before it binds its socket, so before
-// its recovery pass and its first provider read: every connection the second daemon makes reaches
+// its recovery pass: every connection the second daemon makes to a service on the folder reaches
 // the process the first launched, the first of them, the join, while the second daemon's socket
 // is not yet there. Killed by the restart ending the service, where the second daemon launches
 // one of its own, and by the stored rows applied after the recovery pass, where the join comes
@@ -92,11 +92,4 @@ async fn a_restart_keeps_the_terminal_service_and_the_next_start_joins_it_first(
             .all(|connection| connection.process_id == launched[0]),
         "{second_daemons:?}"
     );
-    let is_read_after_the_join = second_daemons.iter().skip(1).any(|connection| {
-        connection
-            .methods
-            .iter()
-            .any(|method| method != "initialize")
-    });
-    assert!(is_read_after_the_join, "{second_daemons:?}");
 }

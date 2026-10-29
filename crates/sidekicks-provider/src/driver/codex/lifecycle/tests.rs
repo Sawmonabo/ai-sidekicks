@@ -252,7 +252,7 @@ pub(super) fn driver_on_codex_folder(folder: &Path) -> (CodexDriver, DriverServi
         std::fs::create_dir_all(made).expect("a test folder is made");
     }
     // Found first on the search path as Codex's command.
-    write_failing_codex(&programs, None);
+    write_failing_codex(&programs);
     let mut services = test_driver_services();
     services.data_folder = folder.join("data");
     services.home_folder = folder.join("home");

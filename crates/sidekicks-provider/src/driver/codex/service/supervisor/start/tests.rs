@@ -96,7 +96,7 @@ async fn start_terminal_service_on(
     let dependencies = test_codex_service_dependencies(
         folder,
         Arc::new(TestCodexProgram {
-            program: write_failing_codex(folder, None),
+            program: write_failing_codex(folder),
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),

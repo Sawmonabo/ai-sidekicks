@@ -1,41 +1,39 @@
 //! What a test's Codex services run on: their shared dependencies, a program a test names, a
 //! listener's answers as a Codex service gives them, a service whose connection a test scripts, a
 //! service of the daemon's own kind published as up and holding a connection on a
-//! `ScriptedService`, its frames and asks routed as a dialed one's are, a terminal service a
-//! former daemon kept on the person's own folder, which a daemon's start finds again, and the
-//! stand-in Codex service a test program runs as itself.
+//! `ScriptedService`, its frames and asks routed as a dialed one's are, and the stand-in Codex
+//! service a test program runs as itself.
 
 mod stand_in;
 
-use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::Ordering;
-use std::sync::{Arc, Mutex};
 
 use futures::future::BoxFuture;
 use futures::{SinkExt as _, StreamExt as _};
+#[cfg(test)]
 use interprocess::local_socket::tokio::Listener;
-use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
+#[cfg(test)]
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
-    bind_socket_listener, read_recorded_arguments, short_socket_folder, write_stand_in_program,
+    CAN_BIND_A_SOCKET_LISTENER, StandInAnswer, StandInProgram, bind_socket_listener,
+    write_stand_in_program,
 };
-use sidekicks_std::mutex_lock::lock;
+use sidekicks_platforms::{ProgramStart, Spawner};
 use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::data_folder::program_link_folder;
 use tempfile::TempDir;
 use tokio::io::{AsyncRead, AsyncWrite};
 #[cfg(test)]
 use tokio::sync::mpsc;
-use tokio::task::JoinSet;
 #[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_util::task::{AbortOnDropHandle, TaskTracker};
+use tokio_util::task::TaskTracker;
 
 #[cfg(test)]
 pub(crate) use self::stand_in::{CODEX_HOME_NAME, HANG_UP_IGNORED_NAME, LAUNCH_ARGUMENTS_FILE};
@@ -55,7 +53,6 @@ use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
-use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::drain::LastingServiceDrains;
 use crate::driver::codex::service::supervisor::events::{
     CodexServiceEvents, CodexServiceRecoveryCause,
@@ -539,10 +536,10 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
         .dropped("the test dropped the connection");
 }
 
-/// Writes in `folder` a Codex command that prints nothing and exits 1 at every call, each call's
-/// arguments appended to `argument_record` where one is named, which the search path finds as
-/// `codex`, and answers its path. Panics where it cannot be written.
-pub(crate) fn write_failing_codex(folder: &Path, argument_record: Option<PathBuf>) -> PathBuf {
+/// Writes in `folder` a Codex command that prints nothing and exits 1 at every call, which the
+/// search path finds as `codex`, and answers its path. Panics where it cannot be written.
+#[cfg(test)]
+pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
     write_stand_in_program(
         folder,
         "codex",
@@ -551,7 +548,7 @@ pub(crate) fn write_failing_codex(folder: &Path, argument_record: Option<PathBuf
             otherwise: StandInAnswer {
                 standard_output: String::new(),
                 exit_code: 1,
-                argument_record,
+                argument_record: None,
             },
         },
     )
@@ -560,6 +557,7 @@ pub(crate) fn write_failing_codex(folder: &Path, argument_record: Option<PathBuf
 
 /// A listener at `socket`, or `None` where the system binds no local socket listener. Panics
 /// where a bind the system offers fails.
+#[cfg(test)]
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
     CAN_BIND_A_SOCKET_LISTENER
         .then(|| bind_socket_listener(socket).expect("the test's socket listens"))
@@ -597,88 +595,6 @@ where
         .send(Message::Text(message.to_string().into()))
         .await
         .expect("the daemon reads");
-}
-
-/// A terminal service a former daemon kept running on the person's own Codex folder, stood in by a
-/// listener on the folder's own socket that answers as a Codex service, beside a `codex` command
-/// first on the search path that fails at once and records each start: a test reads whether a
-/// daemon launched a service of its own and, connection by connection, what it asked the kept one.
-pub struct KeptTerminalService {
-    codex_home: PathBuf,
-    programs_folder: PathBuf,
-    launch_record: PathBuf,
-    asked: Arc<Mutex<Vec<Vec<String>>>>,
-    _answering: AbortOnDropHandle<()>,
-    _folder: TempDir,
-}
-
-impl KeptTerminalService {
-    /// The environment a daemon's providers start in to take this folder as the person's own
-    /// Codex folder and the recording command as their `codex`.
-    pub fn provider_environment(&self) -> Vec<(String, String)> {
-        codex_folder_environment(&self.codex_home, &self.programs_folder)
-    }
-
-    /// Each connection the kept service answered, in the order of its first request, as the
-    /// methods asked on it in order.
-    pub fn connections(&self) -> Vec<Vec<String>> {
-        lock(&self.asked).clone()
-    }
-
-    /// The arguments of every start of the `codex` command, one after another: empty while no
-    /// service of the daemon's own was launched. Panics where the record cannot be read.
-    pub fn launch_arguments(&self) -> Vec<String> {
-        match read_recorded_arguments(&self.launch_record) {
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
-            read => read.expect("the launch record reads"),
-        }
-    }
-}
-
-/// Keeps a terminal service on a new person's own Codex folder, answering until it drops, or
-/// `None` where the system binds no local socket listener. Must be called within a runtime.
-/// Panics where its folder, its command or its listener cannot be made.
-pub fn keep_terminal_service() -> Option<KeptTerminalService> {
-    let folder = short_socket_folder().expect("a scratch folder is made");
-    let codex_home = folder.path().join("c");
-    let programs_folder = folder.path().join("bin");
-    let launch_record = folder.path().join("launches");
-    let socket = home_socket_path(&codex_home);
-    std::fs::create_dir_all(socket.parent().expect("the socket sits in its folder"))
-        .expect("the Codex folder is made");
-    let listener = bind_test_listener(&socket)?;
-    std::fs::create_dir(&programs_folder).expect("the programs folder is made");
-    write_failing_codex(&programs_folder, Some(launch_record.clone()));
-    let asked = Arc::default();
-    Some(KeptTerminalService {
-        codex_home,
-        programs_folder,
-        launch_record,
-        _answering: AbortOnDropHandle::new(tokio::spawn(answer_kept_connections(
-            listener,
-            Arc::clone(&asked),
-        ))),
-        asked,
-        _folder: folder,
-    })
-}
-
-// Answers each connection on `listener` as a Codex service, recording in `asked` the methods each
-// asked; every connection's answering ends with this one.
-async fn answer_kept_connections(listener: Listener, asked: Arc<Mutex<Vec<Vec<String>>>>) {
-    let mut answering = JoinSet::new();
-    while let Ok(stream) = listener.accept().await {
-        let asked = Arc::clone(&asked);
-        let mut connection = None;
-        answering.spawn(answer_as_codex_service(stream, move |method| {
-            let mut asked = lock(&asked);
-            let index = *connection.get_or_insert_with(|| {
-                asked.push(Vec::new());
-                asked.len() - 1
-            });
-            asked[index].push(method.to_owned());
-        }));
-    }
 }
 
 // The environment a daemon's providers start in to take `codex_home` as the person's own Codex

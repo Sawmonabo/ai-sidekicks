@@ -53,7 +53,7 @@ const EXECUTOR_OUTPUT: &str = "/dev/fd/3";
 // The address Codex's executor listens on, its standard input and output.
 const EXECUTOR_LISTEN_ADDRESS: &str = "stdio";
 
-// The file a stand-in's script adds each service start's process to, one to a line.
+// The file a stand-in's script adds each service start's process and Codex home to, one to a line.
 const LAUNCHES_FILE: &str = "codex-launches";
 
 // The file a stand-in's requests are recorded in, one line each.
@@ -61,7 +61,7 @@ const CONNECTIONS_FILE: &str = "codex-connections";
 
 /// Writes in `folder` the `codex` script a stand-in service starts through and answers its path:
 /// it keeps its arguments in [`LAUNCH_ARGUMENTS_FILE`], adds each start of a service listening on a
-/// socket to its launches, names its record of requests and, where `daemon_socket` is given, the
+/// socket to its launches with its Codex home, names its record of requests and, where `daemon_socket` is given, the
 /// socket whose presence it records, has the program ignore the hang-up where its environment
 /// asks, keeps its own standard output as [`EXECUTOR_OUTPUT`] for an executor's answers, and runs
 /// this test program's `stand_in_test`, whose own output goes nowhere. Panics where it cannot be
@@ -83,7 +83,8 @@ pub fn write_codex_service_script(
         "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\n\
          while [ \"$#\" -gt 0 ]; do\n  if [ \"$1\" = --listen ]; then \
          {LISTEN_ADDRESS_NAME}=\"$2\"; export {LISTEN_ADDRESS_NAME}; fi\n  shift\ndone\n\
-         case \"${LISTEN_ADDRESS_NAME}\" in unix://*) printf '%s\\n' \"$$\" >> '{}';; esac\n\
+         case \"${LISTEN_ADDRESS_NAME}\" in unix://*) \
+         printf '%s\\t%s\\n' \"$$\" \"${CODEX_HOME_NAME}\" >> '{}';; esac\n\
          {CONNECTION_RECORD_NAME}='{}'; export {CONNECTION_RECORD_NAME}\n{daemon_socket}\
          if [ -n \"${HANG_UP_IGNORED_NAME}\" ]; then trap '' HUP; fi\n\
          exec 3>&1\n\
@@ -226,15 +227,22 @@ impl CodexServiceStandIn {
         codex_folder_environment(&self.codex_home, &self.programs_folder)
     }
 
-    /// The process of every service start, in order: one entry per service launched. Panics where
-    /// the record cannot be read.
+    /// The process of every start of a service on the person's own Codex folder, in order: one
+    /// entry per service launched there. Panics where the record cannot be read.
     pub fn launches(&self) -> Vec<u32> {
-        self.read_launches().expect("the launches read")
+        let codex_home = self.codex_home.display().to_string();
+        self.read_launches()
+            .expect("the launches read")
+            .into_iter()
+            .filter(|(_, home)| *home == codex_home)
+            .map(|(process_id, _)| process_id)
+            .collect()
     }
 
-    /// Each connection a started service answered, in the order of its first request. Panics
-    /// where the record cannot be read.
+    /// Each connection a service on the person's own Codex folder answered, in the order of its
+    /// first request. Panics where the record cannot be read.
     pub fn connections(&self) -> Vec<StandInConnection> {
+        let launches = self.launches();
         let lines = match std::fs::read_to_string(self.programs_folder.join(CONNECTIONS_FILE)) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
             read => read.expect("the connections read"),
@@ -267,18 +275,25 @@ impl CodexServiceStandIn {
         connections
             .into_iter()
             .map(|(_, connection)| connection)
+            .filter(|connection| launches.contains(&connection.process_id))
             .collect()
     }
 
-    // The process of every service start, none while no service was launched.
-    fn read_launches(&self) -> io::Result<Vec<u32>> {
+    // The process and Codex home of every service start, none while no service was launched.
+    fn read_launches(&self) -> io::Result<Vec<(u32, String)>> {
         let lines = match std::fs::read_to_string(self.programs_folder.join(LAUNCHES_FILE)) {
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             read => read?,
         };
         lines
             .lines()
-            .map(|line| line.parse().map_err(io::Error::other))
+            .map(|line| {
+                let (process_id, home) = line.split_once('\t').ok_or_else(|| {
+                    io::Error::other("a launch's line holds its process and home")
+                })?;
+                let process_id = process_id.parse().map_err(io::Error::other)?;
+                Ok((process_id, home.to_owned()))
+            })
             .collect()
     }
 }
@@ -288,7 +303,7 @@ impl Drop for CodexServiceStandIn {
     // here; one already gone has nothing to end.
     fn drop(&mut self) {
         let ended = self.read_launches().and_then(|launches| {
-            for process_id in launches {
+            for (process_id, _) in launches {
                 if let Some(process) = pin_running_process(process_id)? {
                     process.kill()?;
                 }
