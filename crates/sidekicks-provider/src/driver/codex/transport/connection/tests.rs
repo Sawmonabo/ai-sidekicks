@@ -21,7 +21,6 @@ use crate::driver::codex::server_requests::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::contract::error::DriverError;
-use crate::driver::error_causes::RequestUnanswered;
 
 #[derive(Default)]
 struct RecordedEvents {
@@ -243,10 +242,10 @@ fn assert_unanswered(error: CodexError, code: RefusalCode) {
         panic!("the request ended as {error:?}");
     };
     assert_eq!(method, "thread/read");
-    let DriverError::Unanswered(RequestUnanswered { refusal }) = DriverError::from(error) else {
+    let DriverError::Unanswered(unanswered) = DriverError::from(error) else {
         panic!("the driver error is not unanswered");
     };
-    assert_eq!(refusal.code, code);
+    assert_eq!(unanswered.refusal.code, code);
 }
 
 // Kills: the overloaded or draining answer left on the `Internal` arm, or the connection closed on

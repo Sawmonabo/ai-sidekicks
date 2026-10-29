@@ -181,7 +181,7 @@ impl From<ClaudeEstablishmentError> for DriverError {
         match error {
             ClaudeEstablishmentError::Session(error) => error.into(),
             ClaudeEstablishmentError::Launch(error) => error.into(),
-            ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::Refused(refusal),
+            ClaudeEstablishmentError::LevelNotOffered(refusal) => Self::from(refusal),
             error @ (ClaudeEstablishmentError::Context(_)
             | ClaudeEstablishmentError::Legs(_)
             | ClaudeEstablishmentError::SessionRules(_)

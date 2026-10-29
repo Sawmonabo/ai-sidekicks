@@ -367,7 +367,7 @@ impl CodexModelCatalogReader {
     // The whole catalog's fault, naming the row, the cursor or the counts in `detail`, which is
     // bounded, since a cursor or an id is the service's own text.
     fn unreadable(&self, detail: &str) -> DriverError {
-        DriverError::ModelCatalogUnreadable(ModelCatalogUnreadable {
+        DriverError::from(ModelCatalogUnreadable {
             provider: self.provider.clone(),
             reply_name: CODEX_MODEL_LIST_METHOD,
             detail: bound_failure_detail(detail, CATALOG_FAULT_FALLBACK.clone()),

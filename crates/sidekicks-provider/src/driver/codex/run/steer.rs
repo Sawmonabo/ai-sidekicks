@@ -201,7 +201,7 @@ fn read_steer_failure(run_id: RunId, error: CodexError) -> DriverError {
     if is_steer_turn_gone(&error) {
         return SteerTurnEndedError { run_id }.into();
     }
-    message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::Refused)
+    message_too_large_refusal(&error).map_or_else(|| error.into(), DriverError::from)
 }
 
 /// Takes back a steer Codex did not take, on the session's task: it is no longer waited for on

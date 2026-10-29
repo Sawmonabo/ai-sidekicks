@@ -635,7 +635,7 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
     let ended_process = Arc::clone(&service);
     let fixture = Fixture::new(
         driver_answering(&calls, move |call| match (call, first) {
-            (0, FirstAnswer::Refused) => Err(DriverError::Refused(DomainError::new(
+            (0, FirstAnswer::Refused) => Err(DriverError::from(DomainError::new(
                 "the provider refused",
                 RefusalCode::ProviderUnavailable,
             ))),

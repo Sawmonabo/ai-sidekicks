@@ -351,9 +351,7 @@ impl ClaudeSessionRestarts {
             match self.standing(session_id) {
                 ClaudeSessionStanding::Live(_) => return Ok(()),
                 ClaudeSessionStanding::Down => {
-                    return Err(DriverError::Refused(session_process_unavailable(
-                        session_id,
-                    )));
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
                 }
                 ClaudeSessionStanding::Held { left, .. } => {
                     left.wait().await;

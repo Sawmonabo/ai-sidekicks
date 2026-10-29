@@ -752,7 +752,7 @@ async fn read_pending_dialogs(
 
 // An answer whose write may have reached Claude Code and that nothing settled.
 fn unanswered_write(cause: io::Error) -> DriverError {
-    DriverError::Unanswered(RequestUnanswered {
+    DriverError::from(RequestUnanswered {
         refusal: provider_failure_refusal(
             &DESCRIPTOR.provider_id(),
             "The Claude Code process may not have read the answer",

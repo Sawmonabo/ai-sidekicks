@@ -32,10 +32,10 @@ pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
 pub enum DriverError {
     /// A refusal a client reads by its code.
     #[error(transparent)]
-    Refused(#[from] DomainError),
+    Refused(Box<DomainError>),
     /// The request went out and no answer came, so the provider may still act on it.
     #[error(transparent)]
-    Unanswered(RequestUnanswered),
+    Unanswered(Box<RequestUnanswered>),
     /// The turn a steer or a waiting continue was handed for ended before the message was sent.
     #[error(transparent)]
     SteerTurnEnded(#[from] SteerTurnEndedError),
@@ -47,13 +47,13 @@ pub enum DriverError {
     CapabilityProbe(#[source] CapabilityProbeError),
     /// The configured provider command names no runnable build.
     #[error(transparent)]
-    ExecutableUnresolvable(ExecutableUnresolvable),
+    ExecutableUnresolvable(Box<ExecutableUnresolvable>),
     /// The provider's model catalog reply could not be read, so no catalog is declared from it.
     #[error(transparent)]
-    ModelCatalogUnreadable(ModelCatalogUnreadable),
+    ModelCatalogUnreadable(Box<ModelCatalogUnreadable>),
     /// A provider axis the request set holds a value the provider does not offer now.
     #[error(transparent)]
-    ProviderAxisInvalid(ProviderAxisInvalid),
+    ProviderAxisInvalid(Box<ProviderAxisInvalid>),
     /// The answer reached the provider, which could not keep the rule it made.
     #[error(transparent)]
     RuleNotKept(#[from] ProviderRuleNotKeptError),
@@ -64,6 +64,39 @@ pub enum DriverError {
     /// The driver or its provider failed.
     #[error("the provider driver failed")]
     Internal(#[source] Box<dyn Error + Send + Sync>),
+}
+
+// The large payloads are boxed so every `Result` carrying the error stays small.
+const _: () = assert!(size_of::<DriverError>() <= 64);
+
+impl From<DomainError> for DriverError {
+    fn from(refusal: DomainError) -> Self {
+        Self::Refused(Box::new(refusal))
+    }
+}
+
+impl From<RequestUnanswered> for DriverError {
+    fn from(unanswered: RequestUnanswered) -> Self {
+        Self::Unanswered(Box::new(unanswered))
+    }
+}
+
+impl From<ExecutableUnresolvable> for DriverError {
+    fn from(unresolvable: ExecutableUnresolvable) -> Self {
+        Self::ExecutableUnresolvable(Box::new(unresolvable))
+    }
+}
+
+impl From<ModelCatalogUnreadable> for DriverError {
+    fn from(unreadable: ModelCatalogUnreadable) -> Self {
+        Self::ModelCatalogUnreadable(Box::new(unreadable))
+    }
+}
+
+impl From<ProviderAxisInvalid> for DriverError {
+    fn from(invalid: ProviderAxisInvalid) -> Self {
+        Self::ProviderAxisInvalid(Box::new(invalid))
+    }
 }
 
 impl From<RuntimeBindingStoreError> for DriverError {
@@ -84,8 +117,8 @@ impl From<DriverError> for HandlerError {
     /// the daemon, as is the driver's own failure.
     fn from(error: DriverError) -> Self {
         match error {
-            DriverError::Refused(refusal)
-            | DriverError::Unanswered(RequestUnanswered { refusal }) => Self::Refused(refusal),
+            DriverError::Refused(refusal) => Self::Refused(*refusal),
+            DriverError::Unanswered(unanswered) => Self::Refused(unanswered.refusal),
             DriverError::CapabilityProbe(probe) => Self::Refused(
                 DomainError::new(
                     "The provider's capabilities could not be read",
@@ -95,7 +128,7 @@ impl From<DriverError> for HandlerError {
                 .with_source(probe),
             ),
             DriverError::ExecutableUnresolvable(unresolvable) => {
-                Self::Refused(unresolvable.into_refusal())
+                Self::Refused((*unresolvable).into_refusal())
             }
             DriverError::ModelCatalogUnreadable(unreadable) => Self::Refused(
                 DomainError::new(
@@ -106,7 +139,7 @@ impl From<DriverError> for HandlerError {
                     "providerId": unreadable.provider.as_str(),
                     "providerFailureDetail": unreadable.detail.as_str(),
                 }))
-                .with_source(unreadable),
+                .with_source(*unreadable),
             ),
             DriverError::ProviderAxisInvalid(invalid) => Self::Refused(
                 DomainError::new(

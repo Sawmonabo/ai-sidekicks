@@ -234,7 +234,7 @@ fn read_catalog_text(source: &Map<String, Value>, key: &str) -> Option<CatalogTe
 // The whole catalog's fault, naming the row in `detail`, which is bounded since a model id is
 // the provider's own text.
 fn catalog_unreadable(detail: &str) -> DriverError {
-    DriverError::ModelCatalogUnreadable(ModelCatalogUnreadable {
+    DriverError::from(ModelCatalogUnreadable {
         provider: DESCRIPTOR.provider_id(),
         reply_name: CLAUDE_CATALOG_REPLY_NAME,
         detail: bound_failure_detail(detail, UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone()),

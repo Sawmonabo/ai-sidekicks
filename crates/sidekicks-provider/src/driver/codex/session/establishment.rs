@@ -696,9 +696,8 @@ async fn confirm_larger_window(
     larger_window: u64,
 ) -> Result<(), CodexError> {
     let dump = read_codex_model_catalog_dump(service).await?;
-    let offered = read_codex_larger_window(&dump, model).map_err(|unreadable| {
-        CodexError::Driver(DriverError::ModelCatalogUnreadable(unreadable))
-    })?;
+    let offered = read_codex_larger_window(&dump, model)
+        .map_err(|unreadable| CodexError::Driver(DriverError::from(unreadable)))?;
     if offered == Some(larger_window) {
         return Ok(());
     }

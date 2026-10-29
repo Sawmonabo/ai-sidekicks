@@ -208,7 +208,7 @@ impl ClaudeDriver {
                     can_run_sandbox,
                 );
                 if !is_runnable {
-                    return Err(DriverError::Refused(permission_level_not_offered(level)));
+                    return Err(DriverError::from(permission_level_not_offered(level)));
                 }
                 Ok(parts.restarts.write_held_settings(&ended, |settings| {
                     settings.execution_posture = Some(params.execution_posture.clone());

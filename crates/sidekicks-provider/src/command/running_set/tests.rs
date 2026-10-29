@@ -179,7 +179,7 @@ fn end(code: Option<i64>, summary: Option<&str>) -> ProviderCommandEnd {
 }
 
 fn refused_stop(acts: &DriverScript) {
-    *lock(&acts.stop_refusal) = Some(DriverError::Refused(DomainError::new(
+    *lock(&acts.stop_refusal) = Some(DriverError::from(DomainError::new(
         "gone",
         RefusalCode::ProviderUnavailable,
     )));

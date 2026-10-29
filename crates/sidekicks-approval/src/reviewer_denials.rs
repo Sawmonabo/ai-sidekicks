@@ -536,7 +536,8 @@ impl ReviewerDenials {
                 self.record_override(session_id, denial_id, WireInstant::now())
                     .await
             }
-            Err(DriverError::Unanswered(RequestUnanswered { refusal })) => {
+            Err(DriverError::Unanswered(unanswered)) => {
+                let RequestUnanswered { refusal } = *unanswered;
                 // The provider may have taken it, so nothing is sent again while its process
                 // lives; a process that already ended dropped the pending mark.
                 let mut held_presses = lock(&self.held_presses);

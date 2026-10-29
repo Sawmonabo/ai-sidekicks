@@ -819,12 +819,12 @@ fn unanswered(
             safety_category: wire_handle(&kind),
         });
     match refusal {
-        Some(cause) => CodexError::Driver(DriverError::Refused(side_question_refusal(
+        Some(cause) => CodexError::Driver(DriverError::from(side_question_refusal(
             session_id,
             side_question_id,
             &cause,
         ))),
-        None => CodexError::Driver(DriverError::Refused(provider_failure_refusal(
+        None => CodexError::Driver(DriverError::from(provider_failure_refusal(
             &DESCRIPTOR.provider_id(),
             "Codex gave the side question no answer",
             RefusalCode::ProviderUnavailable,

@@ -267,7 +267,7 @@ fn unresolvable(
     cause: io::Error,
     is_build_found: bool,
 ) -> DriverError {
-    DriverError::ExecutableUnresolvable(ExecutableUnresolvable {
+    DriverError::from(ExecutableUnresolvable {
         provider: provider.clone(),
         is_typed_path: is_path_command(&requested_command),
         is_build_found,

@@ -98,7 +98,7 @@ impl From<ClaudeLevelMoveError> for DriverError {
     /// answer.
     fn from(error: ClaudeLevelMoveError) -> Self {
         match error {
-            ClaudeLevelMoveError::NotOffered(refusal) => Self::Refused(refusal),
+            ClaudeLevelMoveError::NotOffered(refusal) => Self::from(refusal),
             ClaudeLevelMoveError::Permissions(error) => error.into(),
         }
     }

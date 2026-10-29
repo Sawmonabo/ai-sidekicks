@@ -593,11 +593,11 @@ impl From<AccountFoldersError> for DriverError {
     /// own failure.
     fn from(error: AccountFoldersError) -> Self {
         match error {
-            AccountFoldersError::NotFound => Self::Refused(DomainError::new(
+            AccountFoldersError::NotFound => Self::from(DomainError::new(
                 "The provider account is not registered",
                 RefusalCode::ProviderAccountNotFound,
             )),
-            AccountFoldersError::CredentialHomeUnavailable => Self::Refused(DomainError::new(
+            AccountFoldersError::CredentialHomeUnavailable => Self::from(DomainError::new(
                 "The provider account's credential home is unavailable",
                 RefusalCode::ProviderAccountCredentialHomeUnavailable,
             )),
@@ -624,11 +624,11 @@ impl CurrentProviderAccount {
     pub fn into_required(self) -> Result<ProviderAccountId, DriverError> {
         match self {
             Self::Current(provider_account_id) => Ok(provider_account_id),
-            Self::NoneRegistered => Err(DriverError::Refused(DomainError::new(
+            Self::NoneRegistered => Err(DriverError::from(DomainError::new(
                 "No account of the provider is registered",
                 RefusalCode::ProviderAccountNotRegistered,
             ))),
-            Self::NoneCurrent => Err(DriverError::Refused(DomainError::new(
+            Self::NoneCurrent => Err(DriverError::from(DomainError::new(
                 "No account of the provider is current",
                 RefusalCode::ProviderAccountCurrentNotSet,
             ))),

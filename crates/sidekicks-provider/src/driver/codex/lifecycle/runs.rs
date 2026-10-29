@@ -34,9 +34,7 @@ impl CodexDriver {
             match self.session_process_state(session_id) {
                 SessionProcessState::Live => return Ok(()),
                 SessionProcessState::Down => {
-                    return Err(DriverError::Refused(session_process_unavailable(
-                        session_id,
-                    )));
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
                 }
                 // An establishment claimed, or a service gone back, since the waits answered.
                 SessionProcessState::Restarting => {}

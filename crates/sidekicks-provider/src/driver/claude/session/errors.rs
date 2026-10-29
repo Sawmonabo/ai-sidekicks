@@ -250,7 +250,7 @@ impl From<ClaudeSessionError> for DriverError {
         let provider = DESCRIPTOR.provider_id();
         match &error {
             ClaudeSessionError::Unavailable { .. } | ClaudeSessionError::InputUnwritable(_) => {
-                Self::Refused(provider_failure_refusal(
+                Self::from(provider_failure_refusal(
                     &provider,
                     "The Claude Code process is unavailable",
                     RefusalCode::ProviderUnavailable,
@@ -258,7 +258,7 @@ impl From<ClaudeSessionError> for DriverError {
                 ))
             }
             ClaudeSessionError::AuthenticationRequired { .. } => {
-                Self::Refused(provider_failure_refusal(
+                Self::from(provider_failure_refusal(
                     &provider,
                     "The account's Claude Code sign-in is gone or refused",
                     RefusalCode::ProviderAccountNotAuthenticated,
@@ -276,7 +276,7 @@ impl From<ClaudeSessionError> for DriverError {
                         RefusalCode::ProviderUnavailable,
                     ),
                 };
-                Self::Unanswered(RequestUnanswered {
+                Self::from(RequestUnanswered {
                     refusal: provider_failure_refusal(&provider, message, code, error),
                 })
             }
@@ -289,7 +289,7 @@ impl From<ClaudeSessionError> for DriverError {
                         provider_error,
                         UNSPECIFIED_PROVIDER_FAILURE_DETAIL.clone(),
                     );
-                    Self::Refused(
+                    Self::from(
                         provider_capability_refused(&provider, flag, &detail).with_source(error),
                     )
                 }
@@ -297,7 +297,7 @@ impl From<ClaudeSessionError> for DriverError {
             },
             ClaudeSessionError::ModelNotOffered {
                 agent_id, model, ..
-            } => Self::ProviderAxisInvalid(ProviderAxisInvalid {
+            } => Self::from(ProviderAxisInvalid {
                 agent_id: *agent_id,
                 axis: ProviderAxis::ModelId,
                 value: Value::String(model.clone()),

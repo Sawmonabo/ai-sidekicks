@@ -170,7 +170,7 @@ impl ClaudeSessionControls {
                     RefusalCode::SessionModeNotOffered,
                     "Claude Code refused the mode",
                 ) {
-                    Ok(refusal) => DriverError::Refused(refusal),
+                    Ok(refusal) => DriverError::from(refusal),
                     Err(error) => error.into(),
                 }
             })?;
@@ -668,7 +668,7 @@ fn side_question_row(
     reply: ClaudeOneTurnReply,
 ) -> Result<SessionScopedRow, DriverError> {
     if let Some(cause) = reply.refusal {
-        return Err(DriverError::Refused(side_question_refusal(
+        return Err(DriverError::from(side_question_refusal(
             session_id,
             side_question_id,
             &cause,
