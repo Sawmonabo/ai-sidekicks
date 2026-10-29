@@ -426,10 +426,14 @@ pub(crate) fn decide_resumed_move(
     answer: ProviderTurnAnswer,
 ) -> ResumedRunMove {
     match (state_before, answer) {
-        (RunState::Queued, _)
-        | (RunState::Completed | RunState::Interrupted | RunState::Stopped | RunState::Failed, _) => {
-            ResumedRunMove::Left
-        }
+        (
+            RunState::Queued
+            | RunState::Completed
+            | RunState::Interrupted
+            | RunState::Stopped
+            | RunState::Failed,
+            _,
+        ) => ResumedRunMove::Left,
         (_, ProviderTurnAnswer::Gone) if is_child => ResumedRunMove::TurnGone,
         (RunState::Starting | RunState::Running, ProviderTurnAnswer::StillRunning) => {
             ResumedRunMove::Running

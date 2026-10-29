@@ -728,7 +728,8 @@ impl ClaudeSessionEstablishment {
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
             requested_spawn,
-            // A later process started from these legs, a fork or a side question, continues no turn.
+            // A later process started from these legs, a fork or a side question, continues no
+            // turn.
             spawn_bound_legs: if is_continuing_turn {
                 ClaudeSpawnBoundLegs {
                     spawn_environment: without_interrupted_turn_resume(legs.spawn_environment),

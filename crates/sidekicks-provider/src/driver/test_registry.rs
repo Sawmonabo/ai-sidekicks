@@ -1,9 +1,9 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
 //! the session inbox addresser the table's own drivers answer, an accounts reader answering one
-//! current account, the table with Codex's driver over a scripted service, and a terminal service a
-//! former daemon kept; the run, session and message ids the drivers' tests mint, and the run queue's
-//! intake as a driver tells it.
+//! current account, the table with Codex's driver over a scripted service, and a terminal service
+//! a former daemon kept; the run, session and message ids the drivers' tests mint, and the run
+//! queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;

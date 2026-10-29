@@ -79,8 +79,24 @@ enum Logged {
 // (`queued_gone`); by a step count started from zero (`steps_rebuilt`), an owed step limit not
 // handed again (`owed_step_limit_handed_again`) and a limit cut not loaded (`limit_cut_loaded`).
 #[rstest]
-#[case::running_still_running(RunState::Running, false, ProviderTurnAnswer::StillRunning, Logged::Turn, "running", &[], None)]
-#[case::running_ended_by_provider(RunState::Running, false, ProviderTurnAnswer::EndedByProvider, Logged::Turn, "running", &[], None)]
+#[case::running_still_running(
+    RunState::Running,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    Logged::Turn,
+    "running",
+    &[],
+    None
+)]
+#[case::running_ended_by_provider(
+    RunState::Running,
+    false,
+    ProviderTurnAnswer::EndedByProvider,
+    Logged::Turn,
+    "running",
+    &[],
+    None
+)]
 #[case::running_gone(
     RunState::Running,
     false,
@@ -93,7 +109,15 @@ enum Logged {
     ],
     Some("daemonRestart")
 )]
-#[case::waiting_on_an_approval_still_running(RunState::WaitingForApproval, false, ProviderTurnAnswer::StillRunning, Logged::Turn, "waitingForApproval", &[], None)]
+#[case::waiting_on_an_approval_still_running(
+    RunState::WaitingForApproval,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    Logged::Turn,
+    "waitingForApproval",
+    &[],
+    None
+)]
 #[case::waiting_on_an_approval_gone(
     RunState::WaitingForApproval,
     false,
@@ -106,8 +130,24 @@ enum Logged {
     ],
     Some("daemonRestart")
 )]
-#[case::paused_gone(RunState::Paused, false, ProviderTurnAnswer::Gone, Logged::Turn, "paused", &[], None)]
-#[case::pausing_still_running(RunState::Pausing, false, ProviderTurnAnswer::StillRunning, Logged::Turn, "pausing", &[], None)]
+#[case::paused_gone(
+    RunState::Paused,
+    false,
+    ProviderTurnAnswer::Gone,
+    Logged::Turn,
+    "paused",
+    &[],
+    None
+)]
+#[case::pausing_still_running(
+    RunState::Pausing,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    Logged::Turn,
+    "pausing",
+    &[],
+    None
+)]
 #[case::pausing_ended_by_provider(
     RunState::Pausing,
     false,
@@ -141,10 +181,42 @@ enum Logged {
     ],
     Some("daemonRestart")
 )]
-#[case::queued_gone(RunState::Queued, false, ProviderTurnAnswer::Gone, Logged::Turn, "queued", &[], None)]
-#[case::steps_rebuilt(RunState::Running, false, ProviderTurnAnswer::StillRunning, Logged::StepsTaken, "running", &[], None)]
-#[case::owed_step_limit_handed_again(RunState::Running, false, ProviderTurnAnswer::StillRunning, Logged::OwedStepLimit, "running", &[], None)]
-#[case::limit_cut_loaded(RunState::Running, false, ProviderTurnAnswer::StillRunning, Logged::StepLimitRow, "running", &[], None)]
+#[case::queued_gone(
+    RunState::Queued,
+    false,
+    ProviderTurnAnswer::Gone,
+    Logged::Turn,
+    "queued",
+    &[],
+    None
+)]
+#[case::steps_rebuilt(
+    RunState::Running,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    Logged::StepsTaken,
+    "running",
+    &[],
+    None
+)]
+#[case::owed_step_limit_handed_again(
+    RunState::Running,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    Logged::OwedStepLimit,
+    "running",
+    &[],
+    None
+)]
+#[case::limit_cut_loaded(
+    RunState::Running,
+    false,
+    ProviderTurnAnswer::StillRunning,
+    Logged::StepLimitRow,
+    "running",
+    &[],
+    None
+)]
 #[tokio::test]
 async fn a_resumed_run_moves_as_its_state_before_and_its_providers_answer_decide(
     #[case] state_before: RunState,

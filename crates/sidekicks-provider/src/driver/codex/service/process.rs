@@ -42,9 +42,11 @@ const CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE: &str = "1";
 /// The `NAME=value` entry every lasting service and what it starts carries, which marks what a
 /// former daemon's service left running for `ProcessRecord::end_survivors`.
 pub(crate) fn codex_lasting_service_environment_entry() -> String {
-    format!(
-        "{CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME}={CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE}"
-    )
+    [
+        CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_NAME,
+        CODEX_DAEMON_SHUTDOWN_SOCKET_ENVIRONMENT_VALUE,
+    ]
+    .join("=")
 }
 
 /// The address Codex answers a shutdown request at, over its control socket.
@@ -365,8 +367,9 @@ struct UnrecordedServiceError {
 /// `spawner`'s thread: its log begun again at `log_file`, the former start's tail kept beside it,
 /// taking the service's error output; a session or job of its own apart from the daemon's, pinned,
 /// then moved out of the daemon's scope where the system has one. The caller keeps its record in
-/// the folder's record file. Fails when the log cannot be opened, or the start cannot be spawned or pinned (on Windows
-/// a refused breakaway from the daemon's job among them), with the log's tail beside the cause.
+/// the folder's record file. Fails when the log cannot be opened, or the start cannot be spawned
+/// or pinned (on Windows a refused breakaway from the daemon's job among them), with the log's
+/// tail beside the cause.
 pub(crate) async fn start_lasting_codex_service(
     spawner: &Spawner,
     mut launch: CodexProcessLaunch,

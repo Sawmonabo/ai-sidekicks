@@ -251,7 +251,12 @@ async fn a_continued_turn_runs_on_its_run_and_ends_as_that_turn() {
                 "id": "message-1",
                 "role": "assistant",
                 "content": [
-                    {"type": "tool_use", "id": "call-1", "name": "Bash", "input": {"command": "ls"}},
+                    {
+                        "type": "tool_use",
+                        "id": "call-1",
+                        "name": "Bash",
+                        "input": {"command": "ls"},
+                    },
                 ],
             },
         }),

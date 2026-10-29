@@ -41,8 +41,8 @@ pub struct RuntimeBindingNotResumable {
 /// Rebuilds a resumed leg's params from its stored binding, with the provider's recovery data on
 /// it, and the session's lead, model, recorded larger window, mode, permission level's posture,
 /// option values, row values, kept schedules and live runs, as they stand now, the resumed process
-/// to run under `binding_id`. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume
-/// handle.
+/// to run under `binding_id`. Fails with [`RuntimeBindingNotResumable`] when the binding has no
+/// resume handle.
 #[expect(
     clippy::too_many_arguments,
     reason = "each argument is one part of the resume the caller holds apart"

@@ -336,7 +336,8 @@ pub(crate) fn read_asked(
 }
 
 /// The open question `run_id` holds, its agent waiting on it, that came on the provider's request
-/// `provider_request_id`, or `None` when it holds none. Fails as SQLite does, or when a stored id does not read.
+/// `provider_request_id`, or `None` when it holds none. Fails as SQLite does, or when a stored id
+/// does not read.
 pub(crate) fn read_open_question_of_request(
     connection: &Connection,
     run_id: &RunId,
