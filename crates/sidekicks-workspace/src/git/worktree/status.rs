@@ -73,7 +73,7 @@ static SELECT_WORKTREE_RECORDS_SQL: LazyLock<String> = LazyLock::new(|| {
 
 /// The one daemon function that names and creates a tree, answering what the new-worktree form
 /// opens with for a session of the project.
-pub(crate) trait NewWorktreeSuggestionSource: Send + Sync {
+pub trait NewWorktreeSuggestionSource: Send + Sync {
     /// The suggestion for `session_id` on `repo_mount_id`. Fails with the naming's failure.
     fn suggest_new_worktree<'a>(
         &'a self,
@@ -146,26 +146,25 @@ struct StatusRows {
 }
 
 /// What the status reader runs with.
-pub(crate) struct WorktreeStatusReaderDeps {
+pub struct WorktreeStatusReaderDeps {
     /// The daemon's git entry point, running with the repository's own config.
-    pub(crate) git: GitRunner,
+    pub git: GitRunner,
     /// The daemon's read pool.
-    pub(crate) reads: Arc<DatabaseReadPool>,
+    pub reads: Arc<DatabaseReadPool>,
     /// The daemon's one occupancy reader, for the sessions in each tree.
-    pub(crate) occupancy: MountOccupancyReader,
+    pub occupancy: MountOccupancyReader,
     /// The new-worktree form's suggestion.
-    pub(crate) new_worktree: Arc<dyn NewWorktreeSuggestionSource>,
+    pub new_worktree: Arc<dyn NewWorktreeSuggestionSource>,
 }
 
 /// Answers `worktree.status.read` for a project.
-pub(crate) struct WorktreeStatusReader {
+pub struct WorktreeStatusReader {
     deps: WorktreeStatusReaderDeps,
 }
 
 impl WorktreeStatusReader {
     /// A reader over `deps`.
-    #[expect(dead_code, reason = "the daemon's start")]
-    pub(crate) fn new(deps: WorktreeStatusReaderDeps) -> Self {
+    pub fn new(deps: WorktreeStatusReaderDeps) -> Self {
         Self { deps }
     }
 

@@ -3,6 +3,9 @@
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, Weak};
+use std::time::SystemTime;
+
+use futures::future::BoxFuture;
 
 use sidekicks_artifact::admission::UploadAdmission;
 use sidekicks_artifact::payload_store::PayloadStore;
@@ -47,11 +50,13 @@ use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use sidekicks_store::machine::local::LocalMachine;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::worktree::naming::worktrees_folder;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, managed_workspaces_folder};
 use sidekicks_workspace::managed::write_watcher::{
     ManagedWorkspaceWrite, ManagedWorkspaceWriteKind,
 };
+use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
 use tempfile::TempDir;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
@@ -71,6 +76,18 @@ struct NoProcess;
 impl ProviderProcessIds for NoProcess {
     fn process_identity(&self, _session_id: &SessionId) -> Option<ProviderProcessIdentity> {
         None
+    }
+}
+
+// A run setup gate that lets every run start, in the place of the execution roots' gate.
+struct PassingGate;
+
+impl RunSetupGate for PassingGate {
+    fn assert_run_ready<'a>(
+        &'a self,
+        _context: &'a RunSetupContext,
+    ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
+        Box::pin(std::future::ready(Ok(())))
     }
 }
 
@@ -129,6 +146,8 @@ async fn fixture() -> Fixture {
         scheduler,
         list_feed: Arc::clone(&list_feed),
         stop: CancellationToken::new(),
+        worktrees_folder: worktrees_folder(home.path()),
+        missed_since: SystemTime::now(),
     })
     .expect("the repository services build");
     let RepoServices {
@@ -171,6 +190,7 @@ async fn fixture() -> Fixture {
             home.path(),
             home.path().join("session-token"),
         )),
+        execution_root_gate: Arc::new(PassingGate),
         binding_cursors: Arc::new(RunBindingCursors::new(
             Arc::clone(&reads),
             Arc::new(RuntimeBindingStore::new(reads, Arc::clone(&log.writer))),

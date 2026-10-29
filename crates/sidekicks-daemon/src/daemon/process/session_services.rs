@@ -83,6 +83,9 @@ pub(crate) struct SessionServiceStart {
     pub(crate) providers: Arc<ProviderRegistry>,
     /// Each live run's posture, the engine's first setup gate.
     pub(crate) execution_postures: Arc<ExecutionPostureService>,
+    /// Binds each repository-bound run to its working folder; the engine's gate before the
+    /// approval side's, so its end runs after theirs.
+    pub(crate) execution_root_gate: Arc<dyn RunSetupGate>,
     /// Each run's binding cursors over the runtime binding rows, which an opening opens and
     /// records and the session directory's relaunches open too.
     pub(crate) binding_cursors: Arc<RunBindingCursors>,
@@ -224,6 +227,7 @@ pub(crate) fn build_session_services(
         read_damaged_from_sequence,
         providers,
         execution_postures,
+        execution_root_gate,
         binding_cursors,
         epochs,
         compose_opening,
@@ -288,6 +292,9 @@ pub(crate) fn build_session_services(
             },
             engine.clone(),
         );
+        // The end hooks run in reverse, so the approvals and turn readings are released before
+        // this gate releases, sweeps and moves the run's folder.
+        built.register_setup_gate(execution_root_gate);
         built.register_setup_gate(Arc::clone(&approvals.run_end) as Arc<dyn RunSetupGate>);
         built_approvals = Some(approvals);
         built

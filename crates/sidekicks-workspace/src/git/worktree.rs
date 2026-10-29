@@ -36,7 +36,7 @@ pub mod service;
 pub mod setup;
 pub mod staged_changes;
 pub(crate) mod stale_record;
-pub(crate) mod status;
+pub mod status;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_rows;
 pub mod tree_records;

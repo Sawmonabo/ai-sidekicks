@@ -2,12 +2,14 @@
 //! chats' managed workspaces, the broker git's questions reach the person through, the watch over
 //! each working folder, the live sessions' folders and their projects' fetches, the branch lists,
 //! the worktrees, the turn snapshots and the mounts' health re-probe. Their background work begins
-//! once the start's recovery pass has settled the runs.
+//! once the start's recovery pass has settled the runs. Here too are the worktrees folder the start
+//! makes once, and the record of the instant the chats' write watch walks from at a start.
 
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::FutureExt as _;
 use sidekicks_contracts::machine::id::MachineId;
@@ -18,9 +20,13 @@ use sidekicks_session::live_folders::{
 };
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_std::error_description::describe_error;
+use sidekicks_std::file::atomic_write::write_file_atomically;
+use sidekicks_std::file::real_location::resolve_real_path;
+use sidekicks_std::missing_entry::MissingEntry as _;
 use sidekicks_std::scheduler::{
     JobCondition, ScheduleError, ScheduledJobHandle, Scheduler, WakeSignal,
 };
+use sidekicks_store::data_folder::data_folder;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::DatabaseWriter;
 use sidekicks_store::events::log_service::EventLogService;
@@ -55,6 +61,12 @@ use crate::daemon::process::stop::TaskStopFailure;
 // until the versions catch up.
 const MANAGED_WORKSPACE_WRITE_CAPACITY: usize = 64;
 
+// The record, in the data folder, of the instant the chats' write watch walks from at a start.
+const MANAGED_WRITES_WATERMARK_FILE_NAME: &str = "managed-workspace-writes-since";
+
+// The record is the person's alone.
+const MANAGED_WRITES_WATERMARK_MODE: u32 = 0o600;
+
 /// What the repository services are built from.
 pub(crate) struct RepoServiceStart {
     /// The person's home, which holds the chats' managed workspaces.
@@ -79,6 +91,10 @@ pub(crate) struct RepoServiceStart {
     pub(crate) list_feed: Arc<SessionListFeed>,
     /// The daemon's stop, which ends every health pass and every send.
     pub(crate) stop: CancellationToken,
+    /// The daemon's worktrees folder, made and resolved by the start.
+    pub(crate) worktrees_folder: PathBuf,
+    /// The instant the chats' write watch walks from for the writes it has not reported.
+    pub(crate) missed_since: SystemTime,
 }
 
 /// The repository services, each built once for the daemon's life.
@@ -117,6 +133,15 @@ pub(crate) struct RepoServices {
     /// The chats' writes the managed workspaces' watch reports, for a chat's file versions; the
     /// start takes it for the session services before the repository attachments start.
     pub(crate) workspace_writes: Option<mpsc::Receiver<ManagedWorkspaceWrite>>,
+    /// The seam each workspace's events are appended through.
+    pub(crate) workspace_events: Arc<WorkspaceEventEmitter>,
+    /// The daemon's one occupancy reader, for the sessions standing and running in each folder.
+    pub(crate) occupancy: MountOccupancyReader,
+    /// The daemon's worktrees folder, its links resolved.
+    pub(crate) worktrees_folder: PathBuf,
+    /// The record of the instant the chats' write watch walks from at the next start, which the
+    /// clean stop writes.
+    pub(crate) managed_writes_watermark: PathBuf,
 }
 
 /// Why the repository services could not be built.
@@ -145,6 +170,8 @@ pub(crate) fn build_repo_services(
         scheduler,
         list_feed,
         stop,
+        worktrees_folder,
+        missed_since,
     } = start;
     let workspace_events = Arc::new(WorkspaceEventEmitter::new(Arc::clone(&event_log)));
     let mounts = Arc::new(RepoMountService::new(
@@ -163,6 +190,7 @@ pub(crate) fn build_repo_services(
         git.clone(),
         writes,
         list_feed,
+        missed_since,
     ));
     let askpass = askpass_or_unavailable(
         AskpassBroker::start(&run_folder, git_askpass_program_path(&daemon_program)),
@@ -191,7 +219,6 @@ pub(crate) fn build_repo_services(
         fetch: Arc::clone(&fetch),
     }));
     let review_notes = Arc::new(live_folders.review_note_store(Arc::clone(&writer)));
-    let worktrees_folder = worktrees_folder(&home_folder);
     let snapshots = Arc::new(TurnSnapshotService::new(
         git.clone(),
         Arc::clone(&reads),
@@ -202,12 +229,12 @@ pub(crate) fn build_repo_services(
         reads: Arc::clone(&reads),
         writer,
         events: Arc::clone(&worktree_events),
-        occupancy,
-        worktrees_folder,
+        occupancy: occupancy.clone(),
+        worktrees_folder: worktrees_folder.clone(),
     }));
     let mount_health = Arc::new(RepoMountHealthReprobe::new(
         Arc::clone(&reads),
-        workspace_events,
+        Arc::clone(&workspace_events),
         RepoRootResolver::new(git.clone()),
         stop.clone(),
     ));
@@ -227,7 +254,74 @@ pub(crate) fn build_repo_services(
         scheduler,
         stop,
         workspace_writes: Some(workspace_writes),
+        workspace_events,
+        occupancy,
+        worktrees_folder,
+        managed_writes_watermark: managed_writes_watermark_path(&home_folder),
     })
+}
+
+/// Makes the daemon's worktrees folder under `home_folder` and answers it with every link
+/// resolved, so each tree's stored folder is the one git records. Fails with the system's error.
+pub(crate) async fn make_worktrees_folder(home_folder: &Path) -> io::Result<PathBuf> {
+    let folder = worktrees_folder(home_folder);
+    tokio::fs::create_dir_all(&folder).await?;
+    resolve_real_path(&folder).await
+}
+
+/// The record of the instant the chats' write watch walks from, in the data folder under
+/// `home_folder`.
+pub(crate) fn managed_writes_watermark_path(home_folder: &Path) -> PathBuf {
+    data_folder(home_folder).join(MANAGED_WRITES_WATERMARK_FILE_NAME)
+}
+
+/// Reads the instant the record at `path` holds, the one the last clean stop stored or, after a
+/// crash, the previous start's, then stores `started` there, so a run that ends without a clean
+/// stop has the next start walk from this one. A missing or unreadable record reads as the epoch,
+/// so the walk reads every write; an unreadable record and a failed store are logged.
+pub(crate) async fn take_managed_writes_watermark(path: &Path, started: SystemTime) -> SystemTime {
+    let stored = match tokio::fs::read_to_string(path).await.none_if_missing() {
+        Ok(Some(text)) => text.trim().parse::<u64>().map_or_else(
+            |error| {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the chats' write watermark is no instant, so the chats' folders are walked \
+                     whole"
+                );
+                UNIX_EPOCH
+            },
+            |nanoseconds| UNIX_EPOCH + Duration::from_nanos(nanoseconds),
+        ),
+        Ok(None) => UNIX_EPOCH,
+        Err(error) => {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the chats' write watermark could not be read, so the chats' folders are walked \
+                 whole"
+            );
+            UNIX_EPOCH
+        }
+    };
+    store_managed_writes_watermark(path, started).await;
+    stored
+}
+
+/// Stores `instant` as the one the next start's walk of the chats' writes begins at; a failure is
+/// logged, and the next start walks from the instant stored before.
+pub(crate) async fn store_managed_writes_watermark(path: &Path, instant: SystemTime) {
+    // An instant before the epoch is stored as the epoch.
+    let nanoseconds = instant.duration_since(UNIX_EPOCH).map_or(0, |since| {
+        u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+    });
+    if let Err(error) =
+        write_file_atomically(path, nanoseconds.to_string(), MANAGED_WRITES_WATERMARK_MODE).await
+    {
+        tracing::warn!(
+            error = &error as &(dyn Error + 'static),
+            "the chats' write watermark could not be stored, so the next start walks from an \
+             earlier instant"
+        );
+    }
 }
 
 /// Why the repository services' background work could not begin.

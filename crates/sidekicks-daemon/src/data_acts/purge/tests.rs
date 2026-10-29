@@ -4,7 +4,7 @@
 //! truncation tried until no reader keeps it busy.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use futures::FutureExt as _;
 use rstest::rstest;
@@ -177,6 +177,7 @@ pub(crate) async fn test_purge(
         test_git_runner(),
         writes,
         list_feed.clone(),
+        SystemTime::now(),
     ));
     let project_rules = Arc::new(ApprovalRules::new(
         Arc::clone(&reads),

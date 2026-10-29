@@ -12,6 +12,8 @@ use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
 use sidekicks_session::changes::SessionChanges;
+use sidekicks_session::convert::SessionConversion;
+use sidekicks_session::create::SessionCreation;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::groups::service::SessionGroupService;
@@ -21,14 +23,17 @@ use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
 use sidekicks_session::tags::SessionTagService;
+use sidekicks_session::working_folder::SessionWorkingFolders;
 use sidekicks_shell::table::ShellTable;
 use sidekicks_store::events::log_service::EventLogService;
 use sidekicks_workspace::clone::service::CloneService;
+use sidekicks_workspace::execution_root::ExecutionRootService;
 use sidekicks_workspace::folder::list::FolderListService;
 use sidekicks_workspace::git::worktree::branch_list::BranchListReader;
 use sidekicks_workspace::git::worktree::watch::WorkingFolderWatcher;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::service::ProjectService;
+use sidekicks_workspace::service::WorkspaceService;
 
 use crate::daemon::app_diagnostic_methods::register_app_diagnostic_methods;
 use crate::daemon::backup::methods::{BackupMethodsDeps, register_backup_methods};
@@ -36,11 +41,13 @@ use crate::daemon::config_methods::{ConfigMethodsDeps, register_config_methods};
 use crate::daemon::crash::methods::register_crash_methods;
 use crate::daemon::data_methods::{DataMethodsDeps, register_data_methods};
 use crate::daemon::lifecycle_methods::{LifecycleMethodsDeps, register_lifecycle_methods};
+use crate::daemon::machine_settings::file::MachineSettingsFile;
 use crate::daemon::machine_settings::methods::{
     MachineSettingsMethodsDeps, register_machine_settings_methods,
 };
 use crate::daemon::process::damage_gate::{DamageReportGate, DispatchDamageWatch};
 use crate::daemon::process::jobs::IdleMemoryCollect;
+use crate::daemon::process::workspace_services::{RepoMountMethods, WorktreeMethods};
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::highlight::colorer::CodeHighlighter;
@@ -146,6 +153,30 @@ pub(crate) struct MethodTableServices {
     pub(crate) clones: Result<Arc<CloneService>, String>,
     /// Lists the machine's folders for another device's folder chooser.
     pub(crate) machine_folders: Arc<FolderListService>,
+    /// The repository mount methods' inputs.
+    #[expect(dead_code, reason = "the repository mount methods' registration")]
+    pub(crate) repo_mounts: RepoMountMethods,
+    /// The workspace lifecycle, which binds a session to a mount and lists its workspaces.
+    #[expect(dead_code, reason = "the workspace methods' registration")]
+    pub(crate) workspaces: Arc<WorkspaceService>,
+    /// Prepares a workspace's execution root.
+    #[expect(dead_code, reason = "the workspace methods' registration")]
+    pub(crate) execution_roots: Arc<ExecutionRootService>,
+    /// The worktree methods' inputs.
+    #[expect(dead_code, reason = "the worktree methods' registration")]
+    pub(crate) worktree_methods: WorktreeMethods,
+    /// Creates sessions.
+    #[expect(dead_code, reason = "the session create method's registration")]
+    pub(crate) session_creation: Arc<SessionCreation>,
+    /// Turns chats into projects.
+    #[expect(dead_code, reason = "the session convert methods' registration")]
+    pub(crate) session_conversion: Arc<SessionConversion>,
+    /// Moves a session to another tree of its repository.
+    #[expect(dead_code, reason = "the session working-folder methods' registration")]
+    pub(crate) session_working_folders: Arc<SessionWorkingFolders>,
+    /// The machine settings file, where a create keeps the last lead pick.
+    #[expect(dead_code, reason = "the session create method's registration")]
+    pub(crate) machine_settings_file: Arc<MachineSettingsFile>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
