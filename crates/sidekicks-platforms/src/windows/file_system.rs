@@ -15,7 +15,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     MOVEFILE_WRITE_THROUGH, MoveFileExW,
 };
 
-use crate::regular_file_open::RegularFileOpen;
+use crate::regular_file_open::{RegularFileOpen, check_stays_beneath};
 use crate::windows::real_path::verbatim_path;
 
 /// Whether a rename of a folder replaces an empty folder already at its destination: never, since
@@ -30,9 +30,12 @@ pub fn create_new_file(path: &Path, _mode: u32) -> io::Result<File> {
 }
 
 /// Opens the regular file at `relative` under the folder `root` for reading without following a
-/// link or any other reparse point at it, or answers what stood there instead. Fails with the
-/// open's or the stat's other errors, a folder's refused open among them.
+/// link or any other reparse point at it, or answers what stood there instead. A reparse point in
+/// a folder on the way is followed today. Fails with `InvalidInput` before any open when
+/// `relative` is absolute, names a drive or holds a `..`, or with the open's or the stat's other
+/// errors, a folder's refused open among them.
 pub fn open_regular_file(root: &Path, relative: &Path) -> io::Result<RegularFileOpen> {
+    check_stays_beneath(relative)?;
     let opened = OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)

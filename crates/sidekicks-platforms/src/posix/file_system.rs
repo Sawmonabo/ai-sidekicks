@@ -11,7 +11,7 @@ use std::path::Path;
 
 use nix::fcntl::OFlag;
 
-use crate::regular_file_open::RegularFileOpen;
+use crate::regular_file_open::{RegularFileOpen, check_stays_beneath};
 
 /// Whether a rename of a folder replaces an empty folder already at its destination: yes, as
 /// `rename(2)` does.
@@ -30,8 +30,10 @@ pub fn create_new_file(path: &Path, mode: u32) -> io::Result<File> {
 /// Opens the regular file at `relative` under the folder `root` for reading, following no link in
 /// `relative`, its folders' included, or answers what stood there instead: a link anywhere on the
 /// way reads as a link. A pipe opens without waiting for a writer and is then answered as a special
-/// file. Fails with `root`'s open, or with the open's or the stat's other errors.
+/// file. Fails with `InvalidInput` before any open when `relative` is absolute or holds a `..`, or
+/// with `root`'s open, or with the open's or the stat's other errors.
 pub fn open_regular_file(root: &Path, relative: &Path) -> io::Result<RegularFileOpen> {
+    check_stays_beneath(relative)?;
     let root = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_DIRECTORY)
@@ -345,6 +347,22 @@ mod tests {
             "{through_link:?}"
         );
         assert!(matches!(direct, RegularFileOpen::Opened(_)), "{direct:?}");
+    }
+
+    // Mutation: drop the check before the open, and macOS opens `../` and an absolute path outside
+    // the folder.
+    #[test]
+    fn a_path_that_leaves_the_folder_is_refused_before_the_open() {
+        let scratch = tempfile::tempdir().expect("a scratch folder");
+        let root = scratch.path().join("root");
+        fs::create_dir(&root).expect("the folder is made");
+        let outside = scratch.path().join("outside.txt");
+        fs::write(&outside, b"secret").expect("the file is written");
+
+        for relative in [Path::new("../outside.txt"), outside.as_path()] {
+            let refusal = open_regular_file(&root, relative).expect_err("the path is refused");
+            assert_eq!(refusal.kind(), ErrorKind::InvalidInput, "{relative:?}");
+        }
     }
 
     #[test]
