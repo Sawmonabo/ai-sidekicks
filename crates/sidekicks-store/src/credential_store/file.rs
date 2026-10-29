@@ -529,8 +529,7 @@ impl SecretItemsFile {
         change: impl Future<Output = Result<Answer, KeychainRefusal>> + Send + 'static,
     ) -> Result<Answer, KeychainRefusal> {
         let logged_service = service.to_owned();
-        let landed = self
-            .items
+        self.items
             .run_held(
                 (service.to_owned(), account.to_owned()),
                 change,
@@ -546,20 +545,7 @@ impl SecretItemsFile {
                     ),
                 },
             )
-            .await;
-        match landed {
-            Ok(Some(answer)) => answer,
-            // A task skips its change only once its caller stopped waiting.
-            Ok(None) => Err(KeychainRefusal::new(
-                KeychainRefusalCause::Unavailable,
-                "the items file call ended without an answer",
-            )),
-            Err(interrupted) => Err(KeychainRefusal::new(
-                KeychainRefusalCause::Unavailable,
-                "the items file call ended without an answer",
-            )
-            .with_failure(interrupted)),
-        }
+            .await?
     }
 }
 

@@ -21,7 +21,7 @@ use futures::future::BoxFuture;
 use secrecy::SecretString;
 use sidekicks_contracts::keychain::KeychainRefusalCause;
 use sidekicks_platforms::{CredentialStore, CredentialStoreError, SecretStoreOffer};
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 
 use crate::credential_store::seal::SecretSeal;
@@ -185,8 +185,8 @@ impl OsCredentialStore {
         );
         let call_timeout = self.call_timeout;
         match tokio::time::timeout(call_timeout, held_call).await {
-            Ok(Ok(Some(Ok(Ok(answer))))) => Ok(answer),
-            Ok(Ok(Some(Ok(Err(refused))))) => {
+            Ok(Ok(Ok(Ok(answer)))) => Ok(answer),
+            Ok(Ok(Ok(Err(refused)))) => {
                 let cause = if refused.is_locked() {
                     KeychainRefusalCause::Locked
                 } else {
@@ -194,14 +194,15 @@ impl OsCredentialStore {
                 };
                 Err(KeychainRefusal::new(cause, refused.to_string()).with_failure(refused))
             }
-            Ok(Ok(Some(Err(interrupted))) | Err(interrupted)) => Err(KeychainRefusal::new(
+            Ok(Ok(Err(interrupted))) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Unavailable,
                 "the credential store call ended without an answer",
             )
             .with_failure(interrupted)),
+            Ok(Err(end @ HeldWorkEnd::Interrupted(_))) => Err(end.into()),
             // The task skips the store only once this caller stopped waiting, so this arm is the
             // same answer the timeout gives.
-            Ok(Ok(None)) | Err(_) => Err(KeychainRefusal::new(
+            Ok(Err(HeldWorkEnd::Unanswered)) | Err(_) => Err(KeychainRefusal::new(
                 KeychainRefusalCause::Locked,
                 format!("the credential store gave no answer within {call_timeout:?}"),
             )),

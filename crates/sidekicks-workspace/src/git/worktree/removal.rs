@@ -43,7 +43,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::DOES_WATCH_OUTLIVE_TREE_MOVE;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_std::settle_all::settle_all;
 use tokio::task::JoinError;
 
@@ -53,9 +53,7 @@ use crate::git::branch_name_pattern::last_fatal_line;
 use crate::git::process::{GitError, GitRunner};
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveError;
-use crate::git::worktree::kept_copy::held_work::{
-    HeldWorkEnd, HeldWorkSubject, held_answer, log_landed_late,
-};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KEPT_TREE_ENTRY, KeepFailure, KeptCopyTools, MoveAsideError, MovedAsideWorktree, WorktreeAside,
     move_worktree_aside,
@@ -351,8 +349,7 @@ impl WorktreeRemoval {
     ) -> Result<WorktreeRetireResponse, WorktreeRemovalError> {
         let shared = Arc::clone(&self.shared);
         let held_request = request.clone();
-        let landed = self
-            .shared
+        self.shared
             .retirements
             .run_held(
                 request.worktree_id,
@@ -362,8 +359,7 @@ impl WorktreeRemoval {
                     HeldWorkSubject::Worktree(request.worktree_id),
                 ),
             )
-            .await;
-        held_answer(landed)
+            .await?
     }
 }
 
@@ -378,7 +374,7 @@ impl RetiredWorktreeKeeper for WorktreeRemoval {
         let shared = Arc::clone(&self.shared);
         let held_row = row.clone();
         Box::pin(async move {
-            let landed = self
+            let kept = self
                 .shared
                 .retirements
                 .run_held(
@@ -392,8 +388,9 @@ impl RetiredWorktreeKeeper for WorktreeRemoval {
                         HeldWorkSubject::Worktree(row.id),
                     ),
                 )
-                .await;
-            Ok(held_answer(landed)?)
+                .await
+                .map_err(WorktreeRemovalError::from)?;
+            Ok(kept?)
         })
     }
 }

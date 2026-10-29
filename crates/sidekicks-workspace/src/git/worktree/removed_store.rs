@@ -39,7 +39,7 @@ use sidekicks_contracts::worktree::removed::{
     RemovedWorktree, WorktreeRemovedListRequest, WorktreeRemovedListResponse,
 };
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::processor_bound::map_with_processor_bound;
 use sidekicks_std::settle_all::SettleFailures;
@@ -63,9 +63,7 @@ use crate::git::worktree::claims::KeptCopyClaims;
 use crate::git::worktree::copy::progress::WorktreeCopiesUnderWay;
 use crate::git::worktree::errors::WorktreeRefusal;
 use crate::git::worktree::kept_copy::folder_move::FolderMoveTools;
-use crate::git::worktree::kept_copy::held_work::{
-    HeldWorkEnd, HeldWorkSubject, held_answer, log_landed_late,
-};
+use crate::git::worktree::kept_copy::held_work::{HeldWorkSubject, log_landed_late};
 use crate::git::worktree::kept_copy::{
     KeptCopyRowWrites, KeptCopyTools, KeptWorktreeState, RowWriteError, delete_kept_copy,
     measure_kept_copy,
@@ -467,8 +465,7 @@ impl RemovedWorktreeStore {
         removed_worktree_id: RemovedWorktreeId,
     ) -> Result<(), RemovedWorktreeStoreError> {
         let store = Arc::clone(self);
-        let landed = self
-            .deps
+        self.deps
             .kept_copy_lock
             .run_held(
                 removed_worktree_id,
@@ -483,8 +480,7 @@ impl RemovedWorktreeStore {
                     HeldWorkSubject::KeptCopy(removed_worktree_id),
                 ),
             )
-            .await;
-        held_answer(landed)
+            .await?
     }
 
     // The row as the list shows it, `None` for a copy put back whose tree stands sound or is gone.

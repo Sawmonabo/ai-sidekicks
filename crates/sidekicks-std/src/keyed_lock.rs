@@ -93,14 +93,14 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
     /// even after the caller stops waiting, so work that lands late always lands before the next
     /// caller on that key runs. A task still waiting for the key when its caller stops waiting
     /// leaves the queue and drops `work` unrun; work that ends after its caller stopped waiting is
-    /// handed to `landed_late`. Answers `None` only to a caller no longer waiting. Fails with the
-    /// task's error when the work panics.
+    /// handed to `landed_late`. Fails `Unanswered` only to a caller no longer waiting, and
+    /// `Interrupted` with the task's error when the work panics.
     pub async fn run_held<Answer: Send + 'static>(
         self: &Arc<Self>,
         key: Key,
         work: impl Future<Output = Answer> + Send + 'static,
         landed_late: impl FnOnce(&Answer) + Send + 'static,
-    ) -> Result<Option<Answer>, JoinError>
+    ) -> Result<Answer, HeldWorkEnd>
     where
         Key: Send + Sync + 'static,
     {
@@ -123,6 +123,8 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
             Some(answer)
         })
         .await
+        .map_err(HeldWorkEnd::Interrupted)?
+        .ok_or(HeldWorkEnd::Unanswered)
     }
 
     /// How many handles on `requested_key`'s queue its holder and its waiters keep, beside the
@@ -140,6 +142,17 @@ impl<Key: Eq + Hash + Clone> KeyedLock<Key> {
         // The map holds no invariant a panicking holder could break.
         lock(&self.queues)
     }
+}
+
+/// How work run under [`KeyedLock::run_held`] ended without answering.
+#[derive(Debug, thiserror::Error)]
+pub enum HeldWorkEnd {
+    /// The work was skipped, since its caller stopped waiting before the key was held.
+    #[error("the held work was skipped once its caller stopped waiting")]
+    Unanswered,
+    /// The task that ran the work ended before the work finished.
+    #[error("the held work ended before it finished")]
+    Interrupted(#[source] JoinError),
 }
 
 /// One caller's hold on one key of a [`KeyedLock`], from its wait to its release: dropping it ends

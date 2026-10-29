@@ -54,7 +54,7 @@ use sidekicks_provider::driver::contract::params_and_results::ListModelsParams;
 use sidekicks_provider::driver::error_causes::ProviderAxisInvalid;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::keyed_lock::KeyedLock;
+use sidekicks_std::keyed_lock::{HeldWorkEnd, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 #[cfg(test)]
 use sidekicks_std::pause_point::PausePoint;
@@ -73,7 +73,6 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorksp
 use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
-use tokio::task::JoinError;
 
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
 use crate::create::account::{ResolvedAccount, read_current_account};
@@ -237,12 +236,9 @@ pub enum SessionCreateError {
         /// The chat.
         session_id: SessionId,
     },
-    /// The create was skipped, since its caller stopped waiting before its key was held.
-    #[error("the session's create was skipped once its caller stopped waiting")]
-    Unanswered,
-    /// The task that ran the create ended before the create finished.
-    #[error("the session's create ended before it finished")]
-    Interrupted(#[source] JoinError),
+    /// The task that ran the create under its key ended without answering.
+    #[error("the session's create ended without an answer")]
+    Unanswered(#[from] HeldWorkEnd),
     /// Some stopped creates could not be finished; every other one was.
     #[error(transparent)]
     Finish(#[from] SettleFailures<SessionFinishFailure>),
@@ -264,8 +260,7 @@ impl From<SessionCreateError> for HandlerError {
             | SessionCreateError::Draft(_)
             | SessionCreateError::Append(_)
             | SessionCreateError::ChatWithoutMount { .. }
-            | SessionCreateError::Unanswered
-            | SessionCreateError::Interrupted(_)
+            | SessionCreateError::Unanswered(_)
             | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
         }
     }
@@ -342,8 +337,7 @@ impl SessionCreation {
     ) -> Result<SessionCreateResponse, SessionCreateError> {
         let key = target_of(&request).key.clone();
         let creation = Arc::clone(self);
-        let landed = self
-            .key_lock
+        self.key_lock
             .run_held(
                 key.clone(),
                 async move { creation.create_held(&request).await },
@@ -360,12 +354,7 @@ impl SessionCreation {
                     ),
                 },
             )
-            .await;
-        match landed {
-            Ok(Some(answer)) => answer,
-            Ok(None) => Err(SessionCreateError::Unanswered),
-            Err(interrupted) => Err(SessionCreateError::Interrupted(interrupted)),
-        }
+            .await?
     }
 
     // The create `create` describes, run while its key is held.
