@@ -41,7 +41,7 @@ use crate::driver::claude::session::errors::{
 use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::establishment::context::resolve_claude_spawn_context;
 use crate::driver::claude::session::permission_level::{
-    ClaudeStartingLevelSources, can_run_claude_level, list_claude_modes,
+    ClaudeStartingLevelSources, can_run_claude_level, is_offered_on_system, list_claude_modes,
     move_claude_permission_level, read_claude_sandbox_support, read_claude_starting_level,
 };
 use crate::driver::claude::session::permissions::{
@@ -382,7 +382,9 @@ impl ClaudeDriver {
                 None,
             )
             .await;
-            return Ok(list_claude_modes(can_run_sandbox));
+            return Ok(list_claude_modes(|level| {
+                is_offered_on_system(level, can_run_sandbox)
+            }));
         };
         let provider_account_id = match params.provider_account_id {
             Some(provider_account_id) => provider_account_id,
@@ -398,12 +400,9 @@ impl ClaudeDriver {
         let offered = self
             .read_offered_levels(&environment, &self.sources.home_folder)
             .await;
-        let mut modes = list_claude_modes(offered.can_run_sandbox);
-        if !offered.offers(PermissionLevel::Reviewed, model.as_str()) {
-            let reviewed = <&str>::from(PermissionLevel::Reviewed);
-            modes.retain(|mode| mode.id.as_str() != reviewed);
-        }
-        Ok(modes)
+        Ok(list_claude_modes(|level| {
+            offered.offers(level, model.as_str())
+        }))
     }
 
     /// Which levels the account `environment` composes and this system run in `working_folder`:

@@ -369,6 +369,7 @@ fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
 
 #[cfg(test)]
 mod tests {
+    use crate::driver::test_registry::fixed_session_id;
     use std::path::Path;
     use std::sync::{Arc, Mutex};
 
@@ -378,7 +379,6 @@ mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
-    use sidekicks_contracts::session::id::SessionId;
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
     use sidekicks_std::error_description::describe_error;
     use sidekicks_std::mutex_lock::lock;
@@ -399,10 +399,6 @@ mod tests {
         ClaudeInboundRequestEvent,
     };
     use crate::run::posture::{compose_execution_posture, resolve_posture};
-
-    fn session_id() -> SessionId {
-        SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
-    }
 
     // Routes one pre-tool callback for `tool_name`, called by the helper `agent_id` or the lead.
     fn route_pre_tool_call(
@@ -425,7 +421,7 @@ mod tests {
         });
         route_claude_request(
             event,
-            &session_id(),
+            &fixed_session_id(),
             Some(PermissionLevel::Sandboxed),
             &mut lock(pauses),
             &mut ClaudeHelperLimit::default(),
@@ -447,7 +443,14 @@ mod tests {
         else {
             panic!("a helper start goes to the check");
         };
-        route_helper_start(Some(posture), pauses, &session_id(), request_id, agent_id).await
+        route_helper_start(
+            Some(posture),
+            pauses,
+            &fixed_session_id(),
+            request_id,
+            agent_id,
+        )
+        .await
     }
 
     fn sandboxed_over(root: &Path) -> ExecutionPosture {
@@ -572,7 +575,7 @@ mod tests {
                 ..
             }
         ));
-        lock(&pauses).pause_helper(&session_id(), "helper-a");
+        lock(&pauses).pause_helper(&fixed_session_id(), "helper-a");
         let ClaudeRequestRoute::Held { helper_held } =
             route_start(&pauses, &posture, Some("helper-a"), "r2").await
         else {

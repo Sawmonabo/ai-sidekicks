@@ -133,12 +133,12 @@ pub(crate) fn claude_level_of_mode(
     }
 }
 
-/// The levels a Claude Code session can run at on this system, each named by the mode it runs in;
-/// Sandboxed only where `can_run_sandbox`, the descriptor's command-sandbox check, holds.
-pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
+/// The levels a Claude Code session is offered, each named by the mode it runs in: those `offers`
+/// holds for.
+pub(crate) fn list_claude_modes(offers: impl Fn(PermissionLevel) -> bool) -> Vec<ProviderMode> {
     PermissionLevel::VARIANTS
         .iter()
-        .filter(|&&level| is_offered_on_system(level, can_run_sandbox))
+        .filter(|&&level| offers(level))
         .map(|&level| ProviderMode {
             id: FreeFormText::new(<&str>::from(level).to_owned())
                 .expect("a level's name is a short word"),
@@ -407,8 +407,9 @@ fn claude_starting_level(
     }
 }
 
-// Whether this system offers `level` at all: Sandboxed needs Claude Code's command sandbox.
-fn is_offered_on_system(level: PermissionLevel, can_run_sandbox: bool) -> bool {
+/// Whether this system offers `level` at all: Sandboxed needs Claude Code's command sandbox, which
+/// runs here where `can_run_sandbox`.
+pub(crate) fn is_offered_on_system(level: PermissionLevel, can_run_sandbox: bool) -> bool {
     level != PermissionLevel::Sandboxed || can_run_sandbox
 }
 

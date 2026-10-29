@@ -273,14 +273,10 @@ impl ClaudeRunPauses {
 
 #[cfg(test)]
 mod tests {
+    use crate::driver::test_registry::fixed_session_id;
     use sidekicks_contracts::run::id::RunId;
-    use sidekicks_contracts::session::id::SessionId;
 
     use super::{ClaudeHookAnswer, ClaudePauseAnswer, ClaudeReleasedCallback, ClaudeRunPauses};
-
-    fn session_id() -> SessionId {
-        SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
-    }
 
     fn bytes_of(answer: ClaudePauseAnswer) -> String {
         let ClaudePauseAnswer::Answer(answer) = answer else {
@@ -291,7 +287,7 @@ mod tests {
 
     #[test]
     fn a_paused_lead_is_denied_then_stopped_in_the_bytes_claude_code_reads() {
-        let session_id = session_id();
+        let session_id = fixed_session_id();
         let run_id = RunId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5e").expect("a valid run id");
         let mut pauses = ClaudeRunPauses::default();
         assert_eq!(
@@ -316,7 +312,7 @@ mod tests {
 
     #[test]
     fn a_helper_pause_takes_effect_once_and_resumes_with_the_persons_words() {
-        let session_id = session_id();
+        let session_id = fixed_session_id();
         let mut pauses = ClaudeRunPauses::default();
         pauses.pause_helper(&session_id, "helper-a");
 

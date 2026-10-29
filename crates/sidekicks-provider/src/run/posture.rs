@@ -505,6 +505,7 @@ async fn canonical_deny_path(
 
 #[cfg(test)]
 mod tests {
+    use crate::driver::test_registry::new_session_id;
     use std::pin::pin;
 
     use sidekicks_contracts::run::state::RunState;
@@ -626,10 +627,6 @@ mod tests {
         ));
     }
 
-    fn session_id() -> SessionId {
-        SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
-    }
-
     fn run_context(session_id: SessionId, execution_posture: ExecutionPosture) -> RunSetupContext {
         RunSetupContext {
             run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
@@ -679,7 +676,7 @@ mod tests {
         let git_folder = home.path().join("repo.git");
         std::fs::create_dir(&git_folder).expect("the git folder is made");
         let service = ExecutionPostureService::new(home.path(), home.path().join("daemon.token"));
-        let session = session_id();
+        let session = new_session_id();
         let sandboxed = moved_sandboxed(&git_folder).await;
         let yolo = compose_execution_posture(PermissionLevel::Yolo, filesystem_path(&git_folder));
 
@@ -749,7 +746,7 @@ mod tests {
     async fn a_run_of_another_session_keeps_its_own_posture() {
         let service =
             ExecutionPostureService::new(Path::new("/home"), PathBuf::from("/home/daemon.token"));
-        let (moved, other) = (session_id(), session_id());
+        let (moved, other) = (new_session_id(), new_session_id());
         let yolo =
             compose_execution_posture(PermissionLevel::Yolo, filesystem_path(Path::new("/")));
 
@@ -792,7 +789,7 @@ mod tests {
         service
             .set_stored_postures(std::sync::Arc::downgrade(&stored) as Weak<_>)
             .expect("a new service reads no stored level yet");
-        let session = session_id();
+        let session = new_session_id();
         let sandboxed =
             compose_execution_posture(PermissionLevel::Sandboxed, filesystem_path(&git_folder));
         let yolo = compose_execution_posture(PermissionLevel::Yolo, filesystem_path(&git_folder));

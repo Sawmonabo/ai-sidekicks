@@ -279,8 +279,14 @@ pub fn new_run_id() -> RunId {
 
 /// A minted session id.
 #[cfg(test)]
-pub(super) fn new_session_id() -> SessionId {
+pub(crate) fn new_session_id() -> SessionId {
     SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+}
+
+/// One fixed session id, for a test that names its session in several places.
+#[cfg(test)]
+pub(crate) fn fixed_session_id() -> SessionId {
+    SessionId::new("0190a5d2-7c1e-7d3a-9b2f-4c8e6a1f3b5d").expect("a valid session id")
 }
 
 /// A minted id of a queued message.
