@@ -72,6 +72,7 @@ mod capabilities;
 mod capability_probe;
 mod commands;
 mod compaction;
+mod config_read;
 mod delivery;
 mod event_normalizer;
 mod exec_relay;

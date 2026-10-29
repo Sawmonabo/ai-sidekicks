@@ -1,22 +1,18 @@
 //! The level a new Codex session starts at, read from Codex's own settings for the session's
-//! folder: `config/read` with the folder as `cwd` on the person's own Codex home, so Codex resolves
+//! folder: `config/read` with the folder as `cwd` on the account's Codex home, so Codex resolves
 //! its own layers and names the layer that set each key. A key set only by Codex's packaged
 //! defaults counts as unset; with none of the three set the session starts at YOLO.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use serde::Deserialize;
 use serde_json::Value;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
-use crate::driver::codex::app_server_protocol::ConfigReadParams;
+use crate::driver::codex::config_read::{CodexConfigRead, read_codex_config};
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::codex::transport::connection::read_codex_object;
 use crate::driver::session_control::StartingLevel;
-
-const CONFIG_READ_METHOD: &str = "config/read";
 
 /// The three keys a level is read from.
 const SANDBOX_MODE_KEY: &str = "sandbox_mode";
@@ -26,13 +22,7 @@ const APPROVALS_REVIEWER_KEY: &str = "approvals_reviewer";
 /// The layer of Codex's packaged defaults, whose values count as unset.
 const PACKAGED_DEFAULTS_LAYER: &str = "packagedDefaults";
 
-/// The members of a `config/read` reply the level is read from.
-#[derive(Deserialize)]
-struct ConfigReadReply {
-    config: ConfigValues,
-    origins: HashMap<String, ConfigOrigin>,
-}
-
+// The effective values the level is read from.
 #[derive(Deserialize)]
 struct ConfigValues {
     sandbox_mode: Option<String>,
@@ -41,19 +31,8 @@ struct ConfigValues {
     approvals_reviewer: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct ConfigOrigin {
-    name: ConfigLayer,
-}
-
-#[derive(Deserialize)]
-struct ConfigLayer {
-    #[serde(rename = "type")]
-    kind: String,
-}
-
 /// The level and mode a new session in `working_folder` starts at, as Codex's own settings for
-/// the folder on `service`, the person's own Codex home's, set them; always in Build, since no
+/// the folder on `service`, the account's home's, set them; always in Build, since no
 /// setting starts Codex planning. Fails as the read fails, and with `CodexError::Transport` for a
 /// reply it cannot read.
 pub(crate) async fn read_codex_starting_level(
@@ -63,21 +42,7 @@ pub(crate) async fn read_codex_starting_level(
     service
         .ensure_started(service.dependencies().startup_timeout)
         .await?;
-    let reply = service
-        .connection()?
-        .request(
-            CONFIG_READ_METHOD,
-            &ConfigReadParams {
-                cwd: Some(working_folder.to_string_lossy().into_owned()),
-                include_layers: Some(true),
-            },
-        )
-        .await?;
-    let read =
-        read_codex_object::<ConfigReadReply>(reply.get()).ok_or_else(|| CodexError::Transport {
-            detail: "The Codex app-server \"config/read\" response could not be read.".to_owned(),
-            cause: None,
-        })?;
+    let read = read_codex_config(&*service.connection()?, working_folder, true).await?;
     Ok(StartingLevel {
         level: compose_starting_level(&read),
         session_mode: SessionMode::Build,
@@ -86,7 +51,7 @@ pub(crate) async fn read_codex_starting_level(
 
 // The level the effective values give, or YOLO when no layer past the packaged defaults sets any
 // of them; a combination no level matches gives the nearest more careful one.
-fn compose_starting_level(read: &ConfigReadReply) -> PermissionLevel {
+fn compose_starting_level(read: &CodexConfigRead<ConfigValues>) -> PermissionLevel {
     let is_set = |key: &str| {
         read.origins
             .get(key)
@@ -126,7 +91,8 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::session::controls::methods::PermissionLevel;
 
-    use super::{ConfigReadReply, compose_starting_level};
+    use super::{ConfigValues, compose_starting_level};
+    use crate::driver::codex::config_read::CodexConfigRead;
 
     fn layer(kind: &str) -> Value {
         json!({"name": {"type": kind, "file": "/config.toml"}, "version": "1"})
@@ -180,7 +146,7 @@ mod tests {
         #[case] origins: Value,
         #[case] level: PermissionLevel,
     ) {
-        let read: ConfigReadReply =
+        let read: CodexConfigRead<ConfigValues> =
             serde_json::from_value(json!({"config": config, "origins": origins}))
                 .expect("the reply reads");
         assert_eq!(compose_starting_level(&read), level);

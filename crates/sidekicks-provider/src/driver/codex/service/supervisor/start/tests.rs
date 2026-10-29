@@ -112,6 +112,7 @@ async fn start_terminal_service_on(
         },
         CodexServiceKind::Terminal,
         dependencies,
+        Vec::new(),
     );
     tokio::time::timeout(
         deadline,
@@ -327,6 +328,7 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
         },
         CodexServiceKind::Account,
         dependencies,
+        Vec::new(),
     );
 
     let mut tokens = Vec::new();

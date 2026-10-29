@@ -322,7 +322,7 @@ pub(crate) fn script_codex_service(
     kind: CodexServiceKind,
     dependencies: Arc<CodexServiceDependencies>,
 ) -> (Arc<CodexService>, ScriptedService) {
-    let service = CodexService::new(home, socket, kind, dependencies);
+    let service = CodexService::new(home, socket, kind, dependencies, Vec::new());
     let (connection, script) = connect_scripted_service(
         SCRIPTED_MESSAGE_LIMIT,
         service.connection_handlers(SCRIPTED_DIAL),
