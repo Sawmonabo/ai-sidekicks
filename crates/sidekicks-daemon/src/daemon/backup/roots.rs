@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use futures::FutureExt as _;
-use sidekicks_provider::account_homes::{account_home_conversation_folders, read_account_homes};
+use sidekicks_provider::account::homes::{account_home_conversation_folders, read_account_homes};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
 use sidekicks_store::backup_mirror::{MirrorRoot, MirrorRootError};
