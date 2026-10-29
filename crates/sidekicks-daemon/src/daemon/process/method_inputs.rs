@@ -34,6 +34,8 @@ use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::projection_rebuild::ProjectionRebuildService;
 use sidekicks_recovery::restart_settle::{RestartSettle, RestartSettleDeps};
 use sidekicks_recovery::startup::{StartupRecovery, StartupRecoveryDeps};
+use sidekicks_session::attention::banner_launcher::BannerLauncher;
+use sidekicks_session::attention::service::{AttentionService, AttentionServiceDependencies};
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::plan_holds::PlanHolds;
@@ -191,6 +193,8 @@ pub(crate) struct MethodInputs {
     /// The devices' heartbeats, which the presence methods answer from and each closing
     /// connection drops its own from.
     pub(crate) presence: Arc<PresenceRegister>,
+    /// The attention service, started right after the recovery pass.
+    pub(crate) attention: Arc<AttentionService>,
 }
 
 /// Why the method tables' services could not be built.
@@ -324,6 +328,15 @@ pub(crate) async fn register_method_inputs(
         live_run_folders: Arc::new(SessionLiveRunFolders::new(Arc::clone(&reads))),
         // No run gate holds a checkout lock, so the creator's is its own.
         checkout_lock: Arc::new(KeyedLock::new()),
+    }));
+    let attention = Arc::new(AttentionService::new(AttentionServiceDependencies {
+        writer: Arc::clone(&writer),
+        pool: Arc::clone(&reads),
+        changes: database.attention_changes.clone(),
+        settings: Arc::clone(&settings_reader),
+        presence: Arc::clone(&presence),
+        launcher: Arc::new(BannerLauncher::new(Arc::new(spawner.clone()))),
+        machine_device_id: machine_device_id.clone(),
     }));
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");
@@ -605,6 +618,7 @@ pub(crate) async fn register_method_inputs(
             clones: clones.clone(),
             machine_folders: Arc::new(FolderListService::new(home_folder.to_path_buf(), git)),
             presence: Arc::clone(&presence),
+            attention: Arc::clone(&attention),
         },
     )?;
     Ok(MethodInputs {
@@ -616,6 +630,7 @@ pub(crate) async fn register_method_inputs(
         worktree_creator,
         machine_device_id,
         presence,
+        attention,
     })
 }
 

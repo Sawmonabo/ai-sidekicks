@@ -13,6 +13,7 @@ use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
+use sidekicks_session::attention::service::AttentionService;
 use sidekicks_session::changes::SessionChanges;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::draft_store::SessionDraftStore;
@@ -51,6 +52,7 @@ use crate::highlight::colorer::CodeHighlighter;
 use crate::ipc::handlers::agent::command::{CommandMethodSources, register_command_methods};
 use crate::ipc::handlers::agent::turn::register_turn_methods;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
+use crate::ipc::handlers::attention::register_attention_methods;
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
 use crate::ipc::handlers::machine::folder::register_machine_folders;
@@ -164,11 +166,13 @@ pub(crate) struct MethodTableServices {
     pub(crate) machine_folders: Arc<FolderListService>,
     /// The devices' heartbeats.
     pub(crate) presence: Arc<PresenceRegister>,
+    /// The attention entries' projection, banner settles and seen marks.
+    pub(crate) attention: Arc<AttentionService>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
 /// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
-/// the repositories, the projects, the machine's folders and the devices present. The handshake,
+/// attention, the repositories, the projects, the machine's folders and the devices present. The handshake,
 /// the subscriptions' cancel and the artifact store's table are registered by the start beside
 /// them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
@@ -216,6 +220,7 @@ pub(crate) fn register_method_tables(
     register_session_groups(builder, services.session_groups)?;
     register_session_links(builder, services.links, services.related_ranking)?;
     register_session_recovery_methods(builder, services.damaged_history)?;
+    register_attention_methods(builder, services.attention)?;
     register_question_resolve(builder, services.questions)?;
     register_highlight_read(builder, services.highlighter)?;
     register_terminal_write(builder, services.shells.input_lookup())?;

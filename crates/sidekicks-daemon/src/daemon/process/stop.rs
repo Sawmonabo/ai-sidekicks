@@ -96,9 +96,10 @@ pub(crate) enum CrashMonitorEndFailure {
 /// comes; then, within what is left of `bound`, the mutating calls under way, the machine keys'
 /// background read, the capability refresh, the providers' registration, the run queue, the clone
 /// service with its askpass broker, the worktrees' setup commands, the repository services'
-/// background work, the session services' follows with the chats' write watch and file recount,
-/// the renames' name pushes, the highlighter, the terminals, the scheduler, the working-folder
-/// watch, the projects list, the search index, the drivers and the git trees a failed call left.
+/// background work, the attention decisions, the session services' follows with the chats' write
+/// watch and file recount, the renames' name pushes, the highlighter, the terminals, the scheduler,
+/// the working-folder watch, the projects list, the search index, the drivers and the git trees a
+/// failed call left.
 /// Answers each step's failure, every step having run.
 pub(crate) async fn stop_work(
     process: &mut DaemonProcess,
@@ -168,6 +169,18 @@ pub(crate) async fn stop_work(
         && let Some(failure) = repo_attachments.stop(repo).await
     {
         failures.push(failure.into());
+    }
+    // The work's stop ends the attention decisions; a write under way is waited out.
+    if let Some(attention) = process.attention.take()
+        && let Err(error) = attention.await
+    {
+        failures.push(
+            TaskStopFailure {
+                task: "attention decisions",
+                error,
+            }
+            .into(),
+        );
     }
     // The session services' follows end with the chats' write watch, which they wait out.
     match (
