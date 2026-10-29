@@ -343,7 +343,7 @@ async fn a_git_folder_that_is_gone_or_not_named_is_unavailable(
 
     let answered = match &read {
         Ok(SessionGitFolder::Unavailable(GitFolderUnavailable::NoRunFolder)) => Some("noRunFolder"),
-        Ok(SessionGitFolder::Unavailable(GitFolderUnavailable::Refused)) => Some("refused"),
+        Ok(SessionGitFolder::Unavailable(GitFolderUnavailable::Refused(_))) => Some("refused"),
         Ok(SessionGitFolder::Available(_)) | Err(_) => None,
     };
     assert_eq!(answered, unavailable, "{read:?}");

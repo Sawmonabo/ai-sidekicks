@@ -98,8 +98,8 @@ const BUILT_IN_FILE_WATCH_BUILD_LINE: &[u8] = b"feature: fsmonitor--daemon";
 /// no setting matches.
 pub(crate) const CONFIG_UNSET_EXIT_CODE: i32 = 1;
 
-/// git's exit code when the folder it was run from is in no repository.
-pub const NOT_A_REPOSITORY_EXIT_CODE: i32 = 128;
+/// git's exit for every fatal error, a folder in no repository among them.
+pub const GIT_FATAL_EXIT_CODE: i32 = 128;
 
 /// Why a git call did not answer.
 #[derive(Debug, thiserror::Error)]
@@ -674,7 +674,7 @@ pub fn find_git_executable(environment: &[(String, String)]) -> Option<PathBuf> 
 
 /// The absolute git folder of the repository `folder` sits in, the common one a linked worktree
 /// shares with every worktree of its repository, held to `timeout` (the runner's bound when
-/// `None`). Fails as [`GitRunner::run`] does, with [`NOT_A_REPOSITORY_EXIT_CODE`] when `folder`
+/// `None`). Fails as [`GitRunner::run`] does, with [`GIT_FATAL_EXIT_CODE`] when `folder`
 /// is in no repository, and with `PathText` for a path this system cannot name.
 pub async fn read_git_common_folder(
     git: &GitRunner,

@@ -28,8 +28,8 @@ use sidekicks_std::missing_entry::is_missing_entry;
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::{
-    GitCall, GitError, GitRunner, NOT_A_REPOSITORY_EXIT_CODE, background_read,
-    strip_carriage_return, strip_line_end,
+    GIT_FATAL_EXIT_CODE, GitCall, GitError, GitRunner, background_read, strip_carriage_return,
+    strip_line_end,
 };
 
 /// The prefix of every local branch's full ref name.
@@ -694,7 +694,7 @@ pub(crate) async fn read_linked_tree_record(
         .await;
     let output = match output {
         Ok(output) => output,
-        Err(failure) if failure.exit_code() == Some(NOT_A_REPOSITORY_EXIT_CODE) => {
+        Err(failure) if failure.exit_code() == Some(GIT_FATAL_EXIT_CODE) => {
             return Ok(None);
         }
         Err(failure) => return Err(failure.into()),
