@@ -427,7 +427,7 @@ pub(crate) async fn open_database_file(
                 Arc::clone(&status),
                 Arc::clone(&listener_writer),
             )),
-            after_commit: Some(after_commit),
+            after_commits: vec![after_commit],
         },
     )
     .await?;

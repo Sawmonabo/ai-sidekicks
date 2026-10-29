@@ -22,8 +22,8 @@ use crate::database::writer::messages::{
 };
 use crate::database::writer::test_file::{TestDatabase, session_event_row, test_session_id};
 use crate::database::writer::{
-    CommittedWrite, DatabaseWriter, DatabaseWriterOptions, MaintenanceError, PendingWrite,
-    ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
+    CommitRead, CommittedWrite, DatabaseWriter, DatabaseWriterOptions, MaintenanceError,
+    PendingWrite, ThreadStop, WRITE_QUEUE_CAPACITY, WriteError, WriteFailureListener, WriterThread,
     WritesHeldError,
 };
 
@@ -195,6 +195,38 @@ async fn flush_answers_once_a_queued_write_has_committed() {
     assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
 }
 
+// Every read after a commit runs, in order, and a failed one neither skips the next nor goes
+// unheard. Killed by stopping at the first failure, by running only the first read and by
+// dropping a failure before the listener.
+#[tokio::test]
+async fn every_read_after_a_commit_runs_and_each_failure_is_heard() {
+    let database = TestDatabase::new(schema_parts());
+    let (heard, on_write_failed) = counting_listener();
+    let later_reads = Arc::new(AtomicUsize::new(0));
+    let later_counter = Arc::clone(&later_reads);
+    let failing: CommitRead =
+        Box::new(|connection: &Connection| connection.execute_batch("SELECT * FROM no_such_table"));
+    let counting: CommitRead = Box::new(move |_connection: &Connection| {
+        later_counter.fetch_add(1, Ordering::Relaxed);
+        Ok(())
+    });
+    let options = DatabaseWriterOptions {
+        on_write_failed: Some(on_write_failed),
+        after_commits: vec![failing, counting],
+        ..DatabaseWriterOptions::default()
+    };
+    let writer = DatabaseWriter::open(database.opener(), options)
+        .await
+        .expect("the writer opens its database");
+
+    let written = queue(&writer, append(&test_session_id())).await;
+
+    assert_eq!(sequences(written), [0]);
+    assert_eq!(later_reads.load(Ordering::Relaxed), 1);
+    assert_eq!(heard.load(Ordering::Relaxed), 1);
+    assert_eq!(writer.close(None).await.expect("the writer closes"), 0);
+}
+
 #[tokio::test]
 async fn a_write_at_the_cap_waits_and_is_stored() {
     let database = TestDatabase::new(schema_parts());
@@ -238,7 +270,7 @@ fn commit_each(
         .send(Ok(CommittedBatch {
             outcomes,
             commit_count,
-            after_commit_failure: None,
+            after_commit_failures: Vec::new(),
         }))
         .expect("the writer waits on the batch");
 }

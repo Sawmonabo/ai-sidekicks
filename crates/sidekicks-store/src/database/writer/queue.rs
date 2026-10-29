@@ -502,12 +502,12 @@ impl WriteQueue {
         let CommittedBatch {
             outcomes,
             commit_count,
-            after_commit_failure,
+            after_commit_failures,
         } = committed;
-        if let Some(failure) = &after_commit_failure {
+        for failure in &after_commit_failures {
             tracing::warn!(
                 error = failure as &(dyn Error + 'static),
-                "the read after a commit failed; its watch keeps the last value it read"
+                "a read after a commit failed; its watch keeps the last value it read"
             );
             self.report_failure(failure);
         }
