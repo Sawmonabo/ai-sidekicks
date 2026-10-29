@@ -1,8 +1,9 @@
 //! The question record's intake from the drivers: a question a provider asks is recorded open in
 //! one write, which moves its run to `waitingForInput` when its agent waits, and a question the
 //! provider withdraws is canceled in one write that moves its run back to `running`; one waiting
-//! for its run is canceled with the run unmoved. The provider's request id is kept in memory for
-//! the life of the request, which never outlives the daemon.
+//! for its run is canceled with the run unmoved. The provider's request id is held in memory for
+//! the answer and kept on the record, so a request its provider sends again after the daemon's
+//! restart is held again for its open question, with no second record and the run unmoved.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -23,7 +24,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::list::BoundedVec;
-use sidekicks_contracts::wire::text::TextError;
+use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::contract::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
@@ -46,7 +47,8 @@ use sidekicks_store::events::session::appender::{
 use crate::driver_resolution::LiveRunDriverError;
 use crate::questions::schema::QuestionState;
 use crate::questions::store::{
-    insert_question_statement, read_question, read_unsettled_among, settle_question_statement,
+    insert_question_statement, read_open_question_of_request, read_question, read_unsettled_among,
+    settle_question_statement,
 };
 use crate::questions::waits::QuestionWaits;
 use crate::run::engine::{RunEngine, RunEngineError};
@@ -58,8 +60,9 @@ pub mod test_fixture;
 mod tests;
 
 /// The statements [`QuestionsService`] prepares on a read connection: a record, its pages,
-/// whether its run has an interrupt recorded, and which held questions are still open.
-pub const QUESTION_STATEMENT_CAPACITY: usize = 4;
+/// whether its run has an interrupt recorded, which held questions are still open, and the open
+/// question a provider's request came on.
+pub const QUESTION_STATEMENT_CAPACITY: usize = 5;
 
 // Whether a person's or the daemon's interrupt of the run was asked for or carried out.
 static RUN_INTERRUPTED_SQL: LazyLock<String> = LazyLock::new(|| {
@@ -209,8 +212,10 @@ impl QuestionsService {
     }
 
     /// Records `question` as [`Self::take_question`] does when `state` is open; waiting for its
-    /// run, in a write of its own with the run unmoved, its request kept for the answer. Fails as
-    /// the draft, the move or the write fails.
+    /// run, in a write of its own with the run unmoved, its request kept for the answer. An open
+    /// one whose request no held question has, which the run's open question came on, is that
+    /// question asked again: its request is held for it, with no second record and the run
+    /// unmoved. Fails as the read, the draft, the move or the write fails.
     pub(super) async fn record_question(
         &self,
         question: ProviderQuestion,
@@ -227,6 +232,13 @@ impl QuestionsService {
         let questions = BoundedVec::new(questions).ok_or_else(|| QuestionError::NoQuestions {
             request_id: request_id.clone(),
         })?;
+        if state == QuestionAskedState::Open
+            && let Some(question_id) = self
+                .hold_open_question(session_id, run_id, &request_id, &answered_by)
+                .await?
+        {
+            return Ok(question_id);
+        }
         let question_id =
             QuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is in a question id's form");
         let asked = QuestionAskedPayload::Run(RunQuestionAskedPayload {
@@ -234,6 +246,7 @@ impl QuestionsService {
             session_id,
             run_id,
             state,
+            provider_request_id: FreeFormText::new(request_id.clone()).ok(),
             wait_id: None,
             is_agent_waiting,
             questions,
@@ -289,6 +302,51 @@ impl QuestionsService {
             },
         );
         Ok(question_id)
+    }
+
+    // Holds `request_id` again for the run's open question that came on it, as its provider sends a
+    // waiting request again after the daemon's restart; answers that question, or `None` where a
+    // held question has the request, none came on it, or it is held under another request here.
+    async fn hold_open_question(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+        request_id: &str,
+        answered_by: &HeldRequestAnswerer,
+    ) -> Result<Option<QuestionId>, QuestionError> {
+        if self.held_question_of(session_id, request_id).is_some() {
+            return Ok(None);
+        }
+        let read_request_id = request_id.to_owned();
+        let Some(question_id) = self
+            .reads
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, QuestionError>(read_open_question_of_request(
+                    reader,
+                    &run_id,
+                    &read_request_id,
+                )?)
+            })
+            .await?
+        else {
+            return Ok(None);
+        };
+        let _question_hold = self.question_lock.acquire(question_id).await;
+        if self.held_request(&question_id).is_some()
+            || self.read_state(question_id).await? != Some(QuestionState::Open)
+        {
+            return Ok(None);
+        }
+        self.hold_request(
+            question_id,
+            HeldRequest {
+                session_id,
+                run_id,
+                request_id: request_id.to_owned(),
+                answered_by: answered_by.clone(),
+            },
+        );
+        Ok(Some(question_id))
     }
 
     /// Cancels the open question the provider asked under `withdrawal`'s request, in the write

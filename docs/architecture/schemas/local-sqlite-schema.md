@@ -745,6 +745,8 @@ CREATE TABLE questions (
   session_id        TEXT NOT NULL,
   run_id            TEXT,              -- the run that holds it, or
   wait_id           TEXT,              -- the workflow wait that holds it
+  provider_request_id TEXT,            -- the provider's request a run's question came on, from question.asked.providerRequestId,
+                                       -- so a request sent again after a restart finds its open record; NULL on a wait's question
   is_agent_waiting  INTEGER NOT NULL CHECK(is_agent_waiting IN (0, 1)), -- 0: a queued message answers it
   state             TEXT NOT NULL DEFAULT 'open' CHECK(state IN ('waitingForRun', 'open', 'answered', 'canceled')),
   CHECK((run_id IS NULL) <> (wait_id IS NULL))

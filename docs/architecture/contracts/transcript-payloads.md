@@ -545,6 +545,10 @@ interface QuestionAskedPayload {
   // `Waiting for the run`, and opens in the order the run's questions came once the run reads
   // running. A workflow step's question is open at once and carries none.
   state?: "open" | "waitingForRun";
+  // On a run's question only: the provider's own id of the request the question came on, by which
+  // a request the provider sends again after the daemon's restart finds this open record, with no
+  // second record; absent where the id is longer than a provider handle.
+  providerRequestId?: string;
   // False only on a question the agent does not wait for (Codex's `agentMessage` item carrying
   // `questions` with `delivery: "async"`): the run keeps running and no card of its own is raised.
   isAgentWaiting: boolean;
