@@ -98,7 +98,8 @@ static MOMENT_RESOLVE_SQL: LazyLock<ResolveSql> =
     LazyLock::new(|| ResolveSql::of(OPEN_MOMENT_ENTRIES));
 static STEP_RESOLVE_SQL: LazyLock<ResolveSql> = LazyLock::new(|| ResolveSql::of(OPEN_STEP_ENTRIES));
 
-static BUMP_ALWAYS_SQL: LazyLock<String> = LazyLock::new(|| version_bump_sql("true"));
+/// The bump of the machine's and `@session_id`'s change counts, unguarded.
+pub(crate) static BUMP_ALWAYS_SQL: LazyLock<String> = LazyLock::new(|| version_bump_sql("true"));
 
 // A run's end changes rows when its moment has an open entry or the run is a lead run.
 static BUMP_IF_OPEN_OR_LEAD_RUN_SQL: LazyLock<String> = LazyLock::new(|| {

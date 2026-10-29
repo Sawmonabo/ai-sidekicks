@@ -7,6 +7,12 @@
 
 pub(crate) mod aggregate;
 pub mod banner_launcher;
+pub mod changes;
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "the attention service's decision task")
+)]
+pub(crate) mod gate;
 pub(crate) mod moment;
 pub mod projection;
 pub mod read;
