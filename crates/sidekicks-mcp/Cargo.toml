@@ -12,12 +12,15 @@ doctest = false
 
 [dependencies]
 async-trait.workspace = true
+axum = { workspace = true, features = ["query"] }
 base64.workspace = true
 blake3.workspace = true
 bytes.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 http.workspace = true
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["service", "tokio"] }
 jwt-simple.workspace = true
 p256.workspace = true
 process-wrap.workspace = true
@@ -45,6 +48,7 @@ url.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
+# The server the client's tests run their fakes on.
 axum = { workspace = true, features = ["http1", "tokio"] }
 rstest.workspace = true
 # The credit gate the status tests read the notice board through.
