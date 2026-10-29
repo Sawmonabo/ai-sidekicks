@@ -46,7 +46,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::{DriverError, bound_failure_detail};
+use sidekicks_provider::driver::contract::error::{DriverError, bound_failure_detail};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     ApplyInterventionParams, FasterModelRetryOutcome, FasterModelRetryParams, InterruptPayload,
@@ -749,7 +749,7 @@ impl InterventionService {
         };
         let unrecorded = |dispatch, record| InterventionError::Unrecorded {
             intervention_id: target.intervention_id,
-            dispatch,
+            dispatch: Box::new(dispatch),
             record,
         };
         match is_settled_since {

@@ -297,10 +297,11 @@ interface WorkflowStep {
   error?: WorkflowStepError;
   // Present only on a `failed` step whose process ended on its own — a command, a full-tier Code
   // step, Git, Run tests: exactly one of the exit code and the signal, and the last lines it printed,
-  // which the step panel's Error tab reads. The same shape as `agent.run.failed`'s `processExit`.
+  // which the step panel's Error tab reads. Its two arms are those of `agent.run.failed`'s
+  // `processExit`; a step never ends for silence, so it has no third arm.
   processExit?:
-    | { exitCode: number; signal?: never; outputTail: string }
-    | { signal: string; exitCode?: never; outputTail: string };
+    | { exitCode: number; signal?: never; silentSeconds?: never; outputTail: string }
+    | { signal: string; exitCode?: never; silentSeconds?: never; outputTail: string };
   // Non-fatal hints the step attached — an unwired branch that dropped items, a deprecated param, a
   // truncated output. They render as a strip in the output panel and are never errors.
   advisories?: string[];

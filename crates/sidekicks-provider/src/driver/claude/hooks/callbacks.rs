@@ -24,7 +24,7 @@ use crate::driver::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
 use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -47,13 +47,13 @@ pub(crate) enum ClaudeRequestRoute {
         /// The helper whose pause took effect with this hold.
         helper_held: Option<String>,
     },
-    /// Answer it once the shell command it carries is read for background work, through
+    /// Answer it once the shell call it carries is checked for background work, through
     /// [`answer_background_work_check`].
     CheckBackgroundWork {
         /// The request's id.
         request_id: String,
-        /// The command, `None` where the call carries none.
-        command: Option<String>,
+        /// The shell call the hook was asked about.
+        call: ClaudeShellCall,
     },
     /// Hand it on to the event side: every request the daemon's hooks do not answer, and every
     /// withdrawal.
@@ -75,7 +75,39 @@ struct HookInput {
 struct ShellToolInput {
     #[serde(default, deserialize_with = "read_lenient")]
     command: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    run_in_background: Option<bool>,
+    // Only whether a limit is set is read; Claude Code checks its type before the hook runs.
+    #[serde(default)]
+    timeout: Option<serde::de::IgnoredAny>,
 }
+
+/// The parts of a shell call the background-work hook reads.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeShellCall {
+    /// The command line, `None` where the call carries none.
+    pub(crate) command: Option<String>,
+    /// Whether the call runs in the background with no time limit of its own, which Claude Code
+    /// stops after 30 minutes.
+    pub(crate) is_untimed_background: bool,
+}
+
+impl ClaudeShellCall {
+    fn of(tool_input: ShellToolInput) -> Self {
+        Self {
+            command: tool_input.command.filter(|command| !command.is_empty()),
+            is_untimed_background: tool_input.run_in_background == Some(true)
+                && tool_input.timeout.is_none(),
+        }
+    }
+}
+
+/// The reason the background-work hook gives a background shell call that sets no time limit.
+pub(crate) const UNTIMED_BACKGROUND_REASON: &str = "Not started: a command run with \
+    run_in_background and no timeout is stopped after 30 minutes. Call Bash again with `timeout` \
+    set to how long you expect it to run, plus a margin, in milliseconds; or, for a server, a \
+    watcher or anything meant to keep running until someone stops it, start it with shell_run \
+    instead.";
 
 lenient_object!(HookInput, ShellToolInput);
 
@@ -135,10 +167,10 @@ pub(crate) fn route_claude_request(
             agent_id,
         ),
         RegisteredHook::BackgroundWork => ClaudeRequestRoute::CheckBackgroundWork {
-            command: input
+            call: input
                 .and_then(|input| input.tool_input)
-                .and_then(|tool_input| tool_input.command)
-                .filter(|command| !command.is_empty()),
+                .map(ClaudeShellCall::of)
+                .unwrap_or_default(),
             request_id: request.request_id,
         },
         RegisteredHook::HelperLimit => {
@@ -169,17 +201,24 @@ pub(crate) fn route_claude_request(
     }
 }
 
-/// The background-work hook's answer to a shell call running `command`: denied, with the reason
-/// the agent reads, when the line starts some provider's background work, at every level, since a
-/// level that never asks never reaches the answer to an ask; any other call passes. The line is
-/// read once, on `shell_lines`' blocking thread.
+/// The background-work hook's answer to a shell `call`, at every level, since a level that never
+/// asks never reaches the answer to an ask: denied, with the reason the agent reads, when the line
+/// starts some provider's background work or the call runs in the background with no time limit;
+/// any other call passes. The line is read once, on `shell_lines`' blocking thread.
 pub(crate) async fn answer_background_work_check(
     shell_lines: &ShellLineReadingBound,
     background_work: &Arc<BackgroundWorkForms>,
-    command: Option<String>,
+    call: ClaudeShellCall,
 ) -> ClaudeHookAnswer {
-    let Some(command) = command else {
-        return ClaudeHookAnswer::Pass;
+    let untimed_answer = if call.is_untimed_background {
+        ClaudeHookAnswer::Deny {
+            reason: UNTIMED_BACKGROUND_REASON.to_owned(),
+        }
+    } else {
+        ClaudeHookAnswer::Pass
+    };
+    let Some(command) = call.command else {
+        return untimed_answer;
     };
     let background_work = Arc::clone(background_work);
     let refusal = shell_lines
@@ -189,7 +228,7 @@ pub(crate) async fn answer_background_work_check(
         })
         .await
         .expect("a shell-line read never panics, and a panic ends the daemon");
-    refusal.map_or(ClaudeHookAnswer::Pass, |reason| ClaudeHookAnswer::Deny {
+    refusal.map_or(untimed_answer, |reason| ClaudeHookAnswer::Deny {
         reason: reason.to_owned(),
     })
 }
@@ -200,7 +239,7 @@ pub(crate) async fn answer_background_work_check(
 pub(crate) async fn answer_claude_request(
     channel: &dyn ClaudeProcessChannel,
     session_id: &SessionId,
-    provider_account_id: Option<&ProviderAccountId>,
+    provider_account_id: &ProviderAccountId,
     request_id: String,
     answer: &impl Serialize,
 ) {
@@ -215,7 +254,7 @@ pub(crate) async fn answer_claude_request(
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: provider_account_id.cloned(),
+        provider_account_id: Some(provider_account_id.clone()),
         kind: DriverDiagnosticKind::ControlAnswerFailed,
         raw_wire_type: None,
         disposition_reason: bound_failure_detail(
@@ -260,26 +299,71 @@ fn read_hook_input(callback: &ClaudeHookCallback) -> Option<HookInput> {
 mod tests {
     use std::sync::Arc;
 
+    use rstest::rstest;
+    use serde_json::json;
     use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 
-    use super::answer_background_work_check;
+    use super::{
+        ClaudeShellCall, ShellToolInput, UNTIMED_BACKGROUND_REASON, answer_background_work_check,
+    };
     use crate::background_work::BackgroundWorkForms;
     use crate::driver::PROVIDERS;
     use crate::driver::claude::hooks::pause::ClaudeHookAnswer;
 
-    // Killed by a hook that lets background work through, or that refuses an ordinary command.
+    /// The answer a case expects: a pass, the time-limit denial, or another denial.
+    #[derive(Debug)]
+    enum Expected {
+        Pass,
+        UntimedDenial,
+        BackgroundWorkDenial,
+    }
+
+    // Killed by a hook that lets a provider's background work through or refuses an ordinary
+    // command; by a dropped or inverted time-limit check (an untimed background call passed, a
+    // timed one denied); and by a line with an unterminated quote read as a refusal. Mutations:
+    // in `answer_background_work_check`, `untimed_answer` always `Pass`; in
+    // `ClaudeShellCall::of`, `timeout.is_none()` to `is_some()` or the condition dropped.
+    #[rstest]
+    #[case::provider_background_work(
+        json!({"command": "bash -c 'claude --bg x'"}),
+        Expected::BackgroundWorkDenial
+    )]
+    #[case::ordinary_command(json!({"command": "ls -la"}), Expected::Pass)]
+    #[case::background_with_no_timeout(
+        json!({"command": "npm run build", "run_in_background": true}),
+        Expected::UntimedDenial
+    )]
+    #[case::background_with_a_timeout(
+        json!({"command": "npm run build", "run_in_background": true, "timeout": 600_000}),
+        Expected::Pass
+    )]
+    #[case::unterminated_quote(
+        json!({"command": r#"claude --bg x && echo "unterminated"#}),
+        Expected::Pass
+    )]
     #[tokio::test]
-    async fn the_background_work_hook_denies_background_work_and_passes_the_rest() {
+    async fn the_background_work_hook_denies_background_work_and_untimed_background_calls(
+        #[case] tool_input: serde_json::Value,
+        #[case] expected: Expected,
+    ) {
         let shell_lines = ShellLineReadingBound::new(4096);
         let background_work = Arc::new(BackgroundWorkForms::of_providers(PROVIDERS));
-        let answer = |command: &str| {
-            answer_background_work_check(&shell_lines, &background_work, Some(command.to_owned()))
-        };
+        let tool_input: ShellToolInput = serde_json::from_value(tool_input).expect("a tool input");
 
-        let refused = answer("bash -c 'claude --bg x'").await;
-        let passed = answer("ls -la").await;
+        let answer = answer_background_work_check(
+            &shell_lines,
+            &background_work,
+            ClaudeShellCall::of(tool_input),
+        )
+        .await;
 
-        assert!(matches!(refused, ClaudeHookAnswer::Deny { .. }));
-        assert_eq!(passed, ClaudeHookAnswer::Pass);
+        match (expected, &answer) {
+            (Expected::Pass, ClaudeHookAnswer::Pass) => {}
+            (Expected::UntimedDenial, ClaudeHookAnswer::Deny { reason })
+                if reason == UNTIMED_BACKGROUND_REASON => {}
+            (Expected::BackgroundWorkDenial, ClaudeHookAnswer::Deny { reason })
+                if reason != UNTIMED_BACKGROUND_REASON => {}
+            (expected, answer) => panic!("expected {expected:?}, answered {answer:?}"),
+        }
     }
 }

@@ -109,14 +109,8 @@ macro_rules! run_queued_payload {
             )]
             #[schemars(with = "FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>")]
             pub admitted_model_family: Option<FreeFormText<PROVIDER_WIRE_HANDLE_MAX_LEN>>,
-            /// The account the run was admitted against.
-            #[serde(
-                default,
-                skip_serializing_if = "Option::is_none",
-                deserialize_with = "crate::wire::present"
-            )]
-            #[schemars(with = "ProviderAccountId")]
-            pub admitted_provider_account_id: Option<ProviderAccountId>,
+            /// The account the run was admitted against, resolved before its provider is called.
+            pub admitted_provider_account_id: ProviderAccountId,
         }
     };
 }

@@ -8,6 +8,7 @@
 use serde_json::Value;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 use tokio::time::Instant;
@@ -31,19 +32,24 @@ const CLAUDE_UNRECORDED_TURN_END_DETAIL: &str =
 
 impl ClaudeDeliveryStream {
     // The first frame of a run's turn opens it: an interrupt still held answered as taken, the
-    // continued run's report, the boundary, then the turn numbered, the readings of the turn
-    // before emptied.
+    // continued run's report, the boundary, then the turn numbered under the uuid of the user
+    // message that opened it, the readings of the turn before emptied.
     pub(super) async fn open_turn(&self, session: &ClaudeSessionStream, lead: &ClaudeBoundRun) {
         let routes = &self.dependencies.routes;
+        if session
+            .lock()
+            .turn
+            .as_ref()
+            .is_some_and(|turn| turn.run_id == lead.run_id)
+        {
+            return;
+        }
+        let turn_id = session
+            .lock_prompts()
+            .take_turn_opening(session.session_id)
+            .and_then(|uuid| ProviderTurnId::new(uuid).ok());
         let (interrupted, continues) = {
             let mut readings = session.lock();
-            if readings
-                .turn
-                .as_ref()
-                .is_some_and(|turn| turn.run_id == lead.run_id)
-            {
-                return;
-            }
             readings.carried_ends.remove(&lead.run_id);
             // Claude Code started its next turn with the steers it kept, so the interrupt took.
             let is_held_for_interrupt = readings
@@ -65,6 +71,7 @@ impl ClaudeDeliveryStream {
             readings.streamed_blocks.open_turn();
             readings.refusal = None;
             readings.is_retries_spent = false;
+            readings.turn_readings.open(lead.run_id, turn_id.clone());
             (interrupted, continues)
         };
         if let Some(interrupted) = interrupted {
@@ -85,7 +92,7 @@ impl ClaudeDeliveryStream {
         let started = match self
             .dependencies
             .engine
-            .start_turn(lead.run_id, session.step_bound)
+            .start_turn(lead.run_id, turn_id, session.step_bound)
             .await
         {
             Ok(started) => started,
@@ -194,12 +201,16 @@ impl ClaudeDeliveryStream {
                 is_retries_spent: readings.is_retries_spent,
                 newest_message_id,
             };
-            (
-                compose_claude_turn_end(frame, kind, lead.run_id, marks),
-                reader_carried,
-                marked,
-                intended_close,
-            )
+            let end = compose_claude_turn_end(frame, kind, lead.run_id, marks);
+            // An interrupted turn leaves no task list behind.
+            let is_interrupted = end
+                .change
+                .as_ref()
+                .is_some_and(|change| matches!(change.entry, RunStateEntry::Interrupted { .. }));
+            if is_interrupted && let Some(tasks) = readings.turn_readings.interrupt() {
+                self.publish_turn_tasks(session, tasks);
+            }
+            (end, reader_carried, marked, intended_close)
         };
         let delivery = ClaudeTurnEndDelivery {
             binding_id: lead.binding_id.clone(),

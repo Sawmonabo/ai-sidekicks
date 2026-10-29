@@ -25,12 +25,14 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_provider::driver::PROVIDERS;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::test_registry::{
     bind_run_to_first_provider, registry_of_first_providers,
 };
 use sidekicks_provider::port::reviewer_denial::{ProviderReviewerDenial, ReviewerDenialPort};
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::run::projection::insert_queued_run_statement;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -119,7 +121,7 @@ impl Fixture {
             reached_by: None,
             effective_run_config: None,
             admitted_model_family: None,
-            admitted_provider_account_id: None,
+            admitted_provider_account_id: test_provider_account_id(),
         });
         let insert_run = insert_queued_run_statement(&queued);
         self.append(
@@ -633,7 +635,7 @@ async fn a_press_the_driver_did_not_take_records_nothing(#[case] first: FirstAns
     let ended_process = Arc::clone(&service);
     let fixture = Fixture::new(
         driver_answering(&calls, move |call| match (call, first) {
-            (0, FirstAnswer::Refused) => Err(DriverError::Refused(DomainError::new(
+            (0, FirstAnswer::Refused) => Err(DriverError::from(DomainError::new(
                 "the provider refused",
                 RefusalCode::ProviderUnavailable,
             ))),

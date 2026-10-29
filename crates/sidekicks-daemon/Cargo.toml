@@ -127,6 +127,8 @@ proptest.workspace = true
 rstest.workspace = true
 # The artifact test store the tests open.
 sidekicks-artifact = { workspace = true, features = ["test-support"] }
+# The client the start's tests call the served socket through.
+sidekicks-client.workspace = true
 # The call fixtures and the credit gate the tests use.
 sidekicks-ipc = { workspace = true, features = ["test-support"] }
 # The notice board's probe notice the MCP stream's tests send.

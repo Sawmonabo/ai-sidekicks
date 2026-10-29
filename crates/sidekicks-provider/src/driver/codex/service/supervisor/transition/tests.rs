@@ -3,7 +3,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use rstest::rstest;
 
-use super::{Supervision, SupervisorEvent, SupervisorState};
+use super::Supervision;
+use super::event::SupervisorEvent;
+use super::state::SupervisorState;
 use crate::driver::codex::service::home::CodexServiceKind;
 use crate::driver::codex::service::supervisor::events::CodexServiceRecoveryCause;
 use crate::driver::codex::session::errors::CodexError;
@@ -37,6 +39,22 @@ fn reconnected(dial: u64, after: u64) -> impl Fn(Instant) -> SupervisorEvent {
     }
 }
 
+// A request on connection `dial` timed out a minute after the oldest unanswered send.
+fn request_timed_out(dial: u64) -> SupervisorEvent {
+    SupervisorEvent::RequestTimedOut {
+        dial,
+        silent_for: Duration::from_mins(1),
+    }
+}
+
+fn silence_elapsed(ticket: u64, after: u64) -> SupervisorEvent {
+    SupervisorEvent::SilenceElapsed {
+        ticket,
+        at: wall(after),
+        silent_for: Duration::from_mins(2),
+    }
+}
+
 fn start_failed(launch: u64) -> SupervisorEvent {
     SupervisorEvent::StartFailed {
         launch,
@@ -66,11 +84,12 @@ fn drive(
         attempt,
         since,
         draining,
+        silence,
     } = supervision.state()
     {
         format!(
             "Up {{ launch: {launch}, dial: {dial}, attempt: {attempt}, up for: {:?}, draining: \
-             {draining:?} }}",
+             {draining:?}, silence: {silence:?} }}",
             since.saturating_duration_since(start)
         )
     } else {
@@ -130,7 +149,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
 #[case::a_start_comes_up(
     CodexServiceKind::Account,
     vec![at_once(|_| SupervisorEvent::Start), boxed(started(1, CodexServiceKind::Account))],
-    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None }",
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None, silence: None }",
     &["AdoptStart { launch: 1 }", "Publish(Up)"],
 )]
 #[case::a_start_fails(
@@ -147,12 +166,17 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Start),
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, false)),
-        boxed(reconnected(2, 20)),
-        boxed(dropped(2, 30, false)),
+        boxed(reconnected(3, 20)),
+        boxed(dropped(3, 30, false)),
     ],
-    "Reconnecting { launch: 1, dial: 3, attempt: 1 }",
-    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 1 }",
-        "Publish(Reconnecting)"],
+    "Reconnecting { launch: 1, dial: 5, attempt: 1, silence: Some(4) }",
+    &[
+        "Disconnect { is_process_gone: false }",
+        "ReportDropped",
+        "WatchSilence { ticket: 4, silent_for: 0ns }",
+        "Dial { dial: 5, attempt: 1 }",
+        "Publish(Reconnecting)",
+    ],
 )]
 #[case::a_fresh_service_s_first_redial_waits_from_the_first_wait(
     CodexServiceKind::Account,
@@ -161,9 +185,14 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, false)),
     ],
-    "Reconnecting { launch: 1, dial: 2, attempt: 0 }",
-    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 2, attempt: 0 }",
-        "Publish(Reconnecting)"],
+    "Reconnecting { launch: 1, dial: 3, attempt: 0, silence: Some(2) }",
+    &[
+        "Disconnect { is_process_gone: false }",
+        "ReportDropped",
+        "WatchSilence { ticket: 2, silent_for: 0ns }",
+        "Dial { dial: 3, attempt: 0 }",
+        "Publish(Reconnecting)",
+    ],
 )]
 #[case::a_drop_after_a_long_uptime_starts_the_count_again(
     CodexServiceKind::Account,
@@ -171,12 +200,17 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Start),
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, false)),
-        boxed(reconnected(2, 20)),
-        boxed(dropped(2, 140, false)),
+        boxed(reconnected(3, 20)),
+        boxed(dropped(3, 140, false)),
     ],
-    "Reconnecting { launch: 1, dial: 3, attempt: 0 }",
-    &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 3, attempt: 0 }",
-        "Publish(Reconnecting)"],
+    "Reconnecting { launch: 1, dial: 5, attempt: 0, silence: Some(4) }",
+    &[
+        "Disconnect { is_process_gone: false }",
+        "ReportDropped",
+        "WatchSilence { ticket: 4, silent_for: 0ns }",
+        "Dial { dial: 5, attempt: 0 }",
+        "Publish(Reconnecting)",
+    ],
 )]
 // Killed by counting the end in the crash window, which leaves a crash loop no exit to name.
 #[case::a_drop_whose_unread_process_ended_restarts_it_with_no_crash_counted(
@@ -200,7 +234,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(dropped(1, 10, true)),
         boxed(started(2, CodexServiceKind::Account)),
     ],
-    "Up { launch: 2, dial: 2, attempt: 0, up for: 0ns, draining: None }",
+    "Up { launch: 2, dial: 2, attempt: 0, up for: 0ns, draining: None, silence: None }",
     &["AdoptStart { launch: 2 }", "ReportRecovered(Crash)", "Publish(Up)"],
 )]
 #[case::a_redial_that_reconnects_reports_its_recovery_before_it_reads_up(
@@ -209,10 +243,10 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Start),
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, false)),
-        boxed(reconnected(2, 20)),
+        boxed(reconnected(3, 20)),
     ],
-    "Up { launch: 1, dial: 2, attempt: 1, up for: 20s, draining: None }",
-    &["AdoptDial { dial: 2 }", "ReportRecovered(Reconnect)", "Publish(Up)"],
+    "Up { launch: 1, dial: 3, attempt: 1, up for: 20s, draining: None, silence: None }",
+    &["ClearSilence", "AdoptDial { dial: 3 }", "ReportRecovered(Reconnect)", "Publish(Up)"],
 )]
 #[case::a_joined_service_whose_process_ended_is_redialed(
     CodexServiceKind::Joined,
@@ -221,7 +255,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Joined)),
         boxed(dropped(1, 10, true)),
     ],
-    "Reconnecting { launch: 1, dial: 2, attempt: 0 }",
+    "Reconnecting { launch: 1, dial: 2, attempt: 0, silence: None }",
     &["Disconnect { is_process_gone: false }", "ReportDropped", "Dial { dial: 2, attempt: 0 }",
         "Publish(Reconnecting)"],
 )]
@@ -289,7 +323,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Terminal)),
         at_once(|_| SupervisorEvent::PlannedRestart),
     ],
-    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None }",
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None, silence: None }",
     &["BeginPlannedRestart"],
 )]
 #[case::a_stale_start_is_torn_down(
@@ -310,10 +344,10 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         boxed(started(1, CodexServiceKind::Account)),
         boxed(dropped(1, 10, false)),
         at_once(|_| SupervisorEvent::ProcessExited { launch: 1, at: wall(11) }),
-        boxed(reconnected(2, 12)),
+        boxed(reconnected(3, 12)),
     ],
-    "Restarting { wait: 3 }",
-    &["TearDown { ticket: 2, end: Stop }"],
+    "Restarting { wait: 4 }",
+    &["TearDown { ticket: 3, end: Stop }"],
 )]
 #[case::a_crash_wait_ends_in_a_start_that_resumes(
     CodexServiceKind::Account,
@@ -395,7 +429,7 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
         at_once(|_| SupervisorEvent::Replaced),
         at_once(|_| SupervisorEvent::PlannedRestart),
     ],
-    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None }",
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None, silence: None }",
     &[],
 )]
 #[case::a_replaced_crash_restart_under_way_is_stood_down_to_drain(
@@ -453,6 +487,99 @@ fn at_once(event: fn(Instant) -> SupervisorEvent) -> Box<dyn Fn(Instant) -> Supe
     crash_loop_then(|_| SupervisorEvent::Replaced),
     "Stopped",
     &["RetireRecord", "Publish(Stopped)"],
+)]
+// Killed by a silence watch the drop never starts, which redials a hung service without end.
+#[case::a_service_silent_since_its_drop_is_ended_and_restarted_as_a_crash(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        boxed(dropped(1, 10, false)),
+        at_once(|_| silence_elapsed(2, 130)),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
+    ],
+    "Restarting { wait: 4 }",
+    &[
+        "ReportSilentEnd { silent_for: 120s }",
+        "WaitToRestart { ticket: 4, wait: 0ns }",
+        "Publish(Restarting)",
+    ],
+)]
+// Killed by a watch only the drop starts, which leaves a service that keeps its connection open
+// and answers nothing hung for good.
+#[case::a_request_unanswered_on_an_open_connection_starts_the_same_watch(
+    CodexServiceKind::Terminal,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Terminal)),
+        at_once(|_| request_timed_out(1)),
+        at_once(|_| request_timed_out(1)),
+        at_once(|_| silence_elapsed(2, 180)),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
+    ],
+    "Restarting { wait: 3 }",
+    &[
+        "ReportSilentEnd { silent_for: 120s }",
+        "WaitToRestart { ticket: 3, wait: 0ns }",
+        "Publish(Restarting)",
+    ],
+)]
+// Killed by a watch armed at the timeout with no time spent, which lets a service on an open
+// connection answer nothing for three minutes, past the two the limit allows.
+#[case::an_unanswered_requests_watch_counts_from_its_send(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| request_timed_out(1)),
+    ],
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None, silence: Some(2) }",
+    &["WatchSilence { ticket: 2, silent_for: 60s }"],
+)]
+// Killed by an answer that leaves the watch running, which ends a service that answered.
+#[case::an_answer_ends_the_watch(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| request_timed_out(1)),
+        at_once(|_| SupervisorEvent::Answered { dial: 1 }),
+        at_once(|_| silence_elapsed(2, 180)),
+    ],
+    "Up { launch: 1, dial: 1, attempt: 0, up for: 0ns, draining: None, silence: None }",
+    &[],
+)]
+// Killed by a watch on a service the daemon joined, which would end a service Codex owns.
+#[case::a_joined_service_is_never_ended(
+    CodexServiceKind::Joined,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Joined)),
+        at_once(|_| request_timed_out(1)),
+        boxed(dropped(1, 10, false)),
+        at_once(|_| silence_elapsed(2, 130)),
+    ],
+    "Reconnecting { launch: 1, dial: 2, attempt: 0, silence: None }",
+    &[],
+)]
+// Killed by a caller's start during the stop dropping the silent end, which restarts the service
+// with no crash counted and its turns never ended.
+#[case::a_start_during_a_silent_end_keeps_the_crash(
+    CodexServiceKind::Account,
+    vec![
+        at_once(|_| SupervisorEvent::Start),
+        boxed(started(1, CodexServiceKind::Account)),
+        at_once(|_| request_timed_out(1)),
+        at_once(|_| silence_elapsed(2, 180)),
+        at_once(|_| SupervisorEvent::Start),
+        at_once(|_| SupervisorEvent::StopDone { ticket: 1 }),
+    ],
+    "Restarting { wait: 3 }",
+    &[
+        "ReportSilentEnd { silent_for: 120s }",
+        "WaitToRestart { ticket: 3, wait: 0ns }",
+        "Publish(Restarting)",
+    ],
 )]
 fn the_supervisor_table(
     #[case] kind: CodexServiceKind,
@@ -515,5 +642,56 @@ fn a_fifth_crash_within_three_minutes_leaves_the_service_down() {
         matches!(supervision.state(), SupervisorState::Restarting { .. }),
         "a failed start after the person's restart counts as a crash: {:?}",
         supervision.state()
+    );
+}
+
+// Killed by a silent-end window as short as the crash window, which two-minute silences never
+// fill, so a service that hangs every time is restarted without end and no banner says why.
+#[test]
+fn a_fifth_silent_end_within_thirty_minutes_leaves_the_service_down() {
+    let start = Instant::now();
+    let mut supervision = Supervision::new(CodexServiceKind::Account);
+    supervision.transition(SupervisorEvent::Start);
+    let mut launch = 1;
+    let mut last = Vec::new();
+    // Six minutes apart, so the three-minute crash window never holds two of them.
+    for end in 0..5_u64 {
+        supervision.transition(SupervisorEvent::Started {
+            launch,
+            at: start,
+            kind: CodexServiceKind::Account,
+        });
+        supervision.transition(request_timed_out(launch));
+        let SupervisorState::Up {
+            silence: Some(watch),
+            ..
+        } = *supervision.state()
+        else {
+            panic!(
+                "an unanswered request starts the watch: {:?}",
+                supervision.state()
+            );
+        };
+        supervision.transition(silence_elapsed(watch, end * 360));
+        last = supervision.transition(SupervisorEvent::StopDone { ticket: launch });
+        if let SupervisorState::Restarting { wait } = *supervision.state() {
+            supervision.transition(SupervisorEvent::WaitElapsed { wait });
+            let SupervisorState::Starting { launch: next, .. } = *supervision.state() else {
+                panic!("a crash wait ends in a start: {:?}", supervision.state());
+            };
+            launch = next;
+        }
+    }
+
+    assert_eq!(*supervision.state(), SupervisorState::CrashLoop);
+    assert_eq!(
+        last.iter()
+            .map(|action| format!("{action:?}"))
+            .collect::<Vec<_>>(),
+        [
+            "ReportSilentEnd { silent_for: 120s }",
+            "Publish(CrashLoop)",
+            "ReportCrashLoop(None)"
+        ]
     );
 }

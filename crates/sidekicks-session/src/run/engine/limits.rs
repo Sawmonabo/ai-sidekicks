@@ -1,8 +1,9 @@
 //! The daemon's own stop of a run at a limit: the step limit on a run whose provider does not bound
-//! a turn's steps, and the spend and token limits the budget accountant holds each run and session
-//! to. The engine decides the stop: it records the limit's reached event while the run is live,
-//! remembers the turn the stop cuts, and hands the interrupt to the interventions service, which
-//! ends the run with the limit.
+//! a turn's steps, the spend limit the budget accountant holds each session to, and the token limit
+//! the usage record holds each run to. The engine decides the stop: it records the limit's reached
+//! event while the run is live, remembers the turn the stop cuts, and hands the interrupt to the
+//! interventions service, which ends the run with the limit; a helper past its token limit is not
+//! interrupted but stopped alone, through its session's driver.
 
 use std::borrow::Cow;
 use std::error::Error;
@@ -16,11 +17,13 @@ use sidekicks_contracts::run::control::StopTrigger;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
+use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::session::controls::events::{
     AgentRunStepLimitReachedPayload, AgentRunTokenLimitReachedPayload,
 };
 use sidekicks_contracts::session::cost::TokensPerRun;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::run_control::HelperTokenLimitParams;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -29,6 +32,7 @@ use sidekicks_store::events::session::appender::SessionEventDraft;
 use tokio::sync::oneshot;
 use tracing::Instrument as _;
 
+use crate::driver_resolution::{LiveRunDriverError, read_run_driver};
 use crate::interventions::store::is_limit_interrupt_pending;
 use crate::run::engine::live::{CutGuard, StepInterruptGuard};
 use crate::run::engine::turns::{WriteWithResend, set_step_limit_reached};
@@ -54,6 +58,14 @@ static SELECT_TOKEN_LIMIT_REACHED_SQL: LazyLock<String> = LazyLock::new(|| {
             .category()
             .as_str(),
         SessionEventType::AgentRunTokenLimitReached.as_str()
+    )
+});
+
+// Whether a run is a provider's own subagent.
+static SELECT_IS_PROVIDER_SUBAGENT_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT EXISTS (SELECT 1 FROM runs WHERE run_id = ?1 AND reached_by = '{}')",
+        <&'static str>::from(ChildRunProvenance::ProviderSubagent)
     )
 });
 
@@ -160,13 +172,6 @@ impl RunEngine {
     /// then the interrupt handed to the interventions service. Fails as the stop fails; the caller
     /// calls again at the next usage report, which sends the interrupt alone once the reached
     /// event has landed.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the budget accountant calls it when a run's tokens pass its limit"
-        )
-    )]
     pub(crate) async fn stop_at_token_limit(
         self: &Arc<Self>,
         run_id: RunId,
@@ -174,6 +179,74 @@ impl RunEngine {
     ) -> Result<(), RunEngineError> {
         self.stop_at_limit(run_id, LimitStop::Token { token_limit })
             .await
+    }
+
+    /// Stops the helper whose own run, `params.run_id`, passed its token limit, alone and once per
+    /// run: `agent.run.tokenLimit.reached` written while the run is live, with no interrupt, then
+    /// the session's driver asked to refuse the helper's next tool use, its lead going on. Fails as
+    /// the write, the driver's resolution or the driver's call fails; a call that failed after the
+    /// event landed is owed, so the caller's next usage report asks the driver again without a
+    /// second event.
+    pub(crate) async fn stop_helper_at_token_limit(
+        &self,
+        params: HelperTokenLimitParams,
+        token_limit: TokensPerRun,
+    ) -> Result<(), RunEngineError> {
+        let run_id = params.run_id;
+        let key = (run_id, RunLimit::TokenLimit);
+        // In before the write, so a run that ends while its event is written forgets the owed
+        // call with it; already in, the event landed and only the driver's call is owed.
+        let is_reaching = lock(&self.live).reached_limits.insert(key);
+        if is_reaching {
+            match self.reach_helper_token_limit(run_id, token_limit).await {
+                Ok(true) => {}
+                stopped_nothing => {
+                    lock(&self.live).reached_limits.remove(&key);
+                    return stopped_nothing.map(drop);
+                }
+            }
+        }
+        let driver = read_run_driver::<RunEngineError>(&self.pool, &self.providers, run_id).await?;
+        driver
+            .stop_helper_at_token_limit(params)
+            .await
+            .map_err(|source| RunEngineError::Driver {
+                run_id,
+                source: Box::new(source),
+            })?;
+        lock(&self.live).reached_limits.remove(&key);
+        Ok(())
+    }
+
+    // Writes the helper's reached event while its run is live, guarded once per run; answers
+    // whether it landed now: not on a run that has ended, nor on one that reached the limit before.
+    async fn reach_helper_token_limit(
+        &self,
+        run_id: RunId,
+        token_limit: TokensPerRun,
+    ) -> Result<bool, RunEngineError> {
+        let stop = LimitStop::Token { token_limit };
+        let recorded = self
+            .append_while_live(run_id, |run| {
+                let reached = stop
+                    .reached_event(run, run_id)
+                    .expect("a token stop has its reached event");
+                Ok(LiveAppend {
+                    draft: SessionEventDraft::of_session(run.session_id, &reached)?,
+                    preceding_events: Vec::new(),
+                    statements: vec![no_token_limit_reached_statement(&run_id)],
+                })
+            })
+            .await;
+        match recorded {
+            Ok(recorded) => Ok(recorded.is_some()),
+            Err(RunEngineError::Append(error))
+                if refused_statement_index(&error) == Some(TOKEN_LIMIT_ONCE_GUARD_INDEX) =>
+            {
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     /// The daemon's own stop of a live run at a limit, run as a task of its own so it finishes
@@ -493,17 +566,21 @@ impl RunEngine {
 
     /// Hands the interventions service again the interrupt of each limit `run_id` owes, as its
     /// next step or usage report would: every limit is handed at once, the failures returned
-    /// together.
+    /// together. A helper's owed token limit is a driver's call, never an interrupt, so it waits
+    /// for the helper's next usage report.
     pub(super) async fn stop_at_owed_limits(
         self: &Arc<Self>,
         run_id: RunId,
     ) -> Result<(), RunEngineError> {
-        let owed: Vec<RunLimit> = lock(&self.live)
+        let mut owed: Vec<RunLimit> = lock(&self.live)
             .reached_limits
             .iter()
             .filter(|(owing_run_id, _)| *owing_run_id == run_id)
             .map(|(_, limit)| *limit)
             .collect();
+        if owed.contains(&RunLimit::TokenLimit) && self.is_provider_subagent(run_id).await? {
+            owed.retain(|limit| *limit != RunLimit::TokenLimit);
+        }
         let outcomes = join_all(
             owed.into_iter()
                 .map(|limit| self.stop_at_limit(run_id, LimitStop::Interrupt { limit })),
@@ -528,6 +605,19 @@ impl RunEngine {
         self.pool
             .read(ReadLength::Short, move |reader| {
                 Ok::<_, RunEngineError>(is_limit_interrupt_pending(reader, &run_id, limit)?)
+            })
+            .await
+    }
+
+    // Whether `run_id` is a provider's own subagent, a helper. Fails as the read fails.
+    async fn is_provider_subagent(&self, run_id: RunId) -> Result<bool, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(
+                    reader
+                        .prepare_cached(&SELECT_IS_PROVIDER_SUBAGENT_SQL)?
+                        .query_row([run_id.text().as_str()], |row| row.get(0))?,
+                )
             })
             .await
     }
@@ -644,6 +734,20 @@ fn log_unread_limit_stop_failure(
         error = error as &(dyn Error + 'static),
         "run_limit_stop_failed"
     );
+}
+
+impl From<LiveRunDriverError> for RunEngineError {
+    /// A provider no driver answers is the engine's `provider.notFound`; a live run with no
+    /// binding on its chain is a fault of the driver's side.
+    fn from(error: LiveRunDriverError) -> Self {
+        match error {
+            LiveRunDriverError::ProviderNotFound(refusal) => Self::Provider(Box::new(refusal)),
+            LiveRunDriverError::Unbound { run_id } => Self::Driver {
+                run_id,
+                source: Box::new(LiveRunDriverError::Unbound { run_id }),
+            },
+        }
+    }
 }
 
 // What a limit stop found when it reached its limit.

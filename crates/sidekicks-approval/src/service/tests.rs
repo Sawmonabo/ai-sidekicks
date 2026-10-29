@@ -28,6 +28,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::run::engine::RunEngine;
 use sidekicks_session::run::engine::test_fixture::{stored_run_state, test_engine};
 use sidekicks_session::run::projection::insert_queued_run_statement;
@@ -168,7 +169,7 @@ impl ApprovalFixture {
             reached_by: None,
             effective_run_config: None,
             admitted_model_family: None,
-            admitted_provider_account_id: None,
+            admitted_provider_account_id: test_provider_account_id(),
         });
         let insert_run = insert_queued_run_statement(&queued);
         events

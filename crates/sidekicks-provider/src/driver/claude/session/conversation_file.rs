@@ -54,8 +54,8 @@ pub(crate) struct ClaudeConversationFolders<'a> {
     pub(crate) path_rules: PathRules,
     /// The daemon's data folder, which holds the home's scratch folder.
     pub(crate) data_folder: &'a str,
-    /// The account the conversations ran on; `None`, the person's own home.
-    pub(crate) provider_account_id: Option<&'a ProviderAccountId>,
+    /// The account the conversations ran on.
+    pub(crate) provider_account_id: &'a ProviderAccountId,
 }
 
 /// One conversation a purge deletes.
@@ -549,6 +549,7 @@ mod tests {
     };
     use crate::driver::claude::session::process::CLAUDE_OUTPUT_LINE_MAX_BYTES;
     use crate::driver::claude::session::rules::{ClaudeProjectFolder, ClaudeRepository};
+    use crate::runtime_binding::test_store::test_provider_account_id;
 
     const SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000001";
     const OTHER_SESSION_ID: &str = "3f1c0d4e-0000-4000-8000-000000000002";
@@ -708,7 +709,8 @@ mod tests {
             config.join("uploads").join(SESSION_ID).join("a.png"),
             config.join("dev-mods").join(SESSION_ID).join("m"),
             data.join("claude-scratch")
-                .join("own-home")
+                .join("accounts")
+                .join("account-1")
                 .join("claude-501")
                 .join("-worktree")
                 .join(SESSION_ID)
@@ -729,7 +731,7 @@ mod tests {
                 // The repository's root keeps the local settings, as on macOS and Linux.
                 path_rules: PathRules::Posix,
                 data_folder: data_text,
-                provider_account_id: None,
+                provider_account_id: &test_provider_account_id(),
             },
             &[SESSION_ID, OTHER_SESSION_ID].map(|provider_session_id| ClaudeConversation {
                 provider_session_id,
@@ -775,7 +777,7 @@ mod tests {
                     .path()
                     .to_str()
                     .expect("the scratch folder is UTF-8"),
-                provider_account_id: None,
+                provider_account_id: &test_provider_account_id(),
             },
             &[ClaudeConversation {
                 provider_session_id: SESSION_ID,
@@ -805,7 +807,8 @@ mod tests {
             config.join("file-history").join(SESSION_ID).join("v1"),
             config.join("projects").join("-project").join("a.jsonl"),
             data.join("claude-scratch")
-                .join("own-home")
+                .join("accounts")
+                .join("account-1")
                 .join("claude-501")
                 .join("-project")
                 .join("a"),
@@ -822,7 +825,7 @@ mod tests {
                 home_folder: scratch.path(),
                 path_rules: PathRules::Posix,
                 data_folder: data.to_str().expect("the scratch folder is UTF-8"),
-                provider_account_id: None,
+                provider_account_id: &test_provider_account_id(),
             },
             &[ClaudeConversation {
                 provider_session_id,

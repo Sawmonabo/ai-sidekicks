@@ -10,6 +10,7 @@ pub(crate) mod projector;
 pub(crate) mod reasoning;
 pub(crate) mod run_facts;
 pub mod stream_state;
+pub mod task_list_call;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_log;
 pub mod turn_attribution;

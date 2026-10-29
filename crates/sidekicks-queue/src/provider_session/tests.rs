@@ -1,7 +1,9 @@
 //! A session's provider session resumed from a conversation an earlier daemon left, restarted,
-//! and its process gone; the controls that act on the process are in `controls`.
+//! and its process gone; the controls that act on the process are in `controls`, and a run bound
+//! after a resume and the idle sleep's wake in `resume`.
 
 mod controls;
+mod resume;
 
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -10,6 +12,8 @@ use std::time::Duration;
 
 use futures::FutureExt as _;
 use rstest::rstest;
+use rusqlite::params;
+use serde_json::json;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -17,20 +21,25 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, SessionProcessState};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_provider::driver::session_control::{
     DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
-use sidekicks_provider::runtime_binding::store::{
-    CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, RuntimeBindingStore,
+use sidekicks_provider::runtime_binding::store::{CreateRuntimeBindingInput, RuntimeBindingStore};
+use sidekicks_provider::runtime_binding::test_store::{
+    binding_input, spawn_config_on, spawned_build, test_provider_account_id,
 };
-use sidekicks_provider::runtime_binding::test_store::{binding_input, spawned_build};
 use sidekicks_session::changes::{SESSION_CHANGES_STATEMENT_CAPACITY, SessionChanges};
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
+use sidekicks_session::idle_sleep::openings::{SessionProcessFollower, SessionProcessWaker};
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::run::binding_cursors::RunBindingCursors;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
@@ -49,7 +58,9 @@ use sidekicks_store::events::session::followers::SessionEventFollowers;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
-use super::test_opening::{record_first_provider_capabilities, test_opening_composer};
+use super::test_opening::{
+    RecordedProcessFollowing, record_first_provider_capabilities, test_opening_composer,
+};
 use super::{
     ProviderSessionError, ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
 };
@@ -63,8 +74,8 @@ const WAIT: Duration = Duration::from_secs(5);
 /// How long a resume that would land inside a close is given to land there.
 const CLOSE_HELD: Duration = Duration::from_millis(500);
 
-/// What runs inside the fixture's driver resume.
-type ResumeHook = Box<dyn Fn() + Send + Sync>;
+/// What runs inside the fixture's driver resume, given the params it was handed.
+type ResumeHook = Box<dyn Fn(&ResumeSessionParams) + Send + Sync>;
 
 /// What runs as the close's `session.closed` is appended, before its write is queued.
 type ClosedAppendHook = Box<dyn Fn() + Send + Sync>;
@@ -88,6 +99,7 @@ struct Opening {
     closes: Arc<AtomicUsize>,
     sessions: Arc<ProviderSessions>,
     changes: Arc<SessionChanges>,
+    following: Arc<RecordedProcessFollowing>,
 }
 
 impl Opening {
@@ -111,6 +123,7 @@ impl Opening {
         insert_session_row(&database.reader(), session_id.text().as_str(), None, None);
         insert_running_run(&database, session_id, earlier_run_id);
         insert_running_run(&database, session_id, run_id);
+        queue_on_test_account(&database, session_id, run_id);
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
             READ_STATEMENT_CAPACITY,
@@ -153,7 +166,7 @@ impl Opening {
                 CreateRuntimeBindingInput {
                     run_id: earlier_run_id,
                     ..binding_input(
-                        RuntimeBindingSpawnConfig::default(),
+                        spawn_config_on(test_provider_account_id()),
                         spawned_build("1.0.0", "/opt/provider/bin"),
                     )
                 },
@@ -165,7 +178,7 @@ impl Opening {
         let came_up_on = Arc::new(Mutex::new(None::<RuntimeBindingId>));
         let is_row_taken = Arc::new(AtomicBool::new(false));
         let closes = Arc::new(AtomicUsize::new(0));
-        let on_resume: Arc<dyn Fn() + Send + Sync> = Arc::from(on_resume);
+        let on_resume: Arc<dyn Fn(&ResumeSessionParams) + Send + Sync> = Arc::from(on_resume);
         // The resume and the restart answer alike.
         let answer_relaunch = || {
             let (epochs, store) = (Arc::clone(&epochs), Arc::clone(&store));
@@ -177,7 +190,7 @@ impl Opening {
                     lock(&epochs).binding(&params.binding_id).is_ok(),
                     "the resume's cursor is open before the process runs"
                 );
-                on_resume();
+                on_resume(&params);
                 let binding_id = lock(&came_up_on)
                     .clone()
                     .unwrap_or_else(|| params.binding_id.clone());
@@ -228,6 +241,7 @@ impl Opening {
             event_log,
             Arc::clone(&providers),
         ));
+        let following = Arc::new(RecordedProcessFollowing::default());
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
             writer,
@@ -235,6 +249,7 @@ impl Opening {
             providers,
             compose_opening: recording_composer(&handed_ids),
             transition_lock: Arc::clone(changes.transition_lock()),
+            process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
         }));
         Self {
             database,
@@ -249,6 +264,7 @@ impl Opening {
             closes,
             sessions,
             changes,
+            following,
         }
     }
 
@@ -259,6 +275,33 @@ impl Opening {
             .cloned()
             .expect("an opening handed its process a binding")
     }
+}
+
+// Writes `run_id`'s `agent.run.queued` admitted against the test's account, as its admission
+// would, so a create reads the account it runs on.
+fn queue_on_test_account(database: &TestDatabase, session_id: SessionId, run_id: RunId) {
+    let queued = SessionEventType::AgentRunQueued;
+    database
+        .reader()
+        .execute(
+            "INSERT INTO session_events (id, session_id, sequence, occurred_at, monotonic_ns,
+               category, type, payload, run_id, run_version)
+             VALUES (?1, ?2, 0, ?3, 0, ?4, ?5, ?6, ?7, 1)",
+            params![
+                mint_uuid_v7().to_string(),
+                session_id.text().as_str(),
+                WireInstant::now().as_str(),
+                queued.category().as_str(),
+                queued.as_str(),
+                json!({
+                    "runId": run_id.text().as_str(),
+                    "admittedProviderAccountId": test_provider_account_id().as_str(),
+                })
+                .to_string(),
+                run_id.text().as_str(),
+            ],
+        )
+        .expect("the test queues the run");
 }
 
 // What a test's own driver expectations watch: the cursors, and each binding an opening handed its
@@ -275,10 +318,10 @@ fn recording_composer(
 ) -> ProviderSessionOpeningComposer {
     let composer = test_opening_composer();
     let handed_ids = Arc::clone(handed_ids);
-    Arc::new(move |session_id| {
+    Arc::new(move |session_id, provider_account_id| {
         let (composer, handed_ids) = (Arc::clone(&composer), Arc::clone(&handed_ids));
         async move {
-            let mut opening = composer(session_id).await?;
+            let mut opening = composer(session_id, provider_account_id).await?;
             opening.function_legs_for = Arc::new(move |binding_id| {
                 lock(&handed_ids).push(binding_id.clone());
                 ResumeFunctionLegs::default()
@@ -296,7 +339,7 @@ async fn take_row(store: &RuntimeBindingStore, binding_id: RuntimeBindingId, run
             id: binding_id,
             run_id,
             ..binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("1.0.0", "/opt/provider/bin"),
             )
         })
@@ -315,7 +358,7 @@ async fn take_row(store: &RuntimeBindingStore, binding_id: RuntimeBindingId, run
 #[case::restart(true)]
 #[tokio::test]
 async fn a_resume_or_a_restart_records_its_binding_under_its_own_hold(#[case] is_restart: bool) {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |_, _| {}).await;
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
 
     if is_restart {
         timeout(WAIT, opening.sessions.restart(opening.session_id))
@@ -361,6 +404,11 @@ async fn a_resume_or_a_restart_records_its_binding_under_its_own_hold(#[case] is
                     && bound_run_id == opening.run_id.text().as_str()),
         "the opening run has its own binding: {bindings:?}"
     );
+    assert_eq!(
+        opening.following.followed(),
+        vec![opening.session_id],
+        "the idle sleep follows the opened session awake"
+    );
 }
 
 // A session with no conversation yet is created: the cursor of the binding its process runs under
@@ -375,7 +423,7 @@ async fn a_resume_or_a_restart_records_its_binding_under_its_own_hold(#[case] is
 async fn a_create_records_what_its_process_reported_and_a_failed_one_nothing(
     #[case] is_created: bool,
 ) {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, watch| {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, watch| {
         let (epochs, handed_ids) = (Arc::clone(&watch.epochs), Arc::clone(&watch.handed_ids));
         driver.expect_create_session().returning(move |_params| {
             let binding_id = lock(&handed_ids)
@@ -453,8 +501,14 @@ async fn a_create_records_what_its_process_reported_and_a_failed_one_nothing(
 // no longer reading the session's state (the conversation resumes after the close), and by the
 // close letting the session's transition lock go before it writes the event, or the opening taking
 // a lock of its own (the resume lands while the event's write is held).
+// A run admitted before a close, whose open waits out the close, and an idle sleep's wake that
+// waits it out too, are refused once the close's `session.closed` is written, and no process comes
+// up for the closed session. Killed by the open or the wake no longer reading the session's state
+// (the conversation resumes after the close), and by the close letting the session's transition
+// lock go before it writes the event, or the opening or the wake taking a lock of its own (the
+// resume lands while the event's write is held).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
+async fn an_open_or_a_wake_waiting_out_a_close_is_refused_and_starts_no_process() {
     let resumes = Arc::new(AtomicUsize::new(0));
     let resumed = Arc::new(Notify::new());
     let closing = Arc::new(Notify::new());
@@ -464,7 +518,7 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
         Box::new({
             let resumes = Arc::clone(&resumes);
             let resumed = Arc::clone(&resumed);
-            move || {
+            move |_| {
                 resumes.fetch_add(1, Ordering::SeqCst);
                 resumed.notify_one();
             }
@@ -498,6 +552,10 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
         let sessions = Arc::clone(&opening.sessions);
         async move { sessions.open(session_id, run_id).await }
     });
+    let wake = tokio::spawn({
+        let sessions = Arc::clone(&opening.sessions);
+        async move { sessions.wake_process(session_id).await }
+    });
     assert!(
         timeout(CLOSE_HELD, resumed.notified()).await.is_err(),
         "the resume waits while the close's event is held"
@@ -522,6 +580,17 @@ async fn an_open_waiting_out_a_close_is_refused_and_starts_no_process() {
         ),
         "the open is refused for the closed session: {opened:?}"
     );
+    let woken = timeout(WAIT, wake)
+        .await
+        .expect("the wake ends")
+        .expect("the wake's task ends whole");
+    assert!(
+        woken.as_ref().is_err_and(|error| matches!(
+            error.downcast_ref::<ProviderSessionError>(),
+            Some(ProviderSessionError::Closed { session_id: refused }) if *refused == session_id
+        )),
+        "the wake is refused for the closed session: {woken:?}"
+    );
     assert_eq!(
         resumes.load(Ordering::SeqCst),
         0,
@@ -539,7 +608,7 @@ async fn an_ended_session_is_refused_an_opening_a_restart_a_binding_and_a_level_
         let opening = Opening::new(
             Box::new({
                 let resumes = Arc::clone(&resumes);
-                move || {
+                move |_| {
                     resumes.fetch_add(1, Ordering::SeqCst);
                 }
             }),
@@ -608,7 +677,7 @@ async fn a_restart_the_provider_cannot_take_is_refused_before_its_driver() {
     let opening = Opening::new(
         Box::new({
             let resumes = Arc::clone(&resumes);
-            move || {
+            move |_| {
                 resumes.fetch_add(1, Ordering::SeqCst);
             }
         }),
@@ -646,7 +715,7 @@ async fn a_gone_process_is_forgotten_only_with_no_restart_pending(
     let opening = Opening::new(
         Box::new({
             let resumes = Arc::clone(&resumes);
-            move || {
+            move |_| {
                 resumes.fetch_add(1, Ordering::SeqCst);
             }
         }),
@@ -682,7 +751,7 @@ async fn a_gone_process_is_forgotten_only_with_no_restart_pending(
 // minted cursor kept.
 #[tokio::test]
 async fn a_resume_answered_on_the_legs_own_binding_records_nothing() {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |_, _| {}).await;
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |_, _| {}).await;
     *lock(&opening.came_up_on) = Some(opening.predecessor_id.clone());
 
     opening
@@ -714,7 +783,7 @@ async fn a_resume_answered_on_the_legs_own_binding_records_nothing() {
 #[case::resume(false)]
 #[tokio::test]
 async fn a_process_whose_binding_row_fails_is_closed(#[case] is_create: bool) {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, watch| {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, watch| {
         let (handed_ids, store) = (Arc::clone(&watch.handed_ids), Arc::clone(&watch.store));
         driver.expect_create_session().returning(move |_params| {
             let binding_id = lock(&handed_ids)

@@ -18,7 +18,8 @@ use crate::driver::codex::session::lifecycle_call::{
 };
 use crate::driver::codex::session::purge::purge_codex_conversations;
 use crate::driver::codex::session::slots::CODEX_LET_GO_TIMEOUT;
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{FindTakenMessagesParams, TakenMessages};
@@ -74,7 +75,9 @@ impl CodexDriver {
         let Some(established) = forked.established else {
             return Ok(forked.result);
         };
-        let prior_emitted = self.read_prior_emitted(session_id, &params.resume_handle);
+        let prior_emitted = self
+            .read_prior_emitted(session_id, &params.resume_handle)
+            .await;
         let opened = parts.establishment.open(established, prior_emitted).await;
         claim.install(opened.record.inbound.clone());
         self.spawn_session_task(parts, opened);
@@ -91,7 +94,7 @@ impl CodexDriver {
         let parts = self.parts()?;
         let service = parts
             .registry
-            .service_for(params.provider_account_id.as_ref())
+            .service_for(&params.provider_account_id)
             .await?;
         match parts
             .recovery
@@ -214,6 +217,8 @@ impl CodexDriver {
         drop(claim);
         parts.release.forget_session(&session_id).await;
         parts.adoptions.forget_session(session_id);
+        self.limit_stopped_helpers.forget_session(session_id);
+        self.forget_relayed_commands(session_id).await;
         Ok(())
     }
 
@@ -264,15 +269,11 @@ impl CodexDriver {
     pub(crate) async fn starts_process(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> bool {
         let service = match self.views.service(session_id) {
             Some(service) => service,
-            None => match self
-                .registry
-                .service_for(provider_account_id.as_ref())
-                .await
-            {
+            None => match self.registry.service_for(&provider_account_id).await {
                 Ok(service) => service,
                 Err(_) => return true,
             },
@@ -310,13 +311,16 @@ impl CodexDriver {
 
     // The spend the session's conversation emitted before its resume, which its usage is based
     // on; with no usage sink yet, or an unreadable record, the base starts at zero, logged.
-    fn read_prior_emitted(
+    async fn read_prior_emitted(
         &self,
         session_id: SessionId,
         thread_id: &str,
     ) -> Option<UsageAxisCounts> {
         let sink = self.ports.usage.port()?;
-        match sink.read_prior_emitted(session_id, thread_id) {
+        match sink
+            .read_prior_emitted(session_id, thread_id.to_owned())
+            .await
+        {
             Ok(prior) => Some(prior),
             Err(error) => {
                 tracing::warn!(

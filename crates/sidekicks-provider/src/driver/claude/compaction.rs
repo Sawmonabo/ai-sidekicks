@@ -137,7 +137,7 @@ fn record_wait_end(
     }
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: live.admitted_provider_account_id.clone(),
+        provider_account_id: Some(live.admitted_provider_account_id.clone()),
         kind: DriverDiagnosticKind::CompactionWaitTerminal,
         raw_wire_type: None,
         disposition_reason: reason,

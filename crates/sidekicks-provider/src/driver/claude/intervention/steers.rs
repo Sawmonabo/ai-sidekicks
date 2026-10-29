@@ -24,7 +24,7 @@ use crate::driver::claude::session::transport::CLAUDE_REQUEST_DEADLINE;
 use crate::driver::claude::session::transport::user_message::{
     ClaudeMessagePriority, ClaudeWriteAttempt, ClaudeWriteDelivery, compose_claude_user_frame,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{ApplyInterventionResponse, SteerPayload, SteerTurnEndedError};
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 

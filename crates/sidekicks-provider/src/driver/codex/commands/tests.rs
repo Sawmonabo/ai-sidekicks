@@ -15,6 +15,7 @@ use super::{
 use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, start_scripted_codex_service,
 };
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// A listed skill's name, description, scope and switch.
 type SkillFields<'entry> = (
@@ -63,7 +64,7 @@ async fn a_skills_refresh_never_stores_a_listing_read_before_the_change() {
     let source = CodexCommandSource {
         session_id,
         service: Arc::clone(&scripted.service),
-        provider_account_id: None,
+        provider_account_id: test_provider_account_id(),
         working_directory: "/work".to_owned(),
         run_id: None,
     };
@@ -125,8 +126,9 @@ fn a_codex_skill_listing_keeps_what_the_contract_takes_and_records_each_refusal(
         ]},
     ]});
 
-    let reading = read_codex_skill_listing(&reply, None).expect("the reply has a list");
-    let no_list = read_codex_skill_listing(&json!({"skills": []}), None);
+    let reading =
+        read_codex_skill_listing(&reply, test_provider_account_id()).expect("the reply has a list");
+    let no_list = read_codex_skill_listing(&json!({"skills": []}), test_provider_account_id());
 
     let entries: Vec<SkillFields<'_>> = reading
         .listing

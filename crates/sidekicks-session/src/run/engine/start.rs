@@ -28,7 +28,7 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_provider::driver::run_control::DriverRunRefusal;
 use sidekicks_provider::run::start_request::DaemonTurnStartRequest;
 use sidekicks_provider::run::state_entry::RunStateEntry;
@@ -103,7 +103,7 @@ impl RunEngine {
                 let standard = self
                     .providers
                     .descriptor(&provider)
-                    .map_err(RunEngineError::Provider)?
+                    .map_err(|refusal| RunEngineError::Provider(Box::new(refusal)))?
                     .standard_output_speed;
                 (speed.as_str() != standard).then_some(speed)
             }
@@ -145,7 +145,10 @@ impl RunEngine {
             .await;
         entry.is_claimable.store(false, Ordering::Release);
         if let Err(source) = gated {
-            let gate_error = RunEngineError::Gate { run_id, source };
+            let gate_error = RunEngineError::Gate {
+                run_id,
+                source: Box::new(source),
+            };
             if entry.is_interrupted.load(Ordering::Acquire) {
                 return Err(gate_error);
             }
@@ -278,16 +281,17 @@ impl RunEngine {
     }
 
     /// Starts the run of a subagent the provider started beneath `parent_run_id`, sharing its
-    /// process and so its provider: `agent.run.queued` naming the parent and the parent's agent,
-    /// which asked its provider for the subagent, then `starting` and `running`, and returns the
-    /// new run's id. Returns `None` with nothing written when the parent has ended, and fails with
-    /// [`RunRefusal::NotFound`] for a parent the daemon has no run for.
+    /// process and so its provider and account: `agent.run.queued` naming the parent, the parent's
+    /// agent, which asked its provider for the subagent, and the account the parent was admitted
+    /// against, then `starting` and `running`, and returns the new run's id. Returns `None` with
+    /// nothing written when the parent has ended, and fails with [`RunRefusal::NotFound`] for a
+    /// parent the daemon has no run for.
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,
     ) -> Result<Option<RunId>, RunEngineError> {
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
-        let agent_id = self
+        let (agent_id, admitted_provider_account_id) = self
             .pool
             .read(ReadLength::Short, move |reader| {
                 let parent = RunStateReader::new(reader)
@@ -295,9 +299,11 @@ impl RunEngine {
                     .ok_or(RunEngineError::Refused(RunRefusal::NotFound {
                         run_id: parent_run_id,
                     }))?;
-                Ok::<_, RunEngineError>(
-                    RunAgentReader::new(reader).read_agent(&parent.session_id, &parent_run_id)?,
-                )
+                let agents = RunAgentReader::new(reader);
+                Ok::<_, RunEngineError>((
+                    agents.read_agent(&parent.session_id, &parent_run_id)?,
+                    agents.read_admitted_account(&parent.session_id, &parent_run_id)?,
+                ))
             })
             .await?;
         let appended = self
@@ -313,7 +319,7 @@ impl RunEngine {
                     reached_by: Some(ChildRunProvenance::ProviderSubagent),
                     effective_run_config: None,
                     admitted_model_family: None,
-                    admitted_provider_account_id: None,
+                    admitted_provider_account_id: admitted_provider_account_id.clone(),
                 });
                 Ok(LiveAppend {
                     statements: vec![insert_queued_run_statement(&queued)],
@@ -399,7 +405,10 @@ impl RunEngine {
                     execution_posture,
                 })
                 .await
-                .map_err(|source| RunEngineError::Gate { run_id, source })?;
+                .map_err(|source| RunEngineError::Gate {
+                    run_id,
+                    source: Box::new(source),
+                })?;
             let resolved_posture = self
                 .execution_postures
                 .resolved_posture_for(&run_id)
@@ -703,7 +712,7 @@ impl RunEngine {
 // describes it.
 fn failure_words(error: &RunEngineError) -> String {
     let own: &(dyn Error + 'static) = if let RunEngineError::Gate { source, .. } = error {
-        source
+        source.as_ref()
     } else if let RunEngineError::Driver { source, .. } = error {
         source.as_ref()
     } else {
@@ -725,10 +734,8 @@ fn driver_run_refusal(start_error: &RunEngineError) -> Option<&DriverRunRefusal>
 
 // The cause a setup failure records: a refusing gate's code, and the failure's own words.
 fn setup_failed_cause(setup_error: &RunEngineError) -> RunFailureCause {
-    let code = if let RunEngineError::Gate {
-        source: RunSetupGateError::Refused(refusal),
-        ..
-    } = setup_error
+    let code = if let RunEngineError::Gate { source, .. } = setup_error
+        && let RunSetupGateError::Refused(refusal) = source.as_ref()
     {
         Some(
             FreeFormText::<PROVIDER_WIRE_HANDLE_MAX_LEN>::new(refusal.code.as_str().to_owned())

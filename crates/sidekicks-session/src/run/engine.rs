@@ -19,6 +19,7 @@ pub mod test_fixture;
 pub(crate) mod tests;
 pub(crate) mod turns;
 mod unresolved_interventions;
+pub(crate) mod usage_tallies;
 
 use std::error::Error;
 use std::sync::atomic::Ordering;
@@ -66,6 +67,7 @@ use crate::run::daemon_turn::DaemonTurnQueueError;
 use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, StartingRun};
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
 use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
+use crate::run::provider_choice::held::HeldChoiceAnswers;
 use crate::run::read::{RunRead, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::state_change::{
@@ -77,13 +79,13 @@ use crate::run::state_change::{
 /// provider subagents beneath a run, the ended runs with an open turn, a run's pending interrupts
 /// and whether its interrupt at one limit is pending, the limit its log still owes, its open turns'
 /// cuts and the queued messages waiting for it, the number a run's next turn takes, its newest open
-/// turn and every open turn, its provider, whether it ended since a version, its interventions with
-/// no outcome and one session's ended runs still holding one, the two agent reads, and the run
-/// end's reads of its held questions open or waiting for it (`UNSETTLED_HELD_OF_RUN_SQL`), its
-/// plans still holding a request (its plan holds' read) and its open choices (the newest
-/// request of each dialog and whether it was settled since), and a driver's read of a session's
-/// stored leg (the session's runs and their bindings).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 21 + RUN_AGENT_STATEMENT_CAPACITY;
+/// turn and every open turn, its provider, whether it is a provider subagent, whether it ended
+/// since a version, its interventions with no outcome and one session's ended runs still holding
+/// one, the two agent reads, and the run end's reads of its held questions open or waiting for it
+/// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
+/// open choices (the newest request of each dialog and whether it was settled since), and a
+/// driver's read of a session's stored leg (the session's runs and their bindings).
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 22 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -105,7 +107,8 @@ pub(crate) enum InterruptRoute {
 }
 
 /// Why the run engine did not do what it was asked; what each step wrote before the failure is
-/// kept, and the failure says which step failed.
+/// kept, and the failure says which step failed. Its large failures are boxed, so it stays within
+/// 64 bytes for every `Result` that carries it.
 #[derive(Debug, thiserror::Error)]
 pub enum RunEngineError {
     /// The run is unknown, has ended, or may not make the move asked of it.
@@ -124,7 +127,7 @@ pub enum RunEngineError {
         run_id: RunId,
         /// The gate's failure.
         #[source]
-        source: RunSetupGateError,
+        source: Box<RunSetupGateError>,
     },
     /// The run passed its gates with no posture resolved for it.
     #[error("run {run_id} passed its gates with no resolved posture")]
@@ -161,25 +164,25 @@ pub enum RunEngineError {
     },
     /// No registered driver answers the run's provider (`provider.notFound`).
     #[error(transparent)]
-    Provider(DomainError),
+    Provider(Box<DomainError>),
     /// The daemon turn's run was not queued.
     #[error(transparent)]
-    DaemonTurn(#[from] DaemonTurnQueueError),
+    DaemonTurn(Box<DaemonTurnQueueError>),
     /// The run's agent could not be read from its session's log.
     #[error("the run's agent could not be read")]
-    Agent(#[from] RunAgentReadError),
+    Agent(#[source] Box<RunAgentReadError>),
     /// An event breaks a check of its type.
     #[error("the run's event could not be drafted")]
     Draft(#[from] SessionEventDraftError),
     /// The event log did not keep an append, or a guard in its write refused it.
     #[error("the run's event was not appended")]
-    Append(#[from] SessionEventAppendError),
+    Append(#[source] Box<SessionEventAppendError>),
     /// SQLite refused a read, or a stored column does not read as its type.
     #[error("the run could not be read")]
-    Read(#[from] rusqlite::Error),
+    Read(#[source] Box<rusqlite::Error>),
     /// The read pool did not run a read.
     #[error("the read pool did not run the run's read")]
-    Pool(#[from] DatabaseReadError),
+    Pool(#[source] Box<DatabaseReadError>),
     /// The run's end or a turn's end landed with the settle of a person's interrupt, and letting go
     /// the run queue's hold of that interrupt failed; the end is kept.
     #[error("run {run_id} settled an interrupt, and its queue hold was not let go")]
@@ -194,6 +197,9 @@ pub enum RunEngineError {
     #[error(transparent)]
     Several(Box<SettleFailures<RunEngineError>>),
 }
+
+// The budget every `Result` carrying the engine's error keeps.
+const _: () = assert!(size_of::<RunEngineError>() <= 64);
 
 /// Why a resume of a paused run did not move it to `running`; only [`RunResumeError::Change`]
 /// comes after the driver took the resume.
@@ -210,6 +216,36 @@ pub(crate) enum RunResumeError<DriverFailure> {
     /// The driver took the resume, and the move to `running` was refused or failed.
     #[error("the provider took the run's resume, and its move to running was not written")]
     Change(#[source] RunEngineError),
+}
+
+impl From<DaemonTurnQueueError> for RunEngineError {
+    fn from(error: DaemonTurnQueueError) -> Self {
+        Self::DaemonTurn(Box::new(error))
+    }
+}
+
+impl From<RunAgentReadError> for RunEngineError {
+    fn from(error: RunAgentReadError) -> Self {
+        Self::Agent(Box::new(error))
+    }
+}
+
+impl From<SessionEventAppendError> for RunEngineError {
+    fn from(error: SessionEventAppendError) -> Self {
+        Self::Append(Box::new(error))
+    }
+}
+
+impl From<rusqlite::Error> for RunEngineError {
+    fn from(error: rusqlite::Error) -> Self {
+        Self::Read(Box::new(error))
+    }
+}
+
+impl From<DatabaseReadError> for RunEngineError {
+    fn from(error: DatabaseReadError) -> Self {
+        Self::Pool(Box::new(error))
+    }
 }
 
 impl From<RunRefusal> for RunEngineError {
@@ -244,6 +280,9 @@ pub struct RunEngineDeps {
     pub providers: Arc<ProviderRegistry>,
     /// The plans a run's end reopens as it lets their held requests go.
     pub plan_holds: Arc<dyn PlanHolds>,
+    /// The answers to a provider's choice that got no reply back, which the run's choice resolver
+    /// holds and a run's end writes as its choice's settlement once a report showed one taken.
+    pub held_choice_answers: Arc<HeldChoiceAnswers>,
 }
 
 // An interrupt that waits before it is routed: for a continue to settle, or for a start past its
@@ -271,6 +310,7 @@ pub struct RunEngine {
     execution_postures: Arc<ExecutionPostureService>,
     providers: Arc<ProviderRegistry>,
     plan_holds: Arc<dyn PlanHolds>,
+    held_choice_answers: Arc<HeldChoiceAnswers>,
     // The interventions service, which carries out the interrupt of each limit stop. It holds the
     // engine, so the engine holds it weakly.
     limit_interrupter: SetOnce<Weak<dyn LimitInterrupter>>,
@@ -303,6 +343,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
         } = deps;
         let appender = Arc::new(SessionEventAppender::new(
             event_log,
@@ -318,6 +359,7 @@ impl RunEngine {
             execution_postures,
             providers,
             plan_holds,
+            held_choice_answers,
             limit_interrupter: SetOnce::new(),
             interrupt_queue: SetOnce::new(),
             live: Mutex::new(LiveRuns::default()),
@@ -348,6 +390,12 @@ impl RunEngine {
     #[cfg(any(test, feature = "test-support"))]
     pub fn restart_facts_pause(&self) -> &PausePoint {
         &self.restart_facts_pause
+    }
+
+    /// The held answers this engine's run ends read, for a test's resolver to hold its answers in.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn held_choice_answers(&self) -> &Arc<HeldChoiceAnswers> {
+        &self.held_choice_answers
     }
 
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
@@ -695,9 +743,10 @@ impl RunEngine {
         }
     }
 
-    // One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
-    // under `hold` where the caller holds the session.
-    async fn append(
+    /// One append of `draft` after `preceding_events`, with `transactional_prelude` in its write,
+    /// under `hold` where the caller holds the session. Fails as the write fails or a statement of
+    /// the prelude refuses it.
+    pub(crate) async fn append(
         &self,
         draft: SessionEventDraft,
         transactional_prelude: Vec<WriteStatement>,

@@ -248,7 +248,7 @@ pub(crate) enum PutBackFailure {
     BranchRead(#[source] GitError),
     /// What live trees and put-backs claim could not be read.
     #[error(transparent)]
-    Claims(KeptCopyClaimsReadError),
+    Claims(Box<KeptCopyClaimsReadError>),
     /// Where the repository keeps its LFS objects and refs could not be read.
     #[error(transparent)]
     StoreSettings(SavedStateError),
@@ -275,7 +275,7 @@ pub(crate) enum PutBackFailure {
     Branch(#[source] GitError),
     /// A side-by-side step failed.
     #[error(transparent)]
-    Steps(SettleFailures<PutBackStepError>),
+    Steps(Box<SettleFailures<PutBackStepError>>),
     /// The copied tree's index could not be refreshed.
     #[error("the copied tree's index could not be refreshed")]
     Refresh(#[source] GitError),
@@ -284,7 +284,7 @@ pub(crate) enum PutBackFailure {
     Unlock(#[source] io::Error),
     /// What the put-back wrote could not be flushed to disk.
     #[error(transparent)]
-    Flush(SettleFailures<PutBackFlushError>),
+    Flush(Box<SettleFailures<PutBackFlushError>>),
 }
 
 /// A failed put-back, undone, with the failures of undoing it beside it.
@@ -425,7 +425,7 @@ async fn is_branch_taken(
         .claims
         .is_branch_claimed(&new_branch.name, input.common_folder, Path::new(""))
         .await
-        .map_err(|failure| failed(PutBackFailure::Claims(failure)))
+        .map_err(|failure| failed(PutBackFailure::Claims(Box::new(failure))))
 }
 
 // One put-back at one folder and branch name.
@@ -663,7 +663,7 @@ async fn place_tree_back(
         (placement, record_written, objects_restored),
         PUTTING_THE_WORKTREE_BACK,
     )
-    .map_err(PutBackFailure::Steps)?;
+    .map_err(|failures| PutBackFailure::Steps(Box::new(failures)))?;
     // A copy gives every file a new inode and change time, so the index is refreshed to save the
     // next read a rehash; a rename keeps both, and the index it carried is still fresh.
     if placement == FolderPlacement::Copied {
@@ -693,7 +693,7 @@ async fn place_tree_back(
         new_branch: input.new_branch.as_ref().map(|branch| branch.name.as_str()),
     })
     .await
-    .map_err(PutBackFailure::Flush)
+    .map_err(|failures| PutBackFailure::Flush(Box::new(failures)))
 }
 
 // Makes `branch` at its commit in the repository; git's taken line is `NameTaken`.

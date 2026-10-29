@@ -234,13 +234,7 @@ pub struct SessionLiveRun {
     #[schemars(with = "FreeFormText<EVENT_FIELD_MAX_LEN>")]
     pub actor: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
     /// The account the run was admitted under, as its creation named it.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "crate::wire::present"
-    )]
-    #[schemars(with = "ProviderAccountId")]
-    pub admitted_provider_account_id: Option<ProviderAccountId>,
+    pub admitted_provider_account_id: ProviderAccountId,
     /// When the run's newest `runLifecycle` event occurred.
     #[garde(dive)]
     pub touched_at: WireInstant,

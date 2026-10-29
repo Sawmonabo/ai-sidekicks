@@ -21,7 +21,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     FindTakenMessagesParams, PauseRunParams, ResumeRunParams, TakenMessages,
@@ -74,7 +74,7 @@ pub enum RunPauseError {
         driver: DriverError,
         /// The failed return to `running`.
         #[source]
-        restore: RunEngineError,
+        restore: Box<RunEngineError>,
     },
     /// The messages waiting for the run could not be read; nothing was moved.
     #[error("the messages waiting for the run could not be read")]
@@ -542,7 +542,7 @@ impl RunPauseControl {
             }
             Err(restore) => RunPauseError::NotRestored {
                 driver: driver_error,
-                restore,
+                restore: Box::new(restore),
             },
         }
     }

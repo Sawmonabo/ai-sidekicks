@@ -4,6 +4,7 @@
 static GLOBAL_ALLOCATOR: sidekicks_platforms::GlobalAllocator =
     sidekicks_platforms::GLOBAL_ALLOCATOR;
 
+mod data_folder_hold;
 mod helpers;
 mod recovery;
 mod search_index_build;

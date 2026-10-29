@@ -16,6 +16,8 @@ const SERVICE_LOG_FOLDER_NAME: &str = "logs";
 
 // The folder in the data folder that holds each provider's plugin home.
 const PLUGINS_FOLDER_NAME: &str = "plugins";
+// The folder in the data folder that holds the links the daemon's modes run by.
+const PROGRAM_LINK_FOLDER_NAME: &str = "bin";
 
 /// The service's data folder under `home`, which holds its store, its logs and its lock.
 pub fn data_folder(home: &Path) -> PathBuf {
@@ -39,4 +41,10 @@ pub fn plugin_home(home: &Path, provider_id: &ProviderId) -> PathBuf {
     data_folder(home)
         .join(PLUGINS_FOLDER_NAME)
         .join(provider_id.as_str())
+}
+
+/// The folder in `data_folder` that holds the links git, ssh and a provider run the daemon's modes
+/// by, which the daemon makes at its start, since the program's own folder may not be writable.
+pub fn program_link_folder(data_folder: &Path) -> PathBuf {
+    data_folder.join(PROGRAM_LINK_FOLDER_NAME)
 }

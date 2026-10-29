@@ -41,11 +41,11 @@ use sidekicks_ipc::registry::MethodRegistryBuilder;
 use sidekicks_ipc::stream::subscriptions::Subscriptions;
 use sidekicks_platforms::{
     Spawner, WakeWatch, WallClock, WallClockTimer, askpass_socket_path, check_socket_path,
-    read_command_argument_limit, secret_store_offer,
+    read_command_argument_limit,
 };
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
-use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
+use sidekicks_provider::command::channel::remove_channel_folders;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
@@ -56,9 +56,9 @@ use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
-use sidekicks_store::credential_store::os::{KEYCHAIN_CALL_TIMEOUT, SystemCredentialStore};
-use sidekicks_store::data_folder::data_folder;
+use sidekicks_store::credential_store::os::KEYCHAIN_CALL_TIMEOUT;
 use sidekicks_store::data_folder::lock::DataFolderLock;
+use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME,
 };
@@ -86,7 +86,9 @@ use crate::daemon::process::crash_monitor::CrashMonitor;
 use crate::daemon::process::damage_gate::DispatchDamageWatch;
 use crate::daemon::process::database::{DatabaseFile, DatabaseFileStart, open_database_file};
 use crate::daemon::process::jobs::{IdleMemoryCollect, JobDeps, schedule_jobs};
-use crate::daemon::process::method_inputs::{MethodInputsStart, register_method_inputs};
+use crate::daemon::process::method_inputs::{
+    MethodInputsStart, device_id_of, register_method_inputs,
+};
 use crate::daemon::process::method_tables::gate_chain;
 use crate::daemon::process::providers::{
     ProviderStart, Providers, ProvidersRegistration, build_providers, hydrate_capabilities,
@@ -212,11 +214,11 @@ impl DaemonProcess {
             Ok(spawner) => spawner,
             Err(error) => {
                 return Err(DaemonStartFailure {
-                    failures: CleanupFailures::new(
+                    failures: Box::new(CleanupFailures::new(
                         DaemonStartError::Spawner(error),
                         Vec::new(),
                         START_OPERATION,
-                    ),
+                    )),
                     release_started: Instant::now(),
                 });
             }
@@ -275,7 +277,9 @@ impl DaemonProcess {
             caller_process_reader,
             stop: _,
             base_environment,
+            credential_store,
             service_log_files,
+            provider_registrations,
         } = options;
         self.data_folder_lock = Some(data_folder_lock);
         let (home_folder, run_folder, daemon_program) =
@@ -379,6 +383,7 @@ impl DaemonProcess {
             self.work_stop.clone(),
         ))));
         let machine = read_or_mint_local_machine(&reads, &writer, &self.spawner).await?;
+        let machine_device_id = device_id_of(&machine.machine_id)?;
         let wall_clock: Arc<dyn WallClock> =
             Arc::new(WallClockTimer::new().map_err(DaemonStartError::WallClock)?);
         // With no wake heard, a wall-clock job still runs at its instant, only not at once after
@@ -431,7 +436,7 @@ impl DaemonProcess {
         self.repo = Some(build_repo_services(RepoServiceStart {
             home_folder: home_folder.to_path_buf(),
             run_folder: run_folder.folder_path.clone(),
-            daemon_program: daemon_program.to_path_buf(),
+            program_link_folder: program_link_folder(&data_folder),
             git: git.clone(),
             reads: Arc::clone(&reads),
             writer: Arc::clone(&writer),
@@ -448,9 +453,7 @@ impl DaemonProcess {
             data_folder: data_folder.clone(),
             // The service starts only as the per-user agent or the app's child.
             runs_while_logged_out: false,
-            access: Arc::new(SystemCredentialStore {
-                offer: secret_store_offer(),
-            }),
+            access: credential_store,
             call_timeout: KEYCHAIN_CALL_TIMEOUT,
         })
         .map_err(DaemonStartError::SecretItems)?;
@@ -473,7 +476,7 @@ impl DaemonProcess {
             },
         )?;
         let providers = build_providers(
-            PROVIDER_REGISTRATIONS,
+            provider_registrations,
             ProviderStart {
                 spawner: self.spawner.clone(),
                 data_folder: data_folder.clone(),
@@ -486,6 +489,7 @@ impl DaemonProcess {
                 git: git.clone(),
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
+                caller_processes: Arc::clone(&caller_process_reader),
             },
         );
         let backups = Backups::new(BackupDeps {
@@ -504,6 +508,14 @@ impl DaemonProcess {
         });
         hydrate_capabilities(&providers).await;
         sweep_left_staged_worktrees(&providers).await;
+        // A channel a previous run left served processes that ended with it; a new one takes new
+        // keys, so a folder left behind is only logged.
+        if let Err(error) = remove_channel_folders(&data_folder).await {
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a command channel folder a previous run left was not removed"
+            );
+        }
         let drivers = Arc::clone(&providers.registry);
         let in_flight: Arc<OnceLock<Arc<InFlightMutations>>> = Arc::default();
         let inputs = register_method_inputs(
@@ -520,6 +532,7 @@ impl DaemonProcess {
                 providers: &providers,
                 artifacts: &artifacts,
                 machine,
+                machine_device_id: machine_device_id.clone(),
                 scheduler: Arc::clone(&scheduler),
                 search_index: Arc::clone(&search_index),
                 clock: wall_clock,
@@ -579,7 +592,7 @@ impl DaemonProcess {
         );
         self.in_flight = Some(gates.in_flight);
         let services = GatewayServices {
-            device_id: None,
+            device_id: Some(machine_device_id),
             dispatch: gates.dispatch,
             registry,
             negotiator,
@@ -628,7 +641,7 @@ impl DaemonProcess {
             .session
             .as_ref()
             .expect("the session services are built before their follows begin");
-        self.session_attachments = Some(start_session_attachments(session, &followers));
+        self.session_attachments = Some(start_session_attachments(session, &followers).await?);
         let repo = self
             .repo
             .as_ref()
@@ -666,7 +679,7 @@ impl DaemonProcess {
         for (session_id, error) in queue
             .recover()
             .await
-            .map_err(DaemonStartError::QueueRecovery)?
+            .map_err(|error| DaemonStartError::QueueRecovery(Box::new(error)))?
         {
             tracing::warn!(
                 %session_id,
@@ -698,7 +711,7 @@ impl DaemonProcess {
             stop_work(&mut self, DaemonStopIntent::Stop, DAEMON_STOP_DRAIN_BOUND).await;
         failures.extend(close_data_folder(&mut self).await);
         DaemonStartFailure {
-            failures: CleanupFailures::new(error, failures, START_OPERATION),
+            failures: Box::new(CleanupFailures::new(error, failures, START_OPERATION)),
             release_started,
         }
     }

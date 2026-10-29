@@ -28,7 +28,8 @@ use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::ports::SessionRelaunchListener;
 use sidekicks_provider::driver::session_control::{CreateSessionParams, DriverResumeResult};
 use sidekicks_provider::driver::{
-    ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext, SessionSpawnContextResolver,
+    AccountFoldersError, ProviderAccountFolders, ProviderAccountReader, SessionSpawnContext,
+    SessionSpawnContextResolver,
 };
 use sidekicks_provider::left_conversations::LeftConversation;
 use sidekicks_provider::run::posture::compose_execution_posture;
@@ -134,7 +135,7 @@ pub enum SessionDirectoryProviderPortError {
     AccountsPort(#[from] PortRegistrationError),
     /// The account's folders could not be read.
     #[error("the folders of the session's account could not be read")]
-    AccountFolders(#[source] Box<dyn Error + Send + Sync>),
+    AccountFolders(#[source] AccountFoldersError),
     /// A relaunch's binding cursor was not opened or its row not recorded.
     #[error(transparent)]
     BindingCursor(#[from] RunBindingCursorError),
@@ -195,14 +196,15 @@ impl SessionDirectoryProviderPort {
         Self { deps }
     }
 
-    /// What `session_id`'s provider session opens with: its lead's provider, the model it runs on
-    /// now and the account, output speed, options and larger window its binding names, at the
-    /// posture of the level it stands at, in the mode it was last moved to, with the row values
-    /// set in the app for that provider. Fails for a session with no lead or no workspace, and as
-    /// the reads, git or the settings file fail.
+    /// What `session_id`'s provider session opens with on `provider_account_id`'s account: its
+    /// lead's provider, the model it runs on now and the output speed, options and larger window
+    /// its binding names, at the posture of the level it stands at, in the mode it was last moved
+    /// to, with the row values set in the app for that provider. Fails for a session with no lead
+    /// or no workspace, and as the reads, git or the settings file fail.
     pub async fn compose_opening(
         &self,
         session_id: SessionId,
+        provider_account_id: ProviderAccountId,
     ) -> Result<SessionProviderOpening, SessionDirectoryProviderPortError> {
         let lead = self
             .read_lead(session_id)
@@ -236,7 +238,7 @@ impl SessionDirectoryProviderPort {
                 subagent_policy: None,
                 tool_servers: None,
                 output_schema: None,
-                provider_account_id: binding.provider_account_id,
+                provider_account_id,
                 on_mcp_server_status: None,
             },
             provider: binding.provider_name,
@@ -354,14 +356,11 @@ impl SessionDirectoryProviderPort {
         }
     }
 
-    // The folders of `provider_account_id`'s account, `None` on the person's own sign-in.
+    // The folders of `provider_account_id`'s account.
     async fn read_account_folders(
         &self,
-        provider_account_id: Option<ProviderAccountId>,
-    ) -> Result<Option<ProviderAccountFolders>, SessionDirectoryProviderPortError> {
-        let Some(provider_account_id) = provider_account_id else {
-            return Ok(None);
-        };
+        provider_account_id: ProviderAccountId,
+    ) -> Result<ProviderAccountFolders, SessionDirectoryProviderPortError> {
         self.deps
             .provider_accounts
             .require_port()?
@@ -373,7 +372,7 @@ impl SessionDirectoryProviderPort {
     async fn resolve_spawn_context_of(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> Result<SessionSpawnContext, SessionDirectoryProviderPortError> {
         let (working_folder, step_bound, advisor_model) = self
             .deps
@@ -496,12 +495,12 @@ impl SessionSpawnContextResolver for SessionDirectoryProviderPort {
     /// The session's newest ready workspace's root, its repository's common git folder (`None`
     /// outside one), the machine's and the project's environment rows, the account's folders, and
     /// the session's own step bound and advisor. Fails for a session with no workspace ready to
-    /// run in, for an account named while the accounts port is unregistered, and as the reads,
+    /// run in, while the accounts port is unregistered, and as the reads,
     /// git, the settings file or the accounts port fail.
     fn resolve_spawn_context(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<SessionSpawnContext, Box<dyn Error + Send + Sync>>> {
         async move {
             self.resolve_spawn_context_of(session_id, provider_account_id)
@@ -594,10 +593,10 @@ mod tests {
     use sidekicks_provider::driver::session_control::DriverResumeResult;
     use sidekicks_provider::left_conversations::read_left_conversations;
     use sidekicks_provider::runtime_binding::store::{
-        CreateRuntimeBindingInput, RuntimeBindingSpawnConfig, mint_runtime_binding_id,
+        CreateRuntimeBindingInput, mint_runtime_binding_id,
     };
     use sidekicks_provider::runtime_binding::test_store::{
-        binding_input, open_store, spawned_build,
+        binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
     };
     use sidekicks_std::mutex_lock::lock;
     use sidekicks_std::port_registration::PortRegistration;
@@ -674,7 +673,7 @@ mod tests {
         let leg = CreateRuntimeBindingInput {
             run_id,
             ..binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("1.0.0", "/opt/provider/bin"),
             )
         };

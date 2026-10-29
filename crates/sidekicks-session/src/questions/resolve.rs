@@ -24,7 +24,9 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::{ProviderRequestAnswer, RespondToRequestParams};
+use sidekicks_provider::driver::contract::params_and_results::{
+    ProviderRequestAnswer, RespondToRequestParams,
+};
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::events::session::appender::SessionEventDraft;

@@ -4,18 +4,16 @@
 //! also rows on the lead run. The start is dispatched on the session's task before any later
 //! arrival, so a request of the helper finds its run bound.
 
-use serde_json::{Map, Value};
 use sidekicks_contracts::provider::tool_call::ToolCallId;
-use sidekicks_contracts::run::subagent::SubagentLifecyclePayload;
-use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_contracts::run::subagent::{SubagentId, SubagentLifecyclePayload};
 
 use super::{
     ClaudeDeliveryStream, ClaudeSessionStream, UNHELD_FRAME_REASON, bound, record_unmapped,
 };
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::ClaudeTaskFrame;
 use crate::driver::claude::delivery::system::read_claude_helper_end;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeChildRunRoute, ClaudeRunRoute};
-use crate::record_readers::read_non_empty_string;
 use crate::run::delivery::{
     DeliveryBinding, DeliveryOperation, InboundDelivery, InboundOutcome, LateAppendableRow,
 };
@@ -23,7 +21,7 @@ use crate::thread_frame_router::{SubagentLifecycleEmission, SubagentLifecycleEve
 
 impl ClaudeDeliveryStream {
     // A helper's start gets a child run beneath the lead run, the one holding the turn as the
-    // frame was read, and both ends get their row on it.
+    // frame was read, and both ends get their row on it, naming the helper's child run.
     pub(super) async fn deliver_helper_lifecycle(
         &self,
         session: &ClaudeSessionStream,
@@ -48,6 +46,7 @@ impl ClaudeDeliveryStream {
             self.open_turn(session, &lead).await;
         }
         let parent_tool_call_id = emission.parent_tool_call_id.as_deref();
+        let mut child_run_id = None;
         if emission.event_type == SubagentLifecycleEventType::Started {
             let child = InboundDelivery::ChildRun {
                 binding: DeliveryBinding {
@@ -62,6 +61,7 @@ impl ClaudeDeliveryStream {
             if let Some(InboundOutcome::ChildRunStarted { run_id }) =
                 self.send(session, child, Some("system/task_started")).await
             {
+                child_run_id = Some(run_id);
                 routes.bind_child_run(
                     run_id,
                     ClaudeChildRunRoute {
@@ -73,7 +73,10 @@ impl ClaudeDeliveryStream {
                 );
             }
         }
-        let Ok(subagent_id) = FreeFormText::new(emission.subagent_id.clone()) else {
+        // A helper's end names the child run its start was given.
+        let child_run_id = child_run_id
+            .or_else(|| routes.child_run_for(session.session_id, &emission.subagent_id));
+        let Ok(subagent_id) = SubagentId::new(emission.subagent_id.clone()) else {
             return;
         };
         let payload = SubagentLifecyclePayload {
@@ -81,6 +84,7 @@ impl ClaudeDeliveryStream {
             run_id: lead.run_id,
             provider: DESCRIPTOR.provider_id(),
             subagent_id,
+            child_run_id,
             parent_tool_call_id: emission
                 .parent_tool_call_id
                 .and_then(|tool_call_id| ToolCallId::new(tool_call_id).ok()),
@@ -103,13 +107,10 @@ impl ClaudeDeliveryStream {
     }
 
     // A helper's child run moves on its own `task_notification`, then its route retires.
-    pub(super) async fn end_helper(
-        &self,
-        session: &ClaudeSessionStream,
-        members: &Map<String, Value>,
-    ) {
+    pub(super) async fn end_helper(&self, session: &ClaudeSessionStream, task: &ClaudeTaskFrame) {
         let routes = &self.dependencies.routes;
-        let Some(child_run_id) = read_non_empty_string(members, "task_id")
+        let Some(child_run_id) = task
+            .task_id()
             .and_then(|task_id| routes.child_run_for(session.session_id, task_id))
         else {
             return;
@@ -117,7 +118,7 @@ impl ClaudeDeliveryStream {
         let Some(ClaudeRunRoute::Child(route)) = routes.route_of(child_run_id) else {
             return;
         };
-        let Some(change) = read_claude_helper_end(members, child_run_id) else {
+        let Some(change) = read_claude_helper_end(task, child_run_id) else {
             return;
         };
         let delivery = InboundDelivery::RunLifecycle {

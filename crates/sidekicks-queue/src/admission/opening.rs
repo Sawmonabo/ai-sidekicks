@@ -12,8 +12,9 @@ use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::contract::{
-    ProviderDriver, RunOpening, RunOpeningItem, StartRunParams,
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::params_and_results::{
+    RunOpening, RunOpeningItem, StartRunParams,
 };
 use sidekicks_provider::driver::run_control::{
     DaemonTurnBinding, DaemonTurnBindingError, DaemonTurnBindingResolver, InterruptRunRequest,
@@ -225,6 +226,7 @@ impl DaemonTurnBindingResolver for QueueAdmission {
                         DaemonTurnBindingError::NoConversation { session_id }
                     }
                     other @ (ProviderSessionError::Compose { .. }
+                    | ProviderSessionError::AdmittedAccount(_)
                     | ProviderSessionError::NoPosture { .. }
                     | ProviderSessionError::NoContractVersion { .. }
                     | ProviderSessionError::Provider(_)

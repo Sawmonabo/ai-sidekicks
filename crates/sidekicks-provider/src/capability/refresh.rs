@@ -27,7 +27,7 @@ use tokio_util::sync::{CancellationToken, DropGuard};
 use crate::driver::capabilities::writer::{
     DriverCapabilitiesWriter, DriverCapabilitiesWriterError,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
@@ -284,7 +284,8 @@ mod tests {
 
     use super::CapabilityRefresher;
     use crate::driver::capabilities::writer::test_capabilities_writer;
-    use crate::driver::contract::{DriverError, MockProviderDriver, ProviderDriver};
+    use crate::driver::contract::error::DriverError;
+    use crate::driver::contract::{MockProviderDriver, ProviderDriver};
     use crate::driver::registry::ProviderRegistry;
     use crate::driver::schema::schema_parts;
     use crate::driver::test_registry::test_driver_services;

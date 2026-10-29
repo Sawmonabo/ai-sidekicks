@@ -11,6 +11,7 @@ use sidekicks_contracts::session::id::SessionId;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::driver::callback_tool::CallbackToolDispatcher;
+use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
@@ -28,6 +29,10 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     /// The folder the process runs in; a resume from any other folder starts a new conversation.
     pub(crate) working_directory: PathBuf,
     /// The daemon's callback tools.
+    #[expect(
+        dead_code,
+        reason = "the session's tool server lists these tools to Claude Code once it hosts them"
+    )]
     pub(crate) callback_tools: Option<Vec<SessionCallbackTool>>,
     /// The session's helper policy.
     pub(crate) subagent_policy: Option<SubagentPolicy>,
@@ -55,4 +60,7 @@ pub(crate) struct ClaudeSpawnBoundLegs {
     pub(crate) advisor: ClaudeSessionAdvisor,
     /// The session's own output style, `None` where Claude Code's own setting holds.
     pub(crate) output_style: Option<String>,
+    /// The command channel the session process's commands reach the daemon through; `None` for
+    /// a process that runs no session's commands, or where none opened.
+    pub(crate) command_channel: Option<Arc<ClaudeCommandChannel>>,
 }

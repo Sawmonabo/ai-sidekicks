@@ -27,6 +27,7 @@ use sidekicks_artifact::plans::service::PLANS_STATEMENT_CAPACITY;
 use sidekicks_artifact::schema::ARTIFACT_STATEMENT_CAPACITY;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_platforms::DaemonRunFolder;
+use sidekicks_provider::driver::DRIVERS_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY;
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
@@ -57,10 +58,12 @@ use sidekicks_session::directory::provider_port::SESSION_DIRECTORY_PROVIDER_PORT
 use sidekicks_session::directory::row::{DirectoryEvent, directory_statements_for};
 use sidekicks_session::directory::run_activity::PROJECT_SESSION_ACTIVITY_STATEMENT_CAPACITY;
 use sidekicks_session::draft_store::SESSION_DRAFT_STORE_STATEMENT_CAPACITY;
+use sidekicks_session::idle_sleep::IDLE_SLEEP_STATEMENT_CAPACITY;
 use sidekicks_session::interventions::service::INTERVENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::links::service::SESSION_LINK_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::questions::projection::question_projection_statements;
 use sidekicks_session::questions::service::QUESTION_STATEMENT_CAPACITY;
+use sidekicks_session::readings::READINGS_STATEMENT_CAPACITY;
 use sidekicks_session::related::ranking::RELATED_RANKING_STATEMENT_CAPACITY;
 use sidekicks_session::review_note::store::REVIEW_NOTE_STORE_STATEMENT_CAPACITY;
 use sidekicks_session::run::binding_cursors::RUN_BINDING_CURSORS_STATEMENT_CAPACITY;
@@ -74,6 +77,7 @@ use sidekicks_session::search::files::service::FILE_SEARCH_STATEMENT_CAPACITY;
 use sidekicks_session::search::index::outbox::OUTBOX_STATEMENT_CAPACITY;
 use sidekicks_session::service::SESSION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::tags::SESSION_TAG_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_session::usage_record::USAGE_RECORD_STATEMENT_CAPACITY;
 use sidekicks_session::working_folder::SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY;
 use sidekicks_std::bounded_wait::wait_within;
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -158,10 +162,12 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + DAMAGED_HISTORY_STATEMENT_CAPACITY
     + DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY
     + DRIVER_METHODS_STATEMENT_CAPACITY
+    + DRIVERS_STATEMENT_CAPACITY
     + EVENT_LOG_STATEMENT_CAPACITY
     + EXECUTION_ROOT_SERVICE_STATEMENT_CAPACITY
     + EXECUTION_ROOT_SETUP_GATE_STATEMENT_CAPACITY
     + FILE_SEARCH_STATEMENT_CAPACITY
+    + IDLE_SLEEP_STATEMENT_CAPACITY
     + INTERVENTION_SERVICE_STATEMENT_CAPACITY
     + LIVE_RUN_BINDINGS_STATEMENT_CAPACITY
     + MACHINE_REGISTRY_STATEMENT_CAPACITY
@@ -174,6 +180,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + PROVIDER_CHOICE_STATEMENT_CAPACITY
     + PROVIDER_SESSIONS_STATEMENT_CAPACITY
     + QUESTION_STATEMENT_CAPACITY
+    + READINGS_STATEMENT_CAPACITY
     + RELATED_RANKING_STATEMENT_CAPACITY
     + REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY
     + REPO_FOLDER_USAGE_STATEMENT_CAPACITY
@@ -205,6 +212,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + STARTUP_RECOVERY_STATEMENT_CAPACITY
     + TURN_SNAPSHOT_PRUNE_STATEMENT_CAPACITY
     + UNFINISHED_DISCARD_STATEMENT_CAPACITY
+    + USAGE_RECORD_STATEMENT_CAPACITY
     + WORKFLOW_DEFINITION_STORE_STATEMENT_CAPACITY
     + WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY
     + WORKFLOW_KEPT_VALUE_STORE_STATEMENT_CAPACITY
@@ -285,10 +293,10 @@ pub(crate) enum DatabaseFileOpenError {
     /// The file is too damaged to open; its damage is recorded, beside the record's own failure
     /// when that failed, so the next start repairs it.
     #[error("the database file is damaged; the next start repairs it")]
-    Damaged(#[source] CleanupFailures<WriterOpenFailure, AtomicWriteError>),
+    Damaged(#[source] Box<CleanupFailures<WriterOpenFailure, AtomicWriteError>>),
     /// The writer could not open the file.
     #[error(transparent)]
-    Writer(WriterOpenFailure),
+    Writer(Box<WriterOpenFailure>),
 }
 
 /// Why a step of the database file's close failed; every other step still ran.
@@ -629,17 +637,19 @@ async fn open_writer(
         return Err(DatabaseFileOpenError::SavedSessionsFromAnotherVersion { path: path.clone() });
     }
     if !is_database_damage_error(&failure) {
-        return Err(DatabaseFileOpenError::Writer(failure));
+        return Err(DatabaseFileOpenError::Writer(Box::new(failure)));
     }
     let record_failures = record_database_damage(database_path, &describe_error(&failure))
         .await
         .err()
         .into_iter()
         .collect();
-    Err(DatabaseFileOpenError::Damaged(CleanupFailures::new(
-        failure,
-        record_failures,
-        "recording the damage to the database file",
+    Err(DatabaseFileOpenError::Damaged(Box::new(
+        CleanupFailures::new(
+            failure,
+            record_failures,
+            "recording the damage to the database file",
+        ),
     )))
 }
 

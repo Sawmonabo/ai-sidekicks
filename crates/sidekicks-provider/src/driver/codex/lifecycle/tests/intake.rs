@@ -5,22 +5,29 @@ use std::time::Duration;
 
 use rstest::rstest;
 use serde_json::{Value, json};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::ProviderToken;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemNotDeliveredReason};
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
 use super::{LiveCodexSession, TEST_TURN, answer_stopping_request};
 use crate::driver::codex::run::control::record::{CodexContinuePlace, CodexRunControlCall};
 use crate::driver::codex::session::calls::call_codex_session;
+use crate::driver::codex::session::context_reading::read_codex_kept_fixed_start;
 use crate::driver::codex::session::inbound::CodexSessionCall;
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, fork_reply, no_turns, test_thread_settings, turn_completed, turn_reply,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{
     FasterModelRetryOutcome, FasterModelRetryParams, PauseRunParams, ResumeRunParams,
     WaitingMessage,
@@ -29,7 +36,10 @@ use crate::driver::test_registry::new_message_id;
 use crate::port::question::QuestionPort;
 use crate::port::question::test_card::QuestionCard;
 use crate::run::delivery::LateAppendableRow;
+use crate::run::posture::compose_execution_posture;
 use crate::run::state_entry::{RunStateEntry, RunStateReport};
+use crate::runtime_binding::resume::{ResumeFunctionLegs, compose_resume_session_params};
+use crate::runtime_binding::store::{mint_runtime_binding_id, read_binding};
 
 // Real time under a timeout, since the session's task applies each frame on its own task. Two
 // handlers run on each prompt: the opening prompt's second blocks, the first steer
@@ -617,6 +627,62 @@ async fn a_token_usage_reading_files_the_context_window_on_its_run_even_as_its_t
             })]
         );
     }
+}
+
+// The fixed start the conversation's first request reads is kept on the session's binding, and a
+// resume composed from that binding hands it back. Killed by keeping no fixed start on the
+// binding, and by a resume that hands back no recovery data.
+#[tokio::test]
+async fn the_conversations_fixed_start_is_kept_on_its_binding_for_a_resume() {
+    let live = LiveCodexSession::start(&[]).await;
+    live.scripted.script.send(&json!({
+        "jsonrpc": "2.0",
+        "method": "thread/tokenUsage/updated",
+        "params": {
+            "threadId": TEST_THREAD,
+            "turnId": TEST_TURN,
+            "tokenUsage": {
+                "total": {"inputTokens": 12_000, "outputTokens": 300, "totalTokens": 12_300},
+                "last": {"inputTokens": 12_000, "outputTokens": 300, "totalTokens": 12_300},
+                "modelContextWindow": 258_400,
+            },
+        },
+    }));
+
+    let mut kept = None;
+    for _attempt in 0..1_000 {
+        let binding = read_binding(&live.database.reader(), &live.binding_id)
+            .expect("the binding reads")
+            .expect("the binding is recorded");
+        if !binding.runtime_metadata.is_empty() {
+            kept = Some(binding);
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let binding = kept.expect("the fixed start is kept on the binding");
+    let resumed = compose_resume_session_params(
+        live.session_id,
+        AgentId::new(&mint_uuid_v7().to_string()).expect("a minted UUID is an agent id"),
+        &binding,
+        mint_runtime_binding_id(),
+        FreeFormText::new("gpt-5".to_owned()).expect("a model"),
+        None,
+        SessionMode::Build,
+        compose_execution_posture(
+            PermissionLevel::Readonly,
+            FilesystemPath::new("/".to_owned()).expect("the root is a path"),
+        ),
+        Vec::new(),
+        ProviderRowValues::default(),
+        ResumeFunctionLegs::default(),
+        Vec::new(),
+    )
+    .expect("the binding resumes");
+    assert_eq!(
+        read_codex_kept_fixed_start(&resumed.runtime_metadata),
+        Some(12_000)
+    );
 }
 
 // The session's `usage.contextWindow.updated` payloads, once one is delivered.

@@ -5,6 +5,8 @@
 
 use std::collections::HashSet;
 use std::error::Error;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use futures::FutureExt;
@@ -12,6 +14,7 @@ use futures::future::ready;
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::place::Place;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ObservedProviderOptions, ProviderRow, ProviderSessionOption,
 };
@@ -22,14 +25,14 @@ use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
 
-use super::{ClaudeDriver, internal, person_settings_folder};
+use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
-use crate::driver::claude::inbox_address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
+use crate::driver::claude::inbox::address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
-    ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs,
+    ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
 };
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
@@ -51,7 +54,7 @@ use crate::driver::claude::session::transport::readings::ClaudeSessionFolderRead
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::{claude_session_options, observe_claude_options};
 use crate::driver::claude::settings_rows::compose_claude_rows;
-use crate::driver::claude::spawn::environment::claude_config_folder;
+use crate::driver::claude::spawn::environment::{ClaudeProcessHome, claude_config_folder};
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::{
     ClaudeLaunchError, initialize_reply::read_claude_initialize_declaration,
@@ -59,10 +62,12 @@ use crate::driver::claude::spawn::launch::{
 use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
-use crate::driver::contract::ProviderCommandsSubscription;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
+use crate::driver::contract::params_and_results::{GetCapabilitiesResult, ListModelsParams};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::ports::SessionPlace;
+use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AnswerSessionCommandParams, AskSideQuestionParams, DriverAuthProbeResult,
     DriverAuthProbeStatus, ProviderCommandsListener, ResumeSessionParams, RevokeRuleParams,
@@ -76,11 +81,17 @@ use crate::port::session_inbox_address::SessionInboxAddresser;
 /// model, which every account's catalog lists.
 const CLAUDE_DEFAULT_MODEL: &str = "default";
 
-/// The key of the person's own output style in Claude Code's settings.
+/// The key of an account home's own output style in Claude Code's settings.
 const OUTPUT_STYLE_KEY: &str = "outputStyle";
 
-/// The key of the person's own advisor in Claude Code's settings, empty for none.
+/// The key of an account home's own advisor in Claude Code's settings, empty for none.
 const ADVISOR_MODEL_KEY: &str = "advisorModel";
+
+/// The file of an account home's own settings, in its config folder.
+const SETTINGS_FILE_NAME: &str = "settings.json";
+
+/// The folder under the daemon's data folder the capability read runs on.
+const CLAUDE_CAPABILITY_READ_FOLDER: &str = "claude-capability-read";
 
 impl ClaudeDriver {
     /// The level and mode a new session starts at, as Claude Code's own settings for the folder set
@@ -92,7 +103,7 @@ impl ClaudeDriver {
         params: StartingLevelParams,
     ) -> Result<StartingLevel, DriverError> {
         let environment = self
-            .account_environment(params.provider_account_id.as_ref())
+            .account_environment(&params.provider_account_id)
             .await?;
         let (catalog, can_run_sandbox, repository) = tokio::join!(
             self.starts.read_model_catalog(environment.clone()),
@@ -120,11 +131,13 @@ impl ClaudeDriver {
         };
         let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
         let project_folder = claude_project_folder(&params.working_folder, repository.as_ref());
+        let account_settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
         let starting = read_claude_starting_level(
             &ClaudeStartingLevelSources {
                 managed_settings_folder: managed_settings_folder.as_deref(),
                 project_folder: &project_folder,
                 home_folder: &self.sources.home_folder,
+                account_settings_file: &account_settings_file,
                 path_rules: PathRules::NATIVE,
             },
             |level| {
@@ -195,7 +208,7 @@ impl ClaudeDriver {
                     can_run_sandbox,
                 );
                 if !is_runnable {
-                    return Err(DriverError::Refused(permission_level_not_offered(level)));
+                    return Err(DriverError::from(permission_level_not_offered(level)));
                 }
                 Ok(parts.restarts.write_held_settings(&ended, |settings| {
                     settings.execution_posture = Some(params.execution_posture.clone());
@@ -256,21 +269,23 @@ impl ClaudeDriver {
     /// Takes a revoked rule out of force: a project rule out of the folder's local settings, a
     /// session rule out of the live process's permissions, which a session at rest reads again
     /// when it opens. A project rule is looked for in the config folder of the home the session
-    /// ran on last, the person's own where no process of it is known. Fails as the removal, the
-    /// rules' read or the resend fails.
+    /// ran on last, else of the account its stored leg names, else of the provider's current
+    /// account. Fails as the account, the removal, the rules' read or the resend fails.
     pub(crate) async fn revoke_rule(&self, params: RevokeRuleParams) -> Result<(), DriverError> {
         let parts = self.composed_parts();
         let live = parts.and_then(|parts| parts.slots().live_session(params.session_id));
         if let Some(project_folder) = &params.project_folder {
-            let spawn_environment = match &live {
-                Some(live) => Some(live.spawn_bound_legs.spawn_environment.clone()),
-                None => parts
-                    .and_then(|parts| parts.restarts.ended_conversation(params.session_id))
-                    .map(|ended| ended.spawn_environment),
+            let ended =
+                parts.and_then(|parts| parts.restarts.ended_conversation(params.session_id));
+            let spawn_environment = match (&live, ended) {
+                (Some(live), _) => live.spawn_bound_legs.spawn_environment.clone(),
+                (None, Some(ended)) => ended.spawn_environment,
+                (None, None) => {
+                    let account = self.resting_account(params.session_id).await?;
+                    self.account_environment(&account).await?
+                }
             };
-            let config_folder = spawn_environment
-                .and_then(|environment| claude_config_folder(&environment, PathRules::NATIVE))
-                .unwrap_or_else(|| person_settings_folder(&self.sources.home_folder));
+            let config_folder = account_config_folder(&spawn_environment);
             let repository = self.read_repository(project_folder).await;
             let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
             revoke_claude_project_rule(
@@ -300,13 +315,24 @@ impl ClaudeDriver {
         Ok(())
     }
 
-    /// The models Claude Code offers on the account the params name, read from a process that
-    /// keeps nothing in the session's own place and account home, or the account's home where no
-    /// session is named. Fails as the account's folders, the read or the catalog fails.
+    /// The models Claude Code offers on the account the params name, else on the provider's
+    /// current account, read from a process that keeps nothing in the session's own place and
+    /// account home, or the account's home where no session is named. Fails as the account, its
+    /// folders, the read or the catalog fails.
     pub(crate) async fn list_models(
         &self,
         params: ListModelsParams,
     ) -> Result<Vec<ProviderModel>, DriverError> {
+        let provider_account_id = match params.provider_account_id {
+            Some(provider_account_id) => provider_account_id,
+            None => {
+                read_current_account(
+                    &self.sources.ports.provider_accounts,
+                    DESCRIPTOR.provider_id(),
+                )
+                .await?
+            }
+        };
         let environment = match params.session_id {
             Some(session_id) => {
                 let context = self
@@ -315,18 +341,17 @@ impl ClaudeDriver {
                     .spawn_contexts
                     .require_port()
                     .map_err(internal)?
-                    .resolve_spawn_context(session_id, params.provider_account_id.clone())
+                    .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                let account = context
-                    .account_folders
-                    .zip(params.provider_account_id.as_ref());
-                self.process_environment(account, &[], &[])?
+                self.account_process_environment(
+                    &context.account_folders,
+                    &provider_account_id,
+                    &[],
+                    &[],
+                )?
             }
-            None => {
-                self.account_environment(params.provider_account_id.as_ref())
-                    .await?
-            }
+            None => self.account_environment(&provider_account_id).await?,
         };
         let reading = self.starts.read_model_catalog(environment.clone()).await?;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
@@ -334,7 +359,11 @@ impl ClaudeDriver {
 
     /// The levels Claude Code runs on this system, as modes.
     pub(crate) async fn list_modes(&self) -> Result<Vec<ProviderMode>, DriverError> {
-        let environment = self.process_environment(None, &[], &[])?;
+        // The check only finds the sandbox's programs and starts no Claude Code, so the folder it
+        // names is never made.
+        let folder = self.capability_read_folder();
+        let environment =
+            self.process_environment(ClaudeProcessHome::Throwaway { folder: &folder }, &[], &[])?;
         let can_run_sandbox = read_claude_sandbox_support(
             &self.sources.spawner,
             &environment,
@@ -345,18 +374,49 @@ impl ClaudeDriver {
         Ok(list_claude_modes(can_run_sandbox))
     }
 
-    /// The installed build's capabilities, version and tools, read live; the figures held for an
-    /// older build are dropped once another is read.
+    /// The installed build's capabilities, version and tools, read live on a configuration folder
+    /// the daemon makes empty for the read and removes after it, whether the read succeeded or
+    /// not, so the read runs on no account and with no one's settings; the figures held for an
+    /// older build are dropped once another is read. One read runs at a time. Fails as the folder
+    /// cannot be made, the environment cannot be composed, or the read fails.
     pub(crate) async fn get_capabilities(&self) -> Result<GetCapabilitiesResult, DriverError> {
-        let environment = self.process_environment(None, &[], &[])?;
-        let result = self.starts.read_capabilities(environment).await?;
+        let _only_read = self.capability_read.lock().await;
+        let folder = self.capability_read_folder();
+        // A read the daemon's stop cut short left its folder behind.
+        remove_capability_read_folder(&folder)
+            .await
+            .map_err(internal)?;
+        tokio::fs::create_dir_all(&folder).await.map_err(internal)?;
+        let read = async {
+            let environment = self.process_environment(
+                ClaudeProcessHome::Throwaway { folder: &folder },
+                &[],
+                &[],
+            )?;
+            self.starts.read_capabilities(environment).await
+        }
+        .await;
+        // The next read removes a folder this removal leaves, so the read's answer stands.
+        if let Err(error) = remove_capability_read_folder(&folder).await {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::ControlOnlyReadFailed,
+                None,
+                "removing the capability read's configuration folder",
+                &error,
+            );
+        }
+        let result = read?;
         self.figures.note_build(&result.cli_version.raw_version);
         Ok(result)
     }
 
-    /// How the person's own Claude Code is signed in, read from a process that takes no turn.
-    pub(crate) async fn probe_auth(&self) -> Result<DriverAuthProbeResult, DriverError> {
-        let environment = self.process_environment(None, &[], &[])?;
+    /// How `provider_account_id`'s account is signed in, read from a process that takes no turn
+    /// on that account's home. Fails as the account's folders cannot be resolved.
+    pub(crate) async fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> Result<DriverAuthProbeResult, DriverError> {
+        let environment = self.account_environment(&provider_account_id).await?;
         Ok(match self.starts.probe_sign_in(environment).await {
             Ok(detail) => build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail),
             Err(error) => {
@@ -375,25 +435,32 @@ impl ClaudeDriver {
     }
 
     /// `Output style` and `Advisor`, each with the app's pick in `app_values` or what a new
-    /// session runs with, the choices read from the installed build in the person's own home once
-    /// per build and held, so a later read starts no process.
+    /// session runs with, on the provider's current account: the choices read from the installed
+    /// build in that account's home once per build and held, so a later read starts no process,
+    /// and Claude Code's own values from that home's settings. Fails as the account cannot be
+    /// resolved or its settings cannot be read.
     pub(crate) async fn read_rows(
         &self,
         app_values: ProviderRowValues,
     ) -> Result<Vec<ProviderRow>, DriverError> {
-        let environment = self.process_environment(None, &[], &[])?;
+        let provider_account_id = read_current_account(
+            &self.sources.ports.provider_accounts,
+            DESCRIPTOR.provider_id(),
+        )
+        .await?;
+        let environment = self.account_environment(&provider_account_id).await?;
+        let settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
         let place = ClaudeSessionFolderReadRequest {
             spawn_environment: environment,
             working_directory: self.sources.home_folder.clone(),
             model: CLAUDE_DEFAULT_MODEL.to_owned(),
         };
-        let settings_file = person_settings_folder(&self.sources.home_folder).join("settings.json");
         let (choices, settings) = tokio::join!(
             self.figures.read_command_choices(&place),
             read_claude_settings_file(&settings_file),
         );
         let settings = settings.map_err(internal)?;
-        let person_setting = |key: &str| {
+        let home_setting = |key: &str| {
             settings
                 .as_ref()?
                 .get(key)?
@@ -405,8 +472,8 @@ impl ClaudeDriver {
         Ok(compose_claude_rows(
             offers,
             &app_values,
-            person_setting(OUTPUT_STYLE_KEY),
-            person_setting(ADVISOR_MODEL_KEY),
+            home_setting(OUTPUT_STYLE_KEY),
+            home_setting(ADVISOR_MODEL_KEY),
         ))
     }
 
@@ -489,7 +556,7 @@ impl ClaudeDriver {
         let session_id = params.session_id;
         let copy = match parts.run_start.live_session(session_id) {
             Ok(live) => ready(Ok(ClaudeSideQuestionCopy {
-                legs: one_turn_legs(&live, None),
+                legs: without_credential_prompts(one_turn_legs(&live, None, None)),
                 provider_account_id: live.admitted_provider_account_id.clone(),
                 parent_provider_session_id: live.provider_session_id.clone(),
             }))
@@ -504,14 +571,21 @@ impl ClaudeDriver {
                 None => return Err(no_live_session.into()),
             },
         };
+        let hold = parts
+            .establishment
+            .task_services
+            .idle_sleep
+            .hold_side_question(session_id);
         parts
             .session_controls
             .ask_side_question(
                 session_id,
+                params.binding_id,
                 params.side_question_id,
                 params.question,
                 copy,
                 &self.sources.ports.usage,
+                hold,
             )
             .await
     }
@@ -547,11 +621,48 @@ impl ClaudeDriver {
         reason = "the driver interface answers an option, none for a provider with no session inbox"
     )]
     pub(crate) fn session_inbox_addresser(&self) -> Option<Arc<dyn SessionInboxAddresser>> {
-        Some(Arc::new(ClaudeRegisteredPlacesAddresser {
-            places: Arc::clone(&self.sources.ports.session_places),
-            addresser: OnceLock::new(),
-        }))
+        Some(Arc::clone(&self.inbox_addresser) as Arc<dyn SessionInboxAddresser>)
     }
+}
+
+impl ClaudeDriver {
+    // The folder the capability read makes and removes, under the daemon's data folder.
+    fn capability_read_folder(&self) -> PathBuf {
+        self.sources.data_folder.join(CLAUDE_CAPABILITY_READ_FOLDER)
+    }
+
+    // The account a session with no process here runs on: the one its stored leg names, else,
+    // for a session that never ran, the provider's current account.
+    async fn resting_account(
+        &self,
+        session_id: SessionId,
+    ) -> Result<ProviderAccountId, DriverError> {
+        match self.read_session_leg(session_id).await? {
+            Some(leg) => Ok(leg.spawn_config.provider_account_id),
+            None => {
+                read_current_account(
+                    &self.sources.ports.provider_accounts,
+                    DESCRIPTOR.provider_id(),
+                )
+                .await
+            }
+        }
+    }
+}
+
+// Removes the capability read's folder and everything in it; one already gone is removed.
+async fn remove_capability_read_folder(folder: &Path) -> io::Result<()> {
+    match tokio::fs::remove_dir_all(folder).await {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        removed => removed,
+    }
+}
+
+// The config folder of a Claude Code process's environment, which every home the driver starts a
+// process on names.
+fn account_config_folder(environment: &[(String, String)]) -> PathBuf {
+    claude_config_folder(environment, PathRules::NATIVE)
+        .expect("every Claude Code home names its config folder")
 }
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, with no
@@ -580,6 +691,7 @@ async fn compose_resting_side_question_copy(
             output_schema: None,
             on_mcp_server_status: None,
             provider_account_id: resume.provider_account_id.clone(),
+            command_channel: None,
             context,
         },
         &ClaudeSpawnLegServices::of(&sources),
@@ -592,22 +704,31 @@ async fn compose_resting_side_question_copy(
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
             model: claude_full_model_id(&declaration, &legs.model),
-            ..legs
+            ..without_credential_prompts(legs)
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
     })
 }
 
-// Claude Code's inbox addresses over the places the daemon's start registers, composed once they
-// are; a POSIX place carries the user id its socket folder names, a native Windows place's pipe
-// needs none.
-struct ClaudeRegisteredPlacesAddresser {
+/// Claude Code's inbox addresses over the places the daemon's start registers, composed once they
+/// are; a POSIX place carries the user id its socket folder names, a native Windows place's pipe
+/// needs none.
+pub(super) struct ClaudeRegisteredPlacesAddresser {
     places: Arc<PortRegistration<Arc<[SessionPlace]>>>,
     addresser: OnceLock<ClaudeSessionInboxAddresser>,
 }
 
 impl ClaudeRegisteredPlacesAddresser {
+    /// The addresser over the places registered on `places`, until then answering every place as
+    /// one the start did not list.
+    pub(super) fn new(places: Arc<PortRegistration<Arc<[SessionPlace]>>>) -> Self {
+        Self {
+            places,
+            addresser: OnceLock::new(),
+        }
+    }
+
     fn answer<T>(&self, answer: impl FnOnce(&ClaudeSessionInboxAddresser) -> T) -> T {
         if let Some(addresser) = self.addresser.get() {
             return answer(addresser);

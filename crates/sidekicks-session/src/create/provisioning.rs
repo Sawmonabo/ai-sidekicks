@@ -143,7 +143,8 @@ impl SessionCreation {
     /// The bind and the activation of a session left provisioning: `false`, with nothing done,
     /// while its project is still cloning. Runs under `_hold`, its key's hold, which it never
     /// takes again. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no
-    /// managed mount, refuses `repoMount.notFound` for a project with no attached folder, and
+    /// managed mount and [`SessionCreateError::LeadNamesNoAccount`] for a lead with no account,
+    /// refuses `repoMount.notFound` for a project with no attached folder, and
     /// fails as the bind, the starting level's read and the append fail.
     pub(crate) async fn finish(
         &self,
@@ -170,13 +171,16 @@ impl SessionCreation {
             })
             .await?;
         let lead = &session.lead;
+        let Some(provider_account_id) = lead.provider_account_id.clone() else {
+            return Err(SessionCreateError::LeadNamesNoAccount { session_id });
+        };
         let starting = self
             .providers
             .lookup(&lead.provider_name)?
             .read_starting_level(StartingLevelParams::new(
                 working_folder,
                 lead.model_id.clone(),
-                lead.provider_account_id.clone(),
+                provider_account_id,
             ))
             .await?;
 

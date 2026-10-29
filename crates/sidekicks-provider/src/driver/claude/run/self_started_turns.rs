@@ -98,7 +98,7 @@ impl ClaudeSelfStartedTurns {
 fn report(live: &LiveClaudeSession, what: &str, cause: &str) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: live.admitted_provider_account_id.clone(),
+        provider_account_id: Some(live.admitted_provider_account_id.clone()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some(CLAUDE_TURN_START_FRAME_KIND.to_owned()),
         disposition_reason: format!("a turn Claude Code started by itself: {what}"),
@@ -203,8 +203,13 @@ mod tests {
         refused.engine.fail_daemon_turns();
         refused.frame(&turn()[0]);
         settle().await;
-        let requests = refused.channel.control_requests();
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["subtype"], "interrupt");
+        // The process's start is also read for its context, which asks nothing of the turn.
+        let interrupts = refused
+            .channel
+            .control_requests()
+            .into_iter()
+            .filter(|request| request["subtype"] == "interrupt")
+            .count();
+        assert_eq!(interrupts, 1);
     }
 }

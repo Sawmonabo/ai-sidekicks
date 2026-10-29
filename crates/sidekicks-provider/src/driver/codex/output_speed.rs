@@ -20,7 +20,7 @@ use crate::driver::codex::event_normalizer::{
 };
 use crate::driver::codex::session::state::{CodexSessionRecord, CodexUnsettledOutputSpeedRun};
 use crate::driver::codex::transport::connection::read_codex_object;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// The tier one run settled at, for the run engine to compare with the level it asked for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,8 +29,8 @@ pub(crate) struct CodexSettledOutputSpeed {
     pub(crate) session_id: SessionId,
     /// The run.
     pub(crate) run_id: RunId,
-    /// The account the session runs on, `None` on the machine's default home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the session runs on.
+    pub(crate) provider_account_id: ProviderAccountId,
     /// The tier the thread declared.
     pub(crate) state: ProviderOutputSpeedState,
 }

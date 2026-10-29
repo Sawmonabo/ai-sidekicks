@@ -20,7 +20,7 @@ use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 use sidekicks_provider::background_work::BackgroundWorkForms;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_session::driver_resolution::read_session_driver;
@@ -188,7 +188,7 @@ fn revoke_at_session_provider(
             )
             .await
             .map_err(|error| match error {
-                SessionDriverReadError::Refused(refusal) => DriverError::Refused(refusal),
+                SessionDriverReadError::Refused(refusal) => DriverError::from(refusal),
                 other @ (SessionDriverReadError::Pool(_) | SessionDriverReadError::Database(_)) => {
                     DriverError::Internal(Box::new(other))
                 }
@@ -255,7 +255,8 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_policy::ask_rule::{ProviderAskActionKind, ProviderAskRule};
-    use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+    use sidekicks_provider::driver::contract::MockProviderDriver;
+    use sidekicks_provider::driver::contract::error::DriverError;
     use sidekicks_provider::driver::session_control::RevokeRuleParams;
     use sidekicks_provider::driver::test_registry::registry_of_first_provider;
     use sidekicks_store::database::connection::read_pool::DatabaseReadPool;

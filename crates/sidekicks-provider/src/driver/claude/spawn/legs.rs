@@ -14,6 +14,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_platforms::PathRules;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
+use sidekicks_workspace::git::process::GIT_TERMINAL_PROMPT_OFF;
 
 use crate::background_work::BackgroundWorkForms;
 use crate::callback_tools::host::{
@@ -23,6 +24,7 @@ use crate::callback_tools::spawn_binding::{
     CallbackToolSpawnBinding, bind_callback_tools_for_spawn,
 };
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::errors::{ClaudeSessionError, ClaudeSessionUnavailableReason};
 use crate::driver::claude::session::establishment::ClaudeSpawnSources;
 use crate::driver::claude::session::posture::{digest_output_schema, find_posture_divergence};
@@ -31,10 +33,11 @@ use crate::driver::claude::session::state::{ClaudeSpawnBinding, LiveClaudeSessio
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::account_home::write_claude_home_retention;
 use crate::driver::claude::spawn::environment::{
-    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, compose_claude_process_environment,
+    ClaudeAccountFolders, ClaudeProcessEnvironmentRequest, ClaudeProcessHome,
+    compose_claude_process_environment,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::StartRunParams;
+use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::{
@@ -57,8 +60,8 @@ pub(crate) struct ClaudeSpawnContext {
     pub(crate) every_project_rows: Vec<EnvironmentRow>,
     /// The session's project's own environment rows, which win over an `Every project` row.
     pub(crate) project_rows: Vec<EnvironmentRow>,
-    /// The account's folders, where the app manages the home; `None` on the person's own home.
-    pub(crate) account_folders: Option<ClaudeAccountFolders>,
+    /// The account's folders.
+    pub(crate) account_folders: ClaudeAccountFolders,
     /// Each spelling of the agent-memory folder.
     pub(crate) memory_folders: Vec<PathBuf>,
     /// The session's advisor.
@@ -86,8 +89,11 @@ pub(crate) struct ClaudeSpawnLegsRequest {
     pub(crate) output_schema: Option<Map<String, Value>>,
     /// Receives each tool server's status.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
-    /// The account the spawn is admitted against; `None` on the person's own home.
-    pub(crate) provider_account_id: Option<ProviderAccountId>,
+    /// The account the spawn is admitted against.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// The command channel a session process's commands reach the daemon through, opened before
+    /// the spawn; `None` for a process that runs no session's commands, or where none opens.
+    pub(crate) command_channel: Option<Arc<ClaudeCommandChannel>>,
     /// Where it runs.
     pub(crate) context: ClaudeSpawnContext,
 }
@@ -147,17 +153,15 @@ pub(crate) enum ClaudeSpawnLegsError {
 }
 
 /// Builds the legs every spawn path starts a process from, offering no callback tools and
-/// installing no registry. Sets the retention of a home the app manages; the person's own home is
-/// theirs. Fails when the retention cannot be written, the curated credential list cannot be
-/// resolved or the environment cannot be built.
+/// installing no registry: the account home's retention set, git kept from asking on a terminal,
+/// and a command channel's variables where one opened. Fails when the retention cannot be
+/// written, the curated credential list cannot be resolved or the environment cannot be built.
 pub(crate) async fn build_claude_spawn_bound_legs(
     request: ClaudeSpawnLegsRequest,
     services: &ClaudeSpawnLegServices<'_>,
 ) -> Result<ClaudeSpawnBoundLegs, ClaudeSpawnLegsError> {
     let context = request.context;
-    if let Some(folders) = &context.account_folders {
-        write_claude_home_retention(Path::new(&folders.config_folder)).await?;
-    }
+    write_claude_home_retention(Path::new(&context.account_folders.config_folder)).await?;
     // The curated list is handed over on every level, a posture-less spawn included.
     let credential_policy = services
         .posture_service
@@ -170,6 +174,15 @@ pub(crate) async fn build_claude_spawn_bound_legs(
                 }),
         )
         .await?;
+    let (prompt_variable, prompt_off) = GIT_TERMINAL_PROMPT_OFF;
+    let command_environment = std::iter::once((prompt_variable.to_owned(), prompt_off.to_owned()))
+        .chain(
+            request
+                .command_channel
+                .iter()
+                .flat_map(|channel| channel.environment().iter().cloned()),
+        )
+        .collect::<Vec<_>>();
     let spawn_environment = compose_claude_process_environment(
         ClaudeProcessEnvironmentRequest {
             session: SessionEnvironment {
@@ -180,11 +193,13 @@ pub(crate) async fn build_claude_spawn_bound_legs(
                 rules: services.path_rules,
             },
             deny_env_vars: credential_policy.deny_env_vars,
-            account_folders: context.account_folders.as_ref(),
+            home: ClaudeProcessHome::Account {
+                folders: &context.account_folders,
+                provider_account_id: &request.provider_account_id,
+            },
             data_folder: &services.data_folder,
-            provider_account_id: request.provider_account_id.as_ref(),
         },
-        &[],
+        &command_environment,
     )?;
     Ok(ClaudeSpawnBoundLegs {
         session_id: request.session_id,
@@ -203,6 +218,7 @@ pub(crate) async fn build_claude_spawn_bound_legs(
         spawn_environment,
         advisor: context.advisor,
         output_style: context.output_style,
+        command_channel: request.command_channel,
     })
 }
 

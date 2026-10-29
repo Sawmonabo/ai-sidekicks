@@ -14,7 +14,8 @@ use crate::driver::claude::run::routes::ClaudeBoundRun;
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::errors::ClaudeSessionUnavailableReason;
 use crate::driver::claude::session::state::LiveClaudeSession;
-use crate::driver::contract::{DriverError, StartRunParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::StartRunParams;
 use crate::outbound_text::{OutboundText, OutboundTextOrigin};
 
 // The bundled skill Claude Code's review runs, by the name the build's skill list gives it.

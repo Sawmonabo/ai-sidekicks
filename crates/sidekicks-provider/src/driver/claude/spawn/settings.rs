@@ -2,7 +2,7 @@
 //! conversation, its agent view held off, the session's whole permission rules, its advisor and
 //! output style, and the command sandbox at Sandboxed.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Serialize, Serializer};
 use serde_json::{Map, Value};
@@ -13,6 +13,7 @@ use sidekicks_platforms::PathRules;
 use sidekicks_policy::ask_rule::ProviderAskRule;
 
 use crate::background_work::{BackgroundWorkForms, plain_background_work_forms};
+use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::session::rules::{
     ClaudeRulesError, compose_claude_session_rule_lists, compose_path_content,
 };
@@ -207,12 +208,14 @@ pub(crate) fn compose_claude_permissions(
 }
 
 /// The `--settings` document for a process at the session's current `posture`, advisor, output
-/// style and own rules. Fails as [`compose_claude_permissions`] does.
+/// style and own rules, its commands reaching `command_channel` where one opened. Fails as
+/// [`compose_claude_permissions`] does.
 pub(crate) fn compose_claude_spawn_settings(
     request: &ClaudePermissionsRequest<'_>,
     posture: Option<&ExecutionPosture>,
     advisor: &ClaudeSessionAdvisor,
     output_style: Option<&str>,
+    command_channel: Option<&ClaudeCommandChannel>,
 ) -> Result<ClaudeSpawnSettings, ClaudeRulesError> {
     let writable_roots = posture
         .map(ExecutionPosture::writable_roots)
@@ -225,17 +228,21 @@ pub(crate) fn compose_claude_spawn_settings(
         advisor_model: advisor.setting(),
         output_style: output_style.map(str::to_owned),
         sandbox: (level == Some(PermissionLevel::Sandboxed))
-            .then(|| compose_claude_sandbox_settings(writable_roots)),
+            .then(|| compose_claude_sandbox_settings(writable_roots, command_channel)),
     })
 }
 
-/// The command sandbox at Sandboxed, writable in `writable_roots` alone: a process's `--settings`
-/// carries it, and a live move into Sandboxed sends it in the flag settings. The daemon never
-/// writes `allowUnsandboxedCommands`, so the person's own setting holds; the empty exclusion list
-/// adds none of the daemon's own.
+/// The command sandbox at Sandboxed, writable in `writable_roots` and in `command_channel`'s
+/// folder, where the wrapper and askpass a command runs under write their records, but not in its
+/// requests folder, which only the daemon writes: a process's `--settings` carries it, and a live
+/// move into Sandboxed sends it in the flag settings. The daemon never writes
+/// `allowUnsandboxedCommands`, so the person's own setting holds; the empty exclusion list adds
+/// none of the daemon's own.
 pub(crate) fn compose_claude_sandbox_settings(
     writable_roots: &[FilesystemPath],
+    command_channel: Option<&ClaudeCommandChannel>,
 ) -> ClaudeSandboxSettings {
+    let channel_folder = |folder: &Path| folder.to_string_lossy().into_owned();
     ClaudeSandboxSettings {
         enabled: true,
         fail_if_unavailable: true,
@@ -244,6 +251,11 @@ pub(crate) fn compose_claude_sandbox_settings(
             allow_write: writable_roots
                 .iter()
                 .map(|root| root.as_str().to_owned())
+                .chain(command_channel.map(|channel| channel_folder(channel.folder())))
+                .collect(),
+            deny_write: command_channel
+                .map(|channel| channel_folder(&channel.requests_folder()))
+                .into_iter()
                 .collect(),
         },
     }
@@ -335,7 +347,7 @@ mod tests {
             background_work: &BackgroundWorkForms::of_providers(PROVIDERS),
         };
         let advisor_setting = |advisor: ClaudeSessionAdvisor| {
-            let settings = compose_claude_spawn_settings(&request, None, &advisor, None)
+            let settings = compose_claude_spawn_settings(&request, None, &advisor, None, None)
                 .expect("the settings compose");
             serde_json::to_value(settings).expect("the settings serialize")["advisorModel"].clone()
         };

@@ -1,7 +1,9 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
-//! and the session inbox addresser the table's own drivers answer; the run, session and message
-//! ids the drivers' tests mint, and the run queue's intake as a driver tells it.
+//! the session inbox addresser the table's own drivers answer, an accounts reader answering one
+//! current account, and the table with Codex's driver over a scripted service; the run, session
+//! and message ids the drivers' tests mint, and the run
+//! queue's intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -14,18 +16,23 @@ use std::sync::Mutex;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use rusqlite::params;
+use serde_json::{Map, Value};
 use sidekicks_contracts::artifacts::id::ArtifactId;
+use sidekicks_contracts::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 #[cfg(test)]
 use sidekicks_contracts::run::queue::{QueueItemId, QueueItemNotDeliveredReason};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::Spawner;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
 #[cfg(test)]
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_workspace::git::process::{GitLimits, GitRunner};
@@ -35,9 +42,11 @@ use tokio::runtime::Handle;
 use tokio::sync::Notify;
 
 use crate::background_work::BackgroundWorkForms;
+use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+pub use crate::driver::codex::{ScriptedCodexService, start_scripted_codex_service};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
@@ -45,14 +54,16 @@ use crate::driver::ports::{
     MessageGivenBackListener, MessageRefusedListener, MessageTakenListener,
 };
 use crate::driver::registry::ProviderRegistry;
-use crate::driver::{DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS, ProviderRegistration};
+use crate::driver::{
+    AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
+    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
+};
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
-use crate::runtime_binding::store::{
-    RuntimeBindingRebind, RuntimeBindingSpawnConfig, compose_spawn_config_text,
-};
+use crate::runtime_binding::store::{RuntimeBindingRebind, compose_spawn_config_text};
+use crate::runtime_binding::test_store::{spawn_config_on, test_provider_account_id};
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 use crate::spawn_environment::ReservedEnvironmentNames;
 
 /// The statements a test's read pool caches.
@@ -61,19 +72,27 @@ const TEST_POOL_STATEMENT_CAPACITY: usize = 16;
 /// The most line bytes the test bound lets the shell-line reader parse at once.
 const TEST_SHELL_LINE_LIMIT: usize = 1 << 20;
 
-/// What a test that resolves no attachment, or rebinds no binding, answers: the daemon's part that
+/// What a test that resolves no attachment, or writes no binding, answers: the daemon's part that
 /// serves it is not built in that test.
 #[derive(Debug, thiserror::Error)]
 #[error("the test serves no {0}")]
 struct NotServedInTest(&'static str);
 
-/// An attachment resolver and binding rebinder that serve nothing.
+/// An attachment resolver and binding writer that serve nothing.
 pub struct NothingServed;
 
-impl RuntimeBindingRebinder for NothingServed {
+impl RuntimeBindingWriter for NothingServed {
     fn rebind(
         &self,
         _rebind: RuntimeBindingRebind,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
+
+    fn keep_recovery_data(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _runtime_metadata: Map<String, Value>,
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }
@@ -87,6 +106,45 @@ impl AttachmentResolver for NothingServed {
     ) -> BoxFuture<'_, Result<Vec<ProviderAttachment>, Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("attachment").into()) }.boxed()
     }
+}
+
+/// An accounts reader answering every provider's current account as it holds it, for a test that
+/// admits runs; it resolves no account's folders and reads no credential generation.
+pub struct TestProviderAccounts(pub CurrentProviderAccount);
+
+impl ProviderAccountReader for TestProviderAccounts {
+    fn resolve_account_folders(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<ProviderAccountFolders, AccountFoldersError>> {
+        async { Err(AccountFoldersError::NotFound) }.boxed()
+    }
+
+    fn current_account(
+        &self,
+        _provider_id: ProviderId,
+    ) -> BoxFuture<'_, Result<CurrentProviderAccount, Box<dyn Error + Send + Sync>>> {
+        let current = self.0.clone();
+        async move { Ok(current) }.boxed()
+    }
+
+    fn read_credential_generation(
+        &self,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<CredentialGeneration, Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("credential generation").into()) }.boxed()
+    }
+}
+
+/// A registration holding [`TestProviderAccounts`] answering `current`.
+pub fn registered_test_accounts(
+    current: CurrentProviderAccount,
+) -> Arc<PortRegistration<Arc<dyn ProviderAccountReader>>> {
+    let provider_accounts = PortRegistration::new("provider accounts");
+    provider_accounts
+        .register(Arc::new(TestProviderAccounts(current)) as Arc<dyn ProviderAccountReader>)
+        .expect("a new registration takes its port");
+    Arc::new(provider_accounts)
 }
 
 /// The shared services every driver's build takes, with every port unregistered, the spawn
@@ -122,7 +180,7 @@ pub fn test_driver_services() -> DriverServices {
         )),
         base_environment,
         reserved_names: Arc::new(ReservedEnvironmentNames::of_providers(PROVIDERS)),
-        command_search: Arc::new(ProviderCommandSearch::new(spawner)),
+        command_search: Arc::new(ProviderCommandSearch::new(spawner.clone())),
         pending_compactions: PendingCompactionRegistry::default(),
         processes: Arc::new(ProviderProcessRegistry::default()),
         provider_services: Arc::new(ProviderServiceProcesses::default()),
@@ -130,6 +188,10 @@ pub fn test_driver_services() -> DriverServices {
         shell_lines: Arc::new(ShellLineReadingBound::new(TEST_SHELL_LINE_LIMIT)),
         background_work: Arc::new(BackgroundWorkForms::of_providers(PROVIDERS)),
         dispatches_hook_mode: false,
+        caller_processes: Arc::new(
+            ProcessTableReader::for_this_program().expect("this program's reader builds"),
+        ),
+        input_waits: Arc::new(SystemInputWaitReader { spawner }),
         ports: Arc::new(DriverPorts::new()),
     }
 }
@@ -176,12 +238,34 @@ pub fn registrations_of_first_providers(
     table
 }
 
+/// The table's providers in its order, each built as the table builds it but Codex, whose driver's
+/// registry holds `scripted`'s service, every account resolving to its home; the next build from
+/// it takes that service, so each daemon start over it is given its service by its own call.
+pub fn registrations_over_scripted_codex(
+    scripted: &ScriptedCodexService,
+) -> &'static [ProviderRegistration] {
+    codex::hold_scripted_service(scripted);
+    // A start keeps its table for its whole life, and a test makes one or two.
+    PROVIDER_REGISTRATIONS
+        .iter()
+        .map(|registration| ProviderRegistration {
+            descriptor: registration.descriptor,
+            build: if registration.descriptor.id == codex::DESCRIPTOR.id {
+                codex::build_over_scripted_service
+            } else {
+                registration.build
+            },
+        })
+        .collect::<Vec<_>>()
+        .leak()
+}
+
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a
 /// test may bind several runs, and answers the binding's id.
 pub fn bind_run_to_first_provider(database: &TestDatabase, run_id: RunId) -> RuntimeBindingId {
     let binding_id = mint_uuid_v7().to_string();
     let spawn_config = compose_spawn_config_text(
-        &RuntimeBindingSpawnConfig::default(),
+        &spawn_config_on(test_provider_account_id()),
         &database.path().with_file_name("provider").to_string_lossy(),
     );
     database

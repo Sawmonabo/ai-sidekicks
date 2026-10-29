@@ -8,6 +8,7 @@ use std::sync::Arc;
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::protocol_negotiation::ProtocolNegotiator;
 use sidekicks_ipc::registry::{Dispatch, MethodRegistry, MethodRegistryBuilder, RegistrationError};
+use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_recovery::damaged_history::DamagedHistory;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_recovery::write_gate::RecoveryWriteGate;
@@ -19,6 +20,8 @@ use sidekicks_session::draft_store::SessionDraftStore;
 use sidekicks_session::groups::service::SessionGroupService;
 use sidekicks_session::links::service::SessionLinkService;
 use sidekicks_session::questions::service::QuestionsService;
+use sidekicks_session::readings::context::ContextReadings;
+use sidekicks_session::readings::turn::TurnReadings;
 use sidekicks_session::related::ranking::SessionRelatedRanking;
 use sidekicks_session::review_note::store::SessionReviewNoteStore;
 use sidekicks_session::service::SessionService;
@@ -51,6 +54,8 @@ use crate::daemon::process::workspace_services::{RepoMountMethods, WorktreeMetho
 use crate::daemon::retention_methods::{RetentionMethodsDeps, register_retention_methods};
 use crate::daemon::status_methods::{StatusMethodsDeps, register_status_methods};
 use crate::highlight::colorer::CodeHighlighter;
+use crate::ipc::handlers::agent::command::{CommandMethodSources, register_command_methods};
+use crate::ipc::handlers::agent::turn::register_turn_methods;
 use crate::ipc::handlers::approval::{ApprovalMethodSources, register_approval_methods};
 use crate::ipc::handlers::driver::{DriverMethodSources, register_driver_methods};
 use crate::ipc::handlers::highlight::register_highlight_read;
@@ -65,6 +70,7 @@ use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::ipc::handlers::run::state::register_run_state_subscribe;
 use crate::ipc::handlers::session::changes::register_session_changes;
+use crate::ipc::handlers::session::context::register_context_subscribe;
 use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
 use crate::ipc::handlers::session::convert::register_session_convert;
 use crate::ipc::handlers::session::create::register_session_create;
@@ -110,6 +116,14 @@ pub(crate) struct MethodTableServices {
     pub(crate) run_control: RunControlServices,
     /// The run queue methods' inputs.
     pub(crate) run_queue: RunQueueMethods,
+    /// The command methods' sources.
+    pub(crate) command_methods: Arc<CommandMethodSources>,
+    /// Each run's latest turn readings, which the turn subscriptions follow.
+    pub(crate) turn_readings: Arc<TurnReadings>,
+    /// Each session's latest context reading, which the context subscription follows.
+    pub(crate) context_readings: Arc<ContextReadings>,
+    /// Every driver, which the session event subscription reads each provider's descriptor from.
+    pub(crate) providers: Arc<ProviderRegistry>,
     /// The event log, which the session and run-state subscriptions read.
     pub(crate) event_log: Arc<EventLogService>,
     /// Each session's live safety holds.
@@ -177,10 +191,10 @@ pub(crate) struct MethodTableServices {
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects, the
-/// folders, workspaces and worktrees, the sessions' create and convert, and the machine's
-/// folders. The handshake, the subscriptions' cancel and the artifact store's table
-/// are registered by the start beside them. Fails when a method is registered twice.
+/// data, the drivers, the approvals, the runs and their agents' commands and turns, the sessions,
+/// the repositories, the projects, the folders, workspaces and worktrees, the sessions' create and
+/// convert, and the machine's folders. The handshake, the subscriptions' cancel and the artifact
+/// store's table are registered by the start beside them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
     services: MethodTableServices,
@@ -198,6 +212,8 @@ pub(crate) fn register_method_tables(
     register_approval_methods(builder, &services.approval_methods)?;
     register_run_control(builder, &services.run_control)?;
     register_run_queue(builder, &services.run_queue)?;
+    register_command_methods(builder, &services.command_methods)?;
+    register_turn_methods(builder, &services.turn_readings)?;
     register_run_state_subscribe(
         builder,
         Arc::clone(&services.event_log),
@@ -209,11 +225,12 @@ pub(crate) fn register_method_tables(
         Arc::clone(&services.session_search.index),
     )?;
     register_session_list(builder, services.list_feed)?;
-    register_session_event_subscribe(builder, services.event_log)?;
+    register_session_event_subscribe(builder, services.event_log, Arc::clone(&services.providers))?;
     register_session_draft_update(builder, services.drafts)?;
     register_session_changes(builder, services.session_changes)?;
     register_session_review_notes(builder, services.review_notes)?;
     register_session_search(builder, services.session_search)?;
+    register_context_subscribe(builder, services.context_readings)?;
     register_session_restart(
         builder,
         Arc::clone(&services.session_controls.provider_sessions),

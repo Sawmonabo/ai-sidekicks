@@ -149,7 +149,7 @@ impl CreationFixture {
     }
 
     /// The repository's own branch, the base every test cuts from.
-    pub(super) fn base_ref(&self) -> GitRefName {
+    pub(super) fn base_ref() -> GitRefName {
         GitRefName::new("main".to_owned()).expect("a branch name is text")
     }
 
@@ -268,7 +268,7 @@ async fn a_record_the_active_branch_index_refuses_is_a_collision_and_its_tree_is
             .expect("the branches are read"),
         "the new branch is left"
     );
-    assert!(fixture.worktree_states().is_empty());
+    assert_eq!(fixture.worktree_states(), Vec::<String>::new());
 }
 
 // Kills an undo that deletes a branch the call did not make: git fails on the bad base before it

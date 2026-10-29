@@ -11,7 +11,6 @@
 //! asks Claude Code to drop the ones it holds and answers their ids, on a build that can; one that
 //! cannot answers `Degraded` with the plain interrupt as its fallback.
 
-mod foreground_helpers;
 mod held_steers;
 mod steers;
 
@@ -24,7 +23,6 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_std::mutex_lock::lock;
 
-pub(crate) use self::foreground_helpers::ClaudeForegroundHelpers;
 use self::held_steers::ClaudeHeldSteers;
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::ClaudeInboundRequests;
@@ -36,11 +34,12 @@ use crate::driver::claude::run::start::{ClaudeRunStart, claude_session_unavailab
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
-use crate::driver::claude::session::state::LiveClaudeSession;
+use crate::driver::claude::session::state::{ClaudeSessionRoutingBand, LiveClaudeSession};
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeBackgroundTasksReply, ClaudeControlRequest, ClaudeInterruptReceipt,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus,
@@ -143,7 +142,9 @@ pub(crate) struct ClaudeInterventions {
     writer: ClaudeSteerWriter,
     requests: Arc<ClaudeInboundRequests>,
     helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
-    foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
+    // Each live session's routing band, whose router knows the calls the session's thread waits
+    // on: its foreground helpers.
+    routing_bands: Mutex<HashMap<SessionId, Arc<Mutex<ClaudeSessionRoutingBand>>>>,
     // Each session's steers, in the order handed over: a fair lock, which waiters take in the
     // order they first asked.
     steer_order: Mutex<HashMap<SessionId, Arc<tokio::sync::Mutex<()>>>>,
@@ -152,13 +153,12 @@ pub(crate) struct ClaudeInterventions {
 impl ClaudeInterventions {
     /// Interventions starting next turns through `start`, settling choices through `dialogs`,
     /// holding a `Send now` while `requests` holds an ask open, and reaching helpers through
-    /// `helper_steers` and `foreground_helpers`, which the session's hooks and frames fill.
+    /// `helper_steers`, which the session's hooks fill.
     pub(crate) fn new(
         start: ClaudeRunStart,
         dialogs: Arc<ClaudeProviderDialogs<ClaudeStreamDialogPorts>>,
         requests: Arc<ClaudeInboundRequests>,
         helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
-        foreground_helpers: Arc<Mutex<ClaudeForegroundHelpers>>,
     ) -> Self {
         Self {
             writer: ClaudeSteerWriter {
@@ -168,7 +168,7 @@ impl ClaudeInterventions {
             },
             requests,
             helper_steers,
-            foreground_helpers,
+            routing_bands: Mutex::new(HashMap::new()),
             steer_order: Mutex::new(HashMap::new()),
         }
     }
@@ -206,11 +206,21 @@ impl ClaudeInterventions {
         lock(&self.writer.held).withdraw(session_id, message_id)
     }
 
+    /// Reaches the foreground helpers of `session_id`'s adopted process through its routing
+    /// `band`, until the session is forgotten.
+    pub(crate) fn register_routing_band(
+        &self,
+        session_id: SessionId,
+        band: Arc<Mutex<ClaudeSessionRoutingBand>>,
+    ) {
+        lock(&self.routing_bands).insert(session_id, band);
+    }
+
     /// Forgets a session whose process is gone: its held steers are dropped unwritten, the queue
     /// handing them again, and its helpers' tracking goes.
     pub(crate) fn forget_session(&self, session_id: SessionId) {
         lock(&self.writer.held).take_all(session_id);
-        lock(&self.foreground_helpers).forget_session(session_id);
+        lock(&self.routing_bands).remove(&session_id);
         lock(&self.helper_steers).forget_session(session_id);
         lock(&self.steer_order).remove(&session_id);
     }
@@ -298,12 +308,18 @@ impl ClaudeInterventions {
         Ok(response)
     }
 
-    // Moves each helper running in the foreground to the background, one request per helper, all
-    // sent at once so the interrupt waits one request deadline at most; never the bare request,
-    // which would move a running command too, which the interrupt is meant to end. A refusal is
-    // recorded and the interrupt still goes; answers whether a cut write stopped the process.
+    // Moves each helper the session's own thread waits on to the background, one request per
+    // helper, all sent at once so the interrupt waits one request deadline at most; never the bare
+    // request, which would move a running command too, which the interrupt is meant to end. A
+    // helper's helper stays, since its helper waits on it, not the session. A refusal is recorded
+    // and the interrupt still goes; answers whether a cut write stopped the process.
     async fn background_foreground_helpers(&self, live: &LiveClaudeSession) -> bool {
-        let tool_use_ids = lock(&self.foreground_helpers).tool_use_ids(live.session_id);
+        let band = lock(&self.routing_bands).get(&live.session_id).cloned();
+        let tool_use_ids = band.map_or_else(Vec::new, |band| {
+            lock(&band)
+                .router
+                .calls_awaited_by(&live.provider_session_id)
+        });
         let moves = tool_use_ids.into_iter().map(|tool_use_id| async move {
             let moved = background_claude_task(live, &tool_use_id).await;
             if let Err(error) = &moved {
@@ -364,19 +380,24 @@ pub(crate) async fn background_claude_task(
     live: &LiveClaudeSession,
     tool_use_id: &str,
 ) -> Result<bool, ClaudeSessionError> {
-    let answer = match live
-        .channel
+    let moved = request_claude_background_task(&*live.channel, tool_use_id).await;
+    if let Err(error) = &moved {
+        stop_on_cut_write(live, error).await;
+    }
+    moved
+}
+
+/// Asks the process on `channel` to move the foreground work the tool call `tool_use_id` started
+/// to the background, and answers whether any moved. Fails as the request fails.
+pub(crate) async fn request_claude_background_task(
+    channel: &dyn ClaudeProcessChannel,
+    tool_use_id: &str,
+) -> Result<bool, ClaudeSessionError> {
+    let answer = channel
         .send_control_request(ClaudeControlRequest::BackgroundTasks {
             tool_use_id: Some(tool_use_id.to_owned()),
         })
-        .await
-    {
-        Ok(answer) => answer,
-        Err(error) => {
-            stop_on_cut_write(live, &error).await;
-            return Err(error);
-        }
-    };
+        .await?;
     let reply: ClaudeBackgroundTasksReply = answer
         .response
         .and_then(|response| serde_json::from_str(response.get()).ok())

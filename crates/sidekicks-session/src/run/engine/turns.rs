@@ -18,6 +18,7 @@ use sidekicks_contracts::run::events::{
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::transcript::turn_attribution::TURN_END_EVENT_TYPES;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_provider::run::turn_end::{ProviderTurnEnd, StartedTurn, TurnOutcome};
 use sidekicks_std::mutex_lock::lock;
@@ -227,12 +228,14 @@ impl RunEngine {
     /// a start that lost its number to another numbered again, and returns its number; `None` with
     /// nothing written once the run has ended. `step_bound` is the turn's effective `Max steps per
     /// turn`, which the caller resolves when the turn opens; the engine counts the turn's steps
-    /// against it, whatever the provider. Fails with `RunRefusal::NotFound` for an unknown run and
-    /// with the append's failure.
+    /// against it, whatever the provider. `provider_turn_id` is the provider's own id of the turn,
+    /// recorded on its start, where the provider reports one. Fails with `RunRefusal::NotFound`
+    /// for an unknown run and with the append's failure.
     pub(crate) async fn start_turn(
         &self,
         run_id: RunId,
         position: Option<SourcePosition>,
+        provider_turn_id: Option<ProviderTurnId>,
         step_bound: Option<SafeInt<1>>,
     ) -> Result<Option<StartedTurn>, RunEngineError> {
         self.wait_while_continuing(&run_id).await;
@@ -251,7 +254,7 @@ impl RunEngine {
                     run_version: safe_run_version(run.version),
                     turn_number,
                     position,
-                    provider_turn_id: None,
+                    provider_turn_id: provider_turn_id.clone(),
                 }),
             )?;
             let transactional_prelude = vec![

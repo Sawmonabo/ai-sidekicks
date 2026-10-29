@@ -253,6 +253,7 @@ impl ScriptedChannel {
             listener.take_exit(Ok(ProcessExit::Code(ProcessExitWithCode {
                 exit_code: ExitCode::new(0).expect("zero is a safe integer"),
                 signal: None,
+                silent_seconds: None,
                 output_tail: FreeFormText::new(output_tail.to_owned()).expect("the tail fits"),
             })));
         }

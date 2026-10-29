@@ -3,6 +3,7 @@
 //! disposal failed.
 
 use std::collections::HashSet;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -21,6 +22,9 @@ use sidekicks_std::port_registration::PortRegistration;
 use tokio::sync::SetOnce;
 
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
+use crate::driver::claude::DESCRIPTOR;
+
+use crate::driver::claude::frame_routing::ClaudeThreadUsageTally;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, ClaudeCommandChoices,
 };
@@ -31,7 +35,7 @@ use crate::driver::claude::session::transport::declarations::{
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::ClaudeUltracodeReading;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::SpawnedVersionBindingCarriers;
+use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::process_identity::ProviderProcessIdentity;
 use crate::thread_frame_router::{
@@ -94,6 +98,22 @@ pub(crate) struct ClaudeSessionRoutingBand {
     pub(crate) router: ThreadFrameRouter<ClaudeRoutableFrame>,
     /// The accountant.
     pub(crate) accountant: UsageDeltaAccountant,
+    /// Each thread's usage as its messages sum it.
+    pub(crate) usage_tally: ClaudeThreadUsageTally,
+}
+
+impl ClaudeSessionRoutingBand {
+    /// A band for one process, with no thread registered yet.
+    pub(crate) fn new() -> Self {
+        Self {
+            router: ThreadFrameRouter::new(
+                DESCRIPTOR.provider_id(),
+                CLAUDE_THREAD_FRAME_ROUTER_CONFIG,
+            ),
+            accountant: UsageDeltaAccountant::new(DESCRIPTOR.provider_id()),
+            usage_tally: ClaudeThreadUsageTally::default(),
+        }
+    }
 }
 
 /// What a session's process was started with, kept so a later run is checked against it.
@@ -184,8 +204,8 @@ pub(crate) struct LiveClaudeSession {
     /// The style descriptions and advisors Claude Code offers, kept across a rewind.
     pub(crate) command_choices: ClaudeHeldCommandChoices,
     /// The account the process was admitted against, captured when it came up, since the
-    /// registry can move; a rewind inherits it. `None` on the machine's own home.
-    pub(crate) admitted_provider_account_id: Option<ProviderAccountId>,
+    /// registry can move; a rewind inherits it.
+    pub(crate) admitted_provider_account_id: ProviderAccountId,
     /// What the session runs with now.
     pub(crate) settings: Mutex<ClaudeLiveSettings>,
     /// The build that runs the process, which a resume that found it already up answers.
@@ -208,6 +228,9 @@ pub(crate) struct LiveClaudeSession {
     /// The binding of each run that took the session's turn on this process, whose held `Allow
     /// once` presses are released once the process is gone, ended runs' included.
     pub(crate) served_bindings: Mutex<HashSet<RuntimeBindingId>>,
+    /// The socket the process listens on, the path the daemon chose and passed it at its start;
+    /// `None` where none could be made.
+    pub(crate) messaging_socket: Option<PathBuf>,
 }
 
 impl LiveClaudeSession {

@@ -4,11 +4,12 @@
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_session::driver_resolution::LiveRunDriverError;
 use sidekicks_session::run::agent::RunAgentReadError;
 use sidekicks_session::run::engine::RunEngineError;
 use sidekicks_session::run::refusals::RunRefusal;
+use sidekicks_std::port_registration::PortRegistrationError;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::database::writer::WriteError;
 
@@ -66,6 +67,9 @@ pub enum QueueError {
         /// The interrupted run.
         run_id: RunId,
     },
+    /// A port the queue reads through is not registered yet.
+    #[error(transparent)]
+    Port(#[from] PortRegistrationError),
 }
 
 impl From<RunRefusal> for QueueError {
@@ -92,7 +96,8 @@ impl From<QueueError> for HandlerError {
             | QueueError::Agent(_)
             | QueueError::Gate(_)
             | QueueError::DrainEnded
-            | QueueError::ContinueTakenOver { .. }) => Self::Internal(Box::new(fault)),
+            | QueueError::ContinueTakenOver { .. }
+            | QueueError::Port(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }

@@ -1,15 +1,15 @@
 //! A turn's frames: its start, which opens its execution and its numbered turn on the run; its
-//! end, which ends a live turn's run through the session's terminal gate; its errors, which the
-//! end's failure reads and whose retries file a retried request's row; the safety hold Codex keeps
-//! on it; the hook runs that block its prompt; and the asks it held, which its end or Codex's own
-//! settle withdraws.
+//! end, which ends a live turn's run through the session's terminal gate and empties an interrupted
+//! turn's task list; its errors, which the end's failure reads and whose retries file a retried
+//! request's row; the safety hold Codex keeps on it until its answer starts; the hook runs that
+//! block its prompt; and the asks it held, which its end or Codex's own settle withdraws.
 
 use serde_json::{Map, Value};
 use sidekicks_contracts::event::usage::{ApiRetryErrorKind, UsageApiRequestRetriedPayload};
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::run::events::RunStateChangeState;
 use sidekicks_contracts::session::controls::events::RunSafetyBufferingUpdatedPayload;
-use sidekicks_contracts::turn::ProviderTurnId;
+use sidekicks_contracts::turn::{ProviderTurnId, TurnTasksUpdate};
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::driver::codex::DESCRIPTOR;
@@ -72,12 +72,30 @@ impl CodexFrameDelivery {
         record: &mut CodexSessionRecord,
         members: &Map<String, Value>,
     ) {
-        if read_non_empty_string(members, "threadId") != Some(record.thread_id.as_str()) {
-            return;
-        }
         let Some(turn_id) = read_completed_turn_id(members) else {
             return;
         };
+        let Some(thread_id) = read_non_empty_string(members, "threadId") else {
+            return;
+        };
+        if thread_id != record.thread_id {
+            // A helper's conversation: one stopped at its limit runs no further turn.
+            self.dependencies
+                .limit_stopped_helpers
+                .interrupt_started_turn(record, thread_id, &turn_id);
+            return;
+        }
+        // A new turn ends the hold of the one before it.
+        let ended_holds: Vec<String> = record
+            .delivery
+            .safety_hold_run_by_turn_id
+            .keys()
+            .filter(|held| **held != turn_id)
+            .cloned()
+            .collect();
+        for held in ended_holds {
+            self.end_safety_hold(record, &held).await;
+        }
         if record.active_turn_run(&turn_id).is_none()
             && !record.is_turn_settled(&turn_id)
             && !record.delivery.is_turn_taken_by_no_run(&turn_id)
@@ -119,7 +137,11 @@ impl CodexFrameDelivery {
         match self
             .dependencies
             .engine
-            .start_turn(turn_run.run_id, turn_run.binding.step_bound)
+            .start_turn(
+                turn_run.run_id,
+                ProviderTurnId::new(turn_id.to_owned()).ok(),
+                turn_run.binding.step_bound,
+            )
             .await
         {
             Ok(Some(started)) => {
@@ -131,7 +153,7 @@ impl CodexFrameDelivery {
             // The run ended before its turn opened, so the turn has no run to number it.
             Ok(None) => report_unattributed("turn/started", Some(turn_id)),
             Err(error) => CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: record.provider_account_id.clone(),
+                provider_account_id: Some(record.provider_account_id.clone()),
                 port: CodexDeliveryPort::TurnStart,
                 session_id: Some(record.session_id),
                 error,
@@ -205,6 +227,19 @@ impl CodexFrameDelivery {
         if let Some(flag) = flag {
             self.send_review_flag(record, flag).await;
         }
+        let held_tasks = record.delivery.turn_readings.end_turn(&turn_id);
+        // An interrupted turn's list goes; it returns with the next turn's own.
+        if status == Some(CodexTurnStatus::Interrupted)
+            && held_tasks
+            && let Some(turn_run) = &turn_run
+            && let Ok(provider_turn_id) = ProviderTurnId::new(turn_id.clone())
+        {
+            dispatch.turn_tasks.push(TurnTasksUpdate {
+                run_id: turn_run.run_id,
+                turn_id: provider_turn_id,
+                tasks: Vec::new(),
+            });
+        }
         match turn_run {
             None => {
                 // A turn no run holds is a compaction's own, whose frame came before this end if
@@ -247,7 +282,8 @@ impl CodexFrameDelivery {
                 });
             }
         }
-        record.delivery.safety_hold_run_by_turn_id.remove(&turn_id);
+        self.end_safety_hold(record, &turn_id).await;
+        record.delivery.spent_safety_hold_turn_ids.remove(&turn_id);
         record.delivery.forget_turn(&turn_id);
         record.turn_input_by_turn_id.remove(&turn_id);
     }
@@ -325,7 +361,9 @@ impl CodexFrameDelivery {
         }
     }
 
-    // Codex's safety hold on a turn, or its release, live on the run's state stream.
+    // Codex's safety hold on the session's current live turn, shown once and only until the turn's
+    // answer starts: Codex flags it again while the answer streams and never lifts it itself, so
+    // the hold ends here, on its answer, its end, the next turn's start or a lifting flag.
     pub(super) async fn deliver_safety_buffering(
         &self,
         record: &mut CodexSessionRecord,
@@ -334,21 +372,57 @@ impl CodexFrameDelivery {
         let Some(run) = self.row_run_for(record, members, "model/safetyBuffering/updated") else {
             return;
         };
-        let is_active = members.get("showBufferingUi").and_then(Value::as_bool) == Some(true);
-        if is_active {
-            record
-                .delivery
-                .safety_hold_run_by_turn_id
-                .insert(run.turn_id.clone(), run.row.clone());
-        } else {
-            record
-                .delivery
-                .safety_hold_run_by_turn_id
-                .remove(&run.turn_id);
+        if members.get("showBufferingUi").and_then(Value::as_bool) != Some(true) {
+            self.end_safety_hold(record, &run.turn_id).await;
+            return;
         }
+        let is_live = self
+            .turn_run_for(record, &run.turn_id)
+            .is_some_and(|turn_run| turn_run.ending == CodexTurnEnding::Live);
+        let is_current = record
+            .active_turns
+            .last()
+            .is_some_and(|(current, _run_id)| *current == run.turn_id);
+        let delivery = &record.delivery;
+        if !is_live
+            || !is_current
+            || delivery
+                .safety_hold_run_by_turn_id
+                .contains_key(&run.turn_id)
+            || delivery.spent_safety_hold_turn_ids.contains(&run.turn_id)
+        {
+            return;
+        }
+        record
+            .delivery
+            .safety_hold_run_by_turn_id
+            .insert(run.turn_id.clone(), run.row.clone());
         let faster_model = read_non_empty_string(members, "fasterModel");
-        self.send_safety_hold(record, &run.row, &run.turn_id, is_active, faster_model)
+        self.send_safety_hold(record, &run.row, &run.turn_id, true, faster_model)
             .await;
+    }
+
+    /// Ends the turn `turn_id`'s safety hold, lifting it on the run's stream where one shows; a
+    /// live turn of the session's own shows none again.
+    pub(in crate::driver::codex::delivery) async fn end_safety_hold(
+        &self,
+        record: &mut CodexSessionRecord,
+        turn_id: &str,
+    ) {
+        // Only a live turn is remembered, since only its end forgets it; a turn already
+        // remembered takes no new copy of its id.
+        if record.active_turn_run(turn_id).is_some()
+            && !record.delivery.spent_safety_hold_turn_ids.contains(turn_id)
+        {
+            record
+                .delivery
+                .spent_safety_hold_turn_ids
+                .insert(turn_id.to_owned());
+        }
+        if let Some(run) = record.delivery.safety_hold_run_by_turn_id.remove(turn_id) {
+            self.send_safety_hold(record, &run, turn_id, false, None)
+                .await;
+        }
     }
 
     async fn send_safety_hold(
@@ -395,7 +469,7 @@ impl CodexFrameDelivery {
             for forgotten in connection.forget_held_requests_of_turn(thread_id, turn_id) {
                 self.dependencies.effects.withdraw_ask(
                     record.session_id,
-                    record.provider_account_id.as_ref(),
+                    &record.provider_account_id,
                     &forgotten.request_id,
                     forgotten.ask_kind,
                 );
@@ -426,7 +500,7 @@ impl CodexFrameDelivery {
         if let Some(ask_kind) = ask_kind {
             self.dependencies.effects.withdraw_ask(
                 record.session_id,
-                record.provider_account_id.as_ref(),
+                &record.provider_account_id,
                 &request_id,
                 ask_kind,
             );

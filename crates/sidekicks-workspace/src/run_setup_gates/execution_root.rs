@@ -678,7 +678,7 @@ fn unresolved(workspace_id: WorkspaceId, cause: RunSetupGateError) -> RunSetupGa
     RunSetupGateError::Refused(
         WorktreeRefusal::ExecutionRootUnresolved {
             workspace_id,
-            cause,
+            cause: Box::new(cause),
         }
         .into(),
     )

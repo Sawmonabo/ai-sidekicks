@@ -10,7 +10,11 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 
+use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
+
 use super::resume_params;
+use crate::command::channel::command_channel_root;
+use crate::command::running_set::unbound_running_command_sets;
 use crate::driver::claude::session::scripted::channel::{
     ScriptedAnswer, ScriptedChannel, ScriptedWrite,
 };
@@ -22,11 +26,46 @@ use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::{
     ClaudeInitializeDeclaration, ClaudeOfferedModel,
 };
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::error_causes::ProviderAxis;
 use crate::driver::session_control::{CloseSessionParams, CreateSessionParams, DriverResumeResult};
 use crate::driver::test_registry::new_session_id;
 use crate::run::posture::compose_execution_posture;
+
+// Killed by a failed spawn that leaves the command channel it opened: its folder stays under the
+// root, and the session's next spawn would take it as held.
+#[tokio::test]
+async fn a_channel_opened_for_a_spawn_that_fails_is_closed() {
+    if !RUNS_COMMAND_WRAPPER {
+        return;
+    }
+    let fixture = ScriptedDriver::new();
+    fixture
+        .services
+        .ports
+        .command_output
+        .register(unbound_running_command_sets())
+        .expect("the running commands register once");
+    let session_id = new_session_id();
+    fixture.starts.script_failed_session("the spawn failed");
+
+    assert!(
+        fixture
+            .driver
+            .create_session(create_params(session_id))
+            .await
+            .is_err()
+    );
+
+    let session_folder =
+        command_channel_root(&fixture.services.data_folder).join(session_id.to_string());
+    let left = match std::fs::read_dir(&session_folder) {
+        Ok(entries) => entries.count(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => panic!("the session's channel folder reads: {error}"),
+    };
+    assert_eq!(left, 0, "the failed spawn's channel was left open");
+}
 
 // Killed by a failed bring-up leaving its claim behind, which refuses the next create, and by a
 // close that finds a bring-up in flight returning before it settles, which leaves its process

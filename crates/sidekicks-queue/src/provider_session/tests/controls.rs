@@ -6,14 +6,15 @@ use rstest::rstest;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::session::controls::methods::SessionMode;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{DriverError, SessionProcessState};
-use sidekicks_provider::driver::session_control::ResumeSessionParams;
+use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::SessionProcessState;
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::test_session_id;
 
 use super::Opening;
 use crate::provider_session::ProviderSessionError;
+use crate::provider_session::controls::SideQuestionSource;
 
 // A mode move on a session whose process is down only stores it, leaving the driver alone; on one
 // whose process runs or whose driver brings it back, the driver moves first, and its refusal
@@ -28,14 +29,14 @@ async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
     #[case] state: SessionProcessState,
 ) {
     let is_down = state == SessionProcessState::Down;
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, _| {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
         driver.expect_session_process_state().return_const(state);
         driver
             .expect_update_session_mode()
             .times(usize::from(!is_down))
             .returning(|_params| {
                 async {
-                    Err(DriverError::Refused(DomainError::new(
+                    Err(DriverError::from(DomainError::new(
                         "The provider refused the mode.",
                         RefusalCode::SessionModeNotOffered,
                     )))
@@ -74,20 +75,21 @@ async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
 // for a session this daemon has not opened, and by none at all.
 #[tokio::test]
 async fn a_side_question_forks_the_newest_conversation_whatever_the_process() {
-    let opening = Opening::new(Box::new(|| {}), Box::new(|| {}), |driver, _| {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
         driver
             .expect_session_process_state()
             .return_const(SessionProcessState::Live);
     })
     .await;
     let resume_handle =
-        |resume: Option<ResumeSessionParams>| resume.map(|params| params.resume_handle);
+        |source: Option<SideQuestionSource>| source.map(|source| source.resume.resume_handle);
 
     let at_rest = opening
         .sessions
-        .side_question_resume(opening.session_id)
+        .side_question_source(opening.session_id)
         .await
         .expect("the resume material composes");
+    let at_rest_binding = at_rest.as_ref().map(|source| source.binding_id.clone());
     opening
         .sessions
         .open(opening.session_id, opening.run_id)
@@ -95,7 +97,7 @@ async fn a_side_question_forks_the_newest_conversation_whatever_the_process() {
         .expect("the conversation resumes");
     let running = opening
         .sessions
-        .side_question_resume(opening.session_id)
+        .side_question_source(opening.session_id)
         .await
         .expect("the resume material composes");
     let never_ran = test_session_id();
@@ -107,10 +109,11 @@ async fn a_side_question_forks_the_newest_conversation_whatever_the_process() {
     );
     let none = opening
         .sessions
-        .side_question_resume(never_ran)
+        .side_question_source(never_ran)
         .await
         .expect("a session with no conversation reads");
 
+    assert_eq!(at_rest_binding, Some(opening.predecessor_id.clone()));
     assert_eq!(resume_handle(at_rest).as_deref(), Some("conversation-1"));
     assert_eq!(resume_handle(running).as_deref(), Some("conversation-1"));
     assert!(none.is_none());

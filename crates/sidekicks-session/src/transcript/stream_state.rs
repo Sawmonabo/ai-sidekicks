@@ -141,6 +141,11 @@ impl StreamedPiece {
         })
     }
 
+    /// Its body's text, where it is loaded.
+    pub fn body_text(&self) -> Option<&str> {
+        self.body.as_ref().and_then(|(_, text)| text.as_deref())
+    }
+
     /// Whether its body's text is not loaded yet.
     pub fn lacks_text(&self) -> bool {
         self.body.as_ref().is_some_and(|(_, text)| text.is_none())

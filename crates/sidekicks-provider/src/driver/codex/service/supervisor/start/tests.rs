@@ -7,9 +7,14 @@ use futures::{SinkExt as _, StreamExt as _};
 use interprocess::local_socket::tokio::Listener;
 use interprocess::local_socket::traits::tokio::Listener as _;
 use serde_json::{Value, json};
-use sidekicks_platforms::{Spawner, connect_unix_domain_socket, harness_test_name};
+use sidekicks_platforms::{
+    LeftoverSweep, Spawner, connect_unix_domain_socket, create_file_atomically, harness_test_name,
+};
 use tokio::io::AsyncReadExt as _;
+use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
+use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
 use super::kept_records::retire_former_service;
@@ -21,10 +26,11 @@ use crate::driver::codex::service::process::{
 use crate::driver::codex::service::record::{LastingServiceRecord, LastingServiceRecordFile};
 use crate::driver::codex::service::supervisor::test_service::{
     TestCodexProgram, UnheardEvents, answer_as_codex_service, bind_test_listener,
-    test_codex_service_dependencies, write_failing_codex,
+    next_socket_request, send_on_socket, test_codex_service_dependencies, write_failing_codex,
 };
 use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket};
 use crate::driver::codex::session::errors::CodexError;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 /// The survivor's stand-in: this test program, which holds a connection to the test's socket open
 /// while it runs, so its end closes it.
@@ -98,10 +104,7 @@ async fn start_terminal_service_on(
     let service = CodexService::new(
         CodexServiceHome {
             codex_home,
-            provider_account_id: None,
-            kind: CodexHomeKind::PersonalFolder {
-                is_terminal_reach_on: true,
-            },
+            kind: CodexHomeKind::PersonalFolder,
         },
         CodexServiceSocket {
             path: socket.to_owned(),
@@ -240,4 +243,136 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
         panic!("the start did not join the listener");
     };
     assert_eq!(started.kind, CodexServiceKind::Joined);
+}
+
+// A Codex stand-in: as the executor it answers the relay's `initialize` and waits on its input; as
+// the service it waits, the test's listener answering in its place.
+const STAND_IN_CODEX: &str = r#"#!/bin/sh
+case " $* " in
+  *" exec-server "*)
+    IFS= read -r _initialize
+    printf '%s\n' '{"id":"sidekicks-relay-1","result":{}}'
+    exec cat >/dev/null
+    ;;
+esac
+exec sleep 30
+"#;
+
+// Answers each connection on `listener` as a Codex service and hands every request on to
+// `requests`, in the order it came.
+async fn answer_and_record(listener: Listener, requests: mpsc::UnboundedSender<Value>) {
+    while let Ok(stream) = listener.accept().await {
+        let requests = requests.clone();
+        tokio::spawn(async move {
+            let Ok(mut socket) = tokio_tungstenite::accept_async(stream).await else {
+                return;
+            };
+            loop {
+                let request = next_socket_request(&mut socket).await;
+                let result = match request["method"].as_str() {
+                    Some("initialize") => {
+                        json!({"userAgent": "ai-sidekicks-daemon/0.130.0 (test)"})
+                    }
+                    _ => json!({}),
+                };
+                let reply = json!({"id": request["id"], "result": result});
+                // Recorded before the answer, so the start never answers ahead of its record.
+                if requests.send(request).is_err() {
+                    return;
+                }
+                send_on_socket(&mut socket, reply).await;
+            }
+        });
+    }
+}
+
+// Fails when an account's start answers before the relay's environment is added on its
+// connection, which lets a resume come first, or when a restart keeps the earlier start's token.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_account_start_adds_the_relay_environment_before_it_answers() {
+    let folder = tempfile::tempdir().expect("a scratch folder is made");
+    let socket = folder.path().join("s.sock");
+    let Some(listener) = bind_test_listener(&socket) else {
+        return;
+    };
+    let (requests, mut recorded) = mpsc::unbounded_channel();
+    tokio::spawn(answer_and_record(listener, requests));
+    let program = folder.path().join("codex");
+    create_file_atomically(
+        &program,
+        STAND_IN_CODEX.as_bytes(),
+        0o755,
+        LeftoverSweep::Unswept,
+    )
+    .expect("the stand-in is written");
+    let codex_home = folder.path().join("home");
+    std::fs::create_dir(&codex_home).expect("the home is made");
+    let dependencies = test_codex_service_dependencies(
+        folder.path(),
+        Arc::new(TestCodexProgram {
+            program,
+            environment: vec![("PATH".to_owned(), "/usr/bin:/bin".to_owned())],
+        }),
+        Arc::new(UnheardEvents),
+    );
+    let deadline = dependencies.startup_timeout;
+    let service = CodexService::new(
+        CodexServiceHome {
+            codex_home,
+            kind: CodexHomeKind::Account(test_provider_account_id()),
+        },
+        CodexServiceSocket {
+            path: socket.clone(),
+            home_socket: socket,
+        },
+        CodexServiceKind::Account,
+        dependencies,
+    );
+
+    let mut tokens = Vec::new();
+    for launch in [1, 2] {
+        let started = tokio::time::timeout(
+            deadline,
+            start_codex_service(Arc::clone(&service), launch, CancellationToken::new(), None),
+        )
+        .await
+        .expect("the start ends within its deadline");
+        assert!(
+            started.is_ok(),
+            "the start fails: {:?}",
+            started.err().map(|failure| failure.error)
+        );
+        let mut sent = Vec::new();
+        while let Ok(request) = recorded.try_recv() {
+            sent.push(request);
+        }
+        let added = sent.last().expect("the start sent its requests");
+        assert_eq!(added["method"], "environment/add", "{sent:?}");
+        assert_eq!(added["params"]["environmentId"], "sidekicks-relay");
+        let url = added["params"]["execServerUrl"]
+            .as_str()
+            .expect("the relay's address");
+        assert!(url.starts_with("ws://127.0.0.1:"), "{url}");
+        let token = added["params"]["authBearerToken"]
+            .as_str()
+            .expect("the start's token")
+            .to_owned();
+        tokens.push((url.to_owned(), token));
+    }
+
+    let [(url, earlier), (_, current)] = tokens.as_slice() else {
+        panic!("two starts");
+    };
+    assert_ne!(earlier, current);
+    for (token, is_admitted) in [(earlier, false), (current, true)] {
+        let mut request = url.as_str().into_client_request().expect("a request");
+        request.headers_mut().insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {token}")).expect("a header value"),
+        );
+        assert_eq!(
+            tokio_tungstenite::connect_async(request).await.is_ok(),
+            is_admitted
+        );
+    }
 }

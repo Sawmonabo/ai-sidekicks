@@ -11,6 +11,8 @@ use std::sync::Arc;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::orchestration::OrchestrationRunConfig;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{
     AgentQueueItemAdmittedPayload, AgentQueueItemAdmittedState, AgentQueueItemCanceledPayload,
@@ -544,12 +546,15 @@ fn admitted_event(item: &QueueItemRecord, run_id: RunId) -> SessionEvent {
     })
 }
 
-/// The `agent.run.queued` record of the session's next lead run `run_id`, run by `agent_id`,
-/// which a send or an ended run's leftovers queue.
+/// The `agent.run.queued` record of the session's next lead run `run_id`, run by `agent_id` on
+/// `admitted_provider_account_id`'s account under `effective_run_config`'s limits, which a send
+/// or an ended run's leftovers queue.
 pub(crate) fn lead_run_queued(
     session_id: SessionId,
     run_id: RunId,
     agent_id: AgentId,
+    admitted_provider_account_id: ProviderAccountId,
+    effective_run_config: Option<OrchestrationRunConfig>,
 ) -> AgentRunQueuedPayload {
     AgentRunQueuedPayload::SessionAgent(RunQueuedSessionAgentPayload {
         session_id,
@@ -560,9 +565,9 @@ pub(crate) fn lead_run_queued(
         resolved_agent: None,
         parent_run_id: None,
         reached_by: None,
-        effective_run_config: None,
+        effective_run_config,
         admitted_model_family: None,
-        admitted_provider_account_id: None,
+        admitted_provider_account_id,
     })
 }
 

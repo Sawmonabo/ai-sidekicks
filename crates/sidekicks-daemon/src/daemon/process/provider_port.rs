@@ -94,10 +94,12 @@ pub(crate) fn build_provider_port(
 // A session's opening as `port` composes it. No leg is handed a status sink of its tool servers,
 // since nothing in the daemon produces one for a binding yet.
 fn compose_opening(port: Arc<SessionDirectoryProviderPort>) -> ProviderSessionOpeningComposer {
-    Arc::new(move |session_id| {
+    Arc::new(move |session_id, provider_account_id| {
         let port = Arc::clone(&port);
         async move {
-            let opening = port.compose_opening(session_id).await?;
+            let opening = port
+                .compose_opening(session_id, provider_account_id)
+                .await?;
             Ok::<_, Box<dyn Error + Send + Sync>>(ProviderSessionOpening {
                 provider: opening.provider,
                 git_folder: opening.git_folder,

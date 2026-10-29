@@ -74,8 +74,8 @@ pub(crate) struct RepoServiceStart {
     pub(crate) home_folder: PathBuf,
     /// The run folder, private to this account, where the askpass broker's socket goes.
     pub(crate) run_folder: PathBuf,
-    /// The daemon's own program, which git's askpass program sits beside.
-    pub(crate) daemon_program: PathBuf,
+    /// The folder of the daemon's mode links, which holds git's askpass link.
+    pub(crate) program_link_folder: PathBuf,
     /// The daemon's one git, whose failed calls' trees the stop waits for.
     pub(crate) git: GitRunner,
     /// The daemon's one read pool.
@@ -163,7 +163,7 @@ pub(crate) fn build_repo_services(
     let RepoServiceStart {
         home_folder,
         run_folder,
-        daemon_program,
+        program_link_folder,
         git,
         reads,
         writer,
@@ -199,7 +199,7 @@ pub(crate) fn build_repo_services(
         missed_since,
     ));
     let askpass = askpass_or_unavailable(
-        AskpassBroker::start(&run_folder, git_askpass_program_path(&daemon_program)),
+        AskpassBroker::start(&run_folder, git_askpass_program_path(&program_link_folder)),
         &run_folder,
     )?;
     let occupancy = MountOccupancyReader::new(Arc::clone(&reads));
@@ -532,7 +532,7 @@ mod tests {
         assert!(
             matches!(unsupported, Ok(Err(ref text)) if text.is_empty()),
             "{:?}",
-            unsupported.map(|broker| broker.err())
+            unsupported.map(Result::err)
         );
 
         let refused = askpass_or_unavailable(
@@ -549,7 +549,7 @@ mod tests {
                     if text == "the askpass program's socket could not be opened: permission denied"
             ),
             "{:?}",
-            refused.map(|broker| broker.err())
+            refused.map(Result::err)
         );
     }
 
@@ -575,7 +575,7 @@ mod tests {
                 })) if *path == askpass_socket_path(run_folder)
             ),
             "{:?}",
-            held.map(|broker| broker.err())
+            held.map(Result::err)
         );
     }
 }

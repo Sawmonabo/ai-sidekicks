@@ -59,7 +59,7 @@ pub fn count_live_runs_after_commits() -> (CommitRead, watch::Receiver<u32>) {
 }
 
 /// Whether a run in `state` does work.
-fn is_live(state: RunState) -> bool {
+pub(crate) fn is_live(state: RunState) -> bool {
     match state {
         RunState::Starting | RunState::Running | RunState::Pausing => true,
         RunState::Queued

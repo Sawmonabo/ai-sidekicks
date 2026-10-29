@@ -117,6 +117,9 @@ impl From<DatabaseReadError> for RunStateStreamError {
 struct RunStatePage {
     changes: Vec<RunStateStreamChange>,
     holds_cursor: Option<EventCursor>,
+    // After the last event read, or the head once the read reached it.
+    read_through: Option<EventCursor>,
+    has_reached_head: bool,
 }
 
 /// One session's log as a run state stream reads it, with the safety holds waiting for the stream;
@@ -198,13 +201,16 @@ impl ChangeRecord for RunStateRecord {
         &self,
         cursor: &EventCursor,
         max: usize,
-    ) -> BoxFuture<'_, Result<RecordPage<RunStateStreamChange>, RunStateStreamError>> {
+    ) -> BoxFuture<'_, Result<RecordPage<EventCursor, RunStateStreamChange>, RunStateStreamError>>
+    {
         let cursor = cursor.clone();
         async move {
             let after_position = decode_event_cursor(&cursor).map_err(EventLogReadError::from)?;
             let RunStatePage {
                 mut changes,
                 holds_cursor,
+                read_through,
+                has_reached_head,
             } = self
                 .log
                 .read_stream_page(
@@ -219,9 +225,11 @@ impl ChangeRecord for RunStateRecord {
                             after_position.max(page.head.unwrap_or(START_OF_LOG_POSITION));
                         let has_reached_head = page.events.len() < max;
                         let mut changes = Vec::with_capacity(page.events.len());
+                        let mut last_read = None;
                         for event in page.events {
                             let position = i64::from(event.sequence);
                             newest_read = newest_read.max(position);
+                            last_read = Some(position);
                             if let Some(streamed) = run_state_stream_event_of(&event)? {
                                 changes.push(RunStateStreamChange {
                                     cursor: encode_event_cursor(position)
@@ -234,9 +242,18 @@ impl ChangeRecord for RunStateRecord {
                             .then(|| encode_event_cursor(newest_read))
                             .transpose()
                             .map_err(EventLogReadError::from)?;
+                        let read_through = match &holds_cursor {
+                            Some(holds_cursor) => Some(holds_cursor.clone()),
+                            None => last_read
+                                .map(encode_event_cursor)
+                                .transpose()
+                                .map_err(EventLogReadError::from)?,
+                        };
                         Ok::<_, RunStateStreamError>(RunStatePage {
                             changes,
                             holds_cursor,
+                            read_through,
+                            has_reached_head,
                         })
                     },
                 )
@@ -250,17 +267,15 @@ impl ChangeRecord for RunStateRecord {
                     }
                 }));
             }
-            // A run's state changes are small, so a read is cut by its count alone.
+            // A run's state changes are small, so a read is cut by its count alone: the log's
+            // short of its head, or the holds' past the frame.
             Ok(RecordPage {
+                is_cut_short: !has_reached_head || changes.len() == max,
                 changes,
-                is_cut_by_size: false,
+                read_through,
             })
         }
         .boxed()
-    }
-
-    fn cursor_of(change: &RunStateStreamChange) -> EventCursor {
-        change.cursor.clone()
     }
 
     fn change_count(&self) -> watch::Receiver<u64> {

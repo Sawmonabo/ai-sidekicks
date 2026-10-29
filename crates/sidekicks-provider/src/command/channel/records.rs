@@ -13,6 +13,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::command::ExitCode;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeSignedInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
@@ -57,14 +58,12 @@ struct FollowedAskpass {
 type EndedParty = (PartyId, u64);
 
 /// Follows `channel`'s records, which `watch` made before the provider started reports, into
-/// `session_id`'s rows in `set`, the waiting checks reading through `waits`, until the watch fails,
-/// with its error.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "each driver follows its conversations' channels")
-)]
+/// `session_id`'s rows in `set` of the process the channel serves, the one that runs `apart_run`
+/// alone or, for `None`, the session's own, the waiting checks reading through `waits`, until the
+/// watch fails, with its error.
 pub(crate) async fn follow_channel_records(
     session_id: SessionId,
+    apart_run: Option<RunId>,
     channel: Arc<CommandChannel>,
     mut watch: FolderArrivalWatch,
     set: Arc<RunningCommandSets>,
@@ -75,6 +74,7 @@ pub(crate) async fn follow_channel_records(
     let (process_ended, mut ended_parties) = mpsc::unbounded_channel();
     let mut follower = RecordFollower {
         session_id,
+        apart_run,
         channel,
         set,
         waits,
@@ -100,6 +100,8 @@ pub(crate) async fn follow_channel_records(
 /// One channel's follower: what its records reach, and the wrappers it holds.
 struct RecordFollower {
     session_id: SessionId,
+    /// The run the channel's process runs alone; `None` for the session's own process.
+    apart_run: Option<RunId>,
     channel: Arc<CommandChannel>,
     set: Arc<RunningCommandSets>,
     waits: Arc<dyn InputWaitReader>,
@@ -127,7 +129,8 @@ impl RecordFollower {
                 let paired = (!received.is_nested).then(|| {
                     let command =
                         process.map_or(WrapperCommand::Line(command), WrapperCommand::Process);
-                    self.set.wrapper_started(session_id, party, command)
+                    self.set
+                        .wrapper_started(session_id, party, self.apart_run, command)
                 });
                 send_request(&self.channel, party, &DaemonRequest::Go {}).await;
                 let (exited, ended) = watch::channel(false);

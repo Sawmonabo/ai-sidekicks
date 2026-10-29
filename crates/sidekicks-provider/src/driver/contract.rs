@@ -5,7 +5,6 @@
 //! driver built it. Nothing here hands a driver remote authority: a driver may call a remote
 //! provider service behind these operations while the authority to run stays local.
 
-use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -13,53 +12,33 @@ use std::sync::Arc;
 use std::time::SystemTime;
 
 use futures::future::BoxFuture;
-use serde_json::{Map, Value, json};
-use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::agent::definition::binding::ProviderToken;
-use sidekicks_contracts::artifacts::id::ArtifactId;
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
-use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
-    ObservedProviderOptions, ProviderDeclarationId, ProviderOptionSetting, ProviderRow,
-    ProviderSessionOption, ProviderValue,
+    ObservedProviderOptions, ProviderRow, ProviderSessionOption,
 };
-use sidekicks_contracts::provider::driver::capabilities::{
-    ExecutionPosture, ProviderMode, ProviderModel,
-};
-use sidekicks_contracts::provider::driver::commands::{
-    ProviderCommandBinding, ProviderCommandBindingGroup,
-};
+use sidekicks_contracts::provider::driver::capabilities::{ProviderMode, ProviderModel};
+use sidekicks_contracts::provider::driver::commands::ProviderCommandBindingGroup;
 use sidekicks_contracts::provider::driver::compaction::AgentRunContextCompactResponse;
-use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
-use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
-use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
-use sidekicks_contracts::question::QuestionAnswer;
-use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPick};
-use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
+use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
-use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::text_cut::cut_to_code_points;
 
-use crate::capability::probe::CapabilityProbeError;
-use crate::driver::capabilities::{DriverCapabilities, DriverCapabilityFlag};
-use crate::driver::daemon_stop::DaemonStopIntent;
-use crate::driver::error_causes::{
-    ExecutableUnresolvable, ModelCatalogUnreadable, ProviderAxisInvalid, RequestUnanswered,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
+    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
+    SessionProcessState, StartRunParams,
 };
+use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
 use crate::driver::message_handing::MessageHanding;
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,
-    ApplyInterventionResponse, DriverRunRefusal, FasterModelRetryOutcome, FasterModelRetryParams,
-    FindTakenMessagesParams, InterruptRunRequest, OverrideDenialParams, PauseRunParams,
-    PickedSkill, ResumeRunParams, SteerTurnEndedError, TakenMessages, WithdrawQueuedMessageParams,
+    ApplyInterventionResponse, FasterModelRetryOutcome, FasterModelRetryParams,
+    FindTakenMessagesParams, HelperTokenLimitParams, InterruptRunRequest, OverrideDenialParams,
+    PauseRunParams, PickedSkill, ResumeRunParams, TakenMessages, WithdrawQueuedMessageParams,
     WithdrawQueuedMessageResult,
 };
 use crate::driver::session_control::{
@@ -71,118 +50,12 @@ use crate::driver::session_control::{
     StartingLevelParams, SubscribeProviderCommandsParams, UpdatePermissionLevelParams,
     UpdateSessionModeParams,
 };
-use crate::port::permission_ask::{ProviderPermissionAnswer, ProviderRuleNotKeptError};
+use crate::driver::task_list::{TaskListChange, ToolCallRecord};
 use crate::port::running_command_publisher::{RunningCommandParams, WriteCommandInputParams};
 use crate::port::session_inbox_address::SessionInboxAddresser;
-use crate::runtime_binding::store::RuntimeBindingStoreError;
 
-/// The fixed sentence every `provider.capability.unsupported` refusal carries.
-pub(crate) const PROVIDER_CAPABILITY_UNSUPPORTED_MESSAGE: &str =
-    "Requested capability is not supported by the driver";
-
-/// Why a driver operation did not answer: a refusal a client reads by its code, a request the
-/// provider got with no answer back, a steer whose turn ended before it was sent (the message
-/// waits for the next turn), a run start the driver refused, a provider command that names no
-/// runnable build, or a failure inside the driver, keeping its cause.
-#[derive(Debug, thiserror::Error)]
-pub enum DriverError {
-    /// A refusal a client reads by its code.
-    #[error(transparent)]
-    Refused(#[from] DomainError),
-    /// The request went out and no answer came, so the provider may still act on it.
-    #[error(transparent)]
-    Unanswered(RequestUnanswered),
-    /// The turn a steer or a waiting continue was handed for ended before the message was sent.
-    #[error(transparent)]
-    SteerTurnEnded(#[from] SteerTurnEndedError),
-    /// The driver refused a run's start before its provider saw it; the run fails as that refusal.
-    #[error("the driver refused the run")]
-    RunRefused(#[source] DriverRunRefusal),
-    /// The capability probe could not read the provider, so nothing is declared from it.
-    #[error("the provider's capability probe failed")]
-    CapabilityProbe(#[source] CapabilityProbeError),
-    /// The configured provider command names no runnable build.
-    #[error(transparent)]
-    ExecutableUnresolvable(ExecutableUnresolvable),
-    /// The provider's model catalog reply could not be read, so no catalog is declared from it.
-    #[error(transparent)]
-    ModelCatalogUnreadable(ModelCatalogUnreadable),
-    /// A provider axis the request set holds a value the provider does not offer now.
-    #[error(transparent)]
-    ProviderAxisInvalid(ProviderAxisInvalid),
-    /// The answer reached the provider, which could not keep the rule it made.
-    #[error(transparent)]
-    RuleNotKept(#[from] ProviderRuleNotKeptError),
-    /// A skill pick the provider's own list does not name in its folder; the run queue refuses
-    /// the send for it.
-    #[error("the provider does not list skill {} in {}", .0.name.as_str(), .0.folder_path.as_str())]
-    SkillNotListed(QueuedSkillPick),
-    /// The driver or its provider failed.
-    #[error("the provider driver failed")]
-    Internal(#[source] Box<dyn Error + Send + Sync>),
-}
-
-impl From<RuntimeBindingStoreError> for DriverError {
-    /// A driver's read of the daemon's stored bindings that failed is the driver's own failure.
-    fn from(error: RuntimeBindingStoreError) -> Self {
-        Self::Internal(Box::new(error))
-    }
-}
-
-impl From<DriverError> for HandlerError {
-    /// A driver's refusal, and a request that got no answer, answer the call by the refusal's
-    /// code; a failed capability probe and an unreadable model catalog answer
-    /// `provider.unavailable`, the catalog's bounded fault as the provider failure's detail, and a
-    /// command that names no runnable build as `ExecutableUnresolvable::into_refusal` says; a
-    /// provider axis the provider does not offer answers `agent.providerAxisInvalid` naming the
-    /// agent, the axis and the value; a steer whose turn ended, a refused run start, a rule the
-    /// provider could not keep or a skill pick it does not list, reaching a handler, is a fault in
-    /// the daemon, as is the driver's own failure.
-    fn from(error: DriverError) -> Self {
-        match error {
-            DriverError::Refused(refusal)
-            | DriverError::Unanswered(RequestUnanswered { refusal }) => Self::Refused(refusal),
-            DriverError::CapabilityProbe(probe) => Self::Refused(
-                DomainError::new(
-                    "The provider's capabilities could not be read",
-                    RefusalCode::ProviderUnavailable,
-                )
-                .with_detail(json!({ "providerFailureDetail": probe.to_string() }))
-                .with_source(probe),
-            ),
-            DriverError::ExecutableUnresolvable(unresolvable) => {
-                Self::Refused(unresolvable.into_refusal())
-            }
-            DriverError::ModelCatalogUnreadable(unreadable) => Self::Refused(
-                DomainError::new(
-                    "The provider's model catalog could not be read",
-                    RefusalCode::ProviderUnavailable,
-                )
-                .with_detail(json!({
-                    "providerId": unreadable.provider.as_str(),
-                    "providerFailureDetail": unreadable.detail.as_str(),
-                }))
-                .with_source(unreadable),
-            ),
-            DriverError::ProviderAxisInvalid(invalid) => Self::Refused(
-                DomainError::new(
-                    "The provider does not offer this value now",
-                    RefusalCode::AgentProviderAxisInvalid,
-                )
-                .with_detail(json!({
-                    "agentId": invalid.agent_id,
-                    "axis": <&str>::from(invalid.axis),
-                    "value": invalid.value,
-                })),
-            ),
-            DriverError::SteerTurnEnded(steer) => Self::Internal(Box::new(steer)),
-            DriverError::RuleNotKept(not_kept) => Self::Internal(Box::new(not_kept)),
-            DriverError::RunRefused(refusal) => Self::Internal(Box::new(refusal)),
-            error @ DriverError::SkillNotListed(_) => Self::Internal(Box::new(error)),
-            DriverError::Internal(fault) => Self::Internal(fault),
-        }
-    }
-}
+pub mod error;
+pub mod params_and_results;
 
 /// The operations every provider driver carries out for the daemon. Each refusal comes back as
 /// [`DriverError::Refused`]; an operation gated on a capability flag the driver does not declare
@@ -312,11 +185,11 @@ pub trait ProviderDriver: Send + Sync {
     /// Whether a run started on `session_id` now brings a provider process up, which the memory
     /// gate weighs before the start; `false` when one already serves the session. A session with
     /// no live process is weighed on `provider_account_id`, the account the run is admitted
-    /// against (`None` for the provider's current account), since it may not have run yet.
+    /// against, since it may not have run yet.
     fn starts_process(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, bool>;
 
     /// The skills `picks` names as the provider loads them for `session_id`, in the order picked,
@@ -327,7 +200,7 @@ pub trait ProviderDriver: Send + Sync {
     fn resolve_skill_picks(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> BoxFuture<'_, Result<Vec<PickedSkill>, DriverError>>;
 
@@ -426,7 +299,7 @@ pub trait ProviderDriver: Send + Sync {
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The provider's models for a session's model control, read against the account the params
-    /// name, or the provider's default account where they name none.
+    /// name, or the provider's current account where they name none.
     fn list_models(
         &self,
         params: ListModelsParams,
@@ -438,8 +311,12 @@ pub trait ProviderDriver: Send + Sync {
     /// The driver's capability flags, tool declarations and provider version, read live.
     fn get_capabilities(&self) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>>;
 
-    /// A zero-turn authentication probe; no flag exists for it, so no driver opts out.
-    fn probe_auth(&self) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>>;
+    /// A zero-turn authentication probe of `provider_account_id`'s account, run in that account's
+    /// own home; no flag exists for it, so no driver opts out.
+    fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>>;
 
     /// Compacts the bound session's provider-side context on the person's request (gated on
     /// `contextCompaction`), settling on the provider's own compaction evidence, never on the
@@ -477,6 +354,51 @@ pub trait ProviderDriver: Send + Sync {
     fn write_command_input(
         &self,
         params: WriteCommandInputParams,
+    ) -> BoxFuture<'_, Result<(), DriverError>>;
+
+    /// The holds the provider keeps on `session_id` that keep its process up: the requests it
+    /// holds open, a side question and its timed fires. A provider whose sessions never sleep
+    /// answers none. Fails when the provider's state cannot be read.
+    fn idle_sleep_holds(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>>;
+
+    /// Stops `session_id`'s idle process, keeping its conversation, account, settings and inbox
+    /// for its wake, and answers where that left it once the process exited; a provider whose
+    /// sessions never sleep leaves it awake. The idle sleep calls it under the session's lock,
+    /// once it found no hold.
+    fn sleep_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>>;
+
+    /// Resumes a sleeping `session_id` on the same conversation, account, folder, settings and
+    /// permission level, reads its command list and tool servers again, and answers once it is
+    /// up; a session that is awake answers at once. Fails with the driver's own start refusal
+    /// when the resume fails, leaving it asleep.
+    fn wake_session(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<SessionSleepState, DriverError>>;
+
+    /// What `call`, one of the provider's tool calls, does to the agent's task list; `None` for a
+    /// call that is not a task-list call, which the transcript shows as a row.
+    #[expect(
+        clippy::elidable_lifetime_names,
+        reason = "the mock the trait derives needs the call's lifetime named"
+    )]
+    fn task_list_change<'call>(&self, call: &ToolCallRecord<'call>) -> Option<TaskListChange>;
+
+    /// Stops a helper whose own run passed its token limit, alone, while its lead goes on: the
+    /// provider refuses the helper's next tool use with [`HELPER_TOKEN_LIMIT_REASON`], or ends
+    /// the helper's own turn where it cannot refuse one. Resolves once the provider has the
+    /// request.
+    ///
+    /// [`HELPER_TOKEN_LIMIT_REASON`]: crate::driver::run_control::HELPER_TOKEN_LIMIT_REASON
+    fn stop_helper_at_token_limit(
+        &self,
+        params: HelperTokenLimitParams,
     ) -> BoxFuture<'_, Result<(), DriverError>>;
 
     /// The output-speed state the provider last declared for the session's live binding, as sent;
@@ -581,249 +503,4 @@ pub trait ProviderDriver: Send + Sync {
     fn running_service_log_files(&self) -> io::Result<Vec<PathBuf>> {
         Ok(Vec::new())
     }
-}
-
-/// Where a session's provider process stands, as its driver holds it: the one predicate the
-/// session controls choose their arm by.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SessionProcessState {
-    /// A process serves the session now; a control reaches it at once.
-    Live,
-    /// No process serves the session now, and the driver itself brings one back from the state it
-    /// holds, with no open or resume by the daemon. A level or mode move the driver accepts in
-    /// this window reaches the process it brings back; the daemon stores it as on a live session.
-    Restarting,
-    /// No process serves the session, and none starts until the daemon's open or resume, which
-    /// reads the stored mode and level: never opened in this daemon, asleep, closed, or stopped
-    /// restarting after a crash loop.
-    Down,
-}
-
-/// A follow of a session's live command list, ended when this drops.
-#[must_use = "the command list is followed only while the subscription lives"]
-pub struct ProviderCommandsSubscription {
-    /// Ends the follow; taken once, on drop.
-    end: Option<Box<dyn FnOnce() + Send>>,
-}
-
-impl ProviderCommandsSubscription {
-    /// A subscription that runs `end` once when it drops.
-    pub(crate) fn new(end: impl FnOnce() + Send + 'static) -> Self {
-        Self {
-            end: Some(Box::new(end)),
-        }
-    }
-}
-
-impl Drop for ProviderCommandsSubscription {
-    fn drop(&mut self) {
-        if let Some(end) = self.end.take() {
-            end();
-        }
-    }
-}
-
-/// One declared row's new value, already checked against its declaration and stored.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ApplyRowValueParams {
-    /// The row.
-    pub row_id: ProviderDeclarationId,
-    /// The place of a per-place switch; `None` on a computer without a WSL 2 distribution or for a
-    /// row that is not per place.
-    pub place: Option<Place>,
-    /// The value, or `None` for a choice's none.
-    pub value: Option<ProviderValue>,
-}
-
-/// What the daemon hands a driver to start one run: its id, the message that opens it and the
-/// run's own options.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StartRunParams {
-    /// The run.
-    pub run_id: RunId,
-    /// The queued message the run opens with, on the binding the daemon opened for it.
-    pub opening: RunOpening,
-    /// The conversation so far, for a provider that takes it per run.
-    pub conversation_history: Option<Vec<Value>>,
-    /// The agent's accepted output-speed level, resolved as on [`CreateSessionParams`]. A provider
-    /// that applies it between turns sends it before this run's turn only when it differs from
-    /// the level the process last applied; one that takes it per turn sends it with this turn.
-    /// `None` keeps the level the process holds.
-    pub output_speed: Option<ProviderToken>,
-    /// The session option values to apply between turns before this run's turn, like
-    /// `outputSpeed`; an option left out keeps what the process holds.
-    pub options: Vec<ProviderOptionSetting>,
-    /// A level for this run's turn alone; the next run carries the agent's own level again.
-    pub output_speed_for_turn: Option<ProviderToken>,
-    /// The run's effective posture. A provider that binds posture at spawn meets a change by
-    /// relaunching the session, never by applying part of it.
-    pub execution_posture: Option<ExecutionPosture>,
-    /// A JSON Schema this turn's final output must meet (gated on `structuredOutput`), for a
-    /// provider that binds it per turn.
-    pub output_schema: Option<Map<String, Value>>,
-    /// The session's own bound on the steps one turn may take, read as the run starts; `None`
-    /// where the person set none.
-    pub step_bound: Option<SafeInt<1>>,
-}
-
-/// The queued item a run the queue admitted opens with, and where it runs: the session, the
-/// binding its deliveries are attributed on and the agent whose run it is.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RunOpening {
-    /// The session.
-    pub session_id: SessionId,
-    /// The runtime binding the run's deliveries are attributed on, opened by the daemon.
-    pub binding_id: RuntimeBindingId,
-    /// The agent whose run it is.
-    pub agent_id: AgentId,
-    /// The queued item's id, stamped on the provider's user message so a later cut can name it.
-    pub message_id: QueueItemId,
-    /// What the run's turn opens with.
-    pub item: RunOpeningItem,
-}
-
-/// What a run the queue admitted opens its turn with: a message the person sent, or the
-/// provider's own review of the session's changes, which runs as the run's turn and whose report
-/// lands as the agent's reply.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RunOpeningItem {
-    /// A message.
-    Message {
-        /// The message's words.
-        content: MessageContent,
-        /// The message's files, in staging order.
-        attachments: Vec<ArtifactId>,
-        /// The skills picked for the message, in the order picked.
-        skills: Vec<PickedSkill>,
-    },
-    /// The provider's own review.
-    Review {
-        /// What the review covers.
-        target: SessionReviewTarget,
-    },
-}
-
-/// Answers one interactive request a driver raised on a run with the daemon's answer, which the
-/// driver composes into its provider's own answer shape.
-#[derive(Debug)]
-pub struct RespondToRequestParams {
-    /// The run.
-    pub run_id: RunId,
-    /// The request.
-    pub request_id: String,
-    /// The daemon's answer.
-    pub response: ProviderRequestAnswer,
-}
-
-/// The daemon's answer to one request a driver raised: the person's answers to a question, one per
-/// question in the request's own order, or the approval pipeline's answer to a permission ask. A
-/// secret answer's value reaches only the driver.
-#[derive(Debug)]
-pub enum ProviderRequestAnswer {
-    /// The answers to a question.
-    Question {
-        /// One answer per question, in the request's order.
-        answers: Vec<QuestionAnswer>,
-    },
-    /// The answer to a permission ask.
-    Permission(ProviderPermissionAnswer),
-}
-
-/// The provider version the spawned process printed, never read from a launcher link that may
-/// name another build: the text always, and its canonical parse when it parses. Every version
-/// runs; nothing refuses on it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DriverCliVersionReport {
-    /// The version as printed.
-    pub raw_version: String,
-    /// Its canonical parse, when it parses.
-    pub parsed_version: Option<String>,
-}
-
-/// One spawned-build reading's two binding carriers, read together so a binding row never pairs
-/// one install's version with another install's path: what the build reported, and where it ran.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SpawnedVersionBindingCarriers {
-    /// The version the spawned build reported in-band.
-    pub cli_version: DriverCliVersionReport,
-    /// The build's absolute, symlink-resolved path, the one that answered.
-    pub resolved_executable_path: PathBuf,
-}
-
-/// How one flag's value was reached on a live reading: probed, or taken from the driver's own
-/// table where no probe is admissible.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CapabilityDetectionSource {
-    /// From the driver's own table.
-    Static,
-    /// By a zero-turn probe whose negative control still refused.
-    Probed,
-}
-
-/// The driver's capability reading: the flags, the tools as the provider declared them and the
-/// version the provider printed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct GetCapabilitiesResult {
-    /// The flags and contract version.
-    pub capabilities: DriverCapabilities,
-    /// The tools as the provider declared them.
-    pub tools: Vec<ProviderToolMetadata>,
-    /// The printed provider version; it describes this reading, not a capability, so it is not
-    /// part of the stored capability snapshot.
-    pub cli_version: DriverCliVersionReport,
-    /// How each flag was reached, for every flag on a live reading; `None` on a reading rebuilt
-    /// from the stored cache, which keeps values and not provenance. Never sent to a client.
-    pub detection_source: Option<BTreeMap<DriverCapabilityFlag, CapabilityDetectionSource>>,
-    /// The output-speed levels of a driver whose provider lists none per model: present only
-    /// when `outputSpeed` is on and the driver declares a fixed set. With neither this nor a
-    /// per-model set, a person's request for a level refuses. It survives a cache rebuild.
-    pub output_speed_levels: Option<Vec<ProviderToken>>,
-}
-
-/// Fits failure text to a failure detail: every NUL dropped, ECMAScript whitespace trimmed from
-/// both ends, cut to the cap in code points, and `empty_fallback` where nothing is left.
-pub fn bound_failure_detail(
-    detail: &str,
-    empty_fallback: FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN>,
-) -> FreeFormText<PROVIDER_FAILURE_DETAIL_MAX_LEN> {
-    let without_nuls = detail.replace('\0', "");
-    let trimmed = without_nuls.trim_matches(is_ecmascript_whitespace);
-    if trimmed.is_empty() {
-        return empty_fallback;
-    }
-    FreeFormText::new(cut_to_code_points(trimmed, PROVIDER_FAILURE_DETAIL_MAX_LEN).to_owned())
-        .expect("trimmed, NUL-free text cut to the cap is non-blank and within it")
-}
-
-/// Params of `compact_context` (gated on `contextCompaction`); addresses one binding.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct CompactContextParams {
-    /// The session.
-    pub session_id: SessionId,
-    /// The binding.
-    pub binding_id: RuntimeBindingId,
-}
-
-/// Params of `list_provider_commands` (gated on `providerCommands`); addresses one binding, with
-/// the driver and account the daemon resolved it to and its one live run.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ListProviderCommandsParams {
-    /// The session.
-    pub session_id: SessionId,
-    /// The binding.
-    pub binding_id: RuntimeBindingId,
-    /// The driver and account the binding runs on, which the group and each entry carry.
-    pub binding: ProviderCommandBinding,
-    /// The one live run on the binding; `None` when several are live.
-    pub run_id: Option<RunId>,
-}
-
-/// Params of `list_models`: the session whose model control reads the catalog, and the account
-/// to read it against, `None` for the provider's default account.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ListModelsParams {
-    /// The session, only where this is the session's own provider; `None` for any other.
-    pub session_id: Option<SessionId>,
-    /// The account: the session's own bound account for its own provider.
-    pub provider_account_id: Option<ProviderAccountId>,
 }

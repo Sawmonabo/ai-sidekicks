@@ -4,7 +4,7 @@
 //! `thread/name/set`, so its own session list shows it. A conversation the person's own terminal
 //! already named keeps that name.
 
-mod lockdown;
+pub(crate) mod lockdown;
 #[cfg(test)]
 mod tests;
 
@@ -38,16 +38,16 @@ use crate::driver::codex::session::detached_conversation::{
 };
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::CodexTurnStartParams;
-use crate::driver::codex::thread::view::{TURN_START_METHOD, read_thread, read_turn_id};
+use crate::driver::codex::thread::view::{
+    THREAD_START_METHOD, TURN_START_METHOD, read_thread, read_turn_id,
+};
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::session_control::{NameSessionParams, run_naming_pass_until};
 use crate::runtime_binding::store::RuntimeBinding;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 const CONFIG_READ_METHOD: &str = "config/read";
-
-const THREAD_START_METHOD: &str = "thread/start";
 
 const THREAD_READ_METHOD: &str = "thread/read";
 
@@ -153,7 +153,7 @@ impl CodexDriver {
                 tokio::select! {
                     () = cancel.cancelled() => return Ok(None),
                     () = tokio::time::sleep_until(deadline) => return Ok(None),
-                    service = self.registry.service_for(account.as_ref()) => (service?, None),
+                    service = self.registry.service_for(&account) => (service?, None),
                 }
             };
         tokio::select! {
@@ -189,7 +189,7 @@ impl CodexDriver {
             };
             let service = self
                 .registry
-                .service_for(leg.spawn_config.provider_account_id.as_ref())
+                .service_for(&leg.spawn_config.provider_account_id)
                 .await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
@@ -207,7 +207,7 @@ impl CodexDriver {
     }
 
     // The session's stored leg, as the run engine reads it; `None` for a session that never ran.
-    async fn read_session_leg(
+    pub(super) async fn read_session_leg(
         &self,
         session_id: SessionId,
     ) -> Result<Option<RuntimeBinding>, DriverError> {
@@ -363,6 +363,8 @@ async fn draw_title_until_stopped(
         effort: effort.map(|effort| effort.parse().expect("the title effort is an effort")),
         service_tier: None,
         service_tier_for_turn: None,
+        // The title thread started with no environment, which the turn keeps.
+        environments: None,
     };
     let start = connection.request(TURN_START_METHOD, &turn);
     tokio::pin!(start);

@@ -16,7 +16,7 @@ use sidekicks_contracts::artifacts::id::ArtifactId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId};
 
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptRunRequest,
     InterventionResultStatus, PickedSkill,
@@ -149,7 +149,7 @@ mod tests {
         CodexInterventionDispatcher, CodexInterventionRuntime, CodexSteerAcknowledgment,
         CodexSteerRunRequest,
     };
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
     use crate::driver::run_control::{
         ApplyInterventionParams, InterruptRunRequest, InterventionResultStatus, SteerPayload,
     };

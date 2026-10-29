@@ -7,11 +7,11 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderRowValues};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::declaration::{
     ProviderDeclarationId, ProviderDeclarationText, ProviderPlaceSwitch, ProviderPlaceSwitches,
     ProviderRow, ProviderSettingControl, ProviderValue,
@@ -25,23 +25,24 @@ use sidekicks_contracts::wire::record::Record;
 use sidekicks_ipc::domain_error::DomainError;
 
 use super::CodexDriver;
+use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::auth_status::{CODEX_AUTH_PROBE_TIMEOUT, read_codex_auth_status};
 use crate::driver::codex::capabilities::read_codex_service_model_catalog;
 use crate::driver::codex::capability_probe::probe_codex_service_capabilities;
 use crate::driver::codex::compaction::{CodexCompactionTarget, dispatch_codex_compaction};
-use crate::driver::codex::model_windows::{
-    join_codex_model_windows, read_codex_service_model_windows,
-};
-use crate::driver::codex::service::command::read_codex_model_catalog_dump;
+use crate::driver::codex::model_windows::join_codex_model_windows;
+use crate::driver::codex::service::registry::CodexHomeResolver;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::session::lifecycle_call::{CodexLifecycleCall, call_codex_lifecycle};
 use crate::driver::codex::session::side_questions::wait_for_side_question_answer;
 use crate::driver::codex::session::starting_level::read_codex_starting_level;
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
+    ListProviderCommandsParams, ProviderCommandsSubscription,
 };
+use crate::driver::read_current_account;
 use crate::driver::session_control::{
     AskSideQuestionParams, ClearSessionGoalParams, DriverAuthProbeResult, DriverAuthProbeStatus,
     DriverGoalResult, ProviderCommandsListener, RevokeRuleParams, SetSessionGoalParams,
@@ -147,7 +148,7 @@ impl CodexDriver {
             &self.pending_compactions,
             CodexCompactionTarget {
                 session_id: params.session_id,
-                provider_account_id: reading.provider_account_id.as_ref(),
+                provider_account_id: &reading.provider_account_id,
                 thread_id: &reading.thread_id,
                 wait_key: &reading.wait_key,
             },
@@ -171,29 +172,46 @@ impl CodexDriver {
         Ok(self.parts()?.goals.clear(params).await?)
     }
 
-    /// Takes a revoked project rule out of the project's own rule file. A rule the session made
-    /// needs nothing here: the call checks read each revocation at the next call it covers.
+    /// Takes a revoked project rule out of the project's own rule file, read beside the rules of
+    /// the account home the session runs on: its live conversation's, else its stored leg's. A
+    /// rule the session made needs nothing here: the call checks read each revocation at the next
+    /// call it covers. A session that never ran has no home to read. Fails as the stored leg or
+    /// the home cannot be read, or the file cannot be edited.
     pub(crate) async fn revoke_rule(&self, params: RevokeRuleParams) -> Result<(), DriverError> {
         let Some(project_folder) = &params.project_folder else {
             return Ok(());
         };
+        let codex_home = if let Some(conversation) = self.views.conversation(params.session_id) {
+            conversation.service.home().codex_home.clone()
+        } else {
+            let Some(leg) = self.read_session_leg(params.session_id).await? else {
+                return Ok(());
+            };
+            self.homes
+                .codex_home_for(&leg.spawn_config.provider_account_id)
+                .await?
+                .codex_home
+        };
         self.project_rules
-            .revoke(project_folder, &params.rule)
+            .revoke(&codex_home, project_folder, &params.rule)
             .await
             .map_err(|error| DriverError::Internal(Box::new(error)))
     }
 
-    /// The models of the account the params name, each with its windows from the catalog dump.
-    /// A catalog read that asks for a restart restarts the service and reads once more. Fails as
-    /// the service's start or the catalog read fails.
+    /// The models of the account the params name, else of Codex's current account, each with its
+    /// windows from the catalog dump. A catalog read that asks for a restart restarts the service
+    /// and reads once more. Refused `provider.account.notRegistered` or
+    /// `provider.account.current.notSet` with no account named and none to run on; fails as the
+    /// service's start or the catalog read fails.
     pub(crate) async fn list_models(
         &self,
         params: ListModelsParams,
     ) -> Result<Vec<ProviderModel>, DriverError> {
-        let service = self
-            .registry
-            .service_for(params.provider_account_id.as_ref())
-            .await?;
+        let provider_account_id = match params.provider_account_id {
+            Some(provider_account_id) => provider_account_id,
+            None => read_current_account(&self.provider_accounts, DESCRIPTOR.provider_id()).await?,
+        };
+        let service = self.registry.service_for(&provider_account_id).await?;
         let models = match read_service_models(&service).await {
             Err(DriverError::Internal(error))
                 if error
@@ -208,25 +226,43 @@ impl CodexDriver {
             }
             read => read?,
         };
-        let windows = read_codex_service_model_windows(
-            read_codex_model_catalog_dump(&service),
-            service.home(),
-        )
-        .await;
+        let windows = self.model_windows.refresh(&service).await;
         Ok(join_codex_model_windows(models, &windows))
     }
 
-    /// The capabilities, tools and version of the build the person's own home runs, read live.
+    /// The capabilities, tools and version of the build Codex runs, read live on a scratch home
+    /// the daemon owns, so no account and none of the person's own Codex settings are read; the
+    /// scratch home's service is stopped and its folder removed after every read, failed or not.
+    /// Fails as the read fails, and as the folder cannot be made or removed.
     pub(crate) async fn get_capabilities(&self) -> Result<GetCapabilitiesResult, DriverError> {
-        let service = self.registry.service_for(None).await?;
-        probe_codex_service_capabilities(&service).await
+        let _one_read = self.capability_read.lock().await;
+        let service = self.registry.capability_read_service().await?;
+        let read = probe_codex_service_capabilities(&service).await;
+        service.stop().await;
+        let removed = self.registry.remove_capability_read_home().await;
+        match (read, removed) {
+            (Ok(capabilities), removed) => removed.map(|()| capabilities),
+            (Err(error), Ok(())) => Err(error),
+            (Err(error), Err(removal)) => {
+                // The read's own failure is the one the caller acts on.
+                tracing::warn!(
+                    error = &removal as &(dyn Error + 'static),
+                    "the Codex capability read's scratch home was not removed"
+                );
+                Err(error)
+            }
+        }
     }
 
-    /// How the person's own Codex is signed in, read without a refresh; a read that fails is
-    /// indeterminate.
-    pub(crate) async fn probe_auth(&self) -> DriverAuthProbeResult {
+    /// How `provider_account_id`'s Codex is signed in, read on the account's own service without
+    /// a refresh; a read that fails is indeterminate. Fails as the account's home cannot be
+    /// resolved: `provider.account.notFound` or `provider.account.credentialHome.unavailable`.
+    pub(crate) async fn probe_auth(
+        &self,
+        provider_account_id: ProviderAccountId,
+    ) -> Result<DriverAuthProbeResult, DriverError> {
+        let service = self.registry.service_for(&provider_account_id).await?;
         let read = async {
-            let service = self.registry.service_for(None).await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;
@@ -235,21 +271,24 @@ impl CodexDriver {
                 read_codex_auth_status(&connection, CODEX_AUTH_PROBE_TIMEOUT).await?,
             )
         };
-        match read.await {
+        Ok(match read.await {
             Ok(result) => result,
             Err(error) => {
                 build_auth_probe_result(DriverAuthProbeStatus::Indeterminate, &error.to_string())
             }
-        }
+        })
     }
 
-    /// The level and mode a new session starts at, as the person's own Codex settings for the
-    /// folder set them.
+    /// The level and mode a new session starts at, as the account's own Codex settings for the
+    /// folder set them. Fails as the account's home cannot be resolved and as the read fails.
     pub(crate) async fn read_starting_level(
         &self,
         params: StartingLevelParams,
     ) -> Result<StartingLevel, DriverError> {
-        let service = self.registry.service_for(None).await?;
+        let service = self
+            .registry
+            .service_for(&params.provider_account_id)
+            .await?;
         Ok(read_codex_starting_level(&service, &params.working_folder).await?)
     }
 
@@ -354,17 +393,14 @@ impl CodexDriver {
             .into());
         }
         if !matches!(params.value, Some(ProviderValue::Switch(true))) {
-            self.is_terminal_reach_on.store(false, Ordering::Release);
-            self.registry.stop_terminal_service().await?;
+            // The retirement runs on the driver's tracked tasks once the folder is free.
+            drop(self.registry.stop_terminal_service());
             return Ok(());
         }
         if self.registry.is_terminal_service_on() {
             return Ok(());
         }
-        let started = self.registry.start_terminal_service().await;
-        self.is_terminal_reach_on
-            .store(started.is_ok(), Ordering::Release);
-        started
+        self.registry.start_terminal_service().await
     }
 
     /// Deletes the account home's log rows from before `cutoff`, and, while no service holds the

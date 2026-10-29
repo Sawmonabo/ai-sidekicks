@@ -8,6 +8,7 @@ use sidekicks_ipc::registry::RegistrationError;
 use sidekicks_platforms::SocketPathRefused;
 use sidekicks_policy::authorizer::RulesLoadError;
 use sidekicks_queue::error::QueueError;
+use sidekicks_session::idle_sleep::IdleSleepError;
 use sidekicks_shell::orphan::guard::OrphanGuardError;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::scheduler::ScheduleError;
@@ -120,6 +121,10 @@ pub(crate) enum DaemonStartError {
     /// socket in the run folder.
     #[error(transparent)]
     RepoServices(#[from] RepoServiceStartError),
+    /// The idle sleep could not read or store the sessions it wakes, so the session services'
+    /// follows did not begin.
+    #[error(transparent)]
+    SessionAttachments(#[from] IdleSleepError),
     /// The repository services' background work could not begin.
     #[error(transparent)]
     RepoAttachments(#[from] RepoAttachmentStartError),
@@ -128,7 +133,7 @@ pub(crate) enum DaemonStartError {
     MethodInputs(#[from] MethodInputsError),
     /// The run queues could not be read to deliver what a stop left waiting.
     #[error("the run queues could not be recovered")]
-    QueueRecovery(#[source] QueueError),
+    QueueRecovery(#[source] Box<QueueError>),
 }
 
 /// A start that failed: its error beside every failure of its release, and when the release
@@ -136,7 +141,7 @@ pub(crate) enum DaemonStartError {
 #[derive(Debug)]
 pub(crate) struct DaemonStartFailure {
     /// The step's error and the release's failures.
-    pub(crate) failures: CleanupFailures<DaemonStartError, DaemonStopFailure>,
+    pub(crate) failures: Box<CleanupFailures<DaemonStartError, DaemonStopFailure>>,
     /// When the release began.
     pub(crate) release_started: Instant,
 }

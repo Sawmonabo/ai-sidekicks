@@ -33,11 +33,12 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) =
+            self.read_run_driver(session_id, run_id).await?;
         if !self
             .admit_continue(
                 &provider,
-                provider_account_id,
+                provider_account_id.clone(),
                 driver.as_ref(),
                 session_id,
                 run_id,
@@ -49,7 +50,7 @@ impl QueueAdmission {
         let execution_posture = self
             .deps
             .provider_sessions
-            .read_execution_posture(session_id)
+            .read_execution_posture(session_id, provider_account_id.clone())
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let (opening, reviews_run_id) = {
@@ -74,7 +75,10 @@ impl QueueAdmission {
                 self.deps.openings.insert(run_id, head.clone());
             }
             let reviews_run_id = if head.is_none() && !reviews.is_empty() {
-                Some(self.queue_reviews_run(&hold, &reviews).await?)
+                Some(
+                    self.queue_reviews_run(&hold, &reviews, provider_account_id)
+                        .await?,
+                )
             } else {
                 None
             };
@@ -194,20 +198,28 @@ impl QueueAdmission {
     }
 
     // Queues the session's next lead run for the `reviews` left waiting for its interrupted lead
-    // run, pointing each at it, and answers its id. Called under `hold`; fails as the read or the
-    // write fails.
+    // run, pointing each at it, on `provider_account_id`'s account, the one the interrupted run ran
+    // on, and answers its id. Called under `hold`; fails as the read or the write fails.
     async fn queue_reviews_run(
         &self,
         hold: &KeyHold<'_, SessionId>,
         reviews: &[QueueItemRecord],
+        provider_account_id: ProviderAccountId,
     ) -> Result<RunId, QueueError> {
         let session_id = *hold.key();
         let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
         let agent_id = read_lead_agent_through::<QueueError>(&self.deps.pool, session_id).await?;
+        let run_config = self.lead_run_config(session_id)?;
         self.deps
             .recorder
             .record_next_run(
-                lead_run_queued(session_id, run_id, agent_id),
+                lead_run_queued(
+                    session_id,
+                    run_id,
+                    agent_id,
+                    provider_account_id,
+                    run_config,
+                ),
                 reviews,
                 &WireInstant::now(),
             )
@@ -246,7 +258,7 @@ impl QueueAdmission {
     async fn admit_continue(
         &self,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,

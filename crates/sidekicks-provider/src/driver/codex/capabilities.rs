@@ -22,7 +22,8 @@ use super::tools::codex_tool_metadata;
 use super::transport::connection::CodexAppServerConnection;
 use crate::capability::probe::{CapabilityProbeExchange, read_provider_capabilities};
 use crate::driver::capabilities::{DriverCapabilityFlag, DriverCapabilityFlags};
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
+use crate::driver::contract::params_and_results::GetCapabilitiesResult;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, OnceReportedDiagnostics,
 };
@@ -366,7 +367,7 @@ impl CodexModelCatalogReader {
     // The whole catalog's fault, naming the row, the cursor or the counts in `detail`, which is
     // bounded, since a cursor or an id is the service's own text.
     fn unreadable(&self, detail: &str) -> DriverError {
-        DriverError::ModelCatalogUnreadable(ModelCatalogUnreadable {
+        DriverError::from(ModelCatalogUnreadable {
             provider: self.provider.clone(),
             reply_name: CODEX_MODEL_LIST_METHOD,
             detail: bound_failure_detail(detail, CATALOG_FAULT_FALLBACK.clone()),
@@ -436,7 +437,7 @@ mod tests {
     use serde_json::value::RawValue;
 
     use super::read_codex_model_catalog;
-    use crate::driver::contract::DriverError;
+    use crate::driver::contract::error::DriverError;
     use crate::driver::diagnostics::OnceReportedDiagnostics;
 
     // Answers each scripted page in turn, recording the cursor each was asked with; a request

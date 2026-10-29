@@ -24,6 +24,7 @@ use std::error::Error;
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 use std::time::Duration;
 
+use sidekicks_contracts::orchestration::OrchestrationRunConfig;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -36,16 +37,19 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver, bound_failure_detail};
+use sidekicks_provider::driver::ProviderAccountReader;
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::{DriverError, bound_failure_detail};
 use sidekicks_provider::driver::error_causes::session_process_unavailable;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::process_identity::ProviderProcessIds;
 use sidekicks_provider::run::state_entry::RunStateEntry;
-use sidekicks_session::driver_resolution::read_session_driver;
+use sidekicks_session::driver_resolution::{read_session_driver, resolve_admitted_account};
 use sidekicks_session::queue_store::summary::summary_of;
 use sidekicks_session::queue_store::{
     QueueItemOutcome, QueueItemReader, QueueItemRecord, RecordedQueueItemState,
 };
+use sidekicks_session::run::agent::RunAgentReader;
 use sidekicks_session::run::engine::{RunEngine, RunEngineError};
 use sidekicks_session::run::read::read_run_through;
 use sidekicks_session::run::refusals::RunRefusal;
@@ -54,6 +58,7 @@ use sidekicks_session::run::state_change::{RunStateChange, RunStateChangeCompani
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_std::port_registration::PortRegistration;
 use sidekicks_store::database::connection::read_pool::{DatabaseReadPool, ReadLength};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use tokio::sync::watch;
@@ -68,6 +73,7 @@ use crate::memory_gate::{
 };
 use crate::provider_session::ProviderSessions;
 use crate::recorder::{QueueRecordError, QueueRecorder, outcome_draft_of};
+use crate::run_token_limit::RunTokenLimitReader;
 use crate::session_lock::QueueSessionLock;
 
 /// How long a queued run waits for the memory gate before its messages are not delivered, and
@@ -101,6 +107,11 @@ pub(crate) struct QueueAdmissionDeps {
     pub(crate) provider_sessions: Arc<ProviderSessions>,
     /// The drivers and their descriptors.
     pub(crate) providers: Arc<ProviderRegistry>,
+    /// Reads each provider's current account, which a new run follows when its session is bound
+    /// to none.
+    pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
+    /// Reads the token limit a new lead run is admitted with.
+    pub(crate) token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
     /// The gate every start waits its turn at.
     pub(crate) memory_gate: Arc<MemoryGate>,
     /// The identity of each session's provider process.
@@ -412,11 +423,12 @@ impl QueueAdmission {
         session_id: SessionId,
         run_id: RunId,
     ) -> Result<(), QueueError> {
-        let (provider, provider_account_id, driver) = self.read_session_driver(session_id).await?;
+        let (provider, provider_account_id, driver) =
+            self.read_run_driver(session_id, run_id).await?;
         match self
             .take_place(
                 &provider,
-                provider_account_id,
+                provider_account_id.clone(),
                 driver.as_ref(),
                 session_id,
                 run_id,
@@ -435,7 +447,7 @@ impl QueueAdmission {
         let execution_posture = self
             .deps
             .provider_sessions
-            .read_execution_posture(session_id)
+            .read_execution_posture(session_id, provider_account_id)
             .await?;
         // Taken under the lock, so a removal either lands first or finds the opening taken.
         let opening = {
@@ -563,7 +575,7 @@ impl QueueAdmission {
             driver.settle_session(session_id),
         )
         .await
-        .map_err(|_elapsed| DriverError::Refused(session_process_unavailable(session_id)))??;
+        .map_err(|_elapsed| DriverError::from(session_process_unavailable(session_id)))??;
         Ok(())
     }
 
@@ -573,7 +585,7 @@ impl QueueAdmission {
     async fn take_place(
         &self,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         session_id: SessionId,
         run_id: RunId,
@@ -695,24 +707,67 @@ impl QueueAdmission {
         Ok(())
     }
 
-    async fn read_session_driver(
+    /// The provider `session_id`'s lead runs on, the account a new run of it is admitted against
+    /// and the provider's driver: the account the session is bound to, else the provider's current
+    /// account, resolved before any driver call. Refuses `provider.account.notRegistered` or
+    /// `provider.account.current.notSet` for a provider with no account to run on, and fails as
+    /// the reads do.
+    pub(crate) async fn admit_session_account(
         &self,
         session_id: SessionId,
-    ) -> Result<
-        (
-            ProviderId,
-            Option<ProviderAccountId>,
-            Arc<dyn ProviderDriver>,
-        ),
-        QueueError,
-    > {
-        read_session_driver::<QueueError>(
+    ) -> Result<(ProviderId, ProviderAccountId, Arc<dyn ProviderDriver>), QueueError> {
+        let (provider, bound, driver) = read_session_driver::<QueueError>(
             &self.deps.pool,
             &self.deps.providers,
             self.deps.read_damaged_from_sequence.as_ref(),
             session_id,
         )
-        .await
+        .await?;
+        let provider_account_id =
+            resolve_admitted_account(&self.deps.provider_accounts, &provider, bound).await?;
+        Ok((provider, provider_account_id, driver))
+    }
+
+    /// The limits a new lead run of `session_id` is admitted with: the daemon's `Tokens per run`
+    /// as it stands now, `None` with no limit set. Fails while no limits reader is registered.
+    pub(crate) fn lead_run_config(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<OrchestrationRunConfig>, QueueError> {
+        let token_limit = self
+            .deps
+            .token_limits
+            .require_port()?
+            .tokens_per_run(session_id);
+        Ok(token_limit.map(|token_limit| OrchestrationRunConfig {
+            token_limit: Some(token_limit),
+        }))
+    }
+
+    // The provider `session_id`'s lead runs on, the account `run_id` was admitted against, as its
+    // creation names it, and the provider's driver.
+    async fn read_run_driver(
+        &self,
+        session_id: SessionId,
+        run_id: RunId,
+    ) -> Result<(ProviderId, ProviderAccountId, Arc<dyn ProviderDriver>), QueueError> {
+        let (provider, _bound, driver) = read_session_driver::<QueueError>(
+            &self.deps.pool,
+            &self.deps.providers,
+            self.deps.read_damaged_from_sequence.as_ref(),
+            session_id,
+        )
+        .await?;
+        let provider_account_id = self
+            .deps
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, QueueError>(
+                    RunAgentReader::new(reader).read_admitted_account(&session_id, &run_id)?,
+                )
+            })
+            .await?;
+        Ok((provider, provider_account_id, driver))
     }
 
     async fn read_waiting(&self, run_id: RunId) -> Result<Vec<QueueItemRecord>, QueueError> {

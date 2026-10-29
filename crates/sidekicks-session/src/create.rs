@@ -46,7 +46,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::ProviderAxisInvalid;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::cleanup_failures::CleanupFailures;
@@ -227,6 +227,12 @@ pub enum SessionCreateError {
         /// The chat.
         session_id: SessionId,
     },
+    /// A session's lead names no account, which its create always resolves first.
+    #[error("session {session_id}'s lead names no account")]
+    LeadNamesNoAccount {
+        /// The session.
+        session_id: SessionId,
+    },
     /// Some stopped creates could not be finished; every other one was.
     #[error(transparent)]
     Finish(#[from] SettleFailures<SessionFinishFailure>),
@@ -317,7 +323,7 @@ impl SessionCreation {
         let lead = target.lead;
         let agent_id = AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id");
         let driver = self.providers.lookup(&lead.provider_name).map_err(|_| {
-            DriverError::ProviderAxisInvalid(ProviderAxisInvalid::provider_not_registered(
+            DriverError::from(ProviderAxisInvalid::provider_not_registered(
                 agent_id,
                 &lead.provider_name,
             ))

@@ -316,7 +316,12 @@ methods! {
             mutating: true,
             params: AgentCommandStopRequest,
             result: AgentCommandStopResponse,
-            refusals: [SessionNotFound, ProviderUnavailable, ProviderTimeout],
+            refusals: [
+                SessionNotFound,
+                AgentCommandNotStopped,
+                ProviderUnavailable,
+                ProviderTimeout,
+            ],
         },
         /// Moves a command the agent waits on to the background.
         AgentCommandBackground = mutation "agent.command.background" {

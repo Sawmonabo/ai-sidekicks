@@ -42,9 +42,10 @@ use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;
+use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
-use crate::runtime_binding::rebinder::RuntimeBindingRebinder;
 use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
 
@@ -64,9 +65,11 @@ pub(crate) struct CodexForkDependencies {
     /// Where each conversation the session leaves is held until no command of it runs.
     pub(crate) release: Arc<CodexConversationRelease>,
     /// The runtime bindings, each pointed at the conversation its session moved onto.
-    pub(crate) bindings: Arc<dyn RuntimeBindingRebinder>,
+    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
     /// The route to the daemon's tool servers, once its owner registered it.
     pub(crate) tool_server_route: Arc<PortRegistration<Arc<dyn ToolServerRoute>>>,
+    /// The reviewer's denials, whose held presses on a binding the fork retires are released.
+    pub(crate) reviewer_denials: Arc<PortRegistration<Arc<dyn ReviewerDenialPort>>>,
     /// The compaction waits, whose wait on a conversation the session leaves ends.
     pub(crate) pending_compactions: PendingCompactionRegistry,
 }
@@ -239,7 +242,7 @@ pub(crate) async fn move_codex_session_to_fork(
 /// write does, those conversations still owed to the next write.
 pub(crate) async fn bind_codex_first_run(
     record: &mut CodexSessionRecord,
-    bindings: &dyn RuntimeBindingRebinder,
+    bindings: &dyn RuntimeBindingWriter,
     binding_id: &RuntimeBindingId,
 ) -> Result<(), CodexError> {
     if record.left_thread_ids_awaiting_binding.is_empty() {
@@ -360,7 +363,13 @@ async fn move_record_to_fork(
     .await?;
     let record = &mut *task.record;
     let session_id = record.session_id;
-    record.binding_id = binding_id;
+    let retired = std::mem::replace(&mut record.binding_id, binding_id);
+    // An `Allow once` held on the retired binding's blocks can be pressed again.
+    if let (Some(retired), Some(denials)) = (retired, dependencies.reviewer_denials.port())
+        && record.binding_id.as_ref() != Some(&retired)
+    {
+        denials.release_held_presses(&retired);
+    }
     record.thread_id.clone_from(&forked.thread_id);
     record.permission_profiles =
         CodexThreadPermissionProfiles::established(&record.thread_settings);
@@ -431,7 +440,7 @@ async fn record_fork_in_binding(
 }
 
 async fn rebind(
-    bindings: &dyn RuntimeBindingRebinder,
+    bindings: &dyn RuntimeBindingWriter,
     rebind: RuntimeBindingRebind,
 ) -> Result<(), CodexError> {
     bindings

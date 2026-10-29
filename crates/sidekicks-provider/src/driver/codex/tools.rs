@@ -240,7 +240,7 @@ mod tests {
     use crate::driver::mcp_server_status::{McpServerReading, McpServerStatusIngestResult};
 
     // One `mcpServerStatus/list` row for the server, read through the list's reader.
-    fn list(runtime_status: Value, auth_status: &str) -> McpServerStatusIngestResult {
+    fn list(runtime_status: &Value, auth_status: &str) -> McpServerStatusIngestResult {
         normalize_codex_mcp_server_status_list(&json!([{
             "name": "github",
             "runtimeStatus": runtime_status,
@@ -250,7 +250,7 @@ mod tests {
     }
 
     // One `mcpServer/startupStatus/updated` notification, read through the startup reader.
-    fn startup(status: &str, error: Value, failure_reason: Value) -> McpServerStatusIngestResult {
+    fn startup(status: &str, error: &Value, failure_reason: &Value) -> McpServerStatusIngestResult {
         normalize_codex_mcp_server_status_notification(&json!({
             "threadId": "thread-1",
             "name": "github",
@@ -266,34 +266,34 @@ mod tests {
     // `Observed(Unknown)`, by dropping the reauthentication rule, or by dropping the startup's
     // error text.
     #[rstest]
-    #[case::not_started(list(json!("notStarted"), "oAuth"), Observed(Starting), None)]
-    #[case::starting(list(json!("starting"), "oAuth"), Observed(Starting), None)]
-    #[case::connected(list(json!("connected"), "oAuth"), Observed(Connected), None)]
-    #[case::sign_in(list(json!("authenticationRequired"), "oAuth"), Observed(NeedsAuth), None)]
-    #[case::failed(list(json!("failed"), "oAuth"), Observed(Failed), None)]
-    #[case::cancelled(list(json!("cancelled"), "oAuth"), Observed(Failed), None)]
-    #[case::disabled(list(json!("disabled"), "oAuth"), SwitchedOff, None)]
-    #[case::unlisted_word(list(json!("paused"), "oAuth"), Observed(Unknown), None)]
-    #[case::no_thread_logged_out(list(Value::Null, "notLoggedIn"), Observed(NeedsAuth), None)]
-    #[case::no_thread_signed_in(list(Value::Null, "oAuth"), Observed(Unknown), None)]
+    #[case::not_started(list(&json!("notStarted"), "oAuth"), Observed(Starting), None)]
+    #[case::starting(list(&json!("starting"), "oAuth"), Observed(Starting), None)]
+    #[case::connected(list(&json!("connected"), "oAuth"), Observed(Connected), None)]
+    #[case::sign_in(list(&json!("authenticationRequired"), "oAuth"), Observed(NeedsAuth), None)]
+    #[case::failed(list(&json!("failed"), "oAuth"), Observed(Failed), None)]
+    #[case::cancelled(list(&json!("cancelled"), "oAuth"), Observed(Failed), None)]
+    #[case::disabled(list(&json!("disabled"), "oAuth"), SwitchedOff, None)]
+    #[case::unlisted_word(list(&json!("paused"), "oAuth"), Observed(Unknown), None)]
+    #[case::no_thread_logged_out(list(&Value::Null, "notLoggedIn"), Observed(NeedsAuth), None)]
+    #[case::no_thread_signed_in(list(&Value::Null, "oAuth"), Observed(Unknown), None)]
     #[case::startup_starting(
-        startup("starting", Value::Null, Value::Null),
+        startup("starting", &Value::Null, &Value::Null),
         Observed(Starting),
         None
     )]
-    #[case::startup_ready(startup("ready", Value::Null, Value::Null), Observed(Connected), None)]
+    #[case::startup_ready(startup("ready", &Value::Null, &Value::Null), Observed(Connected), None)]
     #[case::startup_cancelled(
-        startup("cancelled", Value::Null, Value::Null),
+        startup("cancelled", &Value::Null, &Value::Null),
         Observed(Failed),
         None
     )]
     #[case::startup_failed(
-        startup("failed", json!("handshake timed out"), Value::Null),
+        startup("failed", &json!("handshake timed out"), &Value::Null),
         Observed(Failed),
         Some("handshake timed out")
     )]
     #[case::startup_reauthentication(
-        startup("failed", json!("token expired"), json!("reauthenticationRequired")),
+        startup("failed", &json!("token expired"), &json!("reauthenticationRequired")),
         Observed(NeedsAuth),
         Some("token expired")
     )]

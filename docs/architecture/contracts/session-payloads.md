@@ -103,7 +103,7 @@ interface SessionReadResponse {
     runVersion: number;
     agentId: AgentId; // the agent the run was created for, as its `agent.run.queued` names it
     actor?: string; // who the run's first event naming anyone names, as a window's run facts say
-    admittedProviderAccountId?: ProviderAccountId; // the account its `agent.run.queued` admitted it under
+    admittedProviderAccountId: ProviderAccountId; // the account its `agent.run.queued` admitted it under
     touchedAt: string; // ISO 8601: when the run's newest `runLifecycle` event occurred
   }>;
   // The newest event of each kind a reader keeps a standing fact from, whole, at the cursor the

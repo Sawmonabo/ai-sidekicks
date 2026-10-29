@@ -87,6 +87,23 @@ pub(crate) enum SupervisorAction {
     ReportRecovered(CodexServiceRecoveryCause),
     /// Tells the session's recovery the process ended on its own.
     ReportProcessExited,
+    /// Tells the session's recovery the daemon ended the process for answering nothing for the
+    /// whole silence limit.
+    ReportSilentEnd {
+        /// How long the service had answered nothing when the watch ran out.
+        silent_for: Duration,
+    },
+    /// Watches the service's silence under `ticket`, `silent_for` into the limit already,
+    /// reporting `SilenceElapsed` once the limit passes; a watch already running is ended.
+    WatchSilence {
+        /// The watch's ticket.
+        ticket: u64,
+        /// How long the service has answered nothing so far.
+        silent_for: Duration,
+    },
+    /// Ends the silence watch running, the service having answered or left the state that
+    /// watched it.
+    ClearSilence,
     /// Reports the crash loop, which leaves the service down, with the failure of the restart
     /// that filled the crash window where a failed restart did.
     ReportCrashLoop(Option<Arc<CodexError>>),

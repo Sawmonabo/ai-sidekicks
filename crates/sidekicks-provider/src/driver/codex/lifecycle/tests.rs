@@ -3,11 +3,16 @@
 //! and a driver on a Codex folder of a test's own, with a service of the test's listening there.
 
 mod caller_check;
+mod capability_read;
+mod commands;
 mod controls;
 mod intake;
+mod resume;
+mod rule_revoke;
 mod sessions;
 mod skill_picks;
 mod terminal_reach;
+mod usage;
 
 use std::path::Path;
 use std::sync::Arc;
@@ -36,6 +41,7 @@ use crate::driver::codex::service::supervisor::test_service::{
     ScriptedCodexService, answer_as_codex_service, start_scripted_codex_service,
     write_failing_codex,
 };
+use crate::driver::codex::session::context_reading::CodexFixedStart;
 use crate::driver::codex::session::inbound::codex_session_inbound;
 use crate::driver::codex::session::state::{CodexTurnInput, CodexTurnMessage};
 use crate::driver::codex::session::test_fixture::{
@@ -49,8 +55,9 @@ use crate::driver::test_registry::{
 use crate::port::question::QuestionPort;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::run::posture::ExecutionPostureService;
-use crate::runtime_binding::store::RuntimeBindingSpawnConfig;
-use crate::runtime_binding::test_store::{binding_input, open_store, spawned_build};
+use crate::runtime_binding::test_store::{
+    binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
+};
 
 /// The live turn the session's run is on.
 pub(super) const TEST_TURN: &str = "turn-1";
@@ -68,7 +75,8 @@ pub(super) struct LiveCodexSession {
     pub(super) questions: Arc<PortRegistration<Arc<dyn QuestionPort>>>,
     /// The run engine and its dispatch, which record each call the driver makes.
     pub(super) engine: Arc<RecordingRunEngine>,
-    _database: TestDatabase,
+    /// The database the binding store writes.
+    pub(super) database: TestDatabase,
 }
 
 impl LiveCodexSession {
@@ -133,7 +141,7 @@ impl LiveCodexSession {
         let run_id = new_run_id();
         let binding_id = bindings
             .create(binding_input(
-                RuntimeBindingSpawnConfig::default(),
+                spawn_config_on(test_provider_account_id()),
                 spawned_build("0.130.0", "/opt/codex/bin"),
             ))
             .await
@@ -208,7 +216,12 @@ impl LiveCodexSession {
                     .await,
             );
         }
-        let intake = CodexSessionIntake::new(record, routing, Arc::clone(&parts));
+        let intake = CodexSessionIntake::new(
+            record,
+            routing,
+            Arc::clone(&parts),
+            CodexFixedStart::FirstRequest,
+        );
         driver.tasks.spawn(intake.run(receiver, routed));
         Self {
             driver,
@@ -219,7 +232,7 @@ impl LiveCodexSession {
             queue,
             questions,
             engine,
-            _database: database,
+            database,
         }
     }
 }
@@ -267,7 +280,7 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     });
 }
 
-/// The composed driver on the person's own sign-in whose registry holds `scripted`'s service, every
+/// The composed driver on the test's one account whose registry holds `scripted`'s service, every
 /// session running in `folder`'s `work`, its runs on a recording engine.
 pub(super) fn driver_holding(scripted: &ScriptedCodexService, folder: &Path) -> CodexDriver {
     let engine = Arc::new(RecordingRunEngine::default());

@@ -8,7 +8,8 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::queue::QueuedSkillPick;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::run_control::PickedSkill;
 use sidekicks_session::queue_store::QueueItemReader;
 use sidekicks_store::database::connection::read_pool::ReadLength;
@@ -30,7 +31,7 @@ impl QueueAdmission {
         &self,
         session_id: SessionId,
         provider: &ProviderId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         driver: &dyn ProviderDriver,
         picks: Option<Vec<QueuedSkillPick>>,
     ) -> Result<Option<Vec<PickedSkill>>, QueueError> {

@@ -13,9 +13,7 @@ use sidekicks_contracts::run::queue::{
     QueueItemId, QueueItemNotDeliveredReason, QueueItemSummary, QueueMessageSummary,
     UserMessageSentPayload,
 };
-use sidekicks_contracts::run::queued::{
-    AgentRunQueuedNewState, AgentRunQueuedPayload, RunQueuedSessionAgentPayload,
-};
+use sidekicks_contracts::run::queued::AgentRunQueuedPayload;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
@@ -23,8 +21,8 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_provider::runtime_binding::test_store::test_provider_account_id;
 use sidekicks_session::questions::schema::schema_parts;
 use sidekicks_session::queue_store::{
     NewQueueItem, QueueItemBody, QueueItemOutcome, QueueItemRecord, QueueMessageBody,
@@ -41,7 +39,7 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use super::{
     QueueRecorder, QueueRecorderDeps, RecordSendError, RecordedSend, RetargetRun, SendRefusal,
-    SendRoute,
+    SendRoute, lead_run_queued,
 };
 use crate::changes::{
     QueueChangeSignals, QueueKey, read_current_queue_cursor, read_queue_changes_after,
@@ -172,19 +170,13 @@ fn stored_counts(database: &TestDatabase) -> (i64, i64) {
 
 /// A lead run queued for the fixture's session.
 fn next_run(fixture: &Fixture) -> AgentRunQueuedPayload {
-    AgentRunQueuedPayload::SessionAgent(RunQueuedSessionAgentPayload {
-        session_id: fixture.session_id,
-        run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
-        run_version: SafeInt::ZERO,
-        new_state: AgentRunQueuedNewState::Value,
-        agent_id: AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id"),
-        resolved_agent: None,
-        parent_run_id: None,
-        reached_by: None,
-        effective_run_config: None,
-        admitted_model_family: None,
-        admitted_provider_account_id: None,
-    })
+    lead_run_queued(
+        fixture.session_id,
+        RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+        AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id"),
+        test_provider_account_id(),
+        None,
+    )
 }
 
 fn summary_id(summary: &QueueItemSummary) -> QueueItemId {

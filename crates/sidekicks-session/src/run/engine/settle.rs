@@ -24,7 +24,7 @@ use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::wire::True;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::bound_failure_detail;
+use sidekicks_provider::driver::contract::error::bound_failure_detail;
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_provider::run::turn_end::TurnOutcome;
 use sidekicks_store::database::connection::read_pool::ReadLength;

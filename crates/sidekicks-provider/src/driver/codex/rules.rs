@@ -181,11 +181,9 @@ struct RuleFileText {
     is_project: bool,
 }
 
-/// The project rule files the daemon edits on the person's own Codex folder: a rule an answer made
-/// written into a project, and a revoked one taken back out.
+/// The project rule files the daemon edits: a rule an answer made written into a project, and a
+/// revoked one taken back out, each read beside the rules of the Codex home the session runs on.
 pub(crate) struct CodexProjectRuleFiles {
-    /// The person's own Codex folder, whose rules Codex reads before a project's.
-    pub(crate) codex_home: PathBuf,
     /// The person's home folder.
     pub(crate) home_folder: PathBuf,
     /// The daemon's reads of the repository a project folder belongs to.
@@ -193,26 +191,32 @@ pub(crate) struct CodexProjectRuleFiles {
 }
 
 impl CodexProjectRuleFiles {
-    /// Takes a revoked `rule` back out of `project_folder`'s own rule file; a rule the file no
-    /// longer holds is already out of force. Fails as [`remove_codex_project_rule`] does otherwise.
+    /// Takes a revoked `rule` back out of `project_folder`'s own rule file, read beside the rules
+    /// of `codex_home`, the session's; a rule the file no longer holds is already out of force.
+    /// Fails as [`remove_codex_project_rule`] does otherwise.
     pub(crate) async fn revoke(
         &self,
+        codex_home: &Path,
         project_folder: &Path,
         rule: &ProviderAskRule,
     ) -> Result<(), CodexRulesError> {
-        match remove_codex_project_rule(&self.sources(project_folder), rule).await {
+        match remove_codex_project_rule(&self.sources(codex_home, project_folder), rule).await {
             Err(CodexRulesError::RuleNotFound) => Ok(()),
             removed => removed,
         }
     }
 
-    // Where Codex reads the rules of `project_folder`'s sessions. The project's own files count
-    // only where Codex trusts it, which no read tells; they are read as trusted, so a rule another
-    // of them keeps is never reported gone.
-    fn sources<'a>(&'a self, project_folder: &'a Path) -> CodexRuleSources<'a> {
+    // Where Codex reads the rules of `project_folder`'s sessions on `codex_home`. The project's own
+    // files count only where Codex trusts it, which no read tells; they are read as trusted, so a
+    // rule another of them keeps is never reported gone.
+    fn sources<'a>(
+        &'a self,
+        codex_home: &'a Path,
+        project_folder: &'a Path,
+    ) -> CodexRuleSources<'a> {
         CodexRuleSources {
             system_folder: &SYSTEM_FOLDER,
-            codex_home: &self.codex_home,
+            codex_home,
             home_folder: &self.home_folder,
             project_folder,
             is_project_trusted: true,
@@ -232,6 +236,7 @@ static SYSTEM_FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
 impl CodexProjectRules for CodexProjectRuleFiles {
     fn write<'call>(
         &'call self,
+        codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
@@ -242,7 +247,7 @@ impl CodexProjectRules for CodexProjectRuleFiles {
             };
             let common_git_folder = repository.map(|reading| reading.common_git_folder);
             write_codex_project_rule(
-                &self.sources(project_folder),
+                &self.sources(codex_home, project_folder),
                 common_git_folder.as_deref(),
                 rule,
             )
@@ -253,10 +258,14 @@ impl CodexProjectRules for CodexProjectRuleFiles {
 
     fn remove<'call>(
         &'call self,
+        codex_home: &'call Path,
         project_folder: &'call Path,
         rule: &'call ProviderAskRule,
     ) -> BoxFuture<'call, Result<(), CodexRulesError>> {
-        async move { remove_codex_project_rule(&self.sources(project_folder), rule).await }.boxed()
+        async move {
+            remove_codex_project_rule(&self.sources(codex_home, project_folder), rule).await
+        }
+        .boxed()
     }
 }
 

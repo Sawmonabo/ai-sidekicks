@@ -24,7 +24,7 @@ use crate::driver::claude::session::process::{
     ClaudeCodeProcess, ClaudeProcessLaunch, ClaudeProcessListener, ClaudeTurnHolds,
 };
 use crate::driver::claude::session::rules::ClaudeRulesError;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::process_registry::ProviderProcessRegistry;
 
 /// The data folder's folder a process that keeps nothing runs in: empty, so Claude Code reads no

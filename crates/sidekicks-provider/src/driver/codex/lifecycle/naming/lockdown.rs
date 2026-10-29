@@ -69,7 +69,7 @@ pub(super) fn compose_title_overrides(server_names: &[String]) -> Vec<(String, V
 }
 
 /// The `-c` arguments that set `overrides` on `codex`, each value written by TOML's own writer.
-pub(super) fn write_exec_overrides(overrides: Vec<(String, Value)>) -> Vec<String> {
+pub(crate) fn write_exec_overrides(overrides: Vec<(String, Value)>) -> Vec<String> {
     overrides
         .into_iter()
         .flat_map(|(key, value)| {

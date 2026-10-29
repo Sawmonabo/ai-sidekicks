@@ -405,7 +405,7 @@ CREATE INDEX idx_runtime_bindings_run ON runtime_bindings(run_id);
 CREATE TABLE left_conversations (
   session_id           TEXT NOT NULL,
   provider_name          TEXT NOT NULL,           -- 'claude' or 'codex'
-  provider_account_id  TEXT,                    -- NULL on the machine's default home
+  provider_account_id  TEXT NOT NULL,           -- the account the conversation ran on
   conversation_id      TEXT NOT NULL            -- provider-owned, bounded as resume_handle is
                        CHECK (length(conversation_id) > 0 AND length(conversation_id) <= 4096 AND instr(conversation_id, char(0)) = 0),
   left_at              TEXT NOT NULL,
@@ -481,6 +481,38 @@ CREATE TABLE driver_contract_meta (
 The build-metadata rejection above is grounded in the SemVer specification itself: per [Semantic Versioning 2.0.0 §10](https://semver.org/#spec-item-10), "Build metadata MUST be ignored when determining version precedence. Thus two versions that differ only in the build metadata, have the same precedence." Because `1.2.3+build.5` and `1.2.3+build.6` denote the SAME contract version under that precedence rule, persisting them as byte-distinct `contract_version` strings would let a non-change masquerade as a change. The shared write-path garde check (`assertValidContractVersion`, invoked from both the T2.2 `runtime_bindings` and T2.4 `driver_contract_meta` write paths) therefore REJECTS — rather than strips/normalizes — any value carrying build metadata, keeping the stored value byte-identical to what was validated and both `contract_version` columns canonical-identifying.
 
 **Cloud tasks.** `cloud_tasks` holds one row per task a session sent to its provider's own cloud (`cloud.task.start`), read by `cloud.task.subscribe` and `cloud.task.read`. Each row belongs to its session and records the task's state exactly as the provider last reported it, never a state the daemon inferred: on Codex `pending`, `ready`, `applied` or `error`, and on Claude Code `submitted` for the task's whole life, because Claude Code's command line reports no later state. Each row also keeps the task's environment label, from which [Plan-003](../../plans/003-provider-driver-contract-and-capabilities.md) T3.31 reads the project's last Codex environment back. [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) owns the row's columns.
+
+**Compaction calibrations.** `compaction_calibrations` holds, for each provider build, model and context window, the token count at which the provider compacts a conversation, as the daemon's calibration run measured it ([Plan-010](../../plans/010-transcript-and-reasoning.md) T3.7). The context ring's top stop reads it; where no row exists the stop falls back to the design's buffer. Each row names the digest of the model catalog it was measured against, and a row is read only for the build's version and the catalog's current digest, so a build or a catalog that changed, the daemon's own downtime included, is measured again before its stop is read; the new measurement replaces the row.
+
+```sql
+-- One row per provider build, model and window; the version is the build's own printed text.
+CREATE TABLE compaction_calibrations (
+  provider                 TEXT NOT NULL,
+  provider_version         TEXT NOT NULL,
+  model_id                 TEXT NOT NULL,
+  window_tokens            INTEGER NOT NULL CHECK (window_tokens >= 1),
+  catalog_digest           TEXT NOT NULL,
+  compaction_limit_tokens  INTEGER NOT NULL CHECK (compaction_limit_tokens >= 1),
+  measured_at              TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_version, model_id, window_tokens)
+) STRICT;
+```
+
+**Kept schedules.** `session_kept_schedules` holds, for each session, the timed fires its provider keeps as the provider last reported them: a one-shot wake-up or job by the instant it fires, a recurring job by its five-field schedule in local time and its next run where the provider gave one ([Plan-001](../../plans/001-session-core.md) T6.12). The list is replaced whole at each change. The daemon's start reads it, so a sleeping session is woken on its schedule after a restart; a session's purge deletes its rows.
+
+```sql
+-- One row per kept fire; exactly one of fires_at and cron is set.
+CREATE TABLE session_kept_schedules (
+  session_id    TEXT NOT NULL,
+  position      INTEGER NOT NULL CHECK (position >= 0),
+  fires_at      TEXT,
+  cron          TEXT,
+  next_fire_at  TEXT,
+  CHECK ((fires_at IS NULL) <> (cron IS NULL)),
+  CHECK (cron IS NOT NULL OR next_fire_at IS NULL),
+  PRIMARY KEY (session_id, position)
+) STRICT;
+```
 
 ---
 

@@ -19,7 +19,7 @@ use sidekicks_contracts::run::intervention::{
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_provider::driver::contract::DriverError;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::run_control::{InterruptPayload, InterruptPendingChoice};
 use sidekicks_std::bounded_wait::wait_within;
 use tokio::sync::oneshot;

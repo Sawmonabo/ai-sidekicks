@@ -401,11 +401,14 @@ unstamped_rows! {
 }
 
 /// A row about the session as a whole, on no binding: a side question's answer, which never
-/// enters the conversation, and a change of the session's own advisor or output style.
+/// enters the conversation, and its usage, which no run counts, and a change of the session's own
+/// advisor or output style.
 #[derive(Debug)]
 pub enum SessionScopedRow {
     /// `session.sideQuestion.answered`.
     SideQuestionAnswered(SessionSideQuestionAnsweredPayload),
+    /// `usage.tokenCount.recorded` of a side question, naming no run.
+    UsageTokenCountRecorded(UsageTokenCountRecordedPayload),
     /// `session.advisor.changed`.
     AdvisorChanged(SessionAdvisorChangedPayload),
     /// `session.outputStyle.changed`.
@@ -419,6 +422,10 @@ impl SessionScopedRow {
             Self::SideQuestionAnswered(payload) => (
                 payload.session_id,
                 SessionEvent::SessionSideQuestionAnswered(payload),
+            ),
+            Self::UsageTokenCountRecorded(payload) => (
+                payload.session_id,
+                SessionEvent::UsageTokenCountRecorded(payload),
             ),
             Self::AdvisorChanged(payload) => (
                 payload.session_id,
@@ -452,13 +459,17 @@ impl MachineScopedRow {
     }
 }
 
-/// Stamps a payload's source pair with `source` and answers the pair it took. Epochs are run-local,
-/// so a stamp on a row that names no run fails that row's draft.
+/// Stamps a payload's source pair with `source` and answers the pair it took; a payload that
+/// carries its own pair, where its provider named the turn it belongs to, keeps it. Epochs are
+/// run-local, so a stamp on a row that names no run fails that row's draft.
 pub fn stamp(
     source_epoch: &mut Option<SourceEpoch>,
     source_position: &mut Option<SourcePosition>,
     source: Option<EpochPosition>,
 ) -> Option<EpochPosition> {
+    if let (Some(epoch), Some(position)) = (*source_epoch, *source_position) {
+        return Some(EpochPosition { epoch, position });
+    }
     let source = source?;
     *source_epoch = Some(source.epoch);
     *source_position = Some(source.position);

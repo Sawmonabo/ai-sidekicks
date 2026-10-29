@@ -29,7 +29,8 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
+use sidekicks_provider::driver::contract::MockProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::error_causes::unanswered;
 use sidekicks_provider::driver::message_handing::MessageHanding;
 use sidekicks_provider::driver::run_control::{AnswerProviderChoiceResult, WaitingMessage};
@@ -598,6 +599,7 @@ async fn a_limit_owed_through_a_choice_is_handed_once_the_answer_returns_the_run
         )),
         Arc::clone(&harness.engine),
         Arc::clone(&harness.service.providers),
+        Arc::clone(harness.engine.held_choice_answers()),
     );
 
     resolver

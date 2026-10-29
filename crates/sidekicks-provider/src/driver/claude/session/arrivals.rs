@@ -8,6 +8,7 @@
 pub(crate) mod task;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+
 use std::sync::{Arc, Mutex};
 
 use futures::FutureExt;
@@ -109,8 +110,8 @@ pub(crate) enum ClaudeOwnDelivery {
 pub(crate) struct ClaudeDeliveryPlace {
     /// The session whose task it is.
     session_id: SessionId,
-    /// The account the session's process runs on; `None` on the machine's own home.
-    provider_account_id: Option<ProviderAccountId>,
+    /// The account the session's process runs on.
+    provider_account_id: ProviderAccountId,
 }
 
 impl ClaudeDeliveryPlace {
@@ -133,7 +134,7 @@ pub(crate) fn deliver_in_session_order<'dispatch>(
     if let Ok(place) = CLAUDE_DELIVERY_PLACE.try_with(Clone::clone)
         && place.session_id == session_id
     {
-        let origin = claude_delivery_origin(place.provider_account_id, None);
+        let origin = claude_delivery_origin(Some(place.provider_account_id), None);
         return dispatch_delivery(dispatch, origin, delivery).boxed();
     }
     match streams.get(session_id) {
@@ -274,7 +275,7 @@ pub(crate) trait ClaudeSessionArrivalHandler: Send {
 pub(crate) async fn drain_claude_session_arrivals(
     mut receiver: ClaudeArrivalReceiver,
     handler: &mut impl ClaudeSessionArrivalHandler,
-    provider_account_id: Option<ProviderAccountId>,
+    provider_account_id: ProviderAccountId,
 ) {
     let place = ClaudeDeliveryPlace {
         session_id: receiver.session_id,
@@ -324,9 +325,9 @@ pub(crate) struct ClaudeSessionListener {
     routing: Arc<ClaudeFrameRouting>,
     stream: Arc<ClaudeSessionStream>,
     arrivals: ClaudeArrivalSender,
-    // The reader's verdict on the lead `result` it is reading, so the queued frame carries the
-    // same verdict the turn's hold was released on.
-    turn_ending: Mutex<Option<bool>>,
+    // The reader's verdict on the lead `result` it is reading and the run that held the turn
+    // before the reader released it, so the queued frame carries the same verdict and run.
+    turn_ending: Mutex<Option<(bool, Option<ClaudeBoundRun>)>>,
 }
 
 impl ClaudeSessionListener {
@@ -365,9 +366,16 @@ impl ClaudeProcessListener for ClaudeSessionListener {
         let is_lead_result = frame.observation.subagent_id.is_none()
             && is_claude_result_frame_kind(&frame.observation.frame_kind);
         let decided = lock(&self.turn_ending).take();
-        let is_turn_ending =
-            is_lead_result && decided.unwrap_or_else(|| self.stream.is_turn_ending(&frame.text));
-        let turn_at_read = self.stream.turn_at_read();
+        let is_turn_ending = is_lead_result
+            && decided.as_ref().map_or_else(
+                || self.stream.is_turn_ending(&frame.text),
+                |(is_ending, _)| *is_ending,
+            );
+        let mut turn_at_read = self.stream.turn_at_read();
+        // A turn the reader released for this `result` was the lead's when the frame was read.
+        if let Some((_, lead_before_release)) = decided {
+            turn_at_read.lead = turn_at_read.lead.or(lead_before_release);
+        }
         self.arrivals
             .push(ClaudeSessionArrival::Frame(Box::new(ClaudeRoutedFrame {
                 frame,
@@ -389,8 +397,9 @@ impl ClaudeProcessListener for ClaudeSessionListener {
     }
 
     fn is_turn_ending(&self, frame: &ClaudeStreamFrame) -> bool {
+        let lead = self.stream.turn_at_read().lead;
         let is_turn_ending = self.stream.is_turn_ending(&frame.text);
-        *lock(&self.turn_ending) = Some(is_turn_ending);
+        *lock(&self.turn_ending) = Some((is_turn_ending, lead));
         is_turn_ending
     }
 }
@@ -414,6 +423,7 @@ mod tests {
     use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEvent;
     use crate::driver::test_registry::new_session_id;
     use crate::run::delivery::InboundDelivery;
+    use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::thread_frame_router::ThreadFrameRoute;
 
     // Names each arrival as it is handled; a frame takes a second, so an arrival dispatched beside
@@ -467,6 +477,7 @@ mod tests {
             routed: ClaudeRoutedObservation {
                 route: ThreadFrameRoute::Project,
                 helper_lifecycle: Vec::new(),
+                metered: Vec::new(),
                 settled_output_speed: None,
             },
             is_turn_ending: false,
@@ -493,7 +504,7 @@ mod tests {
         drop(sender);
 
         let mut log = ArrivalLog::default();
-        drain_claude_session_arrivals(receiver, &mut log, None).await;
+        drain_claude_session_arrivals(receiver, &mut log, test_provider_account_id()).await;
 
         assert_eq!(dispatched.await, None);
         assert_eq!(

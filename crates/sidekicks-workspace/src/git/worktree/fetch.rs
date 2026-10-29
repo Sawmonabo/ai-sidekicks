@@ -45,22 +45,13 @@ use tokio_util::sync::CancellationToken;
 use crate::clone::progress::GitProgressReader;
 use crate::clone::streamed_git::run_streamed_git;
 use crate::git::process::{
-    CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner, background_read,
-    in_folder,
+    CONFIG_UNSET_EXIT_CODE, GIT_COMMAND_TIMEOUT, GitCall, GitError, GitRunner,
+    NO_PROMPT_ENVIRONMENT, background_read, in_folder,
 };
 
 /// How long after one fetch of a repository ends the next begins: often enough that the figures a
 /// person reads are minutes old at most, rarely enough that a remote is asked a few times an hour.
 const BACKGROUND_FETCH_INTERVAL: Duration = Duration::from_secs(180);
-
-// No credential helper window and no askpass program on a timer; the runner already turns off
-// git's own terminal prompt. An empty `GIT_ASKPASS` stops git's fall back to `core.askPass` and
-// `SSH_ASKPASS`.
-const NO_PROMPT_ENVIRONMENT: [(&str, &str); 3] = [
-    ("GIT_ASKPASS", ""),
-    ("GCM_INTERACTIVE", "never"),
-    ("SSH_ASKPASS_REQUIRE", "never"),
-];
 
 // The settings that keep a remote out of `git fetch --all`, read as booleans in one listing.
 const SKIPPED_REMOTE_SETTINGS: &str = "^remote\\..*\\.(skipfetchall|skipdefaultupdate)$";

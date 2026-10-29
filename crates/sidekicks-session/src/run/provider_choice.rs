@@ -4,11 +4,11 @@
 //! on the choice, the answer goes to the provider before anything is written, and the settlement
 //! row and the run's move commit in one write, guarded so a second settlement of the same request
 //! is refused whole. An answer the provider got with no reply back is held, the run left waiting,
-//! until the provider's report on the run or its answer to a second one shows what it did.
+//! until the provider's report on the run or its answer to a second one shows what it did; one
+//! whose report moved the run without it settles as its settlement event alone.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::Arc;
 
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
@@ -23,45 +23,43 @@ use sidekicks_contracts::run::provider_choice::{
     AgentRunRefusalChoiceRequestedPayload, AgentRunRefusalChoiceResolveRequest,
     AgentRunRefusalChoiceResolvedPayload, AgentRunUsageCreditsChoiceResolveRequest,
     AgentRunUsageCreditsChoiceResolvedPayload, RunRefusalChoice, RunRefusalChoiceSettlement,
-    RunRefusalChoiceUnanswered, RunUsageCreditsChoiceSettlement, RunUsageCreditsChoiceUnanswered,
+    RunUsageCreditsChoiceSettlement,
 };
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_provider::driver::contract::{DriverError, ProviderDriver};
+use sidekicks_provider::driver::contract::ProviderDriver;
+use sidekicks_provider::driver::contract::error::DriverError;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ProviderChoiceAnswer,
 };
 use sidekicks_provider::run::state_entry::RunStateEntry;
 use sidekicks_std::keyed_lock::KeyedLock;
-use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::session_scope::SessionScopedSql;
 use sidekicks_store::database::statement::{
     StatementBindings, WriteStatement, named_bindings, text_binding,
 };
-use sidekicks_store::events::session::appender::{
-    SessionEventAppender, SessionEventDraft, SessionEventDraftError, SessionEventLinkage,
-};
+use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventDraftError};
 
 use crate::driver_resolution::{LiveRunDriverError, resolve_live_run_driver};
 use crate::run::engine::{RunEngine, RunEngineError};
 use crate::run::pause::run_control_response;
-use crate::run::read::{
-    RunRead, RunStateReader, SessionRun, read_run_provider, read_run_through, session_run_of_row,
-};
+use crate::run::read::{RunRead, RunStateReader, read_run_provider, read_run_through};
 use crate::run::refusals::RunRefusal;
 use crate::run::state_change::{
     RunStateChange, RunStateChangeCompanions, RunStateChangeError, refused_statement_index,
 };
-use crate::run::transitions::RUN_TERMINAL_STATES_SQL;
 
+pub mod held;
+pub mod run_end;
 #[cfg(test)]
 mod tests;
+
+use held::{HeldAnswer, HeldChoiceAnswers};
 
 /// The statements [`ProviderChoiceResolver`] prepares on a read connection: the run, the provider
 /// it runs on, the newest request of a choice and a settlement since it.
@@ -69,6 +67,9 @@ pub const PROVIDER_CHOICE_STATEMENT_CAPACITY: usize = 4;
 
 // The settlement guard is the one companion of a settlement's move, terminal or not.
 const SETTLEMENT_GUARD_COMPANION_INDEX: usize = 0;
+
+// The settlement guard is the one statement of a settlement written alone.
+const SETTLEMENT_GUARD_INDEX: usize = 0;
 
 // The newest request of one kind of choice on a run; it reads `idx_session_events_run`.
 const SELECT_LATEST_REQUEST_SQL: &str = "SELECT sequence, payload FROM session_events
@@ -86,40 +87,6 @@ const SELECT_SETTLEMENT_SINCE_SQL: &str = "SELECT 1 FROM session_events
     AND run_id = @run_id
     AND sequence > @requested_sequence
   LIMIT 1";
-
-// Every ended run holding a choice requested and never settled, with its session: a request with
-// no settlement of its kind after it.
-static SELECT_ENDED_RUNS_WITH_OPEN_CHOICES_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
-    let [refusal, usage_credits] =
-        [ChoiceDialog::Refusal, ChoiceDialog::UsageCredits].map(|dialog| {
-            (
-                dialog.requested_type().as_str(),
-                dialog.resolved_type().as_str(),
-            )
-        });
-    SessionScopedSql::new("runs.session_id", |session_condition| {
-        format!(
-            "SELECT DISTINCT runs.run_id, runs.session_id
-  FROM runs JOIN session_events AS requested ON requested.run_id = runs.run_id
-  WHERE runs.state IN ({terminal_states})
-    AND requested.type IN ('{refusal_requested}', '{usage_credits_requested}')
-    AND NOT EXISTS (
-      SELECT 1 FROM session_events AS resolved
-       WHERE resolved.session_id = requested.session_id
-         AND resolved.type = CASE requested.type
-               WHEN '{refusal_requested}' THEN '{refusal_resolved}'
-               ELSE '{usage_credits_resolved}' END
-         AND resolved.run_id = requested.run_id
-         AND resolved.sequence > requested.sequence)
-    {session_condition}",
-            terminal_states = *RUN_TERMINAL_STATES_SQL,
-            refusal_requested = refusal.0,
-            refusal_resolved = refusal.1,
-            usage_credits_requested = usage_credits.0,
-            usage_credits_resolved = usage_credits.1,
-        )
-    })
-});
 
 /// Who answered a choice: the device of the connection the answer arrived on.
 #[derive(Clone, Debug)]
@@ -231,17 +198,6 @@ struct PendingChoice {
     payload: String,
 }
 
-// An answer the provider got with no reply back, with the settlement it writes once the provider
-// shows it took it: the move, the request it settles and its event.
-struct HeldAnswer {
-    answer: ProviderChoiceAnswer,
-    change: RunStateChange,
-    session_id: SessionId,
-    dialog: ChoiceDialog,
-    pending: PendingChoice,
-    settlement: SessionEvent,
-}
-
 // A run waiting on a choice, the choice, and the provider the run runs on.
 struct WaitingRun {
     run: RunRead,
@@ -256,26 +212,25 @@ pub struct ProviderChoiceResolver {
     engine: Arc<RunEngine>,
     providers: Arc<ProviderRegistry>,
     run_lock: KeyedLock<RunId>,
-    // Each run's answer the provider got with no reply back, until its settle; never locked
-    // across an await. No holder panics while it changes the map, so a poisoned lock still guards
-    // a whole map.
-    held_answers: Mutex<HashMap<RunId, HeldAnswer>>,
+    held_answers: Arc<HeldChoiceAnswers>,
 }
 
 impl ProviderChoiceResolver {
-    /// A resolver reading runs and their log through `pool`, moving them through `engine` and
-    /// reaching each run's provider through its driver in `providers`.
+    /// A resolver reading runs and their log through `pool`, moving them through `engine`,
+    /// reaching each run's provider through its driver in `providers` and holding each answer that
+    /// got no reply back in `held_answers`, the store `engine`'s run ends read.
     pub fn new(
         pool: Arc<DatabaseReadPool>,
         engine: Arc<RunEngine>,
         providers: Arc<ProviderRegistry>,
+        held_answers: Arc<HeldChoiceAnswers>,
     ) -> Self {
         Self {
             pool,
             engine,
             providers,
             run_lock: KeyedLock::new(),
-            held_answers: Mutex::new(HashMap::new()),
+            held_answers,
         }
     }
 
@@ -295,6 +250,7 @@ impl ProviderChoiceResolver {
         let run_id = request.run_id;
         let choice = request.choice;
         let _run_hold = self.run_lock.acquire(run_id).await;
+        self.forget_answers_of_ended_runs().await?;
         let new_state = match choice {
             RunRefusalChoice::RetryFallback => RunStateChangeState::Running,
             RunRefusalChoice::EditPrompt => RunStateChangeState::Failed,
@@ -348,6 +304,7 @@ impl ProviderChoiceResolver {
         let answer = HeldAnswer {
             answer: ProviderChoiceAnswer::Refusal { choice },
             change,
+            is_move_made: false,
             session_id: run.session_id,
             dialog: ChoiceDialog::Refusal,
             pending,
@@ -368,6 +325,7 @@ impl ProviderChoiceResolver {
         let run_id = request.run_id;
         let choice = request.choice;
         let _run_hold = self.run_lock.acquire(run_id).await;
+        self.forget_answers_of_ended_runs().await?;
         let new_state = RunStateChangeState::Running;
         let WaitingRun {
             run,
@@ -397,6 +355,7 @@ impl ProviderChoiceResolver {
         let answer = HeldAnswer {
             answer: ProviderChoiceAnswer::UsageCredits { choice },
             change,
+            is_move_made: false,
             session_id: run.session_id,
             dialog: ChoiceDialog::UsageCredits,
             pending,
@@ -409,28 +368,32 @@ impl ProviderChoiceResolver {
     /// reports the run in `reported`: called before that report is applied, so the answer's
     /// settlement and move are written first and the report, a move the run already made, is
     /// refused. A report that the run still waits on input keeps the answer held, and a run the
-    /// provider ended drops an answer that would have returned it to `running`. A driver's own
-    /// signal that the provider resolved the choice settles the held answer the same way. Answers
-    /// whether it wrote the settlement; fails as the settlement's write fails.
-    #[cfg_attr(not(test), expect(dead_code, reason = "the provider's event delivery"))]
+    /// provider ended drops an answer that would have returned it to `running`. An answer whose
+    /// run a report already moved settles at any report as its event alone, the provider having
+    /// shown it took it. A driver's own signal that the provider resolved the choice settles the
+    /// held answer the same way. Answers whether it wrote the settlement; fails as the
+    /// settlement's write fails, the answer held again for the next report or answer to settle.
     pub(crate) async fn settle_held_answer(
         &self,
         run_id: RunId,
         reported: RunState,
     ) -> Result<bool, ProviderChoiceError> {
         let _run_hold = self.run_lock.acquire(run_id).await;
-        if reported == RunState::WaitingForInput {
-            return Ok(false);
-        }
-        let Some(held) = self.take_held(run_id) else {
+        let Some(held) = self.held_answers.take(run_id) else {
             return Ok(false);
         };
-        if reported.is_terminal() && !RunState::from(held.change.entry.state()).is_terminal() {
-            tracing::info!(
-                run_id = %run_id,
-                "the provider ended the run before showing it took the answer to its choice"
-            );
-            return Ok(false);
+        if !held.is_move_made {
+            if reported == RunState::WaitingForInput {
+                self.held_answers.hold_again(held);
+                return Ok(false);
+            }
+            if reported.is_terminal() && !RunState::from(held.change.entry.state()).is_terminal() {
+                tracing::info!(
+                    run_id = %run_id,
+                    "the provider ended the run before showing it took the answer to its choice"
+                );
+                return Ok(false);
+            }
         }
         match self.settle_held(held).await {
             Ok(_settled) => Ok(true),
@@ -438,6 +401,12 @@ impl ProviderChoiceResolver {
             Err(ProviderChoiceError::Refused(RunRefusal::InvalidTransition { .. })) => Ok(false),
             Err(failure) => Err(failure),
         }
+    }
+
+    /// Leaves the answer held on `run_id`, if any, to settle as its settlement event alone, once a
+    /// report moved the run without the answer's move because the settle failed.
+    pub(crate) fn hold_answer_as_settlement_alone(&self, run_id: RunId) {
+        self.held_answers.mark_move_made(run_id);
     }
 
     // The run, the request it waits on and its provider, or the refusal of an answer that settles
@@ -500,12 +469,12 @@ impl ProviderChoiceResolver {
             .await;
         match answered {
             Ok(AnswerProviderChoiceResult::Answered {}) => {
-                drop(self.take_held(run_id));
+                drop(self.held_answers.take(run_id));
                 self.settle_held(answer).await
             }
             Ok(AnswerProviderChoiceResult::NotPending {}) => {
                 let to_state = answer.change.entry.state();
-                let Some(earlier) = self.take_held(run_id) else {
+                let Some(earlier) = self.held_answers.take(run_id) else {
                     return Err(RunRefusal::InvalidTransition {
                         run_id,
                         from_state: run.state,
@@ -530,33 +499,69 @@ impl ProviderChoiceResolver {
             Err(unanswered @ DriverError::Unanswered(_)) => {
                 // The first answer held stays held: the provider may have taken it, and its word
                 // settles whichever it took.
-                lock(&self.held_answers).entry(run_id).or_insert(answer);
+                self.held_answers.hold(answer);
                 Err(ProviderChoiceError::Driver(unanswered))
             }
             Err(failed) => Err(ProviderChoiceError::Driver(failed)),
         }
     }
 
-    // The answer held on `run_id`, taken out.
-    fn take_held(&self, run_id: RunId) -> Option<HeldAnswer> {
-        lock(&self.held_answers).remove(&run_id)
+    // Lets go every held answer whose run ended: the run's end wrote the settlement of one a report
+    // showed the provider took and settled the rest `Unanswered`, so nothing is left to write. A
+    // read that fails refuses the answer, as the answer's own read on the same pool would next.
+    async fn forget_answers_of_ended_runs(&self) -> Result<(), ProviderChoiceError> {
+        let held = self.held_answers.held_run_ids();
+        if held.is_empty() {
+            return Ok(());
+        }
+        let ended = self
+            .pool
+            .read(ReadLength::Short, move |reader| {
+                let runs = RunStateReader::new(reader);
+                let mut ended = Vec::new();
+                for run_id in held {
+                    if runs
+                        .read_run(&run_id)?
+                        .is_none_or(|run| run.state.is_terminal())
+                    {
+                        ended.push(run_id);
+                    }
+                }
+                Ok::<_, ProviderChoiceError>(ended)
+            })
+            .await?;
+        self.held_answers.forget_ended(&ended);
+        Ok(())
     }
 
-    // Writes the settlement `held` carries.
+    // Writes the settlement `held` carries. A write that fails for any reason but the choice
+    // settled since holds the answer again, the provider having taken it, so the next report or
+    // answer settles it; one held meanwhile defers to it.
     async fn settle_held(
         &self,
         held: HeldAnswer,
     ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
-        let HeldAnswer {
-            change,
-            session_id,
-            dialog,
-            pending,
-            settlement,
-            ..
-        } = held;
-        self.settle(change, session_id, dialog, &pending, &settlement)
+        let settled = if held.is_move_made {
+            self.settle_alone(&held).await
+        } else {
+            self.settle(
+                held.change.clone(),
+                held.session_id,
+                held.dialog,
+                &held.pending,
+                &held.settlement,
+            )
             .await
+        };
+        if let Err(failure) = &settled
+            && !matches!(
+                failure,
+                ProviderChoiceError::Refused(RunRefusal::InvalidTransition { .. })
+            )
+        {
+            self.held_answers.hold_again(held);
+        }
+        settled
     }
 
     // The settlement row and the run's move in one write, refused whole when the request was
@@ -595,126 +600,49 @@ impl ProviderChoiceResolver {
             Err(other) => Err(other.into()),
         }
     }
-}
 
-/// The settle of one choice a run's end let go: the guard that no settlement followed its request
-/// since it was read, and the settlement's event.
-pub(crate) struct OpenChoiceSettlement {
-    /// Refuses the write once a settlement followed the request.
-    pub(crate) guard: WriteStatement,
-    /// The `*.resolved` event that settles it.
-    pub(crate) event: SessionEventDraft,
-}
-
-/// The settle of each choice of `run_id`, a run of `session_id`, still unsettled when the run ends
-/// in `end`, read on `reader`, but those in `settled`, which the end's own write settles:
-/// `canceled` and `interrupted` for an interrupted end, `runEnded` for any other. Fails when the
-/// read fails or an event breaks a check of its type.
-pub(crate) fn read_open_choice_settlements(
-    reader: &Connection,
-    session_id: SessionId,
-    run_id: RunId,
-    end: RunState,
-    settled: &[ChoiceDialog],
-) -> Result<Vec<OpenChoiceSettlement>, RunEngineError> {
-    let is_interrupted = end == RunState::Interrupted;
-    let mut settlements = Vec::new();
-    for dialog in [ChoiceDialog::Refusal, ChoiceDialog::UsageCredits] {
-        if settled.contains(&dialog) {
-            continue;
-        }
-        let Some(pending) = latest_request(reader, session_id, run_id, dialog)? else {
-            continue;
-        };
-        if is_settled_since(reader, session_id, run_id, dialog, &pending)? {
-            continue;
-        }
-        let event = match dialog {
-            ChoiceDialog::Refusal => {
-                SessionEvent::AgentRunRefusalChoiceResolved(AgentRunRefusalChoiceResolvedPayload {
-                    session_id,
+    // The settlement row alone, under its guard, for an answer whose run a report already moved,
+    // and the run as it reads after; refused as `settle` refuses a request settled since.
+    async fn settle_alone(
+        &self,
+        held: &HeldAnswer,
+    ) -> Result<AgentRunControlResponse, ProviderChoiceError> {
+        let run_id = held.change.run_id;
+        let appended = self
+            .engine
+            .append(
+                SessionEventDraft::of_session(held.session_id, &held.settlement)?,
+                vec![settlement_guard(
+                    held.session_id,
                     run_id,
-                    choice: RunRefusalChoiceSettlement::Unanswered(if is_interrupted {
-                        RunRefusalChoiceUnanswered::Canceled
-                    } else {
-                        RunRefusalChoiceUnanswered::RunEnded
-                    }),
-                    device_id: None,
-                })
+                    held.dialog,
+                    &held.pending,
+                )],
+                Vec::new(),
+                None,
+            )
+            .await;
+        let refusal = match appended {
+            Ok(_receipt) => None,
+            Err(error) if refused_statement_index(&error) == Some(SETTLEMENT_GUARD_INDEX) => {
+                Some(error)
             }
-            ChoiceDialog::UsageCredits => SessionEvent::AgentRunUsageCreditsChoiceResolved(
-                AgentRunUsageCreditsChoiceResolvedPayload {
-                    session_id,
-                    run_id,
-                    choice: RunUsageCreditsChoiceSettlement::Unanswered(if is_interrupted {
-                        RunUsageCreditsChoiceUnanswered::Interrupted
-                    } else {
-                        RunUsageCreditsChoiceUnanswered::RunEnded
-                    }),
-                    device_id: None,
-                },
-            ),
+            Err(error) => return Err(RunEngineError::from(error).into()),
         };
-        settlements.push(OpenChoiceSettlement {
-            guard: settlement_guard(session_id, run_id, dialog, &pending),
-            event: SessionEventDraft::of_session(session_id, &event)?,
-        });
-    }
-    Ok(settlements)
-}
-
-/// Settles each choice `run_id` still holds unsettled once it reads ended, in one write through
-/// `appender`, read again once when one was settled since its read: for a request that committed
-/// after the run's end had read its open choices. A run still live is left to its own end. Fails
-/// as the reads or the write fail.
-pub async fn settle_open_choices_of_ended_run(
-    pool: &DatabaseReadPool,
-    appender: &SessionEventAppender,
-    run_id: RunId,
-) -> Result<(), RunEngineError> {
-    let mut is_read_again = false;
-    loop {
-        let settlements = pool
-            .read(ReadLength::Short, move |reader| {
-                let Some(run) = RunStateReader::new(reader)
-                    .read_run(&run_id)?
-                    .filter(|run| run.state.is_terminal())
-                else {
-                    return Ok::<_, RunEngineError>(Vec::new());
-                };
-                read_open_choice_settlements(reader, run.session_id, run_id, run.state, &[])
-            })
-            .await?;
-        let (guards, mut events): (Vec<_>, Vec<_>) = settlements
-            .into_iter()
-            .map(|settlement| (settlement.guard, settlement.event))
-            .unzip();
-        let Some(last) = events.pop() else {
-            return Ok(());
+        let Some(now) = read_run_through::<ProviderChoiceError>(&self.pool, run_id).await? else {
+            return Err(RunRefusal::NotFound { run_id }.into());
         };
-        let linkage = SessionEventLinkage {
-            transactional_prelude: guards,
-            preceding_events: events,
-            ..SessionEventLinkage::default()
-        };
-        match appender.append(last, linkage).await {
-            Ok(_receipt) => return Ok(()),
-            Err(error) if refused_statement_index(&error).is_some() && !is_read_again => {
-                is_read_again = true;
+        match refusal {
+            None => Ok(run_control_response(run_id, &now)),
+            Some(source) => Err(RunRefusal::InvalidTransition {
+                run_id,
+                from_state: now.state,
+                to_state: held.change.entry.state(),
+                source: Some(Box::new(source)),
             }
-            Err(error) => return Err(error.into()),
+            .into()),
         }
     }
-}
-
-/// The runs of `session_id`, or of every session when it is `None`, that have ended while a choice
-/// their provider asked is still unsettled, read on `reader`: one whose request committed after
-/// the run's end had read its open choices. Fails when the read fails or a stored id is not one.
-pub fn read_ended_runs_with_open_choices(
-    reader: &Connection,
-    session_id: Option<&SessionId>,
-) -> rusqlite::Result<Vec<SessionRun>> {
-    SELECT_ENDED_RUNS_WITH_OPEN_CHOICES_SQL.query(reader, session_id, session_run_of_row)
 }
 
 // The newest request of `dialog`'s choice on the run, if the log holds one.

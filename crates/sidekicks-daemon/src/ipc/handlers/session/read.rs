@@ -128,6 +128,7 @@ mod tests {
     use serde_json::{Value, json};
     use sidekicks_contracts::method::Method as _;
     use sidekicks_contracts::place::{Place, WindowsPlace};
+    use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::draft::{SessionAttachmentSummary, SessionDraftUpdate};
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::session::methods::SessionRead;
@@ -197,6 +198,7 @@ mod tests {
             Arc::new(SessionService::new(
                 reads,
                 Arc::new(|_session_id: &SessionId| None),
+                Arc::new(|_: &ProviderId| None),
             )),
             drafts,
             Arc::new(NoStagedAttachments),

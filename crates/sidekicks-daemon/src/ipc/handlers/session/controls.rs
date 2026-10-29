@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use futures::FutureExt as _;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::jsonrpc::streaming::{SubscribeAcknowledgmentResponse, SubscriptionId};
 use sidekicks_contracts::provider::driver::commands::{
     ProviderCommandEntry, ProviderCommandListResponse,
@@ -24,6 +25,7 @@ use sidekicks_contracts::session::controls::methods::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::text::ComposedText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
@@ -35,6 +37,7 @@ use sidekicks_provider::driver::session_control::{
     AskSideQuestionParams, SubscribeProviderCommandsParams,
 };
 use sidekicks_queue::provider_session::ProviderSessions;
+use sidekicks_queue::provider_session::controls::SideQuestionSource;
 use sidekicks_queue::service::RunQueue;
 use sidekicks_session::driver_resolution::read_session_driver;
 
@@ -147,18 +150,27 @@ async fn ask_side_question(
         question,
     } = request;
     let (_, driver) = resolve_driver(&methods.sources, session_id).await?;
-    let resume = methods
+    // A session that never ran has no conversation to ask about, and no binding to record on.
+    let Some(SideQuestionSource { binding_id, resume }) = methods
         .provider_sessions
-        .side_question_resume(session_id)
-        .await?;
+        .side_question_source(session_id)
+        .await?
+    else {
+        return Err(DomainError::new(
+            "The session has no conversation to ask about yet",
+            RefusalCode::SessionSideQuestionRefused,
+        )
+        .into());
+    };
     let side_question_id =
         SideQuestionId::try_from(mint_uuid_v7()).expect("a minted UUID is a side question id");
     driver
         .ask_side_question(AskSideQuestionParams {
             session_id,
+            binding_id,
             side_question_id,
             question: question.0.into_string(),
-            resume,
+            resume: Some(resume),
         })
         .await?;
     Ok(SessionSideQuestionAskResponse {

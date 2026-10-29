@@ -2,8 +2,10 @@
 //! read back as JSON, and what the service sends written in.
 
 use futures::future::BoxFuture;
+#[cfg(test)]
 use serde_json::Value;
 use tokio::sync::mpsc;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Bytes;
 
 use crate::driver::codex::session::errors::CodexError;
@@ -14,6 +16,13 @@ use crate::driver::codex::transport::socket::CodexSocketEvent;
 
 /// The connection's socket as a test drives it: what the connection sent arrives on `sent`, and
 /// what the service sends goes in through `inbound`.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "the daemon's restart test reads and answers what the service sent"
+    )
+)]
 pub(crate) struct ScriptedService {
     /// What the connection sent, in order.
     pub(crate) sent: mpsc::UnboundedReceiver<String>,
@@ -21,6 +30,7 @@ pub(crate) struct ScriptedService {
     inbound: mpsc::UnboundedSender<CodexSocketEvent>,
 }
 
+#[cfg(test)]
 impl ScriptedService {
     /// The next message the connection sent, as JSON; panics when the connection ended first.
     pub(crate) async fn next_sent(&mut self) -> Value {

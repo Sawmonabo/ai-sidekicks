@@ -8,6 +8,7 @@
 
 pub(super) mod background_terminals;
 pub(super) mod calls;
+pub(super) mod context_reading;
 pub(super) mod controls;
 pub(super) mod conversation_release;
 pub(super) mod detached_conversation;

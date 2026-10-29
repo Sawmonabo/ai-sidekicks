@@ -38,7 +38,7 @@ use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeFlagSettings, ClaudePermissionMode,
 };
 use crate::driver::claude::spawn::settings::compose_claude_sandbox_settings;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::session_control::{UpdatePermissionLevelParams, permission_level_not_offered};
 
@@ -75,6 +75,8 @@ pub(crate) struct ClaudeStartingLevelSources<'a> {
     pub(crate) project_folder: &'a ClaudeProjectFolder<'a>,
     /// The person's own home folder.
     pub(crate) home_folder: &'a Path,
+    /// The account home's own settings file, `settings.json` in its config folder.
+    pub(crate) account_settings_file: &'a Path,
     /// How the place the session runs in spells paths.
     pub(crate) path_rules: PathRules,
 }
@@ -96,7 +98,7 @@ impl From<ClaudeLevelMoveError> for DriverError {
     /// answer.
     fn from(error: ClaudeLevelMoveError) -> Self {
         match error {
-            ClaudeLevelMoveError::NotOffered(refusal) => Self::Refused(refusal),
+            ClaudeLevelMoveError::NotOffered(refusal) => Self::from(refusal),
             ClaudeLevelMoveError::Permissions(error) => error.into(),
         }
     }
@@ -230,10 +232,12 @@ pub(crate) async fn move_claude_permission_level(
                 permissions: Some(permissions),
                 // `null` removes the key from the flag-settings layer, so leaving Sandboxed turns
                 // the sandbox off.
-                sandbox: Some(
-                    (level == PermissionLevel::Sandboxed)
-                        .then(|| compose_claude_sandbox_settings(posture.writable_roots())),
-                ),
+                sandbox: Some((level == PermissionLevel::Sandboxed).then(|| {
+                    compose_claude_sandbox_settings(
+                        posture.writable_roots(),
+                        live.spawn_bound_legs.command_channel.as_deref(),
+                    )
+                })),
                 ..ClaudeFlagSettings::default()
             },
         })
@@ -303,7 +307,7 @@ pub(crate) async fn read_claude_starting_level(
     ));
     files.push((
         ClaudeSettingsSource::Person,
-        settings_path(sources.home_folder, CLAUDE_SHARED_SETTINGS_FILE),
+        sources.account_settings_file.to_path_buf(),
     ));
     for (source, file) in files {
         let settings = read_claude_settings_file(&file).await.map_err(|failure| {

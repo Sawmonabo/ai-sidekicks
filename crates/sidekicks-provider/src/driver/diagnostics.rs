@@ -145,6 +145,9 @@ pub enum DriverDiagnosticKind {
     /// The provider cut a response short after some of its blocks were streamed: what still
     /// waited is dropped, and the pieces already stored stay.
     StreamedBlocksAbandoned,
+    /// A session's inbox could not be bound, or a frame it received could not be passed on; its
+    /// sender gets no answer.
+    SessionInboxFailed,
 }
 
 impl DriverDiagnosticKind {
@@ -203,6 +206,7 @@ impl DriverDiagnosticKind {
             Self::ModelCatalogMemberUnreadable => "driver.modelCatalog.memberUnreadable",
             Self::StreamedTextDiverged => "driver.streamedText.diverged",
             Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
+            Self::SessionInboxFailed => "driver.sessionInbox.failed",
         }
     }
 }
@@ -213,8 +217,8 @@ impl DriverDiagnosticKind {
 pub struct DriverDiagnosticRecord {
     /// The provider the record is about.
     pub provider: ProviderId,
-    /// The account the record is about, which its counter is also counted by; `None` on the
-    /// machine's default home.
+    /// The account the record is about, which its counter is also counted by; `None` for a record
+    /// no account owns, such as one of the service on the person's own provider folder.
     pub provider_account_id: Option<ProviderAccountId>,
     /// What happened.
     pub kind: DriverDiagnosticKind,
@@ -332,6 +336,7 @@ mod recorded_events {
         }
 
         /// The counter of each diagnostic recorded, in order.
+        #[cfg(test)]
         pub(crate) fn counters(&self) -> Vec<String> {
             self.fields_where(|_fields| true, "counter")
         }

@@ -1,9 +1,12 @@
 //! Claude Code's review of the staged set alone, as a run apart from the session's process:
 //! a one-turn process in a worktree holding only the staged changes, on the session's account and
-//! model. Its report lands as the run's reply and the run completes; a refusal fails it refused, a
-//! stop ends it interrupted unless the daemon writes that end itself, and the worktree goes and the
-//! review finishes however the turn ends.
+//! model, its commands reaching a command channel of its own and landing as rows under its run.
+//! Its report lands as the run's reply and the run completes; a refusal fails it refused, a stop
+//! ends it interrupted unless the daemon writes that end itself, and the worktree and channel go
+//! and the review finishes however the turn ends.
 
+use std::io;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -11,21 +14,26 @@ use sidekicks_contracts::event::declared_variants::RunAgentOutputPayload;
 use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::SessionNotice;
 use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
 use sidekicks_contracts::wire::text::{FreeFormText, TextError};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
-use sidekicks_workspace::git::worktree::staged_changes::StagedChangesError;
+use sidekicks_workspace::git::worktree::staged_changes::{
+    StagedChangesError, StagedChangesWorktree,
+};
 use tokio_util::sync::CancellationToken;
 
 use super::review::review_text;
 use super::{ClaudeSessionControls, one_turn_legs};
+use crate::driver::claude::delivery::commands::ClaudeCommandChannel;
 use crate::driver::claude::run::routes::{ClaudeBoundRun, ClaudeRunRoutes};
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
 use crate::driver::claude::session::state::LiveClaudeSession;
+use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::run::delivery::{DeliveryBinding, InboundDelivery, LateAppendableRow};
@@ -53,6 +61,8 @@ enum ClaudeStagedReviewError {
     ReportIdUnwritable(#[source] TextError),
     #[error("the staged review was stopped before it began")]
     Stopped,
+    #[error("the staged review's command channel could not be opened")]
+    CommandChannel(#[source] io::Error),
 }
 
 // How the review's run is stopped: its stop, and whether the daemon writes the run's end itself.
@@ -114,7 +124,7 @@ impl ClaudeSessionControls {
         stop: &ClaudeStagedReviewStop,
     ) {
         let session_id = live.session_id;
-        let ended = self.run_staged_review(live, &stop.stop).await;
+        let ended = self.run_staged_review(live, &run, &stop.stop).await;
         let change = match ended {
             Ok(ClaudeStagedReviewEnd::Refused(cause)) => Some(RunStateReport {
                 failure_category: Some(RunFailureCategory::Refused),
@@ -197,11 +207,12 @@ impl ClaudeSessionControls {
             .await;
     }
 
-    // The review's one turn in a worktree of the staged set, which goes however the turn ends; a
-    // review stopped before it began opens no worktree and starts no process.
+    // The review's one turn on `run` in a worktree of the staged set, which goes however the turn
+    // ends; a review stopped before it began opens no worktree and starts no process.
     async fn run_staged_review(
         &self,
         live: &LiveClaudeSession,
+        run: &ClaudeBoundRun,
         stop: &CancellationToken,
     ) -> Result<ClaudeStagedReviewEnd, ClaudeStagedReviewError> {
         if stop.is_cancelled() {
@@ -212,7 +223,16 @@ impl ClaudeSessionControls {
             .staged_changes
             .open_staged_worktree(None, &live.spawn_bound_legs.working_directory)
             .await?;
-        let legs = one_turn_legs(live, Some(worktree.folder().to_path_buf()));
+        let (legs, command_channel) = match self
+            .compose_review_legs(live, run.run_id, worktree.folder().to_path_buf())
+            .await
+        {
+            Ok(composed) => composed,
+            Err(error) => {
+                close_review_worktree(live, worktree).await;
+                return Err(ClaudeStagedReviewError::CommandChannel(error));
+            }
+        };
         let turn = self
             .run_one_turn(
                 &legs,
@@ -223,6 +243,17 @@ impl ClaudeSessionControls {
                 stop.clone(),
             )
             .await;
+        // The channel served only this turn's process, which has ended however the turn did.
+        if let Some(command_channel) = command_channel
+            && let Err(leftover) = command_channel.close().await
+        {
+            record_unheard_claude_failure(
+                DriverDiagnosticKind::ProcessReportFailed,
+                live.session_id,
+                "the staged review's command channel removal",
+                &leftover,
+            );
+        }
         let reply = match turn {
             Ok(reply) => reply,
             Err(turn_failure) => {
@@ -238,15 +269,7 @@ impl ClaudeSessionControls {
                 return Err(CleanupFailures::new(turn_failure, cleanup, "staged review").into());
             }
         };
-        // The review's result stands whether or not its worktree went; a leftover is recorded.
-        if let Err(leftover) = worktree.close().await {
-            record_unheard_claude_failure(
-                DriverDiagnosticKind::ProcessReportFailed,
-                live.session_id,
-                "the staged review's worktree removal",
-                &leftover,
-            );
-        }
+        close_review_worktree(live, worktree).await;
         if let Some(refusal) = reply.refusal {
             return Ok(ClaudeStagedReviewEnd::Refused(refusal));
         }
@@ -261,6 +284,23 @@ impl ClaudeSessionControls {
             text: reply.text,
             provider_message_id,
         })
+    }
+
+    /// The legs the review's one-turn process starts on in `worktree_folder`, and the channel of
+    /// its own its commands reach as rows under `run_id`, where one opens, which the caller closes
+    /// once the process ended. Fails as the channel cannot be opened.
+    pub(crate) async fn compose_review_legs(
+        &self,
+        live: &LiveClaudeSession,
+        run_id: RunId,
+        worktree_folder: PathBuf,
+    ) -> io::Result<(ClaudeSpawnBoundLegs, Option<Arc<ClaudeCommandChannel>>)> {
+        let command_channel = self
+            .command_channels
+            .open_apart(live.session_id, run_id)
+            .await?;
+        let legs = one_turn_legs(live, Some(worktree_folder), command_channel.clone());
+        Ok((legs, command_channel))
     }
 
     // The report lands as the run's reply.
@@ -313,4 +353,17 @@ fn bind_staged_run(routes: &ClaudeRunRoutes, run: &ClaudeBoundRun, stop: &Claude
             run_stop.stop.cancel();
         }),
     );
+}
+
+// Removes the review's worktree; the review's result stands whether or not it went, so a leftover
+// is recorded.
+async fn close_review_worktree(live: &LiveClaudeSession, worktree: StagedChangesWorktree) {
+    if let Err(leftover) = worktree.close().await {
+        record_unheard_claude_failure(
+            DriverDiagnosticKind::ProcessReportFailed,
+            live.session_id,
+            "the staged review's worktree removal",
+            &leftover,
+        );
+    }
 }

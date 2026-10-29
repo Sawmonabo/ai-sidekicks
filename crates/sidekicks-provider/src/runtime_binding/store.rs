@@ -40,7 +40,9 @@ use sidekicks_store::database::stored_column::{
 };
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
-use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::driver::contract::params_and_results::{
+    DriverCliVersionReport, SpawnedVersionBindingCarriers,
+};
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::left_conversations::{LeftConversation, compose_left_conversation_insert};
 use crate::output_validation::{
@@ -128,7 +130,7 @@ const INSERT_RELAUNCHED_BINDING_SQL: &str = "
      resume_handle, spawn_config, runtime_metadata, created_at, updated_at)
   SELECT @id, run_id, provider_name, contract_version, @cli_version_raw, @cli_version_semver,
          @resume_handle,
-         json_set(spawn_config, @path_member, @resolved_executable_path), '{}',
+         json_set(spawn_config, @path_member, @resolved_executable_path), runtime_metadata,
          @timestamp, @timestamp
     FROM runtime_bindings
    WHERE id = @predecessor_id";
@@ -138,7 +140,7 @@ const DELETE_BINDING_SQL: &str = "DELETE FROM runtime_bindings WHERE id = ?";
 /// The spawn-bound legs a resume rebuilds from, stored at every binding write, since a resume is a
 /// fresh spawn and recovery has no client request; a leg left out relaunches without it (no
 /// posture relaunches unsandboxed). The function legs are injected again at each spawn instead.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeBindingSpawnConfig {
     /// How the session may touch the machine.
@@ -178,13 +180,8 @@ pub struct RuntimeBindingSpawnConfig {
     )]
     pub output_schema: Option<Map<String, Value>>,
     /// The account the run was admitted against, bound for the run's life, so a resume never moves
-    /// onto the current default account.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "sidekicks_contracts::wire::present"
-    )]
-    pub provider_account_id: Option<ProviderAccountId>,
+    /// onto the provider's current account.
+    pub provider_account_id: ProviderAccountId,
     /// The requested output-speed level, never the provider's observed state, which would read a
     /// level that stopped being offered as accepted after a restart.
     #[serde(
@@ -215,8 +212,8 @@ pub struct RuntimeBinding {
     pub resolved_executable_path: String,
     /// The legs a resume rebuilds from.
     pub spawn_config: RuntimeBindingSpawnConfig,
-    /// The provider's own recovery data.
-    pub(crate) runtime_metadata: Map<String, Value>,
+    /// The provider's own recovery data, which a new binding on the same leg carries over.
+    pub runtime_metadata: Map<String, Value>,
     /// When it was recorded.
     pub created_at: String,
     /// When it last changed.
@@ -337,12 +334,9 @@ pub enum RuntimeBindingStoreError {
     /// The write was not kept; a relaunch whose predecessor has no row is refused here.
     #[error("writing the runtime binding failed")]
     Write(#[from] WriteError),
-    /// The binding to point elsewhere has no row, so nothing was recorded.
-    #[error(
-        "runtime binding {} has no row to point at another conversation",
-        .binding_id.as_str()
-    )]
-    NoRowToRebind {
+    /// The binding a driver writes has no row, so nothing was recorded.
+    #[error("runtime binding {} has no row to write", .binding_id.as_str())]
+    NoRowToWrite {
         /// The binding.
         binding_id: RuntimeBindingId,
     },
@@ -576,11 +570,12 @@ impl RuntimeBindingStore {
     }
 
     /// Records the binding a driver minted when it resumed a session on its own: a new row on the
-    /// predecessor's run, provider and legs, with the relaunched build's own version and path,
-    /// naming the conversation the leg runs on now, and each conversation it left in the same
-    /// write. Fails with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle,
-    /// and with [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing
-    /// was recorded.
+    /// predecessor's run, provider, legs and recovery data, so the new binding holds that data from
+    /// its first instant, with the relaunched build's own version and path, naming the
+    /// conversation the leg runs on now, and each conversation it left in the same write. Fails
+    /// with [`RuntimeBindingStoreError::InvalidOutput`] for an invalid resume handle, and with
+    /// [`RuntimeBindingStoreError::Write`] when the predecessor has no row, so nothing was
+    /// recorded.
     pub async fn record_relaunch(
         &self,
         relaunch: RuntimeBindingRelaunch,

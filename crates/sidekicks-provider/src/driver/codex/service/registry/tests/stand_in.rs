@@ -20,18 +20,14 @@ use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
 use crate::driver::codex::service::record::LastingServiceRecordFile;
 use crate::driver::codex::service::registry::OneHome;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, home_socket_path};
-use crate::driver::codex::service::supervisor::events::{
-    CodexServiceEvents, CodexServiceRecoveryCause,
-};
 use crate::driver::codex::service::supervisor::test_service::{
-    TestCodexProgram, UnheardEvents, answer_as_codex_service, test_codex_service_dependencies,
+    ExitsHeard, TestCodexProgram, UnheardEvents, answer_as_codex_service,
+    test_codex_service_dependencies,
 };
-use crate::driver::codex::service::supervisor::{
-    CodexProgramResolver, CodexService, CodexServiceDependencies,
-};
-use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::DriverError;
+use crate::driver::codex::service::supervisor::{CodexProgramResolver, CodexServiceDependencies};
+use crate::driver::contract::error::DriverError;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::runtime_binding::test_store::test_provider_account_id;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// The stand-in Codex service: this test program, run by the script the registry's services
@@ -75,30 +71,6 @@ async fn an_app_server_stand_in() {
     }
 }
 
-// Tells the test each time a service's process ends on its own, and each time one is back.
-struct ExitsHeard {
-    exits: mpsc::UnboundedSender<()>,
-    recoveries: mpsc::UnboundedSender<()>,
-}
-
-impl CodexServiceEvents for ExitsHeard {
-    fn process_exited(&self, _service: &Arc<CodexService>, _exit: Option<&ProcessExit>) {
-        let _heard = self.exits.send(());
-    }
-
-    fn recovered(&self, _service: &Arc<CodexService>, _cause: CodexServiceRecoveryCause) {
-        let _heard = self.recoveries.send(());
-    }
-
-    fn crash_loop(&self, _service: &Arc<CodexService>, _start_failure: Option<Arc<CodexError>>) {}
-
-    fn start_failed(&self, _service: &Arc<CodexService>) {}
-
-    fn rate_limits_observed(&self, _service: &Arc<CodexService>) {}
-
-    fn planned_restart_requested(&self, _service: &Arc<CodexService>) {}
-}
-
 /// The file the stand-in's script keeps its last launch's arguments in, one to a line.
 const LAUNCH_ARGUMENTS_FILE: &str = "codex-arguments";
 
@@ -121,16 +93,13 @@ fn write_stand_in_script(folder: &Path) -> PathBuf {
     script
 }
 
-// The home on the person's own Codex folder with terminal reach on, under `folder`.
+// The home on the person's own Codex folder, under `folder`.
 fn terminal_home(folder: &Path) -> CodexServiceHome {
     let codex_home = folder.join("home");
     std::fs::create_dir_all(&codex_home).expect("the home is made");
     CodexServiceHome {
         codex_home,
-        provider_account_id: None,
-        kind: CodexHomeKind::PersonalFolder {
-            is_terminal_reach_on: true,
-        },
+        kind: CodexHomeKind::PersonalFolder,
     }
 }
 
@@ -143,8 +112,8 @@ pub(super) struct StandInServices {
     pub(super) home: CodexServiceHome,
     /// What the test's daemon runs its services on.
     pub(super) dependencies: Arc<CodexServiceDependencies>,
-    /// One message per process that ended on its own.
-    pub(super) exits: mpsc::UnboundedReceiver<()>,
+    /// How each process that ended on its own ended.
+    pub(super) exits: mpsc::UnboundedReceiver<Option<ProcessExit>>,
     /// One message per service back after a crash.
     pub(super) recoveries: mpsc::UnboundedReceiver<()>,
 }
@@ -156,8 +125,7 @@ pub(super) fn stand_in_services(
     program: impl FnOnce(TestCodexProgram) -> Arc<dyn CodexProgramResolver>,
 ) -> StandInServices {
     let home = terminal_home(folder);
-    let (exits_sender, exits) = mpsc::unbounded_channel();
-    let (recoveries_sender, recoveries) = mpsc::unbounded_channel();
+    let (heard, exits, recoveries) = ExitsHeard::new();
     let dependencies = test_codex_service_dependencies(
         folder,
         program(TestCodexProgram {
@@ -167,10 +135,7 @@ pub(super) fn stand_in_services(
                 home.codex_home.display().to_string(),
             )],
         }),
-        Arc::new(ExitsHeard {
-            exits: exits_sender,
-            recoveries: recoveries_sender,
-        }),
+        Arc::new(heard),
     );
     StandInServices {
         folder: folder.to_owned(),
@@ -331,7 +296,7 @@ pub(super) async fn cut_short_planned_restart(
 ) -> (u32, u32, Option<PathBuf>) {
     let former_daemon = another_daemon(services);
     let first = former_daemon
-        .service_for(None)
+        .service_for(&test_provider_account_id())
         .await
         .expect("the home resolves");
     first

@@ -30,12 +30,13 @@ use crate::driver::claude::session::scripted::{binding_id, settle};
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::SessionProcessState;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
     ResumeSessionParams, UpdateSessionModeParams,
 };
 use crate::driver::test_registry::{new_run_id, new_session_id};
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // Killed by restarting past a full crash window: the fifth exit inside it reports the loop and
 // starts nothing.
@@ -56,6 +57,20 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .script_session(Arc::new(ScriptedChannel::default()));
 
     ScriptedDriver::exit(&current);
+    // The loop's notice comes from the session's task, which load can delay past any fixed sleep.
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.engine.wait_until(|_| {
+            fixture
+                .engine
+                .deliveries()
+                .iter()
+                .any(|delivery| delivery.kind == "sessionNotice")
+                .then_some(())
+        }),
+    )
+    .await
+    .expect("the crash loop is reported");
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());
@@ -399,12 +414,12 @@ async fn a_resume_during_a_relaunch_answers_the_relaunched_session_only_as_asked
         },
         provider_account_id: match ask {
             RelaunchResume::OtherAccount => {
-                Some(ProviderAccountId::new("other".to_owned()).expect("an account id"))
+                ProviderAccountId::new("other".to_owned()).expect("an account id")
             }
             RelaunchResume::Same
             | RelaunchResume::OtherConversation
             | RelaunchResume::OtherLevel
-            | RelaunchResume::OwnStyle => None,
+            | RelaunchResume::OwnStyle => test_provider_account_id(),
         },
         row_values,
         ..resume_params(session_id)

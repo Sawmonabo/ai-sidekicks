@@ -1,12 +1,11 @@
 //! A turn's items: each tool call's start and end, a command's end even after its turn ended or
-//! the session moved off its conversation, the reply, reasoning and plan streamed as pieces, a
-//! plan handed on whole, a command's live output, and the tool boundary each finished call of the
-//! session's own turn is.
+//! the session moved off its conversation, the reply, reasoning and plan streamed as pieces, the
+//! safety hold a reply's first words end, a plan handed on whole, a command's row in the running
+//! commands, and the tool boundary each finished call of the session's own turn is.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::command::CommandId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 
 use crate::driver::codex::DESCRIPTOR;
@@ -58,12 +57,15 @@ impl CodexFrameDelivery {
             .insert(item_id.clone(), started_at_ms);
         match item_type(&item) {
             Some(CODEX_COMMAND_ITEM_TYPE) => {
-                memory.running_command_by_item_id.insert(
+                self.publish_command_started(record, &item, &item_id, &run.row, started_at_ms);
+                record.delivery.running_command_by_item_id.insert(
                     item_id.clone(),
                     CodexRunningCommand {
                         thread_id: thread_id.clone(),
                         row: run.row.clone(),
                         started_at_ms,
+                        terminal_process_id: read_non_empty_string(&item, "processId")
+                            .map(str::to_owned),
                     },
                 );
             }
@@ -89,6 +91,9 @@ impl CodexFrameDelivery {
                         &text,
                         "item/started",
                     );
+                    if !text.is_empty() {
+                        self.end_safety_hold(record, &run.turn_id).await;
+                    }
                 }
             }
             _ => {}
@@ -127,7 +132,10 @@ impl CodexFrameDelivery {
         }
         let command = take_running_command(record, &thread_id, &item_id);
         let completed = match command {
-            Some(command) => Some((command.row, Some(command.started_at_ms))),
+            Some(command) => {
+                self.publish_command_ended(record, &item, &item_id);
+                Some((command.row, Some(command.started_at_ms)))
+            }
             None => self.item_run(record, members, "item/completed").map(|run| {
                 let started_at_ms = record
                     .delivery
@@ -169,7 +177,7 @@ impl CodexFrameDelivery {
         });
         if let Err(error) = self.dependencies.engine.count_step(run_id).await {
             CodexTransportDiagnostic::PortDeliveryFailed {
-                provider_account_id: record.provider_account_id.clone(),
+                provider_account_id: Some(record.provider_account_id.clone()),
                 port: CodexDeliveryPort::StepCount,
                 session_id: Some(record.session_id),
                 error,
@@ -214,12 +222,18 @@ impl CodexFrameDelivery {
             }
             if !is_whole {
                 CodexTransportDiagnostic::StreamedTextDiverged {
-                    provider_account_id: record.provider_account_id.clone(),
+                    provider_account_id: Some(record.provider_account_id.clone()),
                     thread_id: thread_id.to_owned(),
                     item_id: item_id.to_owned(),
                 }
                 .report();
             }
+        }
+        // A finished reply is answer text, which ends its turn's safety hold.
+        if item_type(item) == Some("agentMessage")
+            && let Some(turn_id) = turn_id
+        {
+            self.end_safety_hold(record, turn_id).await;
         }
         if item_type(item) == Some("plan")
             && let Some((prose, turn_id)) = prose.as_ref().zip(turn_id)
@@ -259,8 +273,8 @@ impl CodexFrameDelivery {
     }
 
     // A streamed piece of a reply, its reasoning or a plan, which goes out within the piece
-    // interval.
-    pub(super) fn deliver_prose_delta(
+    // interval; a reply's first words end its turn's safety hold, its reasoning's do not.
+    pub(super) async fn deliver_prose_delta(
         &self,
         record: &mut CodexSessionRecord,
         method: &str,
@@ -293,6 +307,9 @@ impl CodexFrameDelivery {
             return;
         };
         append_prose(record, &run, item_id, row_type, delta, method);
+        if method == "item/agentMessage/delta" && !delta.is_empty() {
+            self.end_safety_hold(record, &run.turn_id).await;
+        }
     }
 
     /// Admits one streamed piece of the item `item_id` as its row.
@@ -313,25 +330,6 @@ impl CodexFrameDelivery {
         let row =
             compose_codex_prose_piece(&prose.run, item_id, prose.row_type, piece, prose.method);
         self.admit_row(record, row).await;
-    }
-
-    // A command's output as it prints, to the running-commands stream and never stored; the whole
-    // output lands on the command's own end.
-    pub(super) fn deliver_command_output(
-        &self,
-        record: &CodexSessionRecord,
-        members: &Map<String, Value>,
-    ) {
-        let Some(publisher) = self.dependencies.command_output.port() else {
-            return;
-        };
-        // An item id outside the command id's bounds names no row the stream could show it in.
-        let command_id = read_non_empty_string(members, "itemId")
-            .and_then(|item_id| CommandId::new(item_id.to_owned()));
-        let data = members.get("delta").and_then(Value::as_str);
-        if let Some((command_id, data)) = command_id.zip(data) {
-            publisher.publish_output(record.session_id, command_id, data.to_owned());
-        }
     }
 
     async fn admit_row(&self, record: &mut CodexSessionRecord, row: Option<CodexItemRow>) {
@@ -413,7 +411,7 @@ fn take_running_command(
 fn report_tool_output_echo(record: &CodexSessionRecord, item: &Map<String, Value>) {
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: record.provider_account_id.clone(),
+        provider_account_id: Some(record.provider_account_id.clone()),
         kind: DriverDiagnosticKind::UnmappedWireKind,
         raw_wire_type: Some("item/completed".to_owned()),
         disposition_reason: "the echo of a tool output a client started a turn with, which the \

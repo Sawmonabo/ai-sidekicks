@@ -1,8 +1,12 @@
-//! Each Claude Code frame through its session's routing band, on the reader under the band's
-//! lock: the thread router decides whether it projects, the usage accountant meters it, a helper's
-//! `task_started` and `task_notification` register and complete its child thread, and the session
-//! thread's own handshake and compaction boundary are tapped.
+//! Each Claude Code frame through its session's routing band, on the reader under the band's lock:
+//! the thread router decides whether it projects, the usage accountant meters it, a helper's
+//! `task_started` registers its child thread and its `task_notification`, or for a foreground
+//! helper its helper-tool call's result, completes it, and the session thread's own handshake,
+//! whole `/` list and compaction boundary are tapped. A thread's usage is the sum of its assistant
+//! messages, each message's last reading counted once, and a lead turn's `result` confirms the
+//! thread's sum: the turn's own `usage` raises it where the messages read short of it.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::{Map, Value};
@@ -33,19 +37,89 @@ use crate::thread_frame_router::{
     SubagentLifecycleEventType, ThreadFrameRoute,
 };
 use crate::usage_delta_accountant::{
-    CumulativeUsageReading, ThreadBaseEstablishment, UsageAxisCounts,
+    CumulativeUsageReading, MeteredUsageDelta, ThreadBaseEstablishment, UsageAxisCounts,
 };
 
 /// What the routing band read off one frame: its route, the helper starts and ends it reports,
-/// in order, and the output speed its handshake settled for the armed run.
+/// in order, the usage it and any frame its registration released metered, and the output speed
+/// its handshake settled for the armed run.
 #[derive(Debug)]
 pub(crate) struct ClaudeRoutedObservation {
     /// The router's decision.
     pub(crate) route: ThreadFrameRoute,
     /// Each helper that started or ended, a start ahead of the frame's own rows.
     pub(crate) helper_lifecycle: Vec<SubagentLifecycleEmission>,
+    /// The usage metered, in stream order, for the stream to record on its run.
+    pub(crate) metered: Vec<ClaudeMeteredReading>,
     /// The output speed the session thread's handshake settled, for the run engine.
     pub(crate) settled_output_speed: Option<ClaudeSettledOutputSpeed>,
+}
+
+/// One metered change of a thread's usage, by the helper it came from.
+#[derive(Debug)]
+pub(crate) struct ClaudeMeteredReading {
+    /// The helper whose thread spent it, its `agent_id`; `None` for the session's own thread.
+    pub(crate) subagent_id: Option<String>,
+    /// The change.
+    pub(crate) delta: MeteredUsageDelta,
+}
+
+/// Each thread's usage as its messages sum it, held in a session's routing band beside the
+/// accountant, and the readings metered off frames no route was waiting on.
+#[derive(Debug, Default)]
+pub(crate) struct ClaudeThreadUsageTally {
+    threads: HashMap<String, ClaudeThreadMessages>,
+    unrouted: Vec<ClaudeMeteredReading>,
+}
+
+// One thread's sum: the messages before the open one, the open one's last reading, and the sum as
+// the thread's last `result` confirmed it.
+#[derive(Debug)]
+struct ClaudeThreadMessages {
+    finished: UsageAxisCounts,
+    open: Option<(String, UsageAxisCounts)>,
+    confirmed: UsageAxisCounts,
+}
+
+impl ClaudeThreadMessages {
+    // A thread whose sum starts at `base`, the accountant's base for it.
+    fn starting_at(base: UsageAxisCounts) -> Self {
+        Self {
+            finished: base,
+            open: None,
+            confirmed: base,
+        }
+    }
+
+    fn total(&self) -> UsageAxisCounts {
+        self.open
+            .as_ref()
+            .map_or(self.finished, |(_, open)| add_counts(self.finished, *open))
+    }
+
+    // A message's reading: the same message's counts only grow, and another message closes the
+    // one before it.
+    fn observe_message(&mut self, message_id: &str, counts: UsageAxisCounts) -> UsageAxisCounts {
+        match &mut self.open {
+            Some((open_id, open)) if open_id == message_id => *open = larger_counts(*open, counts),
+            _ => {
+                if let Some((_, open)) = self.open.take() {
+                    self.finished = add_counts(self.finished, open);
+                }
+                self.open = Some((message_id.to_owned(), counts));
+            }
+        }
+        self.total()
+    }
+
+    // A turn's own usage, which the thread's sum reaches at least.
+    fn confirm_turn(&mut self, turn: UsageAxisCounts) -> UsageAxisCounts {
+        let total = larger_counts(self.total(), add_counts(self.confirmed, turn));
+        self.finished = total;
+        self.open = None;
+        self.confirmed = total;
+        total
+    }
 }
 
 /// Routes and meters every session's frames through the routing band each session holds.
@@ -74,7 +148,7 @@ impl ClaudeFrameRouting {
     /// frame meters at once and an unestablished thread refuses it, then the frames held for it
     /// routed again. A resumed thread's base is the daemon's prior-emitted sum; one that cannot be
     /// read is recorded and starts at zero, since failing here would orphan a live process.
-    pub(crate) fn bind_session_thread(
+    pub(crate) async fn bind_session_thread(
         &self,
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
@@ -87,7 +161,8 @@ impl ClaudeFrameRouting {
                 prior_emitted_thread_id,
             } => ThreadBaseEstablishment::Resume {
                 prior_emitted_cumulative: self
-                    .read_prior_emitted(session_id, prior_emitted_thread_id),
+                    .read_prior_emitted(session_id, prior_emitted_thread_id)
+                    .await,
             },
         };
         band.accountant
@@ -95,7 +170,7 @@ impl ClaudeFrameRouting {
         let released = band
             .router
             .register_session_thread(provider_session_id.to_owned());
-        self.route_released(band, session_id, released);
+        Self::route_released(band, released);
     }
 
     /// Routes one frame of `session_id`'s process and answers what the band read off it. A
@@ -112,11 +187,16 @@ impl ClaudeFrameRouting {
         let mut routed = ClaudeRoutedObservation {
             route: ThreadFrameRoute::Quarantined,
             helper_lifecycle: Vec::new(),
+            metered: std::mem::take(&mut band.usage_tally.unrouted),
             settled_output_speed: None,
         };
         // Only the session's own thread counts; a helper's handshake or compaction says nothing
         // about the session's process.
         if observation.subagent_id.is_none() {
+            if let Some(commands) = &observation.commands_changed {
+                self.handshakes
+                    .replace_commands(session_id, provider_session_id, commands);
+            }
             if let Some(handshake) = &observation.handshake {
                 routed.settled_output_speed = self.handshakes.observe_handshake_declaration(
                     session_id,
@@ -132,13 +212,17 @@ impl ClaudeFrameRouting {
         if let Some(signal) = &observation.subagent_lifecycle
             && signal.signal == ClaudeSubagentSignal::SubagentStart
         {
-            self.register_helper(
+            Self::register_helper(
                 band,
                 session_id,
                 provider_session_id,
                 observation,
                 &mut routed,
             );
+        }
+        // A helper moved to the background runs on past its call's result.
+        if let Some(helper_id) = &observation.backgrounded_helper_id {
+            band.router.stop_waiting_on_child(helper_id);
         }
         let frame = ClaudeRoutableFrame {
             // Claude Code's frames carry no thread id: a helper's own id, else the session's.
@@ -153,7 +237,7 @@ impl ClaudeFrameRouting {
             observation: observation.clone(),
         };
         let route = band.router.route_frame(&frame, Instant::now());
-        self.apply_route(band, session_id, &frame, &route, &mut routed);
+        apply_route(band, &frame, &route, &mut routed);
         routed.route = route;
         routed
     }
@@ -161,7 +245,6 @@ impl ClaudeFrameRouting {
     // Registers a started helper's child thread at a zero usage base and reports its start once;
     // a repeat announcement is recorded and starts nothing.
     fn register_helper(
-        &self,
         band: &mut ClaudeSessionRoutingBand,
         session_id: SessionId,
         provider_session_id: &str,
@@ -204,80 +287,34 @@ impl ClaudeFrameRouting {
                 parent_tool_call_id: normalized.parent_tool_use_id,
             });
         }
-        self.route_released(band, session_id, released_frames);
+        Self::route_released(band, released_frames);
     }
 
-    // Routes again each frame a registration released, metering what it carried; its rows were
-    // a helper's own, which the session's transcript never shows.
-    fn route_released(
-        &self,
-        band: &mut ClaudeSessionRoutingBand,
-        session_id: SessionId,
-        released: Vec<ClaudeRoutableFrame>,
-    ) {
+    // Routes again each frame a registration released; what it metered waits for the next
+    // frame's routing to carry it, and its rows were a helper's own, which the session's
+    // transcript never shows.
+    fn route_released(band: &mut ClaudeSessionRoutingBand, released: Vec<ClaudeRoutableFrame>) {
         for frame in released {
             let route = band.router.route_frame(&frame, Instant::now());
-            let mut ignored = ClaudeRoutedObservation {
+            let mut released_routed = ClaudeRoutedObservation {
                 route: ThreadFrameRoute::Quarantined,
                 helper_lifecycle: Vec::new(),
+                metered: Vec::new(),
                 settled_output_speed: None,
             };
-            self.apply_route(band, session_id, &frame, &route, &mut ignored);
-        }
-    }
-
-    // Usage is metered ahead of suppression, so a helper's spend counts though its rows do not;
-    // a helper's end completes its child thread.
-    fn apply_route(
-        &self,
-        band: &mut ClaudeSessionRoutingBand,
-        session_id: SessionId,
-        frame: &ClaudeRoutableFrame,
-        route: &ThreadFrameRoute,
-        routed: &mut ClaudeRoutedObservation,
-    ) {
-        match route {
-            ThreadFrameRoute::Project
-            | ThreadFrameRoute::RouteConnectionScoped
-            | ThreadFrameRoute::CarveOutUsage { .. } => {
-                self.meter(band, session_id, frame);
-                complete_helper(band, frame, routed);
-            }
-            ThreadFrameRoute::ChildTranscript { .. } => complete_helper(band, frame, routed),
-            // The router records a held or quarantined frame itself; an ask travels as a request.
-            ThreadFrameRoute::CarveOutInteractiveRequest { .. }
-            | ThreadFrameRoute::HeldPendingRegistration
-            | ThreadFrameRoute::Quarantined => {}
-        }
-    }
-
-    fn meter(
-        &self,
-        band: &mut ClaudeSessionRoutingBand,
-        session_id: SessionId,
-        frame: &ClaudeRoutableFrame,
-    ) {
-        let Some(usage) = &frame.observation.cumulative_usage else {
-            return;
-        };
-        let Some(metered) = band.accountant.meter_reading(CumulativeUsageReading {
-            thread_id: frame.thread_id.clone(),
-            named_turn_id: usage.named_turn_id.clone(),
-            cumulative: usage.cumulative,
-            declared_per_turn: usage.declared_per_turn,
-        }) else {
-            return;
-        };
-        if let Some(sink) = self.usage.port() {
-            sink.record_metered(session_id, metered);
+            apply_route(band, &frame, &route, &mut released_routed);
+            band.usage_tally.unrouted.extend(released_routed.metered);
         }
     }
 
     // The daemon's own sum for a resumed thread; an unregistered usage record or a failed read is
     // recorded, the base then zero, so the first reading meters what came before again.
-    fn read_prior_emitted(&self, session_id: SessionId, thread_id: &str) -> UsageAxisCounts {
+    async fn read_prior_emitted(&self, session_id: SessionId, thread_id: &str) -> UsageAxisCounts {
         let failure = match self.usage.require_port() {
-            Ok(sink) => match sink.read_prior_emitted(session_id, thread_id) {
+            Ok(sink) => match sink
+                .read_prior_emitted(session_id, thread_id.to_owned())
+                .await
+            {
                 Ok(counts) => return counts,
                 Err(error) => describe_error(error.as_ref()),
             },
@@ -298,32 +335,147 @@ impl ClaudeFrameRouting {
     }
 }
 
-// Completes a helper's child thread on its end, its only close signal, and reports the end once
-// for a helper the router held.
-fn complete_helper(
+// Usage is metered ahead of suppression, so a helper's spend counts though its rows do not; the
+// helpers a frame ends complete their child threads.
+fn apply_route(
+    band: &mut ClaudeSessionRoutingBand,
+    frame: &ClaudeRoutableFrame,
+    route: &ThreadFrameRoute,
+    routed: &mut ClaudeRoutedObservation,
+) {
+    match route {
+        ThreadFrameRoute::Project
+        | ThreadFrameRoute::RouteConnectionScoped
+        | ThreadFrameRoute::CarveOutUsage { .. }
+        | ThreadFrameRoute::ChildTranscript { .. } => {
+            routed.metered.extend(meter(band, frame));
+            complete_ended_helpers(band, frame, routed);
+        }
+        // The router records a held or quarantined frame itself; an ask travels as a request.
+        ThreadFrameRoute::CarveOutInteractiveRequest { .. }
+        | ThreadFrameRoute::HeldPendingRegistration
+        | ThreadFrameRoute::Quarantined => {}
+    }
+}
+
+// The change one frame's usage makes to its thread's sum; `None` for a frame that carries none, a
+// thread with no base, or a reading that changes nothing.
+fn meter(
+    band: &mut ClaudeSessionRoutingBand,
+    frame: &ClaudeRoutableFrame,
+) -> Option<ClaudeMeteredReading> {
+    let observation = &frame.observation;
+    let base = band.accountant.base_registers(&frame.thread_id)?;
+    let messages = band
+        .usage_tally
+        .threads
+        .entry(frame.thread_id.clone())
+        .or_insert_with(|| ClaudeThreadMessages::starting_at(base));
+    let cumulative = match (&observation.message_usage, &observation.cumulative_usage) {
+        (Some(message), _) => messages.observe_message(&message.message_id, message.counts),
+        (None, Some(turn)) => messages.confirm_turn(turn.cumulative),
+        (None, None) => return None,
+    };
+    let delta = band.accountant.meter_reading(CumulativeUsageReading {
+        thread_id: frame.thread_id.clone(),
+        named_turn_id: None,
+        cumulative,
+        declared_per_turn: None,
+    })?;
+    let axes = &delta.axis_deltas;
+    let is_unchanged = [
+        axes.input,
+        axes.cached_input,
+        axes.cache_write_input,
+        axes.output,
+        axes.reasoning_output,
+        axes.total,
+    ]
+    .into_iter()
+    .all(|count| count.unwrap_or(0) == 0);
+    (!is_unchanged).then(|| ClaudeMeteredReading {
+        subagent_id: observation.subagent_id.clone(),
+        delta,
+    })
+}
+
+// Each axis summed, present where either side carries it.
+fn add_counts(left: UsageAxisCounts, right: UsageAxisCounts) -> UsageAxisCounts {
+    combine_counts(left, right, u64::saturating_add)
+}
+
+// Each axis's larger count, present where either side carries it.
+fn larger_counts(left: UsageAxisCounts, right: UsageAxisCounts) -> UsageAxisCounts {
+    combine_counts(left, right, u64::max)
+}
+
+fn combine_counts(
+    left: UsageAxisCounts,
+    right: UsageAxisCounts,
+    combine: fn(u64, u64) -> u64,
+) -> UsageAxisCounts {
+    let axis = |left: Option<u64>, right: Option<u64>| match (left, right) {
+        (Some(left), Some(right)) => Some(combine(left, right)),
+        (left, right) => left.or(right),
+    };
+    UsageAxisCounts {
+        input: axis(left.input, right.input),
+        cached_input: axis(left.cached_input, right.cached_input),
+        cache_write_input: axis(left.cache_write_input, right.cache_write_input),
+        output: axis(left.output, right.output),
+        reasoning_output: axis(left.reasoning_output, right.reasoning_output),
+        total: axis(left.total, right.total),
+    }
+}
+
+// Completes the child thread of each helper the frame ends: a `task_notification`'s, and a
+// foreground helper's whose helper-tool call a tool result answers, since Claude Code answers that
+// call only once the helper finished, whether or not its `task_notification` comes.
+fn complete_ended_helpers(
     band: &mut ClaudeSessionRoutingBand,
     frame: &ClaudeRoutableFrame,
     routed: &mut ClaudeRoutedObservation,
 ) {
-    let Some(signal) = &frame.observation.subagent_lifecycle else {
-        return;
-    };
-    if signal.signal == ClaudeSubagentSignal::SubagentStart {
+    let observation = &frame.observation;
+    if let Some(signal) = &observation.subagent_lifecycle
+        && signal.signal == ClaudeSubagentSignal::SubagentStop
+    {
+        complete_helper(
+            band,
+            &signal.subagent_id,
+            signal.parent_tool_use_id.clone(),
+            routed,
+        );
+    }
+    for call_id in &observation.answered_call_ids {
+        if let Some(helper_id) = band
+            .router
+            .child_waiting_on_call(call_id)
+            .map(str::to_owned)
+        {
+            complete_helper(band, &helper_id, Some(call_id.clone()), routed);
+        }
+    }
+}
+
+// Completes a helper's child thread and reports its end once, for a helper the router held.
+fn complete_helper(
+    band: &mut ClaudeSessionRoutingBand,
+    helper_id: &str,
+    parent_tool_call_id: Option<String>,
+    routed: &mut ClaudeRoutedObservation,
+) {
+    let attribution = band.router.child_attribution_for(helper_id).cloned();
+    if !band.router.complete_child_thread(helper_id) {
         return;
     }
-    let attribution = band
-        .router
-        .child_attribution_for(&signal.subagent_id)
-        .cloned();
-    if !band.router.complete_child_thread(&signal.subagent_id) {
-        return;
-    }
-    band.accountant.release_thread(&signal.subagent_id);
+    band.accountant.release_thread(helper_id);
+    band.usage_tally.threads.remove(helper_id);
     if let Some(ChildSpendAttribution::Subagent { subagent_id }) = attribution {
         routed.helper_lifecycle.push(SubagentLifecycleEmission {
             event_type: SubagentLifecycleEventType::Completed,
             subagent_id,
-            parent_tool_call_id: signal.parent_tool_use_id.clone(),
+            parent_tool_call_id,
         });
     }
 }

@@ -576,8 +576,9 @@ type AgentRunQueuedPayload = {
   // fallback when the wire carries no attribution.
   admittedModelFamily?: string;
   // The account the run was admitted against. Priced usage rows join to a paying account through the run,
-  // and resume rebinds to this stamp rather than re-resolving the current default.
-  admittedProviderAccountId?: ProviderAccountId;
+  // and resume rebinds to this stamp rather than re-resolving the current default. Every run has one:
+  // admission refuses a provider with no account to run on.
+  admittedProviderAccountId: ProviderAccountId;
 } & (
   | { agentId: AgentId; resolvedAgent?: never }
   | {

@@ -53,6 +53,10 @@ pub struct WorktreeEventEmitter {
     appender: SessionEventAppender,
 }
 
+#[expect(
+    dead_code,
+    reason = "the worktree dirty and merge detection and the removal's session sweep"
+)]
 impl WorktreeEventEmitter {
     /// An emitter appending to `event_log` at the session events' envelope version.
     pub fn new(event_log: Arc<EventLogService>) -> Self {
@@ -195,6 +199,7 @@ impl WorktreeEventEmitter {
 }
 
 /// The worktree events, each naming the one state its tree is in after it.
+#[expect(dead_code, reason = "the worktree dirty and merge detection")]
 #[derive(Clone, Copy, Debug)]
 enum WorktreeTransition {
     Created,

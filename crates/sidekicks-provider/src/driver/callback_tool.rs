@@ -34,6 +34,13 @@ pub struct CallbackToolInvocation {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum CallbackToolResult {
     /// The tool ran.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the callback tools' executor, which answers a call that ran"
+        )
+    )]
     Completed {
         /// What it returned.
         output: Option<Value>,

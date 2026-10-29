@@ -62,10 +62,23 @@ const STRIPPED_GIT_ENVIRONMENT_NAMES: [&str; 18] = [
     "GIT_NAMESPACE",
 ];
 
+/// The variable that keeps git from asking on a terminal, and its value.
+pub const GIT_TERMINAL_PROMPT_OFF: (&str, &str) = ("GIT_TERMINAL_PROMPT", "0");
+
 /// Set on every call after the strip: git's messages in English, which callers read refusals
 /// from, and no prompt, which would wait on a terminal the daemon lacks until the timeout.
 const PINNED_GIT_ENVIRONMENT: [(&str, &str); 3] =
-    [("LC_ALL", "C"), ("LANG", "C"), ("GIT_TERMINAL_PROMPT", "0")];
+    [("LC_ALL", "C"), ("LANG", "C"), GIT_TERMINAL_PROMPT_OFF];
+
+/// The environment that keeps git and ssh from asking anyone for a credential: no askpass
+/// program, no credential manager dialog, no ssh askpass and no terminal prompt, so a question
+/// fails at once instead of waiting.
+pub const NO_PROMPT_ENVIRONMENT: [(&str, &str); 4] = [
+    ("GIT_ASKPASS", ""),
+    ("GCM_INTERACTIVE", "never"),
+    ("SSH_ASKPASS_REQUIRE", "never"),
+    GIT_TERMINAL_PROMPT_OFF,
+];
 
 /// The setting that turns git's file watch off for one call, so neither its built-in daemon nor a
 /// helper program the repository names starts for it.
@@ -593,7 +606,7 @@ impl GitRunner {
                         stderr,
                     });
                 }
-                return Err(exited_failure(&output.status, output.stdout, stderr));
+                return Err(exited_failure(output.status, output.stdout, stderr));
             }
             Ok(Err(error)) => error.into(),
             Err(_elapsed) => GitError::TimedOut { timeout },
@@ -793,8 +806,8 @@ pub(crate) fn strip_carriage_return(line: &[u8]) -> &[u8] {
 }
 
 // The failure of a git that exited `status`, not 0, having printed `stdout` and `stderr`.
-fn exited_failure(status: &ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
-    let exit = read_child_exit(status, None);
+fn exited_failure(status: ExitStatus, stdout: Vec<u8>, stderr: String) -> GitError {
+    let exit = read_child_exit(&status, None);
     GitError::Exited {
         code: status.code(),
         signal: exit.signal_number.map(|number| {

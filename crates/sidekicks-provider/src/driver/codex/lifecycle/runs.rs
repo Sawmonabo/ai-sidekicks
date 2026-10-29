@@ -10,8 +10,9 @@ use sidekicks_contracts::session::id::SessionId;
 
 use super::CodexDriver;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::contract::{
-    DriverError, RespondToRequestParams, SessionProcessState, StartRunParams,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::error_causes::session_process_unavailable;
 use crate::driver::run_control::{
@@ -33,9 +34,7 @@ impl CodexDriver {
             match self.session_process_state(session_id) {
                 SessionProcessState::Live => return Ok(()),
                 SessionProcessState::Down => {
-                    return Err(DriverError::Refused(session_process_unavailable(
-                        session_id,
-                    )));
+                    return Err(DriverError::from(session_process_unavailable(session_id)));
                 }
                 // An establishment claimed, or a service gone back, since the waits answered.
                 SessionProcessState::Restarting => {}
@@ -126,7 +125,7 @@ impl CodexDriver {
     pub(crate) async fn resolve_skill_picks(
         &self,
         session_id: SessionId,
-        provider_account_id: Option<ProviderAccountId>,
+        provider_account_id: ProviderAccountId,
         picks: Vec<QueuedSkillPick>,
     ) -> Result<Vec<PickedSkill>, DriverError> {
         let listed = if let Some(source) = self.views.command_source(session_id) {
@@ -134,6 +133,7 @@ impl CodexDriver {
                 .read_skill_files(
                     session_id,
                     &source.service,
+                    provider_account_id,
                     Path::new(&source.working_directory),
                 )
                 .await?
@@ -145,15 +145,12 @@ impl CodexDriver {
                 .resolve_run_folder(session_id)
                 .await
                 .map_err(DriverError::Internal)?;
-            let service = self
-                .registry
-                .service_for(provider_account_id.as_ref())
-                .await?;
+            let service = self.registry.service_for(&provider_account_id).await?;
             service
                 .ensure_started(service.dependencies().startup_timeout)
                 .await?;
             self.provider_commands
-                .read_skill_files(session_id, &service, &run_folder)
+                .read_skill_files(session_id, &service, provider_account_id, &run_folder)
                 .await?
         };
         picks

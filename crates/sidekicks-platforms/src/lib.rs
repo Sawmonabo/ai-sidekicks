@@ -96,6 +96,7 @@ mod process_identity;
 mod process_start;
 mod process_tree;
 mod program_install_folders;
+mod program_link;
 mod program_start;
 mod recreate_link;
 mod regular_file_open;
@@ -207,7 +208,10 @@ pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
 #[cfg(target_os = "linux")]
-pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use linux::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
+    windows_drive_mounts,
+};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
@@ -247,7 +251,10 @@ pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
-pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use macos::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
+    windows_drive_mounts,
+};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use memory::physical_memory;
@@ -281,6 +288,14 @@ pub use posix::command_wrapper::{
     signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
     take_inherited_secret, wait_for_terminal_command,
 };
+/// Whether an agent's shell commands run under the command wrapper and its askpass here, so a
+/// driver sets the wrapper's prefix and askpass variables only where they run.
+#[cfg(unix)]
+pub const RUNS_COMMAND_WRAPPER: bool = true;
+/// Whether an agent's shell commands run under the command wrapper and its askpass here, so a
+/// driver sets the wrapper's prefix and askpass variables only where they run.
+#[cfg(target_os = "windows")]
+pub const RUNS_COMMAND_WRAPPER: bool = false;
 #[cfg(unix)]
 pub use posix::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(unix)]
@@ -402,6 +417,7 @@ pub use process_identity::process_identity;
 pub use process_start::ProcessStart;
 pub use process_tree::{end_processes, process_table, tree_under};
 pub use program_install_folders::{ProgramFolder, program_install_folders};
+pub use program_link::{ProgramLinkError, link_program};
 pub use program_start::{ProgramStart, program_start};
 pub use recreate_link::recreate_link;
 pub use regular_file_open::RegularFileOpen;
@@ -469,6 +485,8 @@ pub use windows::command_wrapper::{
     signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
     take_inherited_secret, wait_for_exit, wait_for_terminal_command,
 };
+#[cfg(target_os = "windows")]
+pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]

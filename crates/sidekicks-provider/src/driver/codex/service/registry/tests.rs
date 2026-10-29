@@ -12,6 +12,7 @@ use crate::driver::codex::service::supervisor::test_service::{
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::test_registry::new_session_id;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 const THREAD: &str = "thread-1";
 
@@ -59,11 +60,9 @@ async fn let_the_hold_go(scripted: &mut ScriptedCodexService) {
 
 // Turns the folder's terminal service off, which answers before the service is free: it leaves
 // the folder at once, and its retirement's task is answered.
-async fn switch_off(registry: &CodexServiceRegistry) -> JoinHandle<()> {
-    let retiring = tokio::time::timeout(QUIET_WAIT, registry.stop_terminal_service())
-        .await
-        .expect("the switch-off answers before the service is free")
-        .expect("the home resolves")
+fn switch_off(registry: &CodexServiceRegistry) -> JoinHandle<()> {
+    let retiring = registry
+        .stop_terminal_service()
         .expect("the folder's terminal service is retired");
     assert!(
         registry.services().is_empty(),
@@ -81,7 +80,7 @@ async fn the_switch_off_retires_once_a_held_conversation_lets_go() {
     let registry = CodexServiceRegistry::holding(&scripted);
     hold_with_a_running_command(&mut scripted).await;
 
-    let retiring = switch_off(&registry).await;
+    let retiring = switch_off(&registry);
     let_the_hold_go(&mut scripted).await;
     let loaded = scripted.next_request("thread/loaded/list").await;
     let is_retired_before_the_read = retiring.is_finished();
@@ -100,7 +99,7 @@ async fn the_switch_off_retires_once_a_terminal_session_inside_ends() {
     let registry = CodexServiceRegistry::holding(&scripted);
     let inside = json!({"data": [TERMINAL_THREAD]});
 
-    let retiring = switch_off(&registry).await;
+    let retiring = switch_off(&registry);
     let first_read = scripted.next_request("thread/loaded/list").await;
     scripted.script.answer(&first_read, &inside);
     let armed_read = scripted.next_request("thread/loaded/list").await;
@@ -132,7 +131,7 @@ async fn the_switch_off_retires_a_reconnecting_service_once_it_is_back() {
     let registry = CodexServiceRegistry::holding(&scripted);
     let connection = scripted.publish_reconnecting();
 
-    let retiring = switch_off(&registry).await;
+    let retiring = switch_off(&registry);
     let read_while_reconnecting =
         tokio::time::timeout(QUIET_WAIT, scripted.script.next_sent()).await;
     let is_retired_while_reconnecting = retiring.is_finished();
@@ -194,10 +193,15 @@ async fn a_failed_switch_off_wait_puts_the_service_back_only_into_an_empty_slot(
     let mut scripted = start_scripted_terminal_service();
     let registry = CodexServiceRegistry::holding(&scripted);
 
-    let retiring = switch_off(&registry).await;
+    let retiring = switch_off(&registry);
     let loaded = scripted.next_request("thread/loaded/list").await;
     let filling = if is_slot_filled {
-        Some(registry.service_for(None).await.expect("the home resolves"))
+        Some(
+            registry
+                .service_for(&test_provider_account_id())
+                .await
+                .expect("the home resolves"),
+        )
     } else {
         None
     };

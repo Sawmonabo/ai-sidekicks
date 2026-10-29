@@ -100,6 +100,27 @@ impl ClaudeHandshakeRegister {
         self.settle_run_output_speed(session_id, provider_session_id)
     }
 
+    /// Takes `commands`, a whole `/` list Claude Code sent again, in place of the commands the
+    /// held declaration of the process under `provider_session_id` listed; a list from another
+    /// process, or before any declaration, changes nothing.
+    pub(crate) fn replace_commands(
+        &self,
+        session_id: SessionId,
+        provider_session_id: &str,
+        commands: &[String],
+    ) {
+        let mut sessions = lock(&self.sessions);
+        let Some(held) = sessions
+            .get_mut(&session_id)
+            .and_then(|declarations| declarations.handshake.as_mut())
+            .filter(|held| held.provider_session_id == provider_session_id)
+        else {
+            return;
+        };
+        held.declaration.slash_commands = commands.to_vec();
+        held.invocable_command_names = commands.iter().cloned().collect();
+    }
+
     /// Marks `run_id` as the run whose output speed settles on this process's next handshake; armed
     /// before the run's turn is written.
     pub(crate) fn arm_run_output_speed(
@@ -224,7 +245,7 @@ impl ClaudeHandshakeRegister {
     ) -> Result<ProviderCommandBindingGroup, ClaudeSessionError> {
         let provider_account_id = resolve_stamped_account(
             session_id,
-            live.admitted_provider_account_id.as_ref(),
+            &live.admitted_provider_account_id,
             binding.provider_account_id,
         )?;
         let binding = ProviderCommandBinding {
@@ -254,29 +275,27 @@ fn held_state(
 }
 
 // The account an enumeration is stamped with: the admitted one, the record being primary and the
-// registry a cross-check; with none admitted, the registry's. Two different accounts refuse, since
-// the enumeration is routed by that identity and neither may silently win.
+// registry a cross-check. Two different accounts refuse, since the enumeration is routed by that
+// identity and neither may silently win.
 fn resolve_stamped_account(
     session_id: SessionId,
-    admitted: Option<&ProviderAccountId>,
-    registered: Option<ProviderAccountId>,
-) -> Result<Option<ProviderAccountId>, ClaudeSessionError> {
-    match (admitted, registered) {
-        (None, registered) => Ok(registered),
-        (Some(admitted), None) => Ok(Some(admitted.clone())),
-        (Some(admitted), Some(registered)) if *admitted == registered => Ok(Some(registered)),
-        (Some(admitted), Some(registered)) => Err(ClaudeSessionError::Unavailable {
-            reason: ClaudeSessionUnavailableReason::ProviderAccountAmbiguous,
-            detail: Some(format!(
-                "The session was admitted against provider account {} while the daemon's \
-                 account registry reports {}.",
-                admitted.as_str(),
-                registered.as_str()
-            )),
-            session_id: Some(session_id),
-            run_id: None,
-        }),
+    admitted: &ProviderAccountId,
+    registered: ProviderAccountId,
+) -> Result<ProviderAccountId, ClaudeSessionError> {
+    if *admitted == registered {
+        return Ok(registered);
     }
+    Err(ClaudeSessionError::Unavailable {
+        reason: ClaudeSessionUnavailableReason::ProviderAccountAmbiguous,
+        detail: Some(format!(
+            "The session was admitted against provider account {} while the daemon's account \
+             registry reports {}.",
+            admitted.as_str(),
+            registered.as_str()
+        )),
+        session_id: Some(session_id),
+        run_id: None,
+    })
 }
 
 // Composed at read time so the held declaration stays what the provider said. Each name is bounded
@@ -363,7 +382,7 @@ fn report_rejected_entry(
     };
     emit_driver_diagnostic(&DriverDiagnosticRecord {
         provider: DESCRIPTOR.provider_id(),
-        provider_account_id: binding.provider_account_id.clone(),
+        provider_account_id: Some(binding.provider_account_id.clone()),
         kind: DriverDiagnosticKind::ProviderCommandEntryRejected,
         raw_wire_type: None,
         disposition_reason: "the provider published a command or skill entry the contract's own \

@@ -6,6 +6,7 @@ use rstest::rstest;
 use serde_json::json;
 use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::registry::SessionEventType;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::SessionRecoveryRefusedReason;
@@ -92,16 +93,20 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
         fixture.store.database.path(),
         SESSION_SERVICE_STATEMENT_CAPACITY,
     ));
-    let page = SessionService::new(reads, Arc::new(|_: &SessionId| None))
-        .read_events_after_sequence(EventsReadAfterSequenceRequest {
-            session_id: damaged,
-            after_sequence: START_OF_LOG_POSITION,
-            limit: None,
-            event_types: None,
-            before_sequence: None,
-        })
-        .await
-        .expect("the session's log reads");
+    let page = SessionService::new(
+        reads,
+        Arc::new(|_: &SessionId| None),
+        Arc::new(|_: &ProviderId| None),
+    )
+    .read_events_after_sequence(EventsReadAfterSequenceRequest {
+        session_id: damaged,
+        after_sequence: START_OF_LOG_POSITION,
+        limit: None,
+        event_types: None,
+        before_sequence: None,
+    })
+    .await
+    .expect("the session's log reads");
     let sequences: Vec<i64> = page
         .events
         .iter()

@@ -15,6 +15,7 @@ use super::stand_in::{
 use crate::driver::codex::service::registry::home_socket_path;
 use crate::driver::codex::service::supervisor::test_service::answer_as_codex_service;
 use crate::driver::daemon_stop::DaemonStopIntent;
+use crate::runtime_binding::test_store::test_provider_account_id;
 
 // The services of one test in a folder whose socket paths fit the system's bound on them.
 fn folder_and_services() -> (tempfile::TempDir, StandInServices) {
@@ -36,7 +37,10 @@ async fn a_restart_cut_short_joins_the_socket_link_holder_and_drains_the_other()
     let (first_process, second_process, _first_socket) = cut_short_planned_restart(&services).await;
 
     let daemon = this_daemon(&services);
-    let joined = daemon.service_for(None).await.expect("the home resolves");
+    let joined = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     let started = joined.ensure_started(startup_timeout).await;
     let joined_process = joined.process_id();
     let is_first_drained =
@@ -68,7 +72,10 @@ async fn a_restart_cut_short_whose_socket_link_holder_died_points_the_link_back_
     let is_second_gone = wait_until_gone(second_process).await;
 
     let daemon = this_daemon(&services);
-    let joined = daemon.service_for(None).await.expect("the home resolves");
+    let joined = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     let started = joined.ensure_started(startup_timeout).await;
     let joined_process = joined.process_id();
     let is_first_running = is_running(first_process);
@@ -110,7 +117,10 @@ async fn a_restart_joins_an_unrecorded_service_on_the_link_and_drains_the_record
     replace_socket_link(&home_socket, &unrecorded_socket).expect("the link names the listener");
 
     let daemon = this_daemon(&services);
-    let joined = daemon.service_for(None).await.expect("the home resolves");
+    let joined = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     let started = joined.ensure_started(startup_timeout).await;
     let joined_process = joined.process_id();
     let is_first_drained =
@@ -145,7 +155,10 @@ async fn a_former_service_that_never_answers_its_join_is_stopped_and_the_next_st
     let is_first_stopped = send_signal(first_process, "-STOP");
 
     let daemon = this_daemon(&services);
-    let service = daemon.service_for(None).await.expect("the home resolves");
+    let service = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     let joined = service.ensure_started(startup_timeout * 3).await;
     let is_first_retired =
         wait_for_end_and_record_removal(first_process, &services, CRASH_WAIT).await;
@@ -189,7 +202,10 @@ async fn a_draining_service_is_never_where_the_link_is_pointed_back() {
     let marked = mark_kept_records_draining(&services);
 
     let daemon = this_daemon(&services);
-    let launched = daemon.service_for(None).await.expect("the home resolves");
+    let launched = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     let started = launched.ensure_started(startup_timeout).await;
     let launched_process = launched.process_id();
     let link =
@@ -231,7 +247,10 @@ async fn a_restart_finding_every_service_draining_launches_beside_them_at_once()
         send_signal(first_process, "-STOP") && send_signal(second_process, "-STOP");
 
     let daemon = this_daemon(&services);
-    let launched = daemon.service_for(None).await.expect("the home resolves");
+    let launched = daemon
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     let started = launched.ensure_started(startup_timeout).await;
     let launched_process = launched.process_id();
     let link =
@@ -270,7 +289,10 @@ async fn a_daemon_stop_returns_without_waiting_on_a_drain_under_way() {
     });
     let startup_timeout = services.dependencies.startup_timeout;
     let registry = Arc::new(this_daemon(&services));
-    let first = registry.service_for(None).await.expect("the home resolves");
+    let first = registry
+        .service_for(&test_provider_account_id())
+        .await
+        .expect("the home resolves");
     first
         .ensure_started(startup_timeout)
         .await

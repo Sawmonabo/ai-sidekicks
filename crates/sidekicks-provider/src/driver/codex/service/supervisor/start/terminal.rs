@@ -284,7 +284,10 @@ async fn join_former_service(
             physical_socket,
             is_restart_owed,
         }),
-        Err(error) => Err(StartFailure { error, process }),
+        Err(error) => Err(StartFailure {
+            error,
+            process: process.map(Box::new),
+        }),
     }
 }
 
@@ -353,10 +356,10 @@ async fn launch_terminal_service(
                 detail: "The Codex service's record could not be kept.".to_owned(),
                 cause: Some(Box::new(error)),
             },
-            process: Some(CodexServiceProcess::Lasting {
+            process: Some(Box::new(CodexServiceProcess::Lasting {
                 service: lasting,
                 record_file,
-            }),
+            })),
         });
     }
     let opened = connect(
@@ -412,7 +415,10 @@ async fn launch_terminal_service(
             physical_socket,
             is_restart_owed: false,
         }),
-        Err(error) => Err(StartFailure { error, process }),
+        Err(error) => Err(StartFailure {
+            error,
+            process: process.map(Box::new),
+        }),
     }
 }
 

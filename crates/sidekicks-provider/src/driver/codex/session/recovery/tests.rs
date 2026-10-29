@@ -22,7 +22,7 @@ use crate::driver::codex::session::errors::{CodexError, CodexSessionSlotState};
 use crate::driver::codex::session::slots::CodexSessionSlots;
 use crate::driver::codex::session::test_fixture::{
     RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, TestCodexSession, TestCodexTask, fork_reply,
-    no_turns, one_folder_provider_accounts,
+    no_turns,
 };
 use crate::driver::codex::thread::settings::CodexThreadSettings;
 use crate::driver::codex::transport::connection::scripted_service::ScriptedService;
@@ -134,10 +134,7 @@ fn test_recovery(
             reviewer_denials,
             process_gone,
             session_relaunched,
-            rate_limits: CodexRateLimitFiling::new(
-                Arc::clone(&session.engine) as _,
-                one_folder_provider_accounts(folder.join("work")),
-            ),
+            rate_limits: CodexRateLimitFiling::new(Arc::new(PortRegistration::new("usage"))),
             tasks: TaskTracker::new(),
         },
     ))
@@ -190,6 +187,11 @@ fn exit_code(code: u8) -> ProcessExit {
         .expect("the test writes an exit")
 }
 
+fn silent_end() -> ProcessExit {
+    serde_json::from_value(json!({"silentSeconds": 120, "outputTail": "(no output)"}))
+        .expect("the test writes a silent end")
+}
+
 // Killed by telling the queue the process is gone before the paused run's turns end, which has
 // the queue settle the continue it kept against a run still live, and before the held presses of
 // `Allow once` are released.
@@ -239,9 +241,9 @@ async fn a_process_exit_ends_the_paused_run_and_releases_its_presses_before_the_
 }
 
 // Killed by a notice after a crash restart, by the person's restart telling no session it
-// brought back, by a crash loop naming an exit older than its newest, and by one naming its
-// restart's failure where it read an exit. Runs in real time under a bound, the service answering
-// on its own task.
+// brought back, by a crash loop naming an exit older than its newest, by one naming its restart's
+// failure where it read an exit, and by a silent end's loop naming anything but its silence. Runs
+// in real time under a bound, the service answering on its own task.
 #[tokio::test]
 async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_the_session() {
     tokio::time::timeout(Duration::from_secs(30), async {
@@ -273,6 +275,7 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                             .expect("a notice names its kind")
                             .to_owned(),
                         notice["exitCode"].as_i64(),
+                        notice["silentSeconds"].as_i64(),
                     )
                 })
                 .collect::<Vec<_>>()
@@ -280,10 +283,10 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         session
             .task
             .drive(async {
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation, None)
                     .await;
             })
             .await;
@@ -306,13 +309,14 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
                     .crash_loop(&service, Some(&restart_failure()))
                     .await;
                 assert_eq!(gone_steps(&steps, session_id), gone_before + 1);
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 let generation = recovery.owe_resumes(&service);
                 recovery
                     .recover(
                         &service,
                         CodexServiceRecoveryCause::PersonRestart,
                         generation,
+                        None,
                     )
                     .await;
             })
@@ -320,8 +324,8 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
         assert_eq!(
             notices(),
             [
-                ("providerCrashLoop".to_owned(), Some(137)),
-                ("providerRestarted".to_owned(), None),
+                ("providerCrashLoop".to_owned(), Some(137), None),
+                ("providerRestarted".to_owned(), None, None),
             ]
         );
         // Each relaunch's binding is opened before its resume and is the one it reports.
@@ -334,6 +338,22 @@ async fn a_crash_loop_names_its_newest_exit_and_only_the_persons_restart_tells_t
             assert_eq!(relaunch[1], "resume", "{relaunch:?}");
             assert_eq!(relaunch[2], format!("relaunched Some({opened})"));
         }
+
+        // The daemon ended the service for its silence, and five such ends left it down.
+        session
+            .task
+            .drive(async {
+                recovery.remember_exit(&service, silent_end());
+                recovery
+                    .end_turns_on_exit(&service, Some(silent_end()))
+                    .await;
+                recovery.crash_loop(&service, None).await;
+            })
+            .await;
+        assert_eq!(
+            notices().last(),
+            Some(&("providerCrashLoop".to_owned(), None, Some(120)))
+        );
         service_side.abort();
     })
     .await
@@ -372,10 +392,10 @@ async fn a_loop_of_failed_restarts_after_an_unread_end_names_the_restarts_failur
                 recovery
                     .end_turns_on_exit(&service, Some(exit_code(1)))
                     .await;
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation, None)
                     .await;
                 recovery.end_turns_on_exit(&service, None).await;
                 recovery
@@ -470,7 +490,7 @@ async fn a_recovery_s_end_leaves_the_resumes_a_later_recovery_owes() {
             .task
             .drive(async {
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash, first)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, first, None)
                     .await;
             })
             .await;
@@ -483,7 +503,7 @@ async fn a_recovery_s_end_leaves_the_resumes_a_later_recovery_owes() {
             .task
             .drive(async {
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash, second)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, second, None)
                     .await;
             })
             .await;
@@ -537,10 +557,10 @@ async fn a_relaunch_whose_binding_cannot_open_resumes_nothing() {
         session
             .task
             .drive(async {
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation, None)
                     .await;
             })
             .await;
@@ -588,10 +608,10 @@ async fn a_relaunch_whose_record_is_refused_lets_its_conversation_go() {
         session
             .task
             .drive(async {
-                recovery.forget_exit(&service);
+                let _ended = recovery.take_exit(&service);
                 let generation = recovery.owe_resumes(&service);
                 recovery
-                    .recover(&service, CodexServiceRecoveryCause::Crash, generation)
+                    .recover(&service, CodexServiceRecoveryCause::Crash, generation, None)
                     .await;
             })
             .await;
@@ -684,13 +704,13 @@ async fn account_build_move_session() -> (
 #[tokio::test]
 async fn an_account_service_s_build_move_records_its_resume_under_the_binding_it_opened() {
     tokio::time::timeout(Duration::from_secs(30), async {
-        let (session, _folder, steps, recovery) = account_build_move_session().await;
+        let (session, _folder, steps, recovery) = Box::pin(account_build_move_session()).await;
         let settings = session.task.record.thread_settings.clone();
         let serving = Arc::clone(&steps);
 
-        let (moved, _task) = move_account_service_build(session, &recovery, |script| {
+        let (moved, _task) = Box::pin(move_account_service_build(session, &recovery, |script| {
             serve_resumes(script, settings, serving)
-        })
+        }))
         .await;
 
         moved.expect("the build move resumes the conversation");
