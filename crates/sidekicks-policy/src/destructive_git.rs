@@ -220,6 +220,7 @@ mod tests {
     // A wrapper's split string is the command it runs, its value attached or in a cluster.
     #[case::split_string_inside_the_word("env -S'git push --force'", true)]
     #[case::split_string_in_a_cluster("env -vS'git push --force'", true)]
+    #[case::split_string_after_the_long_option("env --split-string='git push --force'", true)]
     // A wrapper's option value is never the program, whichever system's option it is.
     #[case::search_path_value("env -P /usr/bin git push --force", true)]
     #[case::replacement_value("xargs -J % git push --force", true)]
