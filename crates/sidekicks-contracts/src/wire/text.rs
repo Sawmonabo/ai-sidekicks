@@ -71,16 +71,23 @@ pub struct FreeFormText<const MAX: usize>(String);
 impl<const MAX: usize> FreeFormText<MAX> {
     /// Checks `text`; refuses it with the first rule it breaks.
     pub fn new(text: String) -> Result<Self, TextError> {
+        Self::check(&text)?;
+        Ok(Self(text))
+    }
+
+    /// Holds borrowed `text` to this type's rules without taking it, for a reader that keeps the
+    /// text in another form; refuses it with the first rule it breaks.
+    pub(crate) fn check(text: &str) -> Result<(), TextError> {
         if text.contains('\0') {
             return Err(TextError::HoldsNul);
         }
         if text.chars().all(is_ecmascript_whitespace) {
             return Err(TextError::Blank);
         }
-        if !is_within_length(&text, 0, MAX) {
+        if !is_within_length(text, 0, MAX) {
             return Err(TextError::OverCap { cap: MAX });
         }
-        Ok(Self(text))
+        Ok(())
     }
 
     /// The checked text.
