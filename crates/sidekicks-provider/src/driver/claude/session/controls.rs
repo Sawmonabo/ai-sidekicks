@@ -78,7 +78,7 @@ use crate::port::session_rules::SessionRulePort;
 use crate::port::usage_sink::{MeteredUsage, MeteredUsageOwner, UsageSink};
 use crate::run::delivery::{InboundDelivery, InboundOutcome, SessionScopedRow};
 use crate::usage_delta_accountant::{
-    CumulativeUsageReading, ThreadBaseEstablishment, UsageDeltaAccountant,
+    CumulativeUsageReading, ThreadBaseEstablishment, UsageAxisCounts, UsageDeltaAccountant,
 };
 
 /// Reads a session's command list as the driver answers it now; `None` before it holds one.
@@ -122,6 +122,21 @@ pub(crate) struct ClaudeSideQuestionCopy {
     pub(crate) provider_account_id: ProviderAccountId,
     /// The conversation copied, which the copy resumes.
     pub(crate) parent_provider_session_id: String,
+    /// The conversation's cumulative usage at the fork, which the copy's total includes.
+    pub(crate) parent_cumulative: UsageAxisCounts,
+}
+
+impl ClaudeSideQuestionCopy {
+    /// The copy of `live`'s own conversation, whose thread was last metered at
+    /// `parent_cumulative`.
+    pub(crate) fn of_live(live: &LiveClaudeSession, parent_cumulative: UsageAxisCounts) -> Self {
+        Self {
+            legs: without_credential_prompts(one_turn_legs(live, None, None)),
+            provider_account_id: live.admitted_provider_account_id.clone(),
+            parent_provider_session_id: live.provider_session_id.clone(),
+            parent_cumulative,
+        }
+    }
 }
 
 impl ClaudeSessionControls {
@@ -511,6 +526,7 @@ impl ClaudeSessionControls {
             usage,
             copy.legs.session_id,
             binding_id,
+            copy.parent_cumulative,
             reply.usage.as_ref(),
         )
         .await;
@@ -666,13 +682,15 @@ pub(crate) fn claude_full_model_id(
         .unwrap_or_else(|| model.to_owned())
 }
 
-// The copy's turn's own usage, metered on the session's `binding_id` as a thread of its own from
-// a zero base: the copy's process ran that one turn, so the turn's usage is all it spent. With no
-// usage record registered it goes nowhere; a refused record is reported.
+// The copy's own spend, metered on the session's `binding_id` as a thread of its own based on
+// `parent_cumulative`: a fork's total counts the whole conversation it copied, so the copy spent
+// the fork's total less the parent's cumulative at the fork. With no usage record registered it
+// goes nowhere; a refused record is reported.
 async fn meter_side_question(
     usage: &PortRegistration<Arc<dyn UsageSink>>,
     session_id: SessionId,
     binding_id: &RuntimeBindingId,
+    parent_cumulative: UsageAxisCounts,
     observed: Option<&ClaudeCumulativeUsageObservation>,
 ) {
     let (Some(observed), Some(sink)) = (observed, usage.port()) else {
@@ -680,7 +698,12 @@ async fn meter_side_question(
     };
     let thread_id = binding_id.as_str().to_owned();
     let mut accountant = UsageDeltaAccountant::new(DESCRIPTOR.provider_id());
-    accountant.establish_thread(thread_id.clone(), ThreadBaseEstablishment::Fresh);
+    accountant.establish_thread(
+        thread_id.clone(),
+        ThreadBaseEstablishment::Resume {
+            prior_emitted_cumulative: parent_cumulative,
+        },
+    );
     let Some(delta) = accountant.meter_reading(CumulativeUsageReading {
         thread_id,
         named_turn_id: None,

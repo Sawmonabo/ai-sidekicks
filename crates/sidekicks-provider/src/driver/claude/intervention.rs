@@ -44,6 +44,7 @@ use crate::driver::run_control::{
     ApplyInterventionParams, ApplyInterventionResponse, InterruptPayload, InterruptPendingChoice,
     InterventionResultStatus,
 };
+use crate::usage_delta_accountant::UsageAxisCounts;
 
 // The capability a build declares when its interrupt can drop the messages it holds and list them.
 const CLAUDE_INTERRUPT_CANCEL_QUEUED_CAPABILITY: &str = "interrupt_cancel_queued_v1";
@@ -143,7 +144,7 @@ pub(crate) struct ClaudeInterventions {
     requests: Arc<ClaudeInboundRequests>,
     helper_steers: Arc<Mutex<ClaudeHelperSteers>>,
     // Each live session's routing band, whose router knows the calls the session's thread waits
-    // on: its foreground helpers.
+    // on, its foreground helpers, and whose accountant the usage the thread was last metered at.
     routing_bands: Mutex<HashMap<SessionId, Arc<Mutex<ClaudeSessionRoutingBand>>>>,
     // Each session's steers, in the order handed over: a fair lock, which waiters take in the
     // order they first asked.
@@ -214,6 +215,27 @@ impl ClaudeInterventions {
         band: Arc<Mutex<ClaudeSessionRoutingBand>>,
     ) {
         lock(&self.routing_bands).insert(session_id, band);
+    }
+
+    /// The cumulative usage `live`'s own thread was last metered at, the whole conversation's
+    /// spend so far. Fails `NoLiveSession` once the session is forgotten.
+    pub(crate) fn session_thread_cumulative(
+        &self,
+        live: &LiveClaudeSession,
+    ) -> Result<UsageAxisCounts, ClaudeSessionError> {
+        let band = lock(&self.routing_bands).get(&live.session_id).cloned();
+        band.and_then(|band| {
+            lock(&band)
+                .accountant
+                .base_registers(&live.provider_session_id)
+        })
+        .ok_or_else(|| {
+            claude_session_unavailable(
+                ClaudeSessionUnavailableReason::NoLiveSession,
+                live.session_id,
+                None,
+            )
+        })
     }
 
     /// Forgets a session whose process is gone: its held steers are dropped unwritten, the queue

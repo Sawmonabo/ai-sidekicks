@@ -30,10 +30,11 @@ use super::{ClaudeDriver, internal};
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::capabilities::resolve_claude_model_catalog;
 use crate::driver::claude::delivery::requests::answers::claude_project_folder;
+use crate::driver::claude::frame_routing::read_prior_emitted;
 use crate::driver::claude::inbox::address::{ClaudeSessionInboxAddresser, PlaceInboxEnvironment};
 use crate::driver::claude::run::start::claude_session_unavailable;
 use crate::driver::claude::session::controls::{
-    ClaudeSideQuestionCopy, claude_full_model_id, one_turn_legs, without_credential_prompts,
+    ClaudeSideQuestionCopy, claude_full_model_id, without_credential_prompts,
 };
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
@@ -679,12 +680,10 @@ impl ClaudeDriver {
         let parts = self.parts()?;
         let session_id = params.session_id;
         let copy = match parts.run_start.live_session(session_id) {
-            Ok(live) => ready(Ok(ClaudeSideQuestionCopy {
-                legs: without_credential_prompts(one_turn_legs(&live, None, None)),
-                provider_account_id: live.admitted_provider_account_id.clone(),
-                parent_provider_session_id: live.provider_session_id.clone(),
-            }))
-            .boxed(),
+            Ok(live) => {
+                let parent = parts.interventions.session_thread_cumulative(&live)?;
+                ready(Ok(ClaudeSideQuestionCopy::of_live(&live, parent))).boxed()
+            }
             Err(no_live_session) => match params.resume {
                 Some(resume) => compose_resting_side_question_copy(
                     Arc::clone(&self.sources),
@@ -791,7 +790,8 @@ fn account_config_folder(environment: &[(String, String)]) -> PathBuf {
 
 // The copy of a session at rest, from its resume material: the legs a resume starts with, with no
 // callback tools and on the full id of its model, which the build's catalog resolves since no
-// process of the session declared it. Fails as the context, the legs or the catalog cannot be read.
+// process of the session declared it, and the daemon's emitted sum for it as the parent's
+// cumulative. Fails as the context, the legs or the catalog cannot be read.
 async fn compose_resting_side_question_copy(
     sources: Arc<ClaudeSpawnSources>,
     starts: Arc<dyn ClaudeProcessStarts>,
@@ -825,6 +825,12 @@ async fn compose_resting_side_question_copy(
         .read_model_catalog(legs.spawn_environment.clone())
         .await?;
     let declaration = read_claude_initialize_declaration(catalog.initialize.as_deref());
+    let parent_cumulative = read_prior_emitted(
+        &sources.ports.usage,
+        resume.session_id,
+        &resume.resume_handle,
+    )
+    .await;
     Ok(ClaudeSideQuestionCopy {
         legs: ClaudeSpawnBoundLegs {
             model: claude_full_model_id(&declaration, &legs.model),
@@ -832,6 +838,7 @@ async fn compose_resting_side_question_copy(
         },
         provider_account_id: resume.provider_account_id,
         parent_provider_session_id: resume.resume_handle,
+        parent_cumulative,
     })
 }
 
