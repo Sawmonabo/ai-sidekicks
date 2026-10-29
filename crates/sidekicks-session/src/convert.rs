@@ -385,21 +385,24 @@ impl SessionConversion {
             local_path: request.path.clone(),
             place: None,
         };
+        // Resolved as the attach resolves it, and its working tree read, before anything is
+        // attached, so a path that is no repository or sits in no working tree attaches nothing.
+        self.mounts.resolve_folder(&attach).await?;
+        // The files go into the working tree of the path typed, and the session binds there, never
+        // into another checkout of the repository.
+        let working_tree = self.working_tree_of(&request.path).await?;
         let stopped = self.read_conversion(session_id).await?;
-        if let Some(stopped) = &stopped {
-            // Resolved as the attach resolves it first, so a path that is no repository is refused
-            // as the attach refuses it.
-            self.mounts.resolve_folder(&attach).await?;
-            if self.working_tree_of(&request.path).await? != stopped.working_tree {
-                return Err(conversion_refused(
-                    "The chat's conversion into another folder stopped part way.",
-                    SessionConversionRefusedDetails {
-                        repo_mount_id: Some(stopped.repo_mount_id),
-                        ..refused_for(SessionConversionRefusedReason::ConversionUnfinished)
-                    },
-                )
-                .into());
-            }
+        if let Some(stopped) = &stopped
+            && working_tree != stopped.working_tree
+        {
+            return Err(conversion_refused(
+                "The chat's conversion into another folder stopped part way.",
+                SessionConversionRefusedDetails {
+                    repo_mount_id: Some(stopped.repo_mount_id),
+                    ..refused_for(SessionConversionRefusedReason::ConversionUnfinished)
+                },
+            )
+            .into());
         }
         let repo_mount_id = self
             .projects
@@ -411,9 +414,12 @@ impl SessionConversion {
         let converted = self
             .convert_attached(
                 request,
-                session_id,
+                ConversionFolders {
+                    session_id,
+                    workspace_root,
+                    working_tree,
+                },
                 repo_mount_id,
-                &workspace_root,
                 stopped.is_some(),
                 &mut is_bound,
             )
@@ -430,28 +436,20 @@ impl SessionConversion {
     async fn convert_attached(
         &self,
         request: &SessionConvertRequest,
-        session_id: SessionId,
+        folders: ConversionFolders,
         repo_mount_id: RepoMountId,
-        workspace_root: &Path,
         is_resumed: bool,
         is_bound: &mut bool,
     ) -> Result<SessionConvertResponse, SessionConversionError> {
-        // The files go into the working tree of the path typed, and the session binds there, never
-        // into another checkout of the repository.
-        let working_tree = self.working_tree_of(&request.path).await?;
+        let session_id = folders.session_id;
         let record = conversion_record_statement(
             &request.client_idempotency_key,
             session_id,
             repo_mount_id,
-            &working_tree,
+            &folders.working_tree,
             is_resumed,
         );
         self.writer.write(vec![record]).await?;
-        let folders = ConversionFolders {
-            session_id,
-            workspace_root: workspace_root.to_path_buf(),
-            working_tree: working_tree.clone(),
-        };
         let dealt_with = self.read_files_dealt_with(session_id).await?;
         copy_workspace_files(&folders, &dealt_with, &self.writer).await?;
         self.workspaces
@@ -460,7 +458,7 @@ impl SessionConversion {
                 repo_mount_id,
                 execution_mode: ExecutionMode::BoundRoot,
                 directory: Some(
-                    FilesystemPath::new(working_tree.to_string_lossy().into_owned())
+                    FilesystemPath::new(folders.working_tree.to_string_lossy().into_owned())
                         .map_err(|error| SessionConversionError::File(io::Error::other(error)))?,
                 ),
             })
@@ -574,8 +572,8 @@ impl SessionConversion {
         Ok(facts)
     }
 
-    // The working tree `folder` sits in; refuses `repoMount.rootResolutionFailed` (`notARepository`)
-    // for a folder in none, and as git's read refuses.
+    // The working tree `folder` sits in; refuses `repoMount.rootResolutionFailed`
+    // (`notARepository`) for a folder in none, and as git's read refuses.
     async fn working_tree_of(
         &self,
         folder: &FilesystemPath,

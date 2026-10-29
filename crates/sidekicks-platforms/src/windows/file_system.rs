@@ -29,14 +29,14 @@ pub fn create_new_file(path: &Path, _mode: u32) -> io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
 }
 
-/// Opens the regular file at `path` for reading without following a link or any other reparse
-/// point at it, or answers what stood there instead. Fails with the open's or the stat's other
-/// errors, a folder's refused open among them.
-pub fn open_regular_file(path: &Path) -> io::Result<RegularFileOpen> {
+/// Opens the regular file at `relative` under the folder `root` for reading without following a
+/// link or any other reparse point at it, or answers what stood there instead. Fails with the
+/// open's or the stat's other errors, a folder's refused open among them.
+pub fn open_regular_file(root: &Path, relative: &Path) -> io::Result<RegularFileOpen> {
     let opened = OpenOptions::new()
         .read(true)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
-        .open(path);
+        .open(root.join(relative));
     let file = match opened {
         Ok(file) => file,
         Err(error)

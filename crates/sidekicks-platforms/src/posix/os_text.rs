@@ -1,5 +1,5 @@
 //! Text the system hands a program as bytes on macOS and Linux: an argument's, a path's or an
-//! environment entry's own bytes, whatever they hold.
+//! environment entry's own bytes, whatever they hold, and for tests a name that is not Unicode.
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -10,4 +10,15 @@ use std::os::unix::ffi::OsStrExt;
 /// fails.
 pub fn os_text_bytes(text: &OsStr) -> io::Result<Cow<'_, [u8]>> {
     Ok(Cow::Borrowed(text.as_bytes()))
+}
+
+/// A file name that is not Unicode: `stem` followed by the lone continuation byte `0x80 + unit`,
+/// so names given different `unit`s differ only in that byte. `unit` is below 64.
+#[cfg(any(test, feature = "test-support"))]
+pub fn non_unicode_name(stem: &str, unit: u8) -> std::ffi::OsString {
+    use std::os::unix::ffi::OsStringExt as _;
+
+    let mut bytes = stem.as_bytes().to_vec();
+    bytes.push(0x80 + unit);
+    std::ffi::OsString::from_vec(bytes)
 }

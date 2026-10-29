@@ -332,6 +332,8 @@ pub use posix::file_system::{
 pub use posix::login_shell::{login_shell, name_as_login_shell};
 #[cfg(unix)]
 pub use posix::null_device::NULL_DEVICE_PATH;
+#[cfg(all(unix, any(test, feature = "test-support")))]
+pub use posix::os_text::non_unicode_name;
 #[cfg(unix)]
 pub use posix::os_text::os_text_bytes;
 #[cfg(unix)]
@@ -537,6 +539,8 @@ pub use windows::memory::{
 };
 #[cfg(target_os = "windows")]
 pub use windows::null_device::NULL_DEVICE_PATH;
+#[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
+pub use windows::os_text::non_unicode_name;
 #[cfg(target_os = "windows")]
 pub use windows::os_text::os_text_bytes;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]

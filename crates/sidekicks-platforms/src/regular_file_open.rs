@@ -1,5 +1,5 @@
-//! What opening a regular file without following a link at its last component found: the file
-//! open for reading, or what stood at the path instead.
+//! What opening a regular file through no link found: the file open for reading, or what stood at
+//! the path instead.
 
 use std::fs::File;
 

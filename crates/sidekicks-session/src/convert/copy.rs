@@ -6,11 +6,14 @@
 //! nothing. Each file's outcome is recorded as it lands, while the copy goes on.
 
 use std::collections::{BTreeSet, HashSet};
+use std::ffi::OsStr;
 use std::fs::{self, Permissions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sidekicks_contracts::session::convert::SessionConvertSkipReason;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_platforms::{RegularFileOpen, create_new_file, open_regular_file};
@@ -55,7 +58,7 @@ pub(super) struct ConversionFolders {
 }
 
 /// One of the workspace's files: its path under the workspace, and that path as its record keys it,
-/// `/`-separated.
+/// `/`-separated, each name that is not Unicode written as base64url of its bytes.
 struct WorkspaceEntry {
     relative: PathBuf,
     key: String,
@@ -218,12 +221,7 @@ fn list_workspace_entries(
                 continue;
             }
             let relative = folder.join(&name);
-            let name = name.to_string_lossy();
-            let key = if folder_key.is_empty() {
-                name.into_owned()
-            } else {
-                format!("{folder_key}/{name}")
-            };
+            let key = record_key(&folder_key, &name);
             if listed.file_type()?.is_dir() {
                 if workspace_root.join(&relative) != working_tree {
                     folders.push((relative, key));
@@ -237,6 +235,21 @@ fn list_workspace_entries(
     Ok(entries)
 }
 
+// The record key of `name` in the folder keyed `folder_key`. A name that is not Unicode is keyed by
+// base64url of its own bytes, never its lossy form, so two names that differ only in a byte that is
+// not Unicode take two keys.
+fn record_key(folder_key: &str, name: &OsStr) -> String {
+    let name = match name.to_str() {
+        Some(name) => name.to_owned(),
+        None => URL_SAFE_NO_PAD.encode(name.as_encoded_bytes()),
+    };
+    if folder_key.is_empty() {
+        name
+    } else {
+        format!("{folder_key}/{name}")
+    }
+}
+
 // Copies one regular file, never replacing anything: the copy is written beside the target, then
 // published under the target's name without replacing, so a path the repository already holds, a
 // link there included, is skipped, and takes the source's permissions once it has the name.
@@ -244,13 +257,14 @@ async fn copy_entry(
     folders: &ConversionFolders,
     entry: &WorkspaceEntry,
 ) -> Result<EntryOutcome, SessionConversionError> {
-    let source = folders.workspace_root.join(&entry.relative);
+    let workspace_root = folders.workspace_root.clone();
     let working_tree = folders.working_tree.clone();
     let relative = entry.relative.clone();
     let copy_name = copy_name_of(folders.session_id);
-    let written =
-        on_blocking_thread(move || write_copy(&source, &working_tree, &relative, &copy_name))
-            .await?;
+    let written = on_blocking_thread(move || {
+        write_copy(&workspace_root, &working_tree, &relative, &copy_name)
+    })
+    .await?;
     let (copy_path, target, permissions) = match written {
         WrittenCopy::Written {
             copy_path,
@@ -273,16 +287,18 @@ async fn copy_entry(
     }
 }
 
-// Opens the source without following a link at it, and writes its bytes to a new file named
+// Opens the source through no link in its path under the workspace, and writes its bytes to a new file named
 // `copy_name` in the target's folder, each folder on the way a real folder of the repository, made
 // when missing. A failed write removes the copy, so the repository keeps no part of the file.
 fn write_copy(
-    source: &Path,
+    workspace_root: &Path,
     working_tree: &Path,
     relative: &Path,
     copy_name: &str,
 ) -> Result<WrittenCopy, SessionConversionError> {
-    let mut source = match open_regular_file(source).map_err(SessionConversionError::File)? {
+    let opened =
+        open_regular_file(workspace_root, relative).map_err(SessionConversionError::File)?;
+    let mut source = match opened {
         RegularFileOpen::Opened(file) => file,
         RegularFileOpen::Link => return Ok(WrittenCopy::Skipped(SessionConvertSkipReason::Link)),
         RegularFileOpen::SpecialFile => {
@@ -363,4 +379,23 @@ async fn on_blocking_thread<Output: Send + 'static>(
     tokio::task::spawn_blocking(work)
         .await
         .map_err(|join| SessionConversionError::File(io::Error::other(join)))?
+}
+
+#[cfg(test)]
+mod tests {
+    use sidekicks_platforms::non_unicode_name;
+
+    use super::record_key;
+
+    // Fails with the name keyed by its lossy form: both names then read as one key, and the second
+    // file's record is refused, which leaves the conversion incomplete on every resume.
+    #[test]
+    fn two_names_differing_only_in_a_byte_that_is_not_unicode_take_two_keys() {
+        let first = record_key("notes", &non_unicode_name("caf", 0));
+        let second = record_key("notes", &non_unicode_name("caf", 1));
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("notes/"), "{first}");
+        assert_eq!(record_key("", "plain.txt".as_ref()), "plain.txt");
+    }
 }
