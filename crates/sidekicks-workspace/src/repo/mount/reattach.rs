@@ -48,7 +48,7 @@ use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
-use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::stored_column::{optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
@@ -618,11 +618,7 @@ fn read_identity_holder(
             |row| {
                 Ok((
                     text_column(row, 0, |text| RepoMountId::new(&text))?,
-                    sidekicks_store::database::stored_column::optional_text_column(
-                        row,
-                        1,
-                        |text| ProjectId::new(&text),
-                    )?,
+                    optional_text_column(row, 1, |text| ProjectId::new(&text))?,
                 ))
             },
         )

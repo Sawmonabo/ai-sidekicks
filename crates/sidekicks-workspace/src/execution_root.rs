@@ -430,9 +430,9 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
     }
 
     /// Moves the held workspace into `folder`, any tree git lists for its repository: a tree the
-    /// daemon made becomes its `provisionedWorktree` root and keeps that tree's branches; any other,
-    /// the repository's own checkout and a tree the person made included, binds as a `boundRoot`
-    /// checkout. Ungated, since a move is how a `rootLost` workspace leaves a folder that went
+    /// daemon made becomes its `provisionedWorktree` root and keeps that tree's branches; any
+    /// other, the repository's own checkout and a tree the person made included, binds as a
+    /// `boundRoot` checkout. Ungated, since a move is how a `rootLost` workspace leaves a folder that went
     /// away. The bracket's events are appended under `append_hold` where the caller holds the
     /// workspace's session, as a run's end does. Refuses as
     /// [`ExecutionRootService::require_listed_tree`] does, and `repoMount.notFound`; a failure
@@ -541,7 +541,8 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
                 RepoMountOutsideTrustEnvelopeReason::OutsideProject,
             ));
         }
-        // A retired tree git still lists is the sweep's to delete, so work done there would be lost.
+        // A retired tree git still lists is the sweep's to delete, so work done there would be
+        // lost.
         let target = canonical_folder_path(&admitted.execution_root)
             .await
             .map_err(ExecutionRootError::Folder)?;

@@ -1,7 +1,7 @@
 //! The workspace service: the one owner of the `workspaces` table's lifecycle. A bind lands a
 //! session's workspace on an attached mount; the list reads each workspace's health, moving a
-//! ready one whose root is gone to `rootLost`; the write gate refuses a run a workspace cannot take;
-//! and the preparation bracket's rows move a workspace through `preparing` to `ready` or
+//! ready one whose root is gone to `rootLost`; the write gate refuses a run a workspace cannot
+//! take; and the preparation bracket's rows move a workspace through `preparing` to `ready` or
 //! `rootLost`.
 //!
 //! - Every transition writes its row in its event's prelude, so the row and the event commit
@@ -86,9 +86,9 @@ static SELECT_LIVE_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-// `SELECT … FROM repo_mounts` rather than `VALUES` re-tests inside the write that the mount is still
-// attached, that the session still exists and that no other bind gave it a live workspace on the
-// mount since the reads: zero rows refuses the write and takes `workspace.preparing` with it.
+// `SELECT … FROM repo_mounts` rather than `VALUES` re-tests inside the write that the mount is
+// still attached, that the session still exists and that no other bind gave it a live workspace on
+// the mount since the reads: zero rows refuses the write and takes `workspace.preparing` with it.
 static BIND_WORKSPACE_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO workspaces (

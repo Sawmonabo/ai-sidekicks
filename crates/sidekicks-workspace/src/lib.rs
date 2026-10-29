@@ -1,7 +1,8 @@
 //! Workspaces: projects, repositories and their clones, git and its worktrees, the workspaces'
-//! execution roots, the managed write watch, the one file watch every owner shares, a session's
-//! working folder and the gates a run passes before its provider starts. It sits over std, store
-//! and ipc and is taken by workflow, provider, shell, session, approval, artifact and the program.
+//! execution roots, over which a mount's re-attach is the one repository module built, the managed
+//! write watch, the one file watch every owner shares, a session's working folder and the gates a
+//! run passes before its provider starts. It sits over std, store and ipc and is taken by
+//! workflow, provider, shell, session, approval, artifact and the program.
 
 pub mod askpass_prompt;
 pub mod clone;

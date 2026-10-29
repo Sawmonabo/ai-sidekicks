@@ -213,8 +213,8 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
         })
     }
 
-    // `provisionedWorktree`: a new tree cut for this workspace, carrying the uncommitted work of the
-    // checkout the workspace works in now when asked.
+    // `provisionedWorktree`: a new tree cut for this workspace, carrying the uncommitted work of
+    // the checkout the workspace works in now when asked.
     async fn create_worktree_root(
         &self,
         workspace: &WorkspaceRow,

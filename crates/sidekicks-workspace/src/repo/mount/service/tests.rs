@@ -229,7 +229,8 @@ async fn a_detach_whose_run_ends_before_its_session_is_read_detaches_on_its_retr
         .expect("the running check refused the detach");
 
     rows.execute_batch(&format!(
-        "UPDATE run_execution_contexts SET released_at = '{PARENT_ROWS_AT}' WHERE run_id = 'run'"
+        "UPDATE run_execution_contexts SET released_at = '{PARENT_ROWS_AT}' \
+         WHERE run_id = '{RUN_ID}'"
     ))
     .expect("the run ends");
     paused
