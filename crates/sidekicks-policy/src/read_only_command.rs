@@ -46,14 +46,21 @@ enum ProgramOptions {
     Primaries(&'static [(&'static str, usize)]),
 }
 
-// A program's closed set of getopt-style options.
+// A program's closed set of getopt-style options. A value an option takes is never checked, so a
+// value of `--` or of a listed program's dangerous option ends or hides nothing.
 struct GetoptOptions {
     // Short letters that take no value.
     flags: &'static str,
-    // Short letters that take a value, the rest of the cluster or the next word.
+    // Short letters that require a value: the rest of the cluster, or the next word when the
+    // letter ends it.
     letters_with_value: &'static str,
-    // Long options, in groups so programs share one.
+    // Short letters whose value is optional and only the rest of the cluster, as git's `-U3`.
+    letters_with_attached_value: &'static str,
+    // Long options that take no value or an optional one after `=`, in groups so programs share
+    // one.
     long: &'static [&'static [&'static str]],
+    // Long options that require a value: after `=`, or the next word.
+    long_with_value: &'static [&'static [&'static str]],
     // Whether `-<digits>` is a count, as in `head -5` or `git log -3`.
     takes_count: bool,
 }
@@ -71,17 +78,21 @@ const fn getopt(
     flags: &'static str,
     letters_with_value: &'static str,
     long: &'static [&'static [&'static str]],
+    long_with_value: &'static [&'static [&'static str]],
     takes_count: bool,
 ) -> ProgramOptions {
     ProgramOptions::Getopt(GetoptOptions {
         flags,
         letters_with_value,
+        letters_with_attached_value: "",
         long,
+        long_with_value,
         takes_count,
     })
 }
 
-const HEAD_TAIL_LONG: &[&str] = &["--lines", "--bytes", "--quiet", "--silent", "--verbose"];
+const HEAD_TAIL_LONG: &[&str] = &["--quiet", "--silent", "--verbose"];
+const HEAD_TAIL_LONG_WITH_VALUE: &[&str] = &["--lines", "--bytes"];
 
 // `rg` without `--pre`, `--pre-glob`, `--hostname-bin` or `--search-zip`, which run programs.
 const RG_LONG: &[&str] = &[
@@ -103,12 +114,32 @@ const RG_LONG: &[&str] = &[
     "--hidden",
     "--no-ignore",
     "--follow",
+    "--type-list",
+    "--files",
+    "--heading",
+    "--no-heading",
+    "--with-filename",
+    "--no-filename",
+    "--json",
+    "--vimgrep",
+    "--multiline",
+    "--multiline-dotall",
+    "--pcre2",
+    "--trim",
+    "--column",
+    "--null",
+    "--stats",
+    "--unrestricted",
+    "--text",
+    "--no-messages",
+    "--no-ignore-vcs",
+];
+
+const RG_LONG_WITH_VALUE: &[&str] = &[
     "--glob",
     "--iglob",
     "--type",
     "--type-not",
-    "--type-list",
-    "--files",
     "--file",
     "--regexp",
     "--max-count",
@@ -116,29 +147,12 @@ const RG_LONG: &[&str] = &[
     "--after-context",
     "--before-context",
     "--context",
-    "--heading",
-    "--no-heading",
-    "--with-filename",
-    "--no-filename",
     "--color",
-    "--json",
-    "--vimgrep",
     "--sort",
     "--sortr",
-    "--multiline",
-    "--multiline-dotall",
-    "--pcre2",
     "--replace",
-    "--trim",
-    "--column",
-    "--null",
-    "--stats",
     "--max-columns",
     "--max-filesize",
-    "--unrestricted",
-    "--text",
-    "--no-messages",
-    "--no-ignore-vcs",
     "--ignore-file",
 ];
 
@@ -162,19 +176,22 @@ const GREP_LONG: &[&str] = &[
     "--no-filename",
     "--recursive",
     "--dereference-recursive",
+    "--color",
+    "--colour",
+    "--null",
+    "--text",
+];
+
+const GREP_LONG_WITH_VALUE: &[&str] = &[
     "--include",
     "--exclude",
     "--exclude-dir",
-    "--color",
-    "--colour",
     "--max-count",
     "--after-context",
     "--before-context",
     "--context",
     "--regexp",
     "--file",
-    "--null",
-    "--text",
 ];
 
 // `diff` without `-l` (`--paginate`), which runs `pr`.
@@ -190,7 +207,6 @@ const DIFF_LONG: &[&str] = &[
     "--ignore-case",
     "--text",
     "--color",
-    "--exclude",
     "--strip-trailing-cr",
     "--report-identical-files",
 ];
@@ -206,8 +222,6 @@ const LS_LONG: &[&str] = &[
     "--directory",
     "--inode",
     "--size",
-    "--sort",
-    "--time-style",
     "--group-directories-first",
 ];
 
@@ -226,23 +240,42 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
                 "--show-tabs",
                 "--show-nonprinting",
             ]],
+            &[],
             false,
         ),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "head",
-        options: getopt("qv", "nc", &[HEAD_TAIL_LONG], true),
+        options: getopt(
+            "qv",
+            "nc",
+            &[HEAD_TAIL_LONG],
+            &[HEAD_TAIL_LONG_WITH_VALUE],
+            true,
+        ),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "tail",
-        options: getopt("qv", "nc", &[HEAD_TAIL_LONG], true),
+        options: getopt(
+            "qv",
+            "nc",
+            &[HEAD_TAIL_LONG],
+            &[HEAD_TAIL_LONG_WITH_VALUE],
+            true,
+        ),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "ls",
-        options: getopt("1aAcdFGhilLnprRStu", "", &[LS_LONG], false),
+        options: getopt(
+            "1aAcdFGhilLnprRStu",
+            "",
+            &[LS_LONG],
+            &[&["--sort", "--time-style"]],
+            false,
+        ),
         takes_undecided_words: true,
     },
     ReadingProgram {
@@ -257,6 +290,7 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
                 "--words",
                 "--max-line-length",
             ]],
+            &[],
             false,
         ),
         takes_undecided_words: true,
@@ -266,30 +300,37 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
         options: getopt(
             "LFnqrsx",
             "cft",
-            &[&[
-                "--dereference",
-                "--format",
-                "--printf",
-                "--terse",
-                "--file-system",
-            ]],
+            &[&["--dereference", "--terse", "--file-system"]],
+            &[&["--format", "--printf"]],
             false,
         ),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "rg",
-        options: getopt("iSsFwxvnNlcoqHIL.u0UP", "egtTABCmMdjrf", &[RG_LONG], false),
+        options: getopt(
+            "iSsFwxvnNlcoqHIL.u0UP",
+            "egtTABCmMdjrf",
+            &[RG_LONG],
+            &[RG_LONG_WITH_VALUE],
+            false,
+        ),
         takes_undecided_words: false,
     },
     ReadingProgram {
         name: "grep",
-        options: getopt("iEFGPwxvnlLcoqshHrRIaZz", "eABCmfd", &[GREP_LONG], false),
+        options: getopt(
+            "iEFGPwxvnlLcoqshHrRIaZz",
+            "eABCmfd",
+            &[GREP_LONG],
+            &[GREP_LONG_WITH_VALUE],
+            false,
+        ),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "diff",
-        options: getopt("uqrNwbBiac", "UCx", &[DIFF_LONG], false),
+        options: getopt("uqrNwbBiac", "UCx", &[DIFF_LONG], &[&["--exclude"]], false),
         takes_undecided_words: false,
     },
     // `find` without `-delete`, `-exec`, `-execdir`, `-ok`, `-okdir`, `-fls` or `-fprint*`.
@@ -333,29 +374,29 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
     },
     ReadingProgram {
         name: "cd",
-        options: getopt("LP", "", &[], false),
+        options: getopt("LP", "", &[], &[], false),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "pwd",
-        options: getopt("LP", "", &[], false),
+        options: getopt("LP", "", &[], &[], false),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "echo",
-        options: getopt("neE", "", &[], false),
+        options: getopt("neE", "", &[], &[], false),
         takes_undecided_words: true,
     },
     ReadingProgram {
         name: "which",
-        options: getopt("as", "", &[], false),
+        options: getopt("as", "", &[], &[], false),
         takes_undecided_words: true,
     },
     // `command` with `-v` or `-V`, which prints how the shell finds a name; any other `command`
     // is read as the wrapper of the command it runs.
     ReadingProgram {
         name: "command",
-        options: getopt("pvV", "", &[], false),
+        options: getopt("pvV", "", &[], &[], false),
         takes_undecided_words: true,
     },
 ];
@@ -380,7 +421,6 @@ const GIT_DIFF_OUTPUT_LONG: &[&str] = &[
     "--unified",
     "--no-ext-diff",
     "--no-textconv",
-    "--diff-filter",
     "--relative",
     "--ignore-all-space",
     "--ignore-space-change",
@@ -390,15 +430,18 @@ const GIT_DIFF_OUTPUT_LONG: &[&str] = &[
     "--abbrev",
 ];
 
+const GIT_DIFF_OUTPUT_LONG_WITH_VALUE: &[&str] = &["--diff-filter"];
+
 const GIT_HISTORY_LONG: &[&str] = &[
     "--oneline",
     "--format",
     "--pretty",
     "--abbrev-commit",
-    "--date",
     "--decorate",
     "--no-decorate",
 ];
+
+const GIT_HISTORY_LONG_WITH_VALUE: &[&str] = &["--date"];
 
 // Git's reading subcommands, each with its own closed set of options.
 const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
@@ -406,7 +449,8 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
         "status",
         GetoptOptions {
             flags: "sbvz",
-            letters_with_value: "u",
+            letters_with_value: "",
+            letters_with_attached_value: "u",
             long: &[&[
                 "--short",
                 "--branch",
@@ -421,6 +465,7 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
                 "--renames",
                 "--no-renames",
             ]],
+            long_with_value: &[],
             takes_count: false,
         },
     ),
@@ -429,22 +474,14 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
         GetoptOptions {
             flags: "p",
             letters_with_value: "nSG",
+            letters_with_attached_value: "",
             long: &[
                 GIT_DIFF_OUTPUT_LONG,
                 GIT_HISTORY_LONG,
                 &[
-                    "--max-count",
-                    "--skip",
                     "--graph",
                     "--all",
                     "--branches",
-                    "--author",
-                    "--committer",
-                    "--since",
-                    "--until",
-                    "--after",
-                    "--before",
-                    "--grep",
                     "--follow",
                     "--reverse",
                     "--merges",
@@ -454,6 +491,21 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
                     "--date-order",
                 ],
             ],
+            long_with_value: &[
+                GIT_DIFF_OUTPUT_LONG_WITH_VALUE,
+                GIT_HISTORY_LONG_WITH_VALUE,
+                &[
+                    "--max-count",
+                    "--skip",
+                    "--author",
+                    "--committer",
+                    "--since",
+                    "--until",
+                    "--after",
+                    "--before",
+                    "--grep",
+                ],
+            ],
             takes_count: true,
         },
     ),
@@ -461,7 +513,8 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
         "diff",
         GetoptOptions {
             flags: "pw",
-            letters_with_value: "U",
+            letters_with_value: "",
+            letters_with_attached_value: "U",
             long: &[
                 GIT_DIFF_OUTPUT_LONG,
                 &[
@@ -474,6 +527,7 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
                     "--check",
                 ],
             ],
+            long_with_value: &[GIT_DIFF_OUTPUT_LONG_WITH_VALUE],
             takes_count: false,
         },
     ),
@@ -482,7 +536,9 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
         GetoptOptions {
             flags: "ps",
             letters_with_value: "",
+            letters_with_attached_value: "",
             long: &[GIT_DIFF_OUTPUT_LONG, GIT_HISTORY_LONG, &["--quiet"]],
+            long_with_value: &[GIT_DIFF_OUTPUT_LONG_WITH_VALUE, GIT_HISTORY_LONG_WITH_VALUE],
             takes_count: false,
         },
     ),
@@ -564,37 +620,71 @@ fn is_reading_git(command: ShellCommand<'_>) -> bool {
 }
 
 // Whether every option word before a `--` is on `options`: a long option by its name, a short
-// cluster letter by letter up to one that takes a value, or a count.
+// cluster letter by letter up to one that takes a value, or a count. An option's value is skipped
+// unchecked, so a value of `--` ends nothing.
 fn takes_only_listed_options<'r>(
     options: &GetoptOptions,
     words: &mut impl Iterator<Item = ShellWord<'r>>,
 ) -> bool {
-    for word in words {
+    while let Some(word) = words.next() {
         if word.is("--") {
             return true;
         }
         if word.is("-") || !word.starts_with("-") {
             continue;
         }
-        let is_listed = if word.starts_with("--") {
-            options
-                .long
-                .iter()
-                .flat_map(|group| group.iter())
-                .any(|option| is_option(word, option))
+        let option = if word.starts_with("--") {
+            read_long_option(options, word)
         } else {
-            is_listed_short_cluster(options, word)
+            read_short_cluster(options, word)
         };
-        if !is_listed {
-            return false;
+        match option {
+            OptionWord::Unlisted => return false,
+            OptionWord::Whole => {}
+            OptionWord::TakesNextWord => {
+                words.next();
+            }
         }
     }
     true
 }
 
-// A `-` and then listed letters, the first one that takes a value ending the cluster, or digits
-// alone for a program that takes a count.
-fn is_listed_short_cluster(options: &GetoptOptions, word: ShellWord<'_>) -> bool {
+// How one option word reads against a program's closed set.
+enum OptionWord {
+    Unlisted,
+    // Listed, with any value inside the word.
+    Whole,
+    // Listed, its value the next word.
+    TakesNextWord,
+}
+
+// A listed long option, alone or with `=<value>`; one that requires a value and has no `=` takes
+// the next word.
+fn read_long_option(options: &GetoptOptions, word: ShellWord<'_>) -> OptionWord {
+    let listed_in = |groups: &[&[&'static str]]| -> Option<&'static str> {
+        groups
+            .iter()
+            .flat_map(|group| group.iter())
+            .find(|option| is_option(word, option))
+            .copied()
+    };
+    if let Some(option) = listed_in(options.long_with_value) {
+        return if word.is(option) {
+            OptionWord::TakesNextWord
+        } else {
+            OptionWord::Whole
+        };
+    }
+    if listed_in(options.long).is_some() {
+        OptionWord::Whole
+    } else {
+        OptionWord::Unlisted
+    }
+}
+
+// A `-` and then listed letters, the first one that takes a value ending the cluster and taking the
+// next word when nothing follows it, or digits alone for a program that takes a count.
+fn read_short_cluster(options: &GetoptOptions, word: ShellWord<'_>) -> OptionWord {
     let mut characters = word.chars().skip(1).peekable();
     if options.takes_count
         && characters.peek().is_some()
@@ -603,17 +693,24 @@ fn is_listed_short_cluster(options: &GetoptOptions, word: ShellWord<'_>) -> bool
             .skip(1)
             .all(|character| character.is_ascii_digit())
     {
-        return true;
+        return OptionWord::Whole;
     }
-    for character in characters {
+    while let Some(character) = characters.next() {
         if options.letters_with_value.contains(character) {
-            return true;
+            return if characters.peek().is_none() {
+                OptionWord::TakesNextWord
+            } else {
+                OptionWord::Whole
+            };
+        }
+        if options.letters_with_attached_value.contains(character) {
+            return OptionWord::Whole;
         }
         if !options.flags.contains(character) {
-            return false;
+            return OptionWord::Unlisted;
         }
     }
-    true
+    OptionWord::Whole
 }
 
 #[cfg(test)]

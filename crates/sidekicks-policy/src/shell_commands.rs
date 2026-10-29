@@ -71,15 +71,17 @@ impl ShellLineReading {
     }
 
     /// Whether a redirect anywhere in the line read writes a file: `>`, `>>`, `>|`, `&>`, `&>>` or
-    /// `>&` to a name. A descriptor duplication such as `2>&1`, a read, and `/dev/null`,
-    /// `/dev/stdout` or `/dev/stderr` as the shell passes the name write none.
+    /// `>&` to a name. A descriptor duplication such as `2>&1`, a read, and `/dev/null` as the
+    /// shell passes the name write none; `/dev/stdout` and `/dev/stderr` reopen the file behind
+    /// their descriptor, so a write to either counts.
     pub(crate) fn has_file_writing_redirect(&self) -> bool {
         self.effects.has_file_writing_redirect
     }
 
-    /// Whether the line read can set a shell variable: an assignment, alone, before a command or
-    /// in a declaration, a loop's variable, a `${name=…}` or `${name:=…}` expansion, an array
-    /// subscript, a `[[ … ]]` test that compares numbers or asks `-v`, or any other arithmetic.
+    /// Whether the line read can set a shell variable or run text as code: an assignment, alone,
+    /// before a command or in a declaration, a loop's variable, a `${…}` expansion that is not a
+    /// plain read, an array subscript, zsh's `$name[…]`, a `{name}` word, which names a redirect's
+    /// descriptor, a `[[ … ]]` test that compares numbers or asks `-v`, or any other arithmetic.
     pub(crate) fn can_set_variable(&self) -> bool {
         self.effects.can_set_variable
     }
@@ -152,6 +154,12 @@ impl<'r> ShellCommand<'r> {
     /// The programs that ran this command after their own options, outermost first.
     pub fn wrappers(self) -> impl ExactSizeIterator<Item = ShellWord<'r>> {
         (self.entry.first..self.entry.program).map(move |index| self.reading.word(index))
+    }
+
+    /// Whether the program is a wrapper's name, as it is when the wrapper's options only describe
+    /// the command after it, as `command -v` does, rather than run it.
+    pub fn is_program_a_wrapper(self) -> bool {
+        command_wrapper(self.program()).is_some()
     }
 
     /// Whether the program, or a wrapper it ran through, was named with a folder, as `./cat` or
@@ -369,9 +377,12 @@ fn commands_in(
 }
 
 // Notes what `node` does beside running a command: a redirect that writes a file, or a node that
-// can set a variable. Arithmetic counts whole, since telling its assignments from its reads gains
-// nothing a reading program needs; bash evaluates an array subscript, and the operands of a
-// `[[ … ]]` number comparison or `-v`, as arithmetic, running any `$(…)` in them even when quoted.
+// can set a variable or run text as code. Arithmetic counts whole, since telling its assignments
+// from its reads gains nothing a reading program needs. The shell evaluates as arithmetic, running
+// any `$(…)` in it even when quoted: an array subscript, zsh's `$name[…]` in a word, a string or a
+// here-document, the operands of a `[[ … ]]` number comparison or `-v`, and a `${…}` offset or
+// length. A `${…}` expansion beyond a plain read can also assign, read the variable a value names
+// or run a value as a prompt, and a `{name}` word before a redirect assigns a descriptor to `name`.
 fn note_line_effects(node: Node<'_>, builder: &mut WordBuilder<'_>, effects: &mut LineEffects) {
     let line = builder.line();
     match node.kind() {
@@ -390,7 +401,14 @@ fn note_line_effects(node: Node<'_>, builder: &mut WordBuilder<'_>, effects: &mu
         "test_command" if node.child(0).is_some_and(|open| open.kind() == "[[") => {
             effects.can_set_variable |= is_arithmetic_test(node, line);
         }
-        "expansion" => effects.can_set_variable |= is_assigning_expansion(node, line),
+        "expansion" => effects.can_set_variable |= !is_reading_expansion(node, line),
+        // zsh reads `[…]` right after `$name` as its subscript.
+        "simple_expansion" => {
+            effects.can_set_variable |= node.next_sibling().is_some_and(|next| {
+                next.start_byte() == node.end_byte() && node_text(next, line).starts_with('[')
+            });
+        }
+        "concatenation" | "word" => effects.can_set_variable |= is_descriptor_name(node, line),
         _ => {}
     }
 }
@@ -398,8 +416,8 @@ fn note_line_effects(node: Node<'_>, builder: &mut WordBuilder<'_>, effects: &mu
 // The `[[ … ]]` operators whose operands bash evaluates as arithmetic.
 const ARITHMETIC_TEST_OPERATORS: &[&str] = &["-eq", "-ne", "-lt", "-le", "-gt", "-ge", "-v"];
 
-// Whether a `[[ … ]]` test holds an operator whose operands bash evaluates as arithmetic. Only the
-// test's own expressions are walked, so each node of the line is visited once.
+// Whether a `[[ … ]]` test holds an operator whose operands bash evaluates as arithmetic. The walk
+// stays inside the test's own expressions.
 fn is_arithmetic_test(test: Node<'_>, line: &str) -> bool {
     let mut cursor = test.walk();
     if !cursor.goto_first_child() {
@@ -459,10 +477,10 @@ fn redirect_writes_file(redirect: Node<'_>, builder: &mut WordBuilder<'_>) -> bo
     }
 }
 
-// The devices a redirect writes no file through.
-const STANDARD_DEVICES: &[&str] = &["/dev/null", "/dev/stdout", "/dev/stderr"];
+// The one device a redirect writes no file through.
+const NULL_DEVICE: &str = "/dev/null";
 
-// Whether a redirect's destination, as the shell passes it, is a standard device, or a descriptor
+// Whether a redirect's destination, as the shell passes it, is the null device, or a descriptor
 // number after `>&`. Its word is built to be read and dropped.
 fn writes_no_file(
     builder: &mut WordBuilder<'_>,
@@ -473,7 +491,7 @@ fn writes_no_file(
     let word = builder.push_word(destination);
     let view = builder.view(word);
     let writes_none = view.is_decided()
-        && (STANDARD_DEVICES.iter().any(|device| view.is(device))
+        && (view.is(NULL_DEVICE)
             || (is_duplication
                 && view.len() > 0
                 && view.chars().all(|character| character.is_ascii_digit())));
@@ -481,22 +499,72 @@ fn writes_no_file(
     writes_none
 }
 
-// Whether a `${…}` expansion assigns its variable when unset or empty: `${name=…}`, `${name:=…}`.
-fn is_assigning_expansion(expansion: Node<'_>, line: &str) -> bool {
+// The `${…}` operators that only test, cut, replace in or change the case of the value, and `:`
+// before an offset or a length. Never `=` or `:=`, which assign, `!`, which reads the variable a
+// value names, or an `@` transform, whose `P` runs the value as a prompt.
+const READING_EXPANSION_OPERATORS: &[&str] = &[
+    "-", ":-", "+", ":+", "?", ":?", "#", "##", "%", "%%", "/", "//", "/#", "/%", "^", "^^", ",",
+    ",,", ":",
+];
+
+// The nodes a reading `${…}` holds beside its operators: its braces, its name, and an operand whose
+// own commands and expansions the walk reads.
+const READING_EXPANSION_PARTS: &[&str] = &[
+    "${",
+    "}",
+    "variable_name",
+    "special_variable_name",
+    "word",
+    "concatenation",
+    "string",
+    "raw_string",
+    "ansi_c_string",
+    "simple_expansion",
+    "expansion",
+    "command_substitution",
+    "regex",
+];
+
+// Whether a `${…}` expansion only reads its variable: its operators listed, each `:` offset or
+// length digits alone, its other parts listed, and no `$` or backquote in a pattern or word token,
+// which holds an expansion the tree does not show.
+fn is_reading_expansion(expansion: Node<'_>, line: &str) -> bool {
     let mut cursor = expansion.walk();
     if !cursor.goto_first_child() {
-        return false;
+        return true;
     }
+    let mut is_offset = false;
     loop {
-        if cursor.field_name() == Some("operator")
-            && matches!(node_text(cursor.node(), line), "=" | ":=")
-        {
-            return true;
-        }
-        if !cursor.goto_next_sibling() {
+        let node = cursor.node();
+        let text = node_text(node, line);
+        let is_reading = if cursor.field_name() == Some("operator") {
+            is_offset = text == ":";
+            READING_EXPANSION_OPERATORS.contains(&text)
+        } else if std::mem::take(&mut is_offset) {
+            node.kind() == "number" && text.bytes().all(|byte| byte.is_ascii_digit())
+        } else {
+            READING_EXPANSION_PARTS.contains(&node.kind())
+                && !(matches!(node.kind(), "regex" | "word") && text.contains(['$', '`']))
+        };
+        if !is_reading {
             return false;
         }
+        if !cursor.goto_next_sibling() {
+            return true;
+        }
     }
+}
+
+// Whether a word is `{name}`, which before a redirect assigns the descriptor it opens to `name`.
+fn is_descriptor_name(word: Node<'_>, line: &str) -> bool {
+    node_text(word, line)
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+        .is_some_and(|name| {
+            let mut characters = name.chars();
+            characters.next().is_some_and(starts_variable_name)
+                && characters.all(continues_variable_name)
+        })
 }
 
 // Puts the words of a node that runs a command, its program first, in `pending`; false for any
@@ -713,14 +781,18 @@ fn resolve_command(
 // characters are read from the start up to the first other one, which must be `=`.
 fn is_variable_assignment(word: ShellWord<'_>) -> bool {
     let mut characters = word.chars();
-    if !characters
-        .next()
-        .is_some_and(|character| character.is_ascii_alphabetic() || character == '_')
-    {
+    if !characters.next().is_some_and(starts_variable_name) {
         return false;
     }
-    characters.find(|&character| !(character.is_ascii_alphanumeric() || character == '_'))
-        == Some('=')
+    characters.find(|&character| !continues_variable_name(character)) == Some('=')
+}
+
+fn starts_variable_name(character: char) -> bool {
+    character.is_ascii_alphabetic() || character == '_'
+}
+
+fn continues_variable_name(character: char) -> bool {
+    character.is_ascii_alphanumeric() || character == '_'
 }
 
 #[cfg(test)]
