@@ -13,11 +13,18 @@ pub enum KeychainService {
     /// This machine's identity key and channel key, under `identity-<machine id>` and
     /// `channel-<machine id>`.
     MachineKeys,
+    /// Each pasted provider token or API key, under its account's id.
+    ProviderTokens,
 }
 
 impl KeychainService {
     /// Every service, in the order a move and an erase walk them.
-    pub(crate) const ALL: [Self; 3] = [Self::WorkflowSecrets, Self::Probe, Self::MachineKeys];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::WorkflowSecrets,
+        Self::Probe,
+        Self::MachineKeys,
+        Self::ProviderTokens,
+    ];
 
     /// The service's name in the store.
     pub const fn as_str(self) -> &'static str {
@@ -25,6 +32,7 @@ impl KeychainService {
             Self::WorkflowSecrets => "ai-sidekicks-workflow-secrets",
             Self::Probe => "ai-sidekicks-probe",
             Self::MachineKeys => "ai-sidekicks-machine-keys",
+            Self::ProviderTokens => "ai-sidekicks-provider-tokens",
         }
     }
 
@@ -32,7 +40,7 @@ impl KeychainService {
     /// and an erase sweeps any left behind.
     pub(crate) const fn is_moved(self) -> bool {
         match self {
-            Self::WorkflowSecrets | Self::MachineKeys => true,
+            Self::WorkflowSecrets | Self::MachineKeys | Self::ProviderTokens => true,
             Self::Probe => false,
         }
     }
