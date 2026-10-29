@@ -24,6 +24,7 @@ use crate::test_rows::{PARENT_ROWS_AT, project_and_mount_rows};
 const MOUNT_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e60";
 const WORKSPACE_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e61";
 const SESSION_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e62";
+const RUN_ID: &str = "0199c1a2-7b3e-7c4d-8e5f-0a1b2c3d4e63";
 
 /// The service over a test database holding an attached mount with one workspace on it, and a
 /// connection the test writes rows through.
@@ -69,7 +70,7 @@ fn insert_running_run(rows: &Connection) {
          '{PARENT_ROWS_AT}', '{PARENT_ROWS_AT}');
          INSERT INTO run_execution_contexts (run_id, session_id, workspace_id, execution_mode, \
          execution_root, checkout_root, git_common_dir, branch_context_id, created_at) VALUES \
-         ('run', '{SESSION_ID}', '{WORKSPACE_ID}', 'boundRoot', '/repos/app', '/repos/app', \
+         ('{RUN_ID}', '{SESSION_ID}', '{WORKSPACE_ID}', 'boundRoot', '/repos/app', '/repos/app', \
          '/repos/app/.git', 'branch-context', '{PARENT_ROWS_AT}')"
     ))
     .expect("the running run's rows are admitted");

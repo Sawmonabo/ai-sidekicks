@@ -463,6 +463,7 @@ mod tests {
     #[tokio::test]
     async fn a_project_with_no_attached_repository_is_refused_project_not_found() {
         let database = TestDatabase::new(schema_parts());
+        drop(database.opener()().expect("the test creates its database"));
         let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
             WORKTREE_STATUS_READER_STATEMENT_CAPACITY,

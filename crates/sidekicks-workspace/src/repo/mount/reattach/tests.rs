@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use futures::FutureExt;
@@ -81,15 +82,30 @@ impl ReattachFixture {
         Self { roots, service }
     }
 
-    /// Puts a new repository in the mount's folder, so the mount reads `identityMismatch`.
-    async fn replace_repository(&self) {
+    /// Puts a new repository in the mount's folder, its git folder kept beside it, so the mount
+    /// reads `identityMismatch`, and answers that git folder. One made in place at the same path
+    /// would hold the anchor's own common folder and read as the same repository.
+    async fn replace_repository(&self) -> PathBuf {
         std::fs::remove_dir_all(&self.roots.repository).expect("the old repository goes");
         let parent = self
             .roots
             .repository
             .parent()
             .expect("the repository sits in the scratch folder");
-        make_test_repository(&self.roots.git, parent, "app").await;
+        let repository = make_test_repository(&self.roots.git, parent, "app").await;
+        let common_folder = parent.join("app-replacement.git");
+        git_in(
+            &self.roots.git,
+            &repository,
+            &[
+                "init",
+                "--quiet",
+                "--separate-git-dir",
+                &common_folder.to_string_lossy(),
+            ],
+        )
+        .await;
+        common_folder
     }
 
     async fn reattach(
@@ -227,7 +243,7 @@ async fn a_reattach_moves_the_workspaces_and_listed_trees_and_retires_the_rest()
         .await
         .expect("the workspace roots at the repository");
     let unlisted = fixture.roots.add_tree("old-tree").await;
-    fixture.replace_repository().await;
+    let common_folder = fixture.replace_repository().await;
     let listed = fixture.roots.add_tree("new-tree").await;
     for (id, branch, folder) in [
         (LISTED_TREE_ID, "new-tree", &listed),
@@ -270,14 +286,7 @@ async fn a_reattach_moves_the_workspaces_and_listed_trees_and_retires_the_rest()
             "SELECT json_extract(metadata, '$.commonDir') FROM repo_mounts \
              WHERE id = '{new_mount}' AND state = 'attached' AND project_id = '{MOUNT_ID}'"
         )),
-        Some(
-            fixture
-                .roots
-                .repository
-                .join(".git")
-                .to_string_lossy()
-                .into_owned()
-        )
+        Some(common_folder.to_string_lossy().into_owned())
     );
     assert_eq!(
         fixture.text(&format!(
