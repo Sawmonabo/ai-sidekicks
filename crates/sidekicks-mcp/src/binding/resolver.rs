@@ -365,9 +365,10 @@ mod tests {
     }
 
     /// A session in no root, a chat, attributes a name to the provider's `user` binding of it,
-    /// never to a project's binding of the same or another name, while a session in a root keeps
-    /// its root's binding. Killed by no resolve without a root, and by a root-free resolve that
-    /// takes a project's binding.
+    /// never to a project's binding of the same or another name, and a name an administrator
+    /// declares too to the administrator's; a session in a root keeps its root's binding. Killed
+    /// by no resolve without a root, by a root-free resolve that takes a project's binding, and
+    /// by the person's binding taking a name over the administrator's.
     #[test]
     fn a_name_reported_in_no_root_resolves_to_the_providers_user_binding() {
         let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
@@ -376,6 +377,16 @@ mod tests {
             provider: provider.clone(),
             server_name: server_name("docs"),
         };
+        let [user_tracker, managed_tracker] = [
+            McpServerBindingRef::User {
+                provider: provider.clone(),
+                server_name: server_name("tracker"),
+            },
+            McpServerBindingRef::Managed {
+                provider: provider.clone(),
+                server_name: server_name("tracker"),
+            },
+        ];
         let table = McpAttributionTable::default();
         table.replace_provider_loaded(
             &provider,
@@ -383,6 +394,8 @@ mod tests {
                 &provider,
                 std::slice::from_ref(&root_a),
                 vec![
+                    user_tracker,
+                    managed_tracker.clone(),
                     user_docs.clone(),
                     project_binding(&provider, &root_a, "docs"),
                     project_binding(&provider, &root_a, "mail"),
@@ -395,6 +408,10 @@ mod tests {
             Some(user_docs)
         );
         assert_eq!(table.resolve(&provider, None, &server_name("mail")), None);
+        assert_eq!(
+            table.resolve(&provider, None, &server_name("tracker")),
+            Some(managed_tracker)
+        );
         assert_eq!(
             table.resolve(&provider, Some(&root_a), &server_name("docs")),
             Some(project_binding(&provider, &root_a, "docs"))

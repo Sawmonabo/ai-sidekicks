@@ -403,29 +403,31 @@ async fn an_overrides_value_wins_and_keeps_the_servers_own_value(
 }
 
 /// A binding the driver no longer declares loses the probe's reading at the next read, while a
-/// binding a live leg reports keeps that leg. The refresh probes `docs`; a session's leg then
-/// reports `news`, which no read declares; the next read declares neither. Killed by no pruning (`docs` keeps
-/// the probe's `connected` and tools), and by pruning a live leg's binding whole (`news` loses
-/// its leg).
+/// binding a live leg reports keeps that leg. A session's leg reports `news`, which no read
+/// declares; the refresh probes `docs` and `news`; the next read declares neither. Killed by no
+/// pruning (`docs` keeps the probe's `connected` and tools, `news` the probe's tools), and by
+/// pruning a live leg's binding whole (`news` loses its leg).
 #[tokio::test]
 async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_stays() {
     let news = |provider: &ProviderId| McpServerBindingRef::User {
         provider: provider.clone(),
         server_name: McpServerName::new("news".to_owned()).expect("a server name"),
     };
-    let inventory = open_inventory(Box::new(|provider, request| {
+    let inventory = open_inventory(Box::new(move |provider, request| {
         let mut reading = reading_of(&provider, &request);
         if request.probe == McpProbeScope::None {
             reading.declarations.clear();
+        } else {
+            reading.probe_readings.push(McpProbeReading {
+                binding: news(&provider),
+                reading: McpServerReading::Observed(McpServerStatus::Connected),
+                failure_text: None,
+                tool_names: vec![tool("headlines")],
+            });
         }
         ready(Ok(reading)).boxed()
     }))
     .await;
-    inventory
-        .service
-        .list(&REFRESH)
-        .await
-        .expect("the inventory lists on a refresh");
     let leg = inventory.tracker.open_leg(
         SessionId::try_from(mint_uuid_v7()).expect("a session id"),
         RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id"),
@@ -439,6 +441,11 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
             None,
         ),
     );
+    inventory
+        .service
+        .list(&REFRESH)
+        .await
+        .expect("the inventory lists on a refresh");
 
     let entries = inventory
         .service
@@ -457,4 +464,5 @@ async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_s
         .reading(&McpBindingKey::of(&news(&inventory.provider)));
     assert_eq!(news.legs.len(), 1);
     assert_eq!(news.status, McpServerStatus::Failed);
+    assert!(news.tool_names.is_empty());
 }
