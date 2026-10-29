@@ -196,9 +196,9 @@ mod tests {
             "another device's subscription holds nothing back"
         );
         drop(phone);
+        // The first start's exit is ready, so once its task runs no start is in flight.
+        tokio::task::yield_now().await;
 
-        // The first start's exit was ready, and its task ran while this subscribe read on the
-        // blocking pool, so no start is in flight from here.
         let Ok(Reply::Subscription { feed: local, .. }) = subscribe(MACHINE_DEVICE).await else {
             panic!("this machine's whole subscription answers a subscription");
         };
