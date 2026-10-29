@@ -8,6 +8,8 @@ use sidekicks_client::error::ClientError;
 use sidekicks_contracts::jsonrpc::error_code::JsonRpcErrorCode;
 use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 
+use crate::confirmation::ConfirmationUnavailableError;
+
 /// A process exit code the command line returns.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ExitCode {
@@ -79,14 +81,14 @@ pub(crate) struct UnmappedExitCodeError {
 }
 
 /// How a failed run ends, from the first cause in its chain that names an ending: an argument
-/// refusal, a daemon that is not answering, a closed output pipe, the daemon's error by its number
+/// refusal or a confirmation no one can answer, a daemon that is not answering, a closed output pipe, the daemon's error by its number
 /// (a domain refusal by its category), a call canceled after a Ctrl-C; any other failure is a
 /// software error. Fails with [`UnmappedExitCodeError`] for a daemon number with no exit code.
 pub(crate) fn exit_code_for_failure(
     failure: &anyhow::Error,
 ) -> Result<ProcessEnding, UnmappedExitCodeError> {
     for cause in failure.chain() {
-        if cause.is::<clap::Error>() {
+        if cause.is::<clap::Error>() || cause.is::<ConfirmationUnavailableError>() {
             return Ok(ProcessEnding::Exit(ExitCode::Usage));
         }
         if let Some(client_error) = cause.downcast_ref::<ClientError>() {
@@ -175,6 +177,7 @@ mod tests {
     use sidekicks_contracts::jsonrpc::refusal::category::{KnownRefusalCategory, RefusalCategory};
 
     use super::{ExitCode, ProcessEnding, exit_code_for_failure};
+    use crate::confirmation::ConfirmationUnavailableError;
     use crate::program::Cli;
 
     fn remote(code: JsonRpcErrorCode, category: Option<RefusalCategory>) -> anyhow::Error {
@@ -321,6 +324,10 @@ mod tests {
     )]
     #[case::usage(
         Cli::command().try_get_matches_from(["sidekicks", "unknown"]).expect_err("refused").into(),
+        ProcessEnding::Exit(ExitCode::Usage)
+    )]
+    #[case::no_terminal_to_confirm(
+        ConfirmationUnavailableError.into(),
         ProcessEnding::Exit(ExitCode::Usage)
     )]
     #[case::not_answering(

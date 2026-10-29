@@ -8367,6 +8367,7 @@ dependencies = [
  "fast_qr",
  "icu_decimal",
  "icu_locale_core",
+ "jiff",
  "rpassword",
  "rstest",
  "secrecy",
@@ -8375,6 +8376,8 @@ dependencies = [
  "sidekicks-contracts",
  "sidekicks-platforms",
  "thiserror 2.0.21",
+ "tokio",
+ "tokio-util",
 ]
 
 [[package]]

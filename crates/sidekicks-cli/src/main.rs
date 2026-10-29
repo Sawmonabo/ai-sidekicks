@@ -6,6 +6,9 @@
 #![warn(dead_code_pub_in_binary)]
 
 mod command_context;
+mod commands;
+mod confirmation;
+mod connected_command;
 mod exit_codes;
 mod program;
 

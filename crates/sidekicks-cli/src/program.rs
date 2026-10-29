@@ -14,15 +14,14 @@ use icu_decimal::DecimalFormatter;
 use icu_decimal::input::Decimal;
 use icu_decimal::options::DecimalFormatterOptions;
 use icu_locale_core::Locale;
-use serde_json::Value;
 use sidekicks_client::error::ClientError;
 use sidekicks_contracts::daemon::recovery::{
-    DaemonRepairingDetails, DaemonRepairingLinePart, describe_daemon_repairing_line,
+    DaemonRepairingLinePart, describe_daemon_repairing_line,
 };
-use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
 
 use crate::command_context::CommandContext;
+use crate::commands::crash::{CrashCommand, run_crash_command};
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
 
 /// The program's arguments; each command joins [`Command`].
@@ -39,9 +38,13 @@ pub(crate) struct Cli {
     command: Command,
 }
 
-/// The commands, each landing with the unit that builds it.
+/// The program's commands.
 #[derive(Debug, Subcommand)]
-enum Command {}
+enum Command {
+    /// Read the crash reports this computer keeps.
+    #[command(subcommand)]
+    Crash(CrashCommand),
+}
 
 /// Runs the program over `args` (the program's name first) and answers how the process ends. Help
 /// and the version go to stdout; a refused argument, a bare `sidekicks` among them, goes to stderr
@@ -62,21 +65,20 @@ pub(crate) fn run_program<Output: Write, ErrorOutput: Write>(
     let outcome = panic::catch_unwind(AssertUnwindSafe(|| run_command(cli.command, context)));
     panic::set_hook(default_hook);
     match outcome {
-        Ok(Ok(())) => ProcessEnding::Exit(ExitCode::Success),
+        Ok(Ok(code)) => ProcessEnding::Exit(code),
         Ok(Err(failure)) => report_failure(&failure, context),
         Err(payload) => report_failure(&panic_failure(payload.as_ref()), context),
     }
 }
 
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "a command is consumed by its run; no command exists yet"
-)]
+/// Runs one command and answers the exit code its run ends with.
 fn run_command<Output: Write, ErrorOutput: Write>(
     command: Command,
-    _context: &mut CommandContext<Output, ErrorOutput>,
-) -> anyhow::Result<()> {
-    match command {}
+    context: &mut CommandContext<Output, ErrorOutput>,
+) -> anyhow::Result<ExitCode> {
+    match command {
+        Command::Crash(command) => run_crash_command(&command, context),
+    }
 }
 
 /// Writes clap's help, version or refusal to the stream clap names for it, in clap's styles when
@@ -152,23 +154,8 @@ fn repairing_line_parts(failure: &anyhow::Error) -> Option<Vec<DaemonRepairingLi
     let ClientError::Remote(remote) = client_error else {
         return None;
     };
-    let data = remote
-        .data
-        .as_ref()
-        .filter(|data| data.refusal == RefusalCode::DaemonRepairing.as_str())?;
-    let progress = data
-        .fields
-        .as_ref()
-        .and_then(|fields| {
-            let members = fields
-                .as_map()
-                .iter()
-                .map(|(name, value)| (name.clone(), value.0.clone()))
-                .collect();
-            serde_json::from_value::<DaemonRepairingDetails>(Value::Object(members)).ok()
-        })
-        .and_then(|details| details.progress);
-    Some(describe_daemon_repairing_line(progress))
+    let details = remote.repairing_details()?;
+    Some(describe_daemon_repairing_line(details.progress))
 }
 
 /// The repair's line from its parts, each count grouped as `locale` writes numbers, and in plain
