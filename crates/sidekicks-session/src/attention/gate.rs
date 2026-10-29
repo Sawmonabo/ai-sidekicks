@@ -20,7 +20,6 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 
 use crate::attention::projection::BUMP_ALWAYS_SQL;
-use crate::attention::schema::word_of;
 
 // Inserts an entry's decision, or decides again a banner handed back undecided, which touches only
 // the banner and its merge so the web address stays decided once. An entry deleted since it was
@@ -35,8 +34,8 @@ const WRITE_DECISION_SQL: &str = "INSERT INTO attention_deliveries
     SET banner_state = excluded.banner_state, merged_into = excluded.merged_into
     WHERE attention_deliveries.banner_state IS NULL";
 
-static PENDING_WEB_ADDRESS_STATE: LazyLock<String> =
-    LazyLock::new(|| word_of(AttentionWebAddressState::Pending));
+static PENDING_WEB_ADDRESS_STATE: LazyLock<&'static str> =
+    LazyLock::new(|| <&'static str>::from(AttentionWebAddressState::Pending));
 
 /// What the gate decides for one entry's channels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,7 +149,7 @@ pub(crate) async fn write_decisions(
 fn decision_statement(decided: &DeliveryDecision) -> WriteStatement {
     let (web_address_state, web_address_attempt_count) = if decided.decision.is_web_address_sent {
         (
-            Value::Text(PENDING_WEB_ADDRESS_STATE.clone()),
+            Value::Text((*PENDING_WEB_ADDRESS_STATE).to_owned()),
             Value::Integer(0),
         )
     } else {
@@ -160,7 +159,10 @@ fn decision_statement(decided: &DeliveryDecision) -> WriteStatement {
         WRITE_DECISION_SQL,
         vec![
             text_binding("@entry_id", &decided.entry_id),
-            text_binding("@banner_state", &word_of(decided.decision.banner_state)),
+            text_binding(
+                "@banner_state",
+                <&'static str>::from(decided.decision.banner_state),
+            ),
             nullable_text_binding("@merged_into", decided.merged_into.as_deref()),
             ("@web_address_state".into(), web_address_state),
             (

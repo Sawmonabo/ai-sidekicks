@@ -12,7 +12,7 @@ use sidekicks_workspace::machine_settings::MachineSettingsReader;
 
 use super::{DeliveryDecision, decide, read_notification_settings, write_decisions};
 use crate::attention::changes::{AttentionChanges, attention_changes_after_commits};
-use crate::attention::schema::{schema_parts, word_of};
+use crate::attention::schema::schema_parts;
 
 const MUTED_AT: &str = "2026-10-28T12:00:00.000Z";
 
@@ -58,7 +58,12 @@ impl Harness {
                 "INSERT INTO attention_entries
                    (id, moment_id, session_id, trigger, severity, source_event_id, created_at)
                  VALUES (?1, ?1, ?2, ?3, ?4, ?1, '2026-10-28T12:00:01.000Z')",
-                params![id, session_id.to_string(), word_of(trigger), severity],
+                params![
+                    id,
+                    session_id.to_string(),
+                    <&'static str>::from(trigger),
+                    severity
+                ],
             )
             .expect("the test entry is inserted");
     }
@@ -146,8 +151,8 @@ async fn a_mute_withholds_only_ends_and_a_switch_withholds_without_hiding() {
     .await
     .expect("the decisions are written");
 
-    let pending = Some(word_of(AttentionBannerState::Pending));
-    let withheld = Some(word_of(AttentionBannerState::Withheld));
+    let pending = Some(<&'static str>::from(AttentionBannerState::Pending).to_owned());
+    let withheld = Some(<&'static str>::from(AttentionBannerState::Withheld).to_owned());
     assert_eq!(
         harness.delivery_of("waiting").0,
         pending,
@@ -204,6 +209,9 @@ async fn a_failed_settings_read_withholds_every_channel() {
 
     assert_eq!(
         harness.delivery_of("waiting"),
-        (Some(word_of(AttentionBannerState::Withheld)), None)
+        (
+            Some(<&'static str>::from(AttentionBannerState::Withheld).to_owned()),
+            None
+        )
     );
 }
