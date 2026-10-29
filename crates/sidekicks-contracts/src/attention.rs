@@ -447,8 +447,21 @@ pub struct AttentionSeenSubject {
 }
 
 /// The two ways a moment leaves the machine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionDeliveryChannel {
     /// The person's web address.
     WebAddress,
@@ -457,8 +470,21 @@ pub enum AttentionDeliveryChannel {
 }
 
 /// How one delivery attempt ended.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    IntoStaticStr,
+    VariantArray,
+)]
 #[serde(rename_all = "camelCase")]
+#[strum(serialize_all = "camelCase")]
 pub enum AttentionDeliveryResult {
     /// Accepted.
     Delivered,
@@ -472,8 +498,8 @@ pub enum AttentionDeliveryResult {
     SignInRefused,
     /// The mail server would not encrypt, so nothing was sent.
     NotEncrypted,
-    /// A test of saved web-address text with no scheme and host, so nothing was sent.
-    NotAnAddress,
+    /// The keychain was locked or unavailable, so nothing was sent.
+    StoreUnavailable,
 }
 
 /// A channel's last attempt. `httpStatus` is the address's answer, `null` where it gave none;
@@ -495,17 +521,16 @@ pub struct AttentionDeliveryOutcome {
     pub undelivered: SafeInt<0>,
 }
 
-/// What the web address last did. The address is shown back as its host only, `null` when nothing
-/// is saved or the saved text has no scheme and host; neither the address nor its signing secret
-/// is ever sent.
+/// What the web address last did. The address is shown back as its scheme and host only, present
+/// exactly when an address is saved; neither the address nor its signing secret is ever sent.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 #[garde(custom(|delivery: &Self, (): &()| {
-    if delivery.saved || delivery.host.is_none() {
+    if delivery.saved == delivery.host.is_some() {
         Ok(())
     } else {
-        Err(garde::Error::new("host is null when no address is saved"))
+        Err(garde::Error::new("host is present exactly when an address is saved"))
     }
 }))]
 #[schemars(extend(
@@ -515,11 +540,12 @@ pub struct AttentionDeliveryOutcome {
         "required": ["saved"],
     },
     "then" = { "type": "object", "properties": { "host": { "type": "null" } } },
+    "else" = { "type": "object", "properties": { "host": { "type": "string" } } },
 ))]
 pub struct AttentionWebAddressDelivery {
     /// Whether an address is saved.
     pub saved: bool,
-    /// The saved address's host, or `null`.
+    /// The saved address's scheme and host, or `null` when nothing is saved.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
     pub host: Option<NonEmptyText>,
@@ -590,27 +616,24 @@ pub struct AttentionMailPasswordUpdateRequest {
 }
 
 /// `attention.webAddress.update`: saves the web address, a secret because chat services put their
-/// token in it. Whatever is typed is saved as typed; a text that is not an address is kept, and
-/// each message to it fails and is counted as undelivered.
+/// token in it. Text that is not an `http` or `https` address with a host is refused and nothing
+/// is saved.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AttentionWebAddressUpdateRequest {
-    /// The address as typed.
+    /// The address, with an `http` or `https` scheme and a host.
     pub address: AttentionDeliverySecret,
 }
 
-/// The saved address's host, `null` for a text with no scheme and host, and the signing secret the
-/// receiver checks each message with: minted by the first save and shown this once, `null` on
-/// every later save.
+/// The saved address's scheme and host, and the signing secret the receiver checks each message
+/// with: minted by the first save and shown this once, `null` on every later save.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[garde(allow_unvalidated)]
 pub struct AttentionWebAddressUpdateResponse {
-    /// The host, or `null`.
-    #[serde(deserialize_with = "nullable")]
-    #[schemars(with = "NullableSchema<NonEmptyText>")]
-    pub host: Option<NonEmptyText>,
+    /// The saved address's scheme and host.
+    pub host: NonEmptyText,
     /// The signing secret, or `null`.
     #[serde(deserialize_with = "nullable")]
     #[schemars(with = "NullableSchema<NonEmptyText>")]
@@ -712,14 +735,14 @@ methods! {
             mutating: true,
             params: AttentionWebAddressUpdateRequest,
             result: AttentionWebAddressUpdateResponse,
-            refusals: [AttentionDeliveryStoreUnavailable],
+            refusals: [AttentionWebAddressNotAnAddress, AttentionDeliveryStoreUnavailable],
         },
         /// Mints a new signing secret.
         AttentionWebAddressSecretRotate = mutation "attention.webAddress.secret.rotate" {
             mutating: true,
             params: EmptyPayload,
             result: AttentionWebAddressSecretRotateResponse,
-            refusals: [AttentionDeliveryStoreUnavailable],
+            refusals: [AttentionDeliveryNotConfigured, AttentionDeliveryStoreUnavailable],
         },
         /// Removes the web address.
         AttentionWebAddressDelete = mutation "attention.webAddress.delete" {
