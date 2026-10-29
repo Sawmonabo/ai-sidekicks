@@ -54,9 +54,8 @@ const WAITING_WORD: &str = "Waiting on you";
 const FINISHED_WORD: &str = "Finished";
 const FAILED_WORD: &str = "Failed";
 
-// A session's name, its first message's opening and its shape: the three its untitled name reads.
-const SESSION_NAME_SQL: &str =
-    "SELECT name, first_message_preview, shape FROM sessions WHERE id = @session_id";
+// A session's name and its shape, the two its display name reads.
+const SESSION_NAME_SQL: &str = "SELECT name, shape FROM sessions WHERE id = @session_id";
 
 // Every entry the request narrows to, newest first, with its delivery, its seen fact and its
 // session's name. A NULL `@session_id` or `@run_id` narrows nothing; a run is an agent run or a
@@ -68,7 +67,7 @@ static ENTRIES_SQL: LazyLock<String> = LazyLock::new(|| {
     entry.source_event_id, entry.created_at, entry.resolved_at, delivery.banner_state,
     delivery.web_address_state, delivery.web_address_attempt_count,
     {seen},
-    session_row.name, session_row.first_message_preview, session_row.shape
+    session_row.name, session_row.shape
   FROM attention_entries AS entry
   JOIN session_events AS source ON source.id = entry.source_event_id
   JOIN sessions AS session_row ON session_row.id = entry.session_id
@@ -191,29 +190,27 @@ pub fn read_attention_projection(
     Ok(AttentionProjection { items })
 }
 
-/// The three columns a session's name is composed from.
-struct SessionName {
+/// The two columns a session's display name is composed from: its name and its shape.
+pub(crate) struct SessionName {
     name: Option<String>,
-    first_message_preview: Option<String>,
     shape: SessionShape,
 }
 
 impl SessionName {
-    /// The columns starting at `first`: the name, the first message's opening and the shape.
+    /// The columns starting at `first`: the name and the shape.
     fn of_row(row: &Row<'_>, first: usize) -> rusqlite::Result<Self> {
         Ok(Self {
             name: row.get(first)?,
-            first_message_preview: row.get(first + 1)?,
-            shape: text_column(row, first + 2, closed_word)?,
+            shape: text_column(row, first + 1, closed_word)?,
         })
     }
 
-    /// The session's name, else its first message's opening, else its shape's untitled word.
-    fn display_name(&self) -> NonEmptyText {
-        [&self.name, &self.first_message_preview]
-            .into_iter()
-            .flatten()
-            .find_map(|text| NonEmptyText::new(text.clone()))
+    /// The name every attention channel shows for the session: its name, else its shape's untitled
+    /// word, never a word of its transcript.
+    pub(crate) fn display_name(&self) -> NonEmptyText {
+        self.name
+            .as_ref()
+            .and_then(|name| NonEmptyText::new(name.clone()))
             .unwrap_or_else(|| {
                 let untitled = match self.shape {
                     SessionShape::Chat => UNTITLED_CHAT,

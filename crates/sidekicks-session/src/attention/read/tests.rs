@@ -1,9 +1,11 @@
+use rstest::rstest;
 use serde_json::json;
 use sidekicks_contracts::attention::{
     AttentionItem, AttentionProjection, AttentionSeenSubject, AttentionSeverity,
     AttentionSubscribeRequest, AttentionSubscribeScope,
 };
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::session::methods::SessionShape;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
@@ -142,6 +144,53 @@ async fn an_entry_carries_none_of_its_plan_text() {
     }
     let served = serde_json::to_string(&projection).expect("the projection writes");
     assert!(!served.contains("billing"), "{served}");
+}
+
+/// Mutation: the first message's opening restored as the untitled session's name.
+#[rstest]
+#[case::a_chat(SessionShape::Chat, "New chat")]
+#[case::a_project_session(SessionShape::Project, "New session")]
+#[tokio::test]
+async fn an_untitled_session_is_named_by_its_shape_never_its_first_message(
+    #[case] shape: SessionShape,
+    #[case] untitled: &str,
+) {
+    let log = AttentionTestLog::new().await;
+    let reader = log.database.reader();
+    insert_session_row(&reader, log.session_id.text().as_str(), None, None);
+    reader
+        .execute(
+            "UPDATE sessions SET shape = ?2, first_message_preview = ?3 WHERE id = ?1",
+            (
+                log.session_id.text().as_str(),
+                <&'static str>::from(shape),
+                "Rotate the payroll keys before Friday",
+            ),
+        )
+        .expect("the test sets the session's shape and first message");
+    let run_id = log.run(None);
+    log.append(log.run_state(run_id, "waitingForInput", 2, json!({})))
+        .await;
+
+    let projection = read(
+        &log,
+        &AttentionSubscribeRequest {
+            session_id: Some(log.session_id),
+            scope: None,
+            run_id: None,
+        },
+    );
+
+    // The run's wait and the aggregate.
+    assert_eq!(projection.items.len(), 2);
+    for item in &projection.items {
+        let AttentionItem::Moment(item) = item else {
+            panic!("no Notify step ran");
+        };
+        assert_eq!(item.display_name.as_str(), untitled);
+    }
+    let served = serde_json::to_string(&projection).expect("the projection writes");
+    assert!(!served.contains("payroll"), "{served}");
 }
 
 /// Mutation: the plan's run id dropped from its wait or from the entry's insert, which serves the
