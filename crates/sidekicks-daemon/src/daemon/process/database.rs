@@ -50,7 +50,6 @@ use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RecoveryStatusTracker;
 use sidekicks_session::attention::changes::{AttentionChanges, attention_changes_after_commits};
 use sidekicks_session::attention::projection::attention_projection_statements;
-use sidekicks_session::attention::read::ATTENTION_STATEMENT_CAPACITY;
 use sidekicks_session::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
@@ -149,8 +148,8 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + APPROVAL_REQUEST_READER_STATEMENT_CAPACITY
     + APPROVAL_RULES_STATEMENT_CAPACITY
     + ARTIFACT_STATEMENT_CAPACITY
+    // The attention service's set holds the attention read's.
     + ATTENTION_SERVICE_STATEMENT_CAPACITY
-    + ATTENTION_STATEMENT_CAPACITY
     + BACKUP_STATEMENT_CAPACITY
     + CLONE_REQUESTS_STATEMENT_CAPACITY
     + CONVERSATION_PURGE_STATEMENT_CAPACITY

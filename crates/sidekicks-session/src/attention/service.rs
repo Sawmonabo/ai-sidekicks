@@ -49,7 +49,9 @@ use crate::attention::moment::AttentionSubject;
 use crate::attention::projection::{
     binding, raised_banner_states, session_binding, statement, version_bump_sql,
 };
-use crate::attention::read::{AttentionReadError, read_attention_projection};
+use crate::attention::read::{
+    ATTENTION_STATEMENT_CAPACITY, AttentionReadError, read_attention_projection,
+};
 use crate::attention::retention::{
     ENTRY_SEQUENCE, advance_retention_statements, provider_build_retirement_statements,
 };
@@ -57,8 +59,9 @@ use crate::attention::seen::write_seen;
 use crate::directory::lookups::SessionWriteError;
 
 /// The statements the service prepares on a read connection: the undecided entries, the sessions
-/// with entries, an entry's session and whether a provider build is due to retire.
-pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 4;
+/// with entries, an entry's session, whether a provider build is due to retire, and the projection
+/// read its follow serves.
+pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 4 + ATTENTION_STATEMENT_CAPACITY;
 
 /// How long a subject's first undecided entry waits for the entries that follow it.
 const MERGE_WINDOW: Duration = Duration::from_millis(500);

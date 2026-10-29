@@ -23,7 +23,6 @@ use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
 use crate::attention::changes::{AttentionChanges, attention_changes_after_commits};
 use crate::attention::projection::attention_projection_statements;
-use crate::attention::read::ATTENTION_STATEMENT_CAPACITY;
 use crate::attention::schema::schema_parts;
 use crate::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use crate::run::engine::test_fixture::insert_running_run;
@@ -62,9 +61,7 @@ impl AttentionTestLog {
         );
         let pool = Arc::new(DatabaseReadPool::new(
             database.path(),
-            EVENT_LOG_STATEMENT_CAPACITY
-                + ATTENTION_STATEMENT_CAPACITY
-                + ATTENTION_SERVICE_STATEMENT_CAPACITY,
+            EVENT_LOG_STATEMENT_CAPACITY + ATTENTION_SERVICE_STATEMENT_CAPACITY,
         ));
         let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
             writer: Arc::clone(&writer),
