@@ -16,7 +16,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_store::database::connection::read_pool::{
-    DatabaseReadError, DatabaseReadPool, READ_POOL_SIZE, ReadLength,
+    DatabaseReadError, DatabaseReadPool, ReadLength, read_pool_size,
 };
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
 
@@ -263,7 +263,7 @@ async fn a_mark_made_while_the_read_waits_is_kept() {
 
     // Reads blocked on a channel hold every connection.
     let (started_sender, mut started) = tokio::sync::mpsc::unbounded_channel();
-    let (releases, holds): (Vec<_>, Vec<_>) = (0..READ_POOL_SIZE)
+    let (releases, holds): (Vec<_>, Vec<_>) = (0..read_pool_size())
         .map(|_| {
             let (release, released) = std::sync::mpsc::channel::<()>();
             let (reads, started) = (Arc::clone(&reads), started_sender.clone());
@@ -279,7 +279,7 @@ async fn a_mark_made_while_the_read_waits_is_kept() {
             (release, hold)
         })
         .unzip();
-    for _ in 0..READ_POOL_SIZE {
+    for _ in 0..read_pool_size() {
         tokio::time::timeout(ANSWER_WAIT, started.recv())
             .await
             .expect("each held read finds a connection")
