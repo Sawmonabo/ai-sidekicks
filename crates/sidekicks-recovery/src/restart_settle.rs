@@ -1,13 +1,14 @@
 //! What a restart left in one session, settled in an order no later step undoes: the faster-model
 //! retries still pending, before the run ends that would expire an accepted one; the runs still in
 //! progress, past their queue and not paused, re-armed from the log before a resume of the
-//! session's conversation; the runs still live that no resume took, failed as no provider session
-//! came back, or with the provider's own words where it refused the resume, a lead the person
-//! paused kept paused; the open turns of runs that had already ended,
-//! before their unresolved interventions, whose expiry would drop the limit a turn ends with; then
-//! the asks, the choices and the held plans those ended runs left open. Every read is of the one
-//! session and taken after its rebuild; every write is guarded on the rows it read. The recovery
-//! pass settles each session it finds so, and `Continue from here` settles a damaged one.
+//! session's conversation, with the paused and pausing runs beside them; the runs still live that
+//! no resume took, failed as no provider session came back, or with the provider's own words where
+//! it refused the resume, a lead the person paused kept paused; the open turns of runs that had
+//! already ended, before their unresolved interventions, whose expiry would drop the limit a turn
+//! ends with; then the asks, the choices and the held plans those ended runs left open. Every read
+//! is of the one session and taken after its rebuild; every write is guarded on the rows it read.
+//! The recovery pass settles each session it finds so, and `Continue from here` settles a damaged
+//! one.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -109,7 +110,8 @@ impl RestartTally {
 }
 
 /// A session's live runs past their queue at a restart: those in progress, each re-armed, and
-/// those the person paused or was pausing, which are no work in progress and are not re-armed.
+/// those the person paused or was pausing, which are no work in progress and are re-armed only
+/// beside a run in progress, whose resume opens the session.
 #[derive(Debug, Default)]
 pub(crate) struct RearmedRuns {
     /// The runs in progress, re-armed from the log.
@@ -166,10 +168,11 @@ impl RestartSettle {
 
     /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still in
     /// progress, live past its queue and neither paused nor pausing, from the log, as the engine
-    /// held it before the restart, so a resume of the session's conversation finds them armed;
-    /// answers those runs, none where nothing of the session was in progress, beside the runs
-    /// paused or pausing. Reads `stop` before each step. Fails at the first read or write that
-    /// fails, or with `Stopped`.
+    /// held it before the restart, so a resume of the session's conversation finds them armed, and
+    /// beside any such run the paused and pausing ones too, whose turn the resumed provider may
+    /// still run to its pause; answers the runs in progress, none where nothing of the session
+    /// was in progress, beside the runs paused or pausing. Reads `stop` before each step. Fails at
+    /// the first read or write that fails, or with `Stopped`.
     pub(crate) async fn rearm_live(
         &self,
         session_id: SessionId,
@@ -182,17 +185,26 @@ impl RestartSettle {
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
         let mut rearmed = RearmedRuns::default();
+        let mut paused = Vec::new();
         for live_run in live_runs {
             match live_run.run.state {
                 RunState::Queued => {}
                 RunState::Paused | RunState::Pausing => {
                     rearmed.paused_run_ids.push(live_run.run_id);
+                    paused.push(live_run);
                 }
                 _ => {
                     check_stop(Some(stop))?;
                     self.deps.run_engine.rearm_after_restart(&live_run).await?;
                     rearmed.in_progress.push(live_run);
                 }
+            }
+        }
+        // A session resumed for another run may still run a pausing run's turn to its pause.
+        if !rearmed.in_progress.is_empty() {
+            for live_run in &paused {
+                check_stop(Some(stop))?;
+                self.deps.run_engine.rearm_after_restart(live_run).await?;
             }
         }
         Ok(rearmed)

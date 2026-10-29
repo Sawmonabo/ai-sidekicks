@@ -25,8 +25,7 @@ use crate::plan_holds::NoPlanHolds;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::{append, stored_run_state, test_engine_with};
 use crate::run::engine::tests::{
-    SETTLE_WAIT, STEP_BOUND, events, hand_limit_interrupter, held_cut_limit, stored_events, turn,
-    turn_started_at,
+    SETTLE_WAIT, STEP_BOUND, events, hand_limit_interrupter, stored_events, turn, turn_started_at,
 };
 use crate::run::read::{LiveRun, RunRead};
 
@@ -320,7 +319,7 @@ async fn a_resumed_run_moves_as_its_state_before_and_its_providers_answer_decide
         }
         Logged::StepLimitRow => {
             assert_eq!(
-                held_cut_limit(&engine, run_id, turn(1)),
+                engine.held_cut_limit(run_id, turn(1)),
                 Some(RunLimit::StepLimit)
             );
         }

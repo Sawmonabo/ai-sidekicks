@@ -48,7 +48,7 @@ use super::AcceptedLimitInterrupt;
 use crate::interventions::service::InterventionTarget;
 use crate::interventions::service::tests::{Harness, applied, harness};
 use crate::run::engine::test_fixture::stored_run_state;
-use crate::run::engine::tests::{SETTLE_WAIT, held_cut_limit, hold_cut};
+use crate::run::engine::tests::{SETTLE_WAIT, hold_cut};
 use crate::run::limit_interrupter::{HandedCut, LimitInterruptFailure, LimitInterrupter};
 use crate::run::pause::{RunPauseControl, RunPauseError};
 use crate::run::provider_choice::{
@@ -306,7 +306,7 @@ async fn a_hand_past_its_bound_answers_pending_and_records_its_late_outcome(
         return;
     }
     assert_eq!(harness.stored_rows()[0].0, "failed");
-    assert_eq!(held_cut_limit(&harness.engine, harness.run_id, turn), None);
+    assert_eq!(harness.engine.held_cut_limit(harness.run_id, turn), None);
 
     harness.set_run("waitingForApproval", 2);
     let written = harness
@@ -358,7 +358,7 @@ async fn an_unanswered_step_hand_keeps_its_cut_until_the_providers_end() {
         .interrupt_for_limit(harness.run_id, RunLimit::StepLimit, Some(cut))
         .await;
     let row_while_pending = harness.stored_rows()[0].0.clone();
-    let cut_while_pending = held_cut_limit(&harness.engine, harness.run_id, turn);
+    let cut_while_pending = harness.engine.held_cut_limit(harness.run_id, turn);
     let ended = harness
         .engine
         .apply_provider_state_change(

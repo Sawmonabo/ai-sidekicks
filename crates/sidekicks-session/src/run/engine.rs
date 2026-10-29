@@ -401,6 +401,17 @@ impl RunEngine {
         &self.held_choice_answers
     }
 
+    /// The limit turn `turn_number` of `run_id` ends with by the cuts the engine holds of it, if
+    /// any, so a test reads what a cut or a re-arm left.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn held_cut_limit(
+        &self,
+        run_id: RunId,
+        turn_number: sidekicks_contracts::wire::integer::SafeInt<1>,
+    ) -> Option<sidekicks_contracts::run::intervention::RunLimit> {
+        lock(&self.live).current_limit(&(run_id, turn_number))
+    }
+
     /// Hands the engine the interventions service that carries out each limit stop's interrupt,
     /// once, while the daemon wires its services and before any run can reach a limit. Fails with
     /// the handle when one was handed already.

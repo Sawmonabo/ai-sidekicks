@@ -9,6 +9,7 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::intervention::RunLimit;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
@@ -177,9 +178,12 @@ async fn a_pass_resumes_each_session_with_work_in_progress_and_counts_it() {
 // all paused is not opened, though its conversation could be resumed: its paused run stays paused
 // and its pausing run reaches its pause. A session with a running run beside a paused one is
 // resumed for the running one, and the paused one, though the resume names it, stays paused and is
-// not counted resumed. Nothing fails or is interrupted. Killed by a paused session opened (the
-// first provider's driver, which expects no resume, is called), by a paused lead failed (a run
-// reads `failed`), by a pausing lead left pausing, and by a paused run counted resumed.
+// not counted resumed, while the pausing one beside it, whose turn the provider still runs to its
+// pause, stays pausing with the turn's step limit cut held again. Nothing fails or is interrupted.
+// Killed by a paused session opened (the first provider's driver, which expects no resume, is
+// called), by a paused lead failed (a run reads `failed`), by a pausing lead left pausing, by a
+// paused run counted resumed, and by a pausing run left un-armed in a resumed session (no cut is
+// held).
 #[tokio::test]
 async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     let unopened = MockProviderDriver::new();
@@ -199,11 +203,27 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
     );
     fixture.bind_resumable(paused_run, 0).await;
     let (mixed_session, running_run, _) = fixture.running_session(1).await;
-    let paused_beside = test_run_id();
+    let (paused_beside, pausing_beside) = (test_run_id(), test_run_id());
     insert_runs(
         &fixture.store.database,
         mixed_session,
-        &[(paused_beside, "paused")],
+        &[(paused_beside, "paused"), (pausing_beside, "pausing")],
+    );
+    fixture
+        .append(
+            mixed_session,
+            json!({
+                "type": "agent.turn.started",
+                "payload": {"sessionId": mixed_session, "runId": pausing_beside, "runVersion": 0,
+                            "turnNumber": 1},
+            }),
+        )
+        .await;
+    fixture.record_intervention(
+        pausing_beside,
+        "interrupt",
+        "accepted",
+        r#"{"limit":"stepLimit","turnNumber":1}"#,
     );
 
     fixture
@@ -216,6 +236,7 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
         (pausing_run, "paused"),
         (running_run, "running"),
         (paused_beside, "paused"),
+        (pausing_beside, "pausing"),
     ] {
         assert_eq!(
             stored_run_state(&fixture.store.database, &run_id).0,
@@ -232,6 +253,13 @@ async fn a_pass_keeps_paused_runs_paused_and_opens_no_session_for_them() {
         }
     }
     assert_eq!(fixture.binding_count(paused_run), 1);
+    assert_eq!(
+        fixture.engine.held_cut_limit(
+            pausing_beside,
+            SafeInt::new(1).expect("turn 1 is a turn number")
+        ),
+        Some(RunLimit::StepLimit)
+    );
     let succeeded = fixture.payloads(
         &DAEMON_SCOPE_SENTINEL_SESSION_ID,
         SessionEventType::DaemonRecoverySucceeded,
