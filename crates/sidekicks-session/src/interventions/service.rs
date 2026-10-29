@@ -749,7 +749,7 @@ impl InterventionService {
         };
         let unrecorded = |dispatch, record| InterventionError::Unrecorded {
             intervention_id: target.intervention_id,
-            dispatch,
+            dispatch: Box::new(dispatch),
             record,
         };
         match is_settled_since {

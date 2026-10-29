@@ -65,7 +65,7 @@ impl From<RunEngineError> for DispatchError {
     fn from(error: RunEngineError) -> Self {
         match error {
             RunEngineError::Refused(refusal) => Self::Refused(refusal.into()),
-            RunEngineError::Provider(refusal) => Self::Refused(refusal),
+            RunEngineError::Provider(refusal) => Self::Refused(*refusal),
             error @ (RunEngineError::Change { .. }
             | RunEngineError::Released { .. }
             | RunEngineError::Gate { .. }
@@ -142,7 +142,7 @@ pub enum InterventionError {
         /// The intervention.
         intervention_id: InterventionId,
         /// What the dispatch threw.
-        dispatch: DispatchError,
+        dispatch: Box<DispatchError>,
         /// Why the failure was not recorded.
         #[source]
         record: SessionEventAppendError,
@@ -173,10 +173,10 @@ impl From<InterventionError> for HandlerError {
     fn from(error: InterventionError) -> Self {
         match error {
             InterventionError::Refused(refusal)
-            | InterventionError::Engine(RunEngineError::Provider(refusal))
             | InterventionError::NoDriver(LiveRunDriverError::ProviderNotFound(refusal)) => {
                 Self::Refused(refusal)
             }
+            InterventionError::Engine(RunEngineError::Provider(refusal)) => Self::Refused(*refusal),
             InterventionError::Engine(RunEngineError::Refused(refusal)) => {
                 Self::Refused(refusal.into())
             }

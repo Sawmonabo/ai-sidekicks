@@ -741,7 +741,7 @@ impl From<LiveRunDriverError> for RunEngineError {
     /// binding on its chain is a fault of the driver's side.
     fn from(error: LiveRunDriverError) -> Self {
         match error {
-            LiveRunDriverError::ProviderNotFound(refusal) => Self::Provider(refusal),
+            LiveRunDriverError::ProviderNotFound(refusal) => Self::Provider(Box::new(refusal)),
             LiveRunDriverError::Unbound { run_id } => Self::Driver {
                 run_id,
                 source: Box::new(LiveRunDriverError::Unbound { run_id }),
