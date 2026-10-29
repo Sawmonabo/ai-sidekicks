@@ -367,3 +367,68 @@ async fn a_declare_given_up_while_its_write_waits_tells_the_readers_at_commit() 
         (vec![installed("2.1.294", "2.1.293", false)], 1)
     );
 }
+
+// A declare given up while its write waits keeps the provider's turn until that write commits, so
+// the next declare reads the build it recorded. Killed by the turn taken with `acquire`, which
+// lets the next declare read the stored pair before the given-up write commits.
+#[tokio::test]
+async fn a_declare_given_up_while_its_write_waits_keeps_the_turn_until_it_commits() {
+    let database = marked_database();
+    let readers = Arc::new(MarkingReaders::default());
+    let writer = Arc::new(
+        test_capabilities_writer(
+            &database,
+            Arc::clone(&readers) as Arc<dyn BuildRecordReaders>,
+        )
+        .await,
+    );
+    let provider = provider();
+    writer
+        .declare(&provider, &reading("2.1.293"))
+        .await
+        .expect("the first reading is stored");
+    let (held, is_held) = oneshot::channel();
+    let (release, released) = oneshot::channel::<()>();
+    let database_writer = Arc::clone(&writer.writer);
+    let hold = tokio::spawn(async move {
+        database_writer
+            .hold_while(|| async move {
+                held.send(()).expect("the test waits for the hold");
+                released.await.expect("the test releases the hold");
+            })
+            .await;
+    });
+    is_held.await.expect("the writer is held");
+
+    let given_up =
+        tokio::time::timeout(GIVE_UP, writer.declare(&provider, &reading("2.1.294"))).await;
+    assert!(
+        given_up.is_err(),
+        "the declare waits behind the held writer"
+    );
+    let next_writer = Arc::clone(&writer);
+    let next_provider = provider.clone();
+    let mut next = tokio::spawn(async move {
+        next_writer
+            .declare(&next_provider, &reading("2.1.295"))
+            .await
+    });
+    assert!(
+        tokio::time::timeout(GIVE_UP, &mut next).await.is_err(),
+        "the next declare waits behind the given-up one"
+    );
+    assert_eq!(readers.recorded.load(Ordering::SeqCst), 0);
+
+    release.send(()).expect("the hold waits for its release");
+    hold.await.expect("the hold ends");
+    let next = next
+        .await
+        .expect("the next declare's task ends")
+        .expect("the next reading is declared");
+    assert_eq!(next.snapshot_change, CapabilitySnapshotChange::Unchanged);
+    writer.writer.flush().await;
+    assert_eq!(
+        record_and_changes(&database.reader(), &readers),
+        (vec![installed("2.1.295", "2.1.294", false)], 2)
+    );
+}

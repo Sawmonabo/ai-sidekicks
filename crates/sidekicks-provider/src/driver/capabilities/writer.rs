@@ -6,7 +6,8 @@
 //! - The CLI version pair describes the reading, not a capability, so it sits outside change
 //!   detection; an unchanged reading rewrites only the pair, and only when it differs.
 //! - One provider's declares take turns, each write committing before the next declare reads, so
-//!   two declares never decide from one stale snapshot or overwrite each other.
+//!   two declares never decide from one stale snapshot or overwrite each other; a declare its
+//!   caller stops waiting for still runs to its commit before the next one reads.
 //! - A printed version that differs from the stored one is the provider's new build: the write
 //!   that moves the pair also records it, so the pair never moves without its line in the record.
 
@@ -33,6 +34,7 @@ use sidekicks_store::database::stored_column::{closed_word, optional_text_column
 use sidekicks_store::database::writer::messages::WriteJob;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use strum::VariantArray;
+use tokio::task::JoinError;
 
 use crate::build_record::{
     BuildRecordReaders, RecordedArrival, RecordedProviderBuild, record_statements, recorded_arrival,
@@ -168,6 +170,9 @@ pub enum DriverCapabilitiesWriterError {
     /// The write was not kept.
     #[error("storing the capabilities failed")]
     Write(#[from] WriteError),
+    /// The declare's task ended without an answer: it panicked or its runtime stopped.
+    #[error("the capability declare ended without an answer")]
+    Unanswered(#[source] Option<JoinError>),
 }
 
 /// Stores each provider's declared capabilities and rebuilds them without asking the driver; one
@@ -178,7 +183,7 @@ pub struct DriverCapabilitiesWriter {
     // The record's readers, told of each build recorded.
     record_readers: Arc<dyn BuildRecordReaders>,
     // One provider's declares take turns, each committing before the next reads.
-    declares: KeyedLock<ProviderId>,
+    declares: Arc<KeyedLock<ProviderId>>,
 }
 
 // What is stored for one provider: the snapshot, and the version pair, `None` when the row has
@@ -209,7 +214,7 @@ impl DriverCapabilitiesWriter {
             reads,
             writer,
             record_readers,
-            declares: KeyedLock::new(),
+            declares: Arc::new(KeyedLock::new()),
         }
     }
 
@@ -219,7 +224,8 @@ impl DriverCapabilitiesWriter {
     /// as installed, is recorded in the same write, moved from the stored one. Fails with
     /// [`DriverCapabilitiesWriterError::InvalidOutput`] for a contract version that is no
     /// canonical semantic version or a tool name declared twice, before anything is read or
-    /// written, and otherwise when the read or the write fails.
+    /// written, and otherwise when the read or the write fails. A declare that took its turn runs to
+    /// its commit before the next one reads, even after its caller stops waiting.
     pub async fn declare(
         &self,
         provider: &ProviderId,
@@ -247,99 +253,34 @@ impl DriverCapabilitiesWriter {
             capabilities: result.capabilities.clone(),
             tools,
         };
-        let declared_cli_version = &result.cli_version;
-
-        let _turn = self.declares.acquire(provider.clone()).await;
-        let stored_provider = provider.clone();
-        let declared_raw_version = declared_cli_version.raw_version.clone();
-        let (stored, moved_from_version) = self
-            .reads
-            .read(ReadLength::Short, move |reader| {
-                let stored = read_stored_capabilities(reader, &stored_provider)?;
-                let moved_from_version = match stored
-                    .as_ref()
-                    .and_then(|stored| stored.cli_version.as_ref())
-                {
-                    // Versions compare as printed; a build already installed is never recorded
-                    // again, retired or not.
-                    Some(stored_version) if stored_version.raw_version != declared_raw_version => {
-                        (recorded_arrival(reader, &stored_provider, &declared_raw_version)?
-                            != Some(RecordedArrival::Installed))
-                        .then(|| stored_version.raw_version.clone())
-                    }
-                    Some(_) | None => None,
-                };
-                Ok::<_, DriverCapabilitiesWriterError>((stored, moved_from_version))
-            })
-            .await?;
-        let is_cli_version_refreshed = stored
-            .as_ref()
-            .is_none_or(|stored| stored.cli_version.as_ref() != Some(declared_cli_version));
-        let refreshed_at = WireInstant::now();
-        let is_build_recorded = moved_from_version.is_some();
-        let build_record = moved_from_version.map_or_else(Vec::new, |from_version| {
-            record_statements(
-                &RecordedProviderBuild {
-                    provider: provider.clone(),
-                    version: declared_cli_version.raw_version.clone(),
-                    from_version: Some(from_version),
-                    recorded_at: refreshed_at.clone(),
+        let logged_provider = provider.clone();
+        let landed = self
+            .declares
+            .run_held(
+                provider.clone(),
+                store_declared(
+                    Arc::clone(&self.reads),
+                    Arc::clone(&self.writer),
+                    Arc::clone(&self.record_readers),
+                    provider.clone(),
+                    declared,
+                    result.cli_version.clone(),
+                ),
+                move |answer| {
+                    tracing::debug!(
+                        provider = logged_provider.as_str(),
+                        is_stored = answer.is_ok(),
+                        "a capability declare landed after its caller stopped waiting"
+                    );
                 },
-                self.record_readers.change_statements(),
             )
-        });
-
-        let snapshot_change = match &stored {
-            Some(stored) if stored.snapshot == declared => {
-                // A new build with the same capabilities still refreshes the pair, or the stored
-                // version would name a build no longer installed.
-                if is_cli_version_refreshed {
-                    let mut statements = vec![refresh_cli_version_statement(
-                        provider,
-                        declared_cli_version,
-                        &refreshed_at,
-                    )];
-                    statements.extend(build_record);
-                    self.write_declared(statements, is_build_recorded).await?;
-                }
-                CapabilitySnapshotChange::Unchanged
-            }
-            Some(_) | None => {
-                let mut statements =
-                    snapshot_statements(provider, &declared, declared_cli_version, &refreshed_at);
-                statements.extend(build_record);
-                self.write_declared(statements, is_build_recorded).await?;
-                if stored.is_some() {
-                    CapabilitySnapshotChange::Changed
-                } else {
-                    CapabilitySnapshotChange::Created
-                }
-            }
-        };
-        Ok(DeclaredCapabilities {
-            snapshot_change,
-            is_cli_version_refreshed,
-        })
-    }
-
-    // Runs `statements` as one write; one that records a build tells the record's readers once it
-    // commits, whether or not the declare is still awaited then.
-    async fn write_declared(
-        &self,
-        statements: Vec<WriteStatement>,
-        is_build_recorded: bool,
-    ) -> Result<(), WriteError> {
-        let on_commit = is_build_recorded.then(|| {
-            let record_readers = Arc::clone(&self.record_readers);
-            Box::new(move |_sequences: &[SafeInt<0>]| record_readers.build_recorded())
-                as Box<dyn FnOnce(&[SafeInt<0>]) + Send>
-        });
-        let job = WriteJob {
-            statements,
-            events: Vec::new(),
-        };
-        self.writer.enqueue(job, on_commit)?.await?;
-        Ok(())
+            .await;
+        match landed {
+            Ok(Some(answer)) => answer,
+            // The task skips its work only once its caller stopped waiting.
+            Ok(None) => Err(DriverCapabilitiesWriterError::Unanswered(None)),
+            Err(interrupted) => Err(DriverCapabilitiesWriterError::Unanswered(Some(interrupted))),
+        }
     }
 
     /// Rebuilds `provider`'s stored capability reading without asking the driver, in one read
@@ -381,6 +322,108 @@ impl DriverCapabilitiesWriter {
             },
         })
     }
+}
+
+// A declare's read, decision and write for `provider`, run while its key is held: the stored
+// reading compared with `declared`, and the one write the difference needs.
+async fn store_declared(
+    reads: Arc<DatabaseReadPool>,
+    writer: Arc<DatabaseWriter>,
+    record_readers: Arc<dyn BuildRecordReaders>,
+    provider: ProviderId,
+    declared: CapabilitySnapshot,
+    declared_cli_version: DriverCliVersionReport,
+) -> Result<DeclaredCapabilities, DriverCapabilitiesWriterError> {
+    let stored_provider = provider.clone();
+    let declared_raw_version = declared_cli_version.raw_version.clone();
+    let (stored, moved_from_version) = reads
+        .read(ReadLength::Short, move |reader| {
+            let stored = read_stored_capabilities(reader, &stored_provider)?;
+            let moved_from_version = match stored
+                .as_ref()
+                .and_then(|stored| stored.cli_version.as_ref())
+            {
+                // Versions compare as printed; a build already installed is never recorded
+                // again, retired or not.
+                Some(stored_version) if stored_version.raw_version != declared_raw_version => {
+                    (recorded_arrival(reader, &stored_provider, &declared_raw_version)?
+                        != Some(RecordedArrival::Installed))
+                    .then(|| stored_version.raw_version.clone())
+                }
+                Some(_) | None => None,
+            };
+            Ok::<_, DriverCapabilitiesWriterError>((stored, moved_from_version))
+        })
+        .await?;
+    let is_cli_version_refreshed = stored
+        .as_ref()
+        .is_none_or(|stored| stored.cli_version.as_ref() != Some(&declared_cli_version));
+    let refreshed_at = WireInstant::now();
+    let is_build_recorded = moved_from_version.is_some();
+    let build_record = moved_from_version.map_or_else(Vec::new, |from_version| {
+        record_statements(
+            &RecordedProviderBuild {
+                provider: provider.clone(),
+                version: declared_cli_version.raw_version.clone(),
+                from_version: Some(from_version),
+                recorded_at: refreshed_at.clone(),
+            },
+            record_readers.change_statements(),
+        )
+    });
+
+    let snapshot_change = match &stored {
+        Some(stored) if stored.snapshot == declared => {
+            // A new build with the same capabilities still refreshes the pair, or the stored
+            // version would name a build no longer installed.
+            if is_cli_version_refreshed {
+                let mut statements = vec![refresh_cli_version_statement(
+                    &provider,
+                    &declared_cli_version,
+                    &refreshed_at,
+                )];
+                statements.extend(build_record);
+                write_declared(&writer, &record_readers, statements, is_build_recorded).await?;
+            }
+            CapabilitySnapshotChange::Unchanged
+        }
+        Some(_) | None => {
+            let mut statements =
+                snapshot_statements(&provider, &declared, &declared_cli_version, &refreshed_at);
+            statements.extend(build_record);
+            write_declared(&writer, &record_readers, statements, is_build_recorded).await?;
+            if stored.is_some() {
+                CapabilitySnapshotChange::Changed
+            } else {
+                CapabilitySnapshotChange::Created
+            }
+        }
+    };
+    Ok(DeclaredCapabilities {
+        snapshot_change,
+        is_cli_version_refreshed,
+    })
+}
+
+// Runs `statements` as one write; one that records a build tells the record's readers once it
+// commits, whether or not the declare is still awaited then.
+async fn write_declared(
+    writer: &DatabaseWriter,
+    record_readers: &Arc<dyn BuildRecordReaders>,
+    statements: Vec<WriteStatement>,
+    is_build_recorded: bool,
+) -> Result<(), WriteError> {
+    let on_commit = is_build_recorded.then(|| {
+        let record_readers = Arc::clone(record_readers);
+        Box::new(move |_sequences: &[SafeInt<0>]| record_readers.build_recorded())
+            as Box<dyn FnOnce(&[SafeInt<0>]) + Send>
+    });
+    let job = WriteJob {
+        statements,
+        events: Vec::new(),
+    };
+    writer.enqueue(job, on_commit)?.await?;
+    Ok(())
 }
 
 // The three reads in one transaction, so a declare committing between them cannot tear the read.
