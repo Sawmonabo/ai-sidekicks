@@ -41,7 +41,7 @@ use sidekicks_contracts::session::events::SessionCreatedPayload;
 use sidekicks_contracts::session::groups::SessionGroupId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionShape, SessionState};
-use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
+use sidekicks_contracts::wire::id::{ClientUuid, UuidText, mint_uuid_v7};
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
@@ -245,7 +245,16 @@ impl From<SessionCreateError> for HandlerError {
             SessionCreateError::Refused(refusal) => Self::Refused(refusal),
             SessionCreateError::Driver(driver) => driver.into(),
             SessionCreateError::Workspace(workspace) => workspace.into(),
-            fault => Self::Internal(Box::new(fault)),
+            fault @ (SessionCreateError::ManagedWorkspace(_)
+            | SessionCreateError::WorkspaceNotRemoved(_)
+            | SessionCreateError::Settings(_)
+            | SessionCreateError::Read(_)
+            | SessionCreateError::Row(_)
+            | SessionCreateError::Draft(_)
+            | SessionCreateError::Append(_)
+            | SessionCreateError::ChatWithoutMount { .. }
+            | SessionCreateError::LeadNamesNoAccount { .. }
+            | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
@@ -321,12 +330,17 @@ impl SessionCreation {
         }
         let lead = target.lead;
         let agent_id = AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id");
-        let driver = self.providers.lookup(&lead.provider_name).map_err(|_| {
-            DriverError::from(ProviderAxisInvalid::provider_not_registered(
-                agent_id,
-                &lead.provider_name,
-            ))
-        })?;
+        // The registry's one refusal is a provider no driver answers, which a create refuses as
+        // the lead's provider axis.
+        let Ok(driver) = self.providers.lookup(&lead.provider_name) else {
+            return Err(
+                DriverError::from(ProviderAxisInvalid::provider_not_registered(
+                    agent_id,
+                    &lead.provider_name,
+                ))
+                .into(),
+            );
+        };
         let agent_name = self.providers.descriptor(&lead.provider_name)?.name();
         let account = self.resolve_account(&lead.provider_name).await?;
         let settings = self
@@ -621,7 +635,7 @@ fn created_prelude(
     let session_id = new_session.session_id;
     let target = &new_session.target;
     let project_text = target.project_id.map(|project_id| project_id.text());
-    let project = project_text.as_ref().map(|text| text.as_str());
+    let project = project_text.as_ref().map(UuidText::as_str);
     let group_text = target.group_id.map(|group_id| group_id.text());
     let mut prelude = vec![
         WriteStatement {

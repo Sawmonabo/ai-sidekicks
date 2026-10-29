@@ -183,9 +183,9 @@ pub enum SessionWorkingFolderError {
     /// `repoMount.managed` or `repoMount.rootResolutionFailed`.
     #[error(transparent)]
     Refused(#[from] DomainError),
-    /// The move was refused or failed.
+    /// The move was refused or failed, boxed to keep the error small.
     #[error(transparent)]
-    Root(#[from] ExecutionRootError),
+    Root(Box<ExecutionRootError>),
     /// The database could not be read.
     #[error("the session's working-folder rows could not be read")]
     Read(#[from] DatabaseReadError),
@@ -240,9 +240,21 @@ impl From<SessionWorkingFolderError> for HandlerError {
     fn from(error: SessionWorkingFolderError) -> Self {
         match error {
             SessionWorkingFolderError::Refused(refusal) => Self::Refused(refusal),
-            SessionWorkingFolderError::Root(root) => root.into(),
-            fault => Self::Internal(Box::new(fault)),
+            SessionWorkingFolderError::Root(root) => (*root).into(),
+            fault @ (SessionWorkingFolderError::Read(_)
+            | SessionWorkingFolderError::Row(_)
+            | SessionWorkingFolderError::Write(_)
+            | SessionWorkingFolderError::Folder(_)
+            | SessionWorkingFolderError::Append(_)
+            | SessionWorkingFolderError::MountMissing { .. }
+            | SessionWorkingFolderError::Sweep(_)) => Self::Internal(Box::new(fault)),
         }
+    }
+}
+
+impl From<ExecutionRootError> for SessionWorkingFolderError {
+    fn from(error: ExecutionRootError) -> Self {
+        Self::Root(Box::new(error))
     }
 }
 

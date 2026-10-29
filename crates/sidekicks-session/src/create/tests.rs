@@ -299,11 +299,12 @@ fn chat_request(key: ClientUuid) -> SessionCreateRequest {
     })
 }
 
-#[expect(clippy::panic, reason = "a test helper fails the test that called it")]
 fn refusal_code(error: SessionCreateError) -> RefusalCode {
     match HandlerError::from(error) {
         HandlerError::Refused(refusal) => refusal.code,
-        other => panic!("the create is refused, not failed: {other:?}"),
+        other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
+            panic!("the create is refused, not failed: {other:?}")
+        }
     }
 }
 

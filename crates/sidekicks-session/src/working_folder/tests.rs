@@ -230,8 +230,8 @@ fn wire_path(folder: &Path) -> FilesystemPath {
     FilesystemPath::new(folder.to_string_lossy().into_owned()).expect("a test folder is a path")
 }
 
-fn path_text(folder: &Path) -> Option<String> {
-    Some(folder.to_string_lossy().into_owned())
+fn path_text(folder: &Path) -> String {
+    folder.to_string_lossy().into_owned()
 }
 
 #[tokio::test]
@@ -243,13 +243,13 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     let feature = fixture.roots.add_tree("feature").await;
     let other = fixture.roots.add_tree("other").await;
     let run_id = fixture.bind_running_run().await;
-    let repository = path_text(&fixture.roots.repository);
+    let repository = Some(path_text(&fixture.roots.repository));
 
     assert_eq!(
         fixture.set(&feature).await,
         SessionWorkingFolderDisposition::Pending
     );
-    assert_eq!(fixture.pending(SESSION_ID), path_text(&feature));
+    assert_eq!(fixture.pending(SESSION_ID), Some(path_text(&feature)));
     assert_eq!(
         fixture.roots.workspace(workspace_id).bound_root,
         repository,
@@ -262,7 +262,7 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     );
     assert_eq!(
         fixture.pending(SESSION_ID),
-        path_text(&other),
+        Some(path_text(&other)),
         "a later request replaces the held move"
     );
 
@@ -283,7 +283,7 @@ async fn a_move_while_a_run_is_live_waits_for_the_runs_end() {
     fixture.end_run_under_held_session(run_id).await;
     let moved = fixture.roots.workspace(workspace_id);
     assert_eq!(moved.state, "ready");
-    assert_eq!(moved.bound_root, path_text(&feature));
+    assert_eq!(moved.bound_root, Some(path_text(&feature)));
     assert_eq!(fixture.pending(SESSION_ID), None);
 }
 
@@ -315,7 +315,7 @@ async fn a_pending_move_applied_under_the_callers_session_hold_never_waits_on_it
 
     assert_eq!(
         fixture.roots.workspace(workspace_id).bound_root,
-        path_text(&feature)
+        Some(path_text(&feature))
     );
     assert_eq!(
         fixture
@@ -377,7 +377,7 @@ async fn a_removed_trees_sweep_passes_over_a_bound_session_until_its_run_ends() 
         fixture.text(&format!(
             "SELECT fs_root FROM workspaces WHERE id = '{workspace_id}'"
         )),
-        path_text(&tree),
+        Some(path_text(&tree)),
         "the bound session keeps its folder"
     );
     assert_eq!(fixture.sweeps_of(SESSION_ID), Vec::<bool>::new());
@@ -392,7 +392,7 @@ async fn a_removed_trees_sweep_passes_over_a_bound_session_until_its_run_ends() 
         fixture.text(&format!(
             "SELECT fs_root FROM workspaces WHERE id = '{workspace_id}'"
         )),
-        path_text(&fixture.roots.repository)
+        Some(path_text(&fixture.roots.repository))
     );
     assert_eq!(fixture.sweeps_of(SESSION_ID), vec![false]);
     assert_eq!(
