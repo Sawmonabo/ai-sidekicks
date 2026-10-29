@@ -103,14 +103,15 @@ impl RedirectCallbackOwner for AttemptRedemption {
                 return CallbackAnswer::Reject;
             }
             // An attempt already ended (replaced, past its life, signed out or stopped) appends
-            // nothing; its receiver is closing.
+            // nothing and its receiver is closing; one being settled by an earlier callback keeps
+            // the receiver waiting for that settling's answer.
             let Some(service) = self.service.upgrade() else {
-                return CallbackAnswer::Page(ResultPage::NotFinished);
+                return CallbackAnswer::Reject;
             };
             let Some(attempt) =
                 service.take_attempt(&self.canonical_address, Some(self.attempt_id))
             else {
-                return CallbackAnswer::Page(ResultPage::NotFinished);
+                return CallbackAnswer::Reject;
             };
             // Settled on a task of its own, so a browser that leaves mid-exchange still gets its
             // sign-in kept and its one event appended.
