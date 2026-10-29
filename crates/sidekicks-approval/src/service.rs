@@ -38,7 +38,6 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_std::keyed_wait::{ArmedWait, KeyedWaits};
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
 use sidekicks_store::database::connection::read_pool::{
@@ -318,7 +317,7 @@ impl ApprovalService {
             approval_request_id,
         });
         if let Err(failure) = self.events.append(draft, linkage).await {
-            let refusal = match refused_statement_index(&failure) {
+            let refusal = match failure.refused_statement_index() {
                 Some(SESSION_OPEN_GUARD_INDEX) => approval_late_create(
                     session_id,
                     run_id,
@@ -406,7 +405,7 @@ impl ApprovalService {
             ..SessionEventLinkage::default()
         };
         if let Err(failure) = self.events.append(draft, linkage).await {
-            return match refused_statement_index(&failure) {
+            return match failure.refused_statement_index() {
                 // Settled between the read and the write; the ask reads back while its session
                 // stands.
                 Some(PENDING_GUARD_INDEX) => {
@@ -643,7 +642,7 @@ impl ApprovalService {
                 );
                 Ok(true)
             }
-            Err(failure) if refused_statement_index(&failure) == Some(PENDING_GUARD_INDEX) => {
+            Err(failure) if failure.refused_statement_index() == Some(PENDING_GUARD_INDEX) => {
                 Ok(false)
             }
             Err(failure) => Err(ApprovalServiceError::Cancel(failure)),

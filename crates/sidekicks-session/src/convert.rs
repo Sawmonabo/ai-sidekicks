@@ -68,7 +68,6 @@ use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
 use crate::changes::{SessionChanges, refuse_provisioning_session, refuse_unchangeable_session};
 use crate::convert::copy::{ConversionFolders, copy_workspace_files, remove_stopped_copy};
 use crate::directory::lookups::ENDED_SESSION_STATES_SQL;
-use crate::run::state_change::refused_statement_index;
 
 /// The statements the conversion's reads keep prepared on each read connection: the session's
 /// facts, the conversion a key runs under, a session's stopped conversion, every stopped
@@ -721,7 +720,7 @@ impl SessionConversion {
         };
         match self.appender.append(draft, linkage).await {
             Ok(_receipt) => Ok(()),
-            Err(error) if refused_statement_index(&error) == Some(OPEN_CHAT_GUARD_INDEX) => {
+            Err(error) if error.refused_statement_index() == Some(OPEN_CHAT_GUARD_INDEX) => {
                 Err(SessionConversionError::NoLongerOpenChat { session_id })
             }
             Err(error) => Err(error.into()),

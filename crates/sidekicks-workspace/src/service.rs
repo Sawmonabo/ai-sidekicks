@@ -55,7 +55,7 @@ use crate::repo::mount::health::{MountHealthProbeError, probe_repo_mount_health}
 use crate::repo::root_resolver::RepoRootResolver;
 use crate::row_guards::{
     BOUND_ROOT_METADATA_PATH, CHECKOUT_ROOT_METADATA_PATH, COMMON_DIR_METADATA_PATH,
-    assert_mode_offered, expect_single_row_changed, refused_append_index,
+    assert_mode_offered, expect_single_row_changed,
 };
 use crate::trust_envelope::{
     AdmittedExecutionRoot, WorkspaceExecutionRootCandidate, validate_execution_root,
@@ -348,7 +348,7 @@ impl WorkspaceService {
             .await;
         if appended
             .as_ref()
-            .is_err_and(|error| refused_append_index(error).is_some())
+            .is_err_and(|error| error.refused_statement_index().is_some())
         {
             // A bind of this session to this mount that committed since the reads is the answer;
             // a session purged since is refused; else the mount left `attached` and the move

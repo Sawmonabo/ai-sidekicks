@@ -40,10 +40,7 @@ use sidekicks_store::database::statement::{
 };
 use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
-use sidekicks_store::events::log_service::EventAppendError;
-use sidekicks_store::events::session::appender::{
-    SessionEventAppendError, SessionEventEmitError, SessionEventLinkage,
-};
+use sidekicks_store::events::session::appender::{SessionEventEmitError, SessionEventLinkage};
 
 use crate::folder::canonical_path::canonical_folder_path;
 use crate::git::process::GitRunner;
@@ -346,11 +343,9 @@ impl WorktreeService {
             let Err(failure) = self.write_retirement(row, options.clone()).await else {
                 return Ok(());
             };
-            let SessionEventEmitError::Append(SessionEventAppendError::Append(
-                EventAppendError::Write(write),
-            )) = failure
-            else {
-                return Err(failure.into());
+            let write = match failure.into_write_error() {
+                Ok(write) => write,
+                Err(failure) => return Err(failure.into()),
             };
             match write.refused_statement_index() {
                 Some(UNRETIRED_CHECK_INDEX) => {

@@ -52,7 +52,7 @@ use crate::run::epochs::{DeliveryAttribution, EpochBinding, EpochCursorError, Ex
 use crate::run::inbound::absorb::absorb;
 use crate::run::provider_choice::ProviderChoiceResolver;
 use crate::run::refusals::RunRefusal;
-use crate::run::state_change::{RunStateChange, refused_statement_index};
+use crate::run::state_change::RunStateChange;
 use crate::transcript::reasoning::split_reasoning_text;
 
 /// Why a delivery was neither written, routed nor absorbed; nothing of it is kept.
@@ -256,7 +256,7 @@ impl RunInboundDispatch {
                     let event_id = match self.appender.append(draft, linkage).await {
                         Ok(receipt) => receipt.id,
                         Err(error)
-                            if refused_statement_index(&error)
+                            if error.refused_statement_index()
                                 == Some(PIECE_RUN_LIVE_GUARD_INDEX) =>
                         {
                             let (Some(piece), Some(run_id)) = (piece_of, piece_run_id) else {

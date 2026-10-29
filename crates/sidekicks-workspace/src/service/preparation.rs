@@ -20,7 +20,6 @@ use crate::last_error::normalize_workspace_last_error;
 use crate::row_guards::{
     BOUND_ROOT_METADATA_PATH, CHECKOUT_ROOT_METADATA_PATH, LAST_ERROR_METADATA_PATH,
     assert_absolute_execution_root, assert_mode_offered, expect_single_row_changed,
-    refused_append_index,
 };
 
 // `rootLost` is a legal predecessor so a failed preparation can be retried. The root is cleared,
@@ -249,7 +248,7 @@ impl WorkspaceService {
         {
             Ok(_receipt) => Ok(true),
             // The guard refused: another reader moved the row since the read.
-            Err(error) if refused_append_index(&error).is_some() => Ok(false),
+            Err(error) if error.refused_statement_index().is_some() => Ok(false),
             Err(error) => Err(WorkspaceServiceError::Append(error)),
         }
     }

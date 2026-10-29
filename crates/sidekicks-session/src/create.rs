@@ -73,7 +73,6 @@ use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
 use crate::create::account::{ResolvedAccount, read_current_account};
 use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
-use crate::run::state_change::refused_statement_index;
 
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
 /// the current account and whether any is registered, a project's target, the sessions left
@@ -466,7 +465,7 @@ impl SessionCreation {
             let Err(error) = appended else {
                 return Ok(lead_binding);
             };
-            let refused_index = refused_statement_index(&error);
+            let refused_index = error.refused_statement_index();
             let project_id = target.project_id;
             return Err(match (refused_index, project_id, target.group_id) {
                 (Some(ACCOUNT_GUARD_INDEX), _, _) => {

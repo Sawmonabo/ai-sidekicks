@@ -13,8 +13,7 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::PathRules;
 use sidekicks_std::file::bounded_read::read_within_ceiling;
 use sidekicks_store::database::stored_column::{StoredJsonFault, parse_stored_json_object};
-use sidekicks_store::events::log_service::EventAppendError;
-use sidekicks_store::events::session::appender::{SessionEventAppendError, SessionEventEmitError};
+use sidekicks_store::events::session::appender::SessionEventEmitError;
 
 use crate::errors::{
     WorkspaceRefusal, WorkspaceServiceInvariantError, WorkspaceServiceInvariantKind,
@@ -119,7 +118,7 @@ pub(crate) fn expect_single_row_changed<Appended>(
 ) -> Result<Appended, WorkspaceServiceError> {
     match appended {
         Ok(appended) => Ok(appended),
-        Err(error) if refused_append_index(&error).is_some() => {
+        Err(error) if error.refused_statement_index().is_some() => {
             Err(WorkspaceServiceInvariantError {
                 message: format!(
                     "cannot {attempted_action} workspace \"{workspace_id}\": {moved_subject} left \
@@ -132,17 +131,6 @@ pub(crate) fn expect_single_row_changed<Appended>(
             .into())
         }
         Err(error) => Err(WorkspaceServiceError::Append(error)),
-    }
-}
-
-/// The position in an append's write of the statement whose row count refused it, `None` for any
-/// other failure.
-pub(crate) fn refused_append_index(error: &SessionEventEmitError) -> Option<usize> {
-    match error {
-        SessionEventEmitError::Append(SessionEventAppendError::Append(
-            EventAppendError::Write(write),
-        )) => write.refused_statement_index(),
-        SessionEventEmitError::Draft(_) | SessionEventEmitError::Append(_) => None,
     }
 }
 

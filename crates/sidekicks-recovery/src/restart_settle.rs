@@ -21,7 +21,6 @@ use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };
 use sidekicks_session::run::read::{RunStateReader, SessionRun};
-use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -227,7 +226,7 @@ impl RestartSettle {
             };
             match appended {
                 Ok(_receipt) => {}
-                Err(error) if refused_statement_index(&error).is_some() => {}
+                Err(error) if error.refused_statement_index().is_some() => {}
                 Err(error) => return Err(error.into()),
             }
         }
