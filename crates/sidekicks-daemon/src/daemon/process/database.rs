@@ -45,7 +45,6 @@ use sidekicks_recovery::database_file::repair::{
 use sidekicks_recovery::database_file::sqlite_shell::SqliteShell;
 use sidekicks_recovery::projection_rebuild::PROJECTION_REBUILD_STATEMENT_CAPACITY;
 use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
-use sidekicks_recovery::resumed_runs::RESUMED_RUNS_STATEMENT_CAPACITY;
 use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RecoveryStatusTracker;
@@ -174,7 +173,6 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY
     + REPO_MOUNT_SERVICE_STATEMENT_CAPACITY
     + RESTART_SETTLE_STATEMENT_CAPACITY
-    + RESUMED_RUNS_STATEMENT_CAPACITY
     + RETENTION_STATEMENT_CAPACITY
     + REVIEW_NOTE_STORE_STATEMENT_CAPACITY
     // The reviewer denials' set and the run engine's each hold the run agent reader's.
