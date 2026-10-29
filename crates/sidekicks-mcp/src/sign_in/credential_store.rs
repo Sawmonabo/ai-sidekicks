@@ -94,10 +94,6 @@ enum KeyOnSave {
     // The key the held sign-in has, which a renewal keeps.
     Held,
     // A sign-in attempt's own key, or none for a bearer sign-in, which replaces the held one.
-    #[expect(
-        dead_code,
-        reason = "the sign-in's launch builds each attempt's store with it"
-    )]
     Attempt(Option<Arc<DpopKeyScalar>>),
 }
 
@@ -124,17 +120,14 @@ impl SignInCustody {
     }
 
     /// The credential store of one sign-in attempt at `address`: its save replaces the held
-    /// sign-in whole, keeping `dpop_key`, the attempt's own key, or none for a bearer sign-in.
-    #[expect(
-        dead_code,
-        reason = "the sign-in's launch builds each attempt's store with it"
-    )]
+    /// sign-in whole, keeping `dpop_key`, the attempt's own key (the one the attempt's OAuth client
+    /// signs with), or none for a bearer sign-in.
     pub(crate) fn attempt_credential_store(
         &self,
         address: &McpServerAddress,
-        dpop_key: Option<DpopKeyScalar>,
+        dpop_key: Option<Arc<DpopKeyScalar>>,
     ) -> McpCredentialStore {
-        self.store(address, KeyOnSave::Attempt(dpop_key.map(Arc::new)))
+        self.store(address, KeyOnSave::Attempt(dpop_key))
     }
 
     fn store(&self, address: &McpServerAddress, key_on_save: KeyOnSave) -> McpCredentialStore {

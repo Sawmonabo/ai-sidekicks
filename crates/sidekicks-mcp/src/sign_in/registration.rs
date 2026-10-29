@@ -91,13 +91,6 @@ pub(crate) enum SignInClient {
     /// (`mcp.server.signInFailed`).
     Failed {
         /// What failed.
-        #[cfg_attr(
-            test,
-            expect(
-                dead_code,
-                reason = "the sign-in's launch hands it on as the refusal's cause"
-            )
-        )]
         source: Box<dyn Error + Send + Sync>,
     },
     /// The server publishes no sign-in metadata, or metadata the daemon cannot use

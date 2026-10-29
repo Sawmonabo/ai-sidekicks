@@ -47,6 +47,9 @@ use url::Host;
 use crate::oauth::dpop_proof::{
     AuthorizationServerResponse, DpopKey, DpopKeyError, DpopSendError, read_response, send_signed,
 };
+use crate::oauth::pushed_authorization::{
+    AuthorizationRequestEndpoints, DpopSigning, PushedAuthorizationError, browser_authorization_url,
+};
 use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
 
@@ -210,6 +213,18 @@ pub(crate) struct OAuthCall {
     pub(crate) timeout: Duration,
 }
 
+/// Why no address for the browser came out of a server's authorization request.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum BrowserAddressError {
+    /// The pushed-request endpoint is not one this server may reach, or the key in the slot is
+    /// not a P-256 key.
+    #[error(transparent)]
+    Call(#[from] OAuthCallError),
+    /// The pushed request failed as [`browser_authorization_url`] says.
+    #[error(transparent)]
+    Push(#[from] PushedAuthorizationError),
+}
+
 /// Why an OAuth call got no response.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum OAuthCallError {
@@ -273,6 +288,32 @@ impl ServerOAuthHttpClient {
             };
         }
         result
+    }
+
+    /// The address the browser opens for `authorization_url`: where `endpoints` name a
+    /// pushed-request endpoint, the request goes there over this server's pool once the endpoint
+    /// passes the server's address filter, signed when the key slot is filled and sending the
+    /// nonce slot's nonce. Fails with [`BrowserAddressError`].
+    pub(crate) async fn browser_authorization_url(
+        &self,
+        endpoints: &AuthorizationRequestEndpoints,
+        authorization_url: &Url,
+    ) -> Result<Url, BrowserAddressError> {
+        if let Some(endpoint) = endpoints.pushed_authorization_request()
+            && !self.policy.allows_url(endpoint)
+        {
+            return Err(OAuthCallError::AddressRefused(endpoint.clone()).into());
+        }
+        let dpop_key = lock(&self.dpop_key).clone();
+        let key = dpop_key
+            .map(|scalar| DpopKey::from_scalar(scalar.expose_secret()))
+            .transpose()
+            .map_err(OAuthCallError::from)?;
+        let dpop = key.as_ref().map(|key| DpopSigning {
+            key,
+            nonce: &self.nonce,
+        });
+        Ok(browser_authorization_url(&self.http, endpoints, authorization_url, dpop).await?)
     }
 
     // Sends `call`, following its redirects when it asks to, each target judged first.

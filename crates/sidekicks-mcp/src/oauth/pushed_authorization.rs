@@ -68,6 +68,12 @@ impl AuthorizationRequestEndpoints {
             are_pushed_requests_required,
         })
     }
+
+    /// The pushed-request endpoint the post goes to, when the server names one: what a caller
+    /// with an address filter judges before the post is sent.
+    pub fn pushed_authorization_request(&self) -> Option<&Url> {
+        self.pushed_authorization_request.as_ref()
+    }
 }
 
 // The metadata's `field`, which must be a URL.
