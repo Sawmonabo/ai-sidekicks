@@ -1,7 +1,7 @@
-//! The attention service: the task that decides each entry's banner and web-address message once,
-//! the settle that records what main did with a banner, the seen mark, the projection's read and
-//! change count its subscribers follow, and the sweep at start of what a stop left undecided or
-//! standing.
+//! The attention service: the task that decides each entry's banner and web-address message once
+//! per entry, and again for a handed-back wait's banner, the settle that records what main did with
+//! a banner, the seen mark, the projection's read and change count its subscribers follow, and the
+//! sweep at start of what a stop left undecided or standing.
 //!
 //! The decision task follows the machine's change count and reads the undecided entries. A
 //! subject's first undecided entry opens a fixed half-second window that later entries do not
@@ -35,6 +35,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_std::failure_episode::FailureEpisode;
 use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -615,9 +616,16 @@ impl DecisionTask {
 
     /// Reads the undecided entries, opens a window for each subject that has none, decides the
     /// Notify entries and every subject whose window has closed, and answers when the next open
-    /// window closes. A failed decision keeps the closed windows, closing again a window later.
+    /// window closes. A failed read or decision keeps the closed windows, closing again a window
+    /// later.
     async fn pass(&mut self) -> Result<Option<Instant>, AttentionServiceError> {
-        let undecided = self.service.read_undecided().await?;
+        let undecided = match self.service.read_undecided().await {
+            Ok(undecided) => undecided,
+            Err(error) => {
+                self.defer_closed_windows(Instant::now());
+                return Err(error);
+            }
+        };
         let now = Instant::now();
         let mut notify = Vec::new();
         let mut by_subject: HashMap<AttentionSubject, Vec<UndecidedEntry>> = HashMap::new();
@@ -641,16 +649,29 @@ impl DecisionTask {
         }
         if !notify.is_empty() || !closed.is_empty() {
             if let Err(error) = self.service.decide_batch(notify, closed).await {
-                for subject in closed_subjects {
-                    self.windows.insert(subject, now + MERGE_WINDOW);
-                }
+                self.defer_closed_windows(now);
                 return Err(error);
             }
             for subject in &closed_subjects {
                 self.windows.remove(subject);
             }
         }
-        Ok(self.windows.values().min().copied())
+        Ok(self.next_close())
+    }
+
+    /// When the next open window closes, `None` while no window is open.
+    fn next_close(&self) -> Option<Instant> {
+        self.windows.values().min().copied()
+    }
+
+    // Closes every window closed by `now` again a window after it, so a failed pass is tried again
+    // then, never at once.
+    fn defer_closed_windows(&mut self, now: Instant) {
+        for closes_at in self.windows.values_mut() {
+            if *closes_at <= now {
+                *closes_at = now + MERGE_WINDOW;
+            }
+        }
     }
 }
 
@@ -664,21 +685,35 @@ struct DecisionWakes {
 
 // Passes over the undecided entries at once, then whenever the machine's count moves or a window
 // closes, and arms the next provider build's retirement whenever a build is recorded, until
-// `stop`; a failed pass is logged and the next wake reads again.
+// `stop`; a failed pass is logged, at warn the first since a pass succeeded and at debug after,
+// and the next change or window reads again.
 async fn run_decisions(mut task: DecisionTask, mut wakes: DecisionWakes, stop: CancellationToken) {
     let mut next_close = None;
     let mut is_pass_due = true;
+    let failures = FailureEpisode::default();
     loop {
         if is_pass_due {
             next_close = match task.pass().await {
-                Ok(next_close) => next_close,
+                Ok(next_close) => {
+                    failures.mark_succeeded();
+                    next_close
+                }
                 Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "the attention entries were not decided; the next change or window reads \
-                         them again"
-                    );
-                    task.windows.values().min().copied()
+                    let error = &error as &(dyn Error + 'static);
+                    if failures.is_first_failure() {
+                        tracing::warn!(
+                            error,
+                            "the attention entries were not decided; the next change or window \
+                             reads them again"
+                        );
+                    } else {
+                        tracing::debug!(
+                            error,
+                            "the attention entries still were not decided; the next change or \
+                             window reads them again"
+                        );
+                    }
+                    task.next_close()
                 }
             };
         }

@@ -28,7 +28,7 @@ use sidekicks_store::database::writer::test_file::{test_run_id, test_session_id}
 use sidekicks_store::events::session::appender::SessionEventLinkage;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use tokio::sync::watch;
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
 
 use super::build_retirement::{
@@ -253,6 +253,46 @@ async fn a_wait_wins_its_window_and_a_merged_wait_is_decided_again_when_it_resol
         fixture.banner(&finished_entry),
         (Some("withheld".to_owned()), Some(picked_entry))
     );
+}
+
+// A read that fails at a window's close moves the window a window past the failure, so the loop
+// reads again then, never at once, and again a window after a second failure; once the read
+// succeeds the entry is decided. Killed by the failed read keeping its closed window.
+#[tokio::test]
+async fn a_read_that_fails_at_a_close_is_tried_again_a_window_later() {
+    let fixture = Fixture::new().await;
+    let log = &fixture.log;
+    let run_id = log.run(None);
+    let mut task = fixture.task();
+    log.append(log.run_state(run_id, "completed", 2, json!({})))
+        .await;
+    Fixture::pass(&mut task).await;
+    let entry = log.entry_of(run_id);
+    let rename_deliveries = |from: &str, to: &str| {
+        log.database
+            .reader()
+            .execute_batch(&format!("ALTER TABLE {from} RENAME TO {to}"))
+            .expect("the deliveries table is renamed");
+    };
+    rename_deliveries("attention_deliveries", "attention_deliveries_away");
+
+    tokio::time::pause();
+    for _ in 0..2 {
+        let closes_at = task.next_close().expect("the entry's window is open");
+        tokio::time::advance(closes_at.saturating_duration_since(Instant::now())).await;
+        let failed_at = Instant::now();
+        assert!(task.pass().await.is_err(), "the read fails");
+        assert!(
+            task.next_close().expect("the window stays") >= failed_at + MERGE_WINDOW,
+            "the failed read is tried again a window later"
+        );
+    }
+    tokio::time::advance(MERGE_WINDOW).await;
+    tokio::time::resume();
+    rename_deliveries("attention_deliveries_away", "attention_deliveries");
+    Fixture::pass(&mut task).await;
+
+    assert_eq!(fixture.banner(&entry), (Some("pending".to_owned()), None));
 }
 
 // Only this machine's main settles a banner, and only while it is pending. Killed by an
