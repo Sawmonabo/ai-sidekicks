@@ -1,6 +1,6 @@
 //! The Windows side of the credential store: the Credential Manager, its entries kept on this
-//! machine alone, its search by service, what holds its items, and no locked reading, since the
-//! store keeps its error type private.
+//! machine alone and capped in size, its search by service, what holds its items, and no locked
+//! reading, since the store keeps its error type private.
 
 use std::error::Error;
 use std::sync::Arc;
@@ -12,6 +12,10 @@ pub(crate) const DESCRIPTION: &str =
 /// The settings every entry is built with: local persistence, since the store otherwise writes
 /// enterprise persistence, which roams with the account to other machines.
 pub(crate) const ENTRY_MODIFIERS: &[(&str, &str)] = &[("persistence", "local")];
+
+/// The most bytes one entry holds: the Credential Manager's per-entry cap,
+/// `CRED_MAX_CREDENTIAL_BLOB_SIZE`, past which the store refuses a write.
+pub(crate) const ENTRY_CAPACITY: Option<usize> = Some(2560);
 
 /// The Credential Manager. Fails only when the store cannot be built.
 pub(crate) fn open_store() -> keyring_core::Result<Arc<keyring_core::CredentialStore>> {
