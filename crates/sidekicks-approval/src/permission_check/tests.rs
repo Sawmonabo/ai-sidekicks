@@ -473,8 +473,8 @@ async fn a_steps_file_write_follows_the_levels_table(
 
 // A step's tool call follows Codex's own decision for the binding's mode, no annotations read:
 // `approve` runs at every level, and every other mode asks at each level but Sandboxed, which
-// refuses it. Killed by `approve` asking, by YOLO never asking, and by Sandboxed running a tool that
-// asks.
+// refuses it. Killed by `approve` asking, by YOLO never asking, and by Sandboxed running a tool
+// that asks.
 #[rstest]
 #[case::approve(McpApprovalMode::Approve, [FREE, FREE, FREE, FREE, FREE])]
 #[case::prompt(McpApprovalMode::Prompt, [CARD, CARD, CARD, ASKING, CARD])]

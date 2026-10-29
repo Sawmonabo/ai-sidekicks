@@ -38,14 +38,14 @@ impl RunEngine {
     /// Starts the run of a subagent the provider started beneath `parent_run_id`, sharing its
     /// process and so its provider and account: `agent.run.queued` naming the parent, the parent's
     /// agent, which asked its provider for the subagent, and the account the parent was admitted
-    /// against, then `starting`, every setup gate at the posture the session's open process runs
-    /// at now, and `running` stamped with the posture the gates resolved. A gate's refusal ends
-    /// the run `failed` with no posture stamped and answers [`SubagentRunStart::Refused`]. Returns
+    /// against, then `starting`, every setup gate at the posture the session's open process runs at
+    /// now, and `running` stamped with the posture the gates resolved. A gate's refusal ends the
+    /// run `failed` with no posture stamped and answers [`SubagentRunStart::Refused`]. Returns
     /// `None` with nothing written when the parent has ended, and `None`, what its gates took let
-    /// go, when the subagent's run ended some other way while its gates ran; fails with [`RunRefusal::NotFound`]
-    /// for a parent the daemon has no run for, with [`RunEngineError::NoSessionPosture`], the run
-    /// ended `failed`, when no posture of the session's open process can be read, and when a
-    /// refused run's end is not written.
+    /// go, when the subagent's run ended some other way while its gates ran; fails with
+    /// [`RunRefusal::NotFound`] for a parent the daemon has no run for, with
+    /// [`RunEngineError::NoSessionPosture`], the run ended `failed`, when no posture of the
+    /// session's open process can be read, and when a refused run's end is not written.
     pub(crate) async fn start_provider_subagent_run(
         &self,
         parent_run_id: RunId,

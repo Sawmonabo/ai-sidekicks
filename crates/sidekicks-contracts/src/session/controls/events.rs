@@ -1,7 +1,7 @@
 //! A session's notices and flow rows: the rows its controls write, the notices about its provider
-//! (its build, its restarts, its warnings, its ignored settings, a level that cannot run here),
-//! the moves of its level and mode, the notices about the WSL 2 distribution it runs in, the flag from a provider's own reviewer, and the live
-//! frame of a provider's safety hold on a turn.
+//! (its build, its restarts, its warnings, its ignored settings, a level that cannot run here), the
+//! moves of its level and mode, the notices about the WSL 2 distribution it runs in, the flag from
+//! a provider's own reviewer, and the live frame of a provider's safety hold on a turn.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};

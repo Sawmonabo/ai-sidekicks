@@ -374,7 +374,8 @@ fn unchangeable_session_refusal(session_id: &SessionId, state: SessionState) -> 
 // rejection as its cause; its message names no path, since a refusal can reach a remote caller.
 fn posture_refusal(session_id: &SessionId, cause: ExecutionPostureRejection) -> DomainError {
     DomainError::new(
-        "The folder this level lets the session write to is unreachable, so the level did not move.",
+        "The folder this level lets the session write to is unreachable, so the level did not \
+         move.",
         RefusalCode::WorkspaceRootUnavailable,
     )
     .with_detail(json!({ "sessionId": session_id }))

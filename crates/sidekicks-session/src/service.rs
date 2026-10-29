@@ -67,10 +67,10 @@ use crate::transcript::run_facts::TranscriptRunFactsReader;
 use crate::transcript::window::{TranscriptReadError, read_transcript_window};
 
 /// The statements the service's reads run: its own seven (the row, the tags, the live runs, the
-/// standing sequences, the level and the console's two reads), the run facts' three, the five shared event reads
-/// (the head, the rows after a position of every type and of named types, a sequence window and the
-/// rows at named sequences), and the transcript reads' six (the rows before a position, a stored
-/// row, a window's bodies and the turn attribution's three seeds).
+/// standing sequences, the level and the console's two reads), the run facts' three, the five
+/// shared event reads (the head, the rows after a position of every type and of named types, a
+/// sequence window and the rows at named sequences), and the transcript reads' six (the rows before
+/// a position, a stored row, a window's bodies and the turn attribution's three seeds).
 pub const SESSION_SERVICE_STATEMENT_CAPACITY: usize = 7 + 3 + 5 + 6;
 
 // A negative limit reads every event.

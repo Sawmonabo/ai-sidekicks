@@ -368,10 +368,10 @@ impl PermissionCheck {
     }
 
     /// Decides one action of a workflow step the daemon runs itself, at `level`, the run's own,
-    /// raising its card on `session_id` for `run_id`, the session and run the workflow engine names:
-    /// free or refused as the level's table has it, else answered by the session rule over its
-    /// subject the daemon keeps where one is in force, and else its card is raised, offering that
-    /// rule. Fails as a read fails and as the card's create does.
+    /// raising its card on `session_id` for `run_id`, the session and run the workflow engine
+    /// names: free or refused as the level's table has it, else answered by the session rule over
+    /// its subject the daemon keeps where one is in force, and else its card is raised, offering
+    /// that rule. Fails as a read fails and as the card's create does.
     pub(crate) async fn check_step_action(
         &self,
         session_id: SessionId,

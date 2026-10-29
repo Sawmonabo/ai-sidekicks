@@ -222,12 +222,12 @@ impl ProviderSessions {
     /// posture, its live runs and the stored level as [`ProviderSessions::change_level`] does, the
     /// driver told the move is the provider's own; a reported mode moves the stored mode the same
     /// way, with the level or alone. A report is followed whole: what it moves is stored in one
-    /// write with the `LevelMoved` notice of the level and mode it names. A report the store already
-    /// matches, none, or a process no longer live moves nothing: a process gone takes the stored
-    /// level when it opens again. Fails as [`ProviderSessions::change_level`] fails before its
-    /// driver moves, as the driver's move fails, and with [`ProviderSessionError::LevelNotStored`]
-    /// or [`ProviderSessionError::ModeNotStored`] when the store fails, the process left where the
-    /// provider moved it.
+    /// write with the `LevelMoved` notice of the level and mode it names. A report the store
+    /// already matches, none, or a process no longer live moves nothing: a process gone takes the
+    /// stored level when it opens again. Fails as [`ProviderSessions::change_level`] fails before
+    /// its driver moves, as the driver's move fails, and with
+    /// [`ProviderSessionError::LevelNotStored`] or [`ProviderSessionError::ModeNotStored`] when the
+    /// store fails, the process left where the provider moved it.
     pub async fn follow_reported_level(
         &self,
         session_id: SessionId,
