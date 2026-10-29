@@ -320,12 +320,12 @@ async fn an_ask_resent_after_a_restart_returns_to_its_pending_card() {
         })
         .await
         .expect("the resent ask is taken");
-    assert_eq!(fixture.pending_cards(), [card.clone()]);
+    assert_eq!(fixture.pending_cards(), std::slice::from_ref(&card));
     let requested = fixture.read_texts(
         "SELECT json_extract(payload, '$.approvalRequestId') FROM session_events
           WHERE type = 'approval.requested'",
     );
-    assert_eq!(requested, [card.clone()]);
+    assert_eq!(requested, std::slice::from_ref(&card));
     restarted
         .resolve(&approval(&card), device())
         .await

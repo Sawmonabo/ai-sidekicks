@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use serde_json::value::RawValue;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use tokio::time::Instant;
 
 use super::{
@@ -230,7 +231,8 @@ impl CodexSessionEstablishment {
         for run in live_runs.iter().filter(|run| run.subagent_id.is_none()) {
             let mut is_bound = false;
             for turn in &run.open_turns {
-                let Some(turn_id) = turn.provider_turn_id.as_ref().map(|id| id.as_str()) else {
+                let Some(turn_id) = turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str)
+                else {
                     continue;
                 };
                 if !listed_turns.iter().any(|listed| listed.id == turn_id) {
@@ -346,7 +348,7 @@ fn answer_live_runs(
                 let turn_ids: Vec<&str> = run
                     .open_turns
                     .iter()
-                    .filter_map(|turn| turn.provider_turn_id.as_ref().map(|id| id.as_str()))
+                    .filter_map(|turn| turn.provider_turn_id.as_ref().map(ProviderTurnId::as_str))
                     .collect();
                 answer_turns(resumed.status, &resumed.listed_turns, &turn_ids)
             };

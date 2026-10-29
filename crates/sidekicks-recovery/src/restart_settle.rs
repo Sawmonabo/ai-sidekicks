@@ -193,7 +193,14 @@ impl RestartSettle {
                     rearmed.paused_run_ids.push(live_run.run_id);
                     paused.push(live_run);
                 }
-                _ => {
+                RunState::Starting
+                | RunState::Running
+                | RunState::WaitingForApproval
+                | RunState::WaitingForInput
+                | RunState::Completed
+                | RunState::Interrupted
+                | RunState::Stopped
+                | RunState::Failed => {
                     check_stop(Some(stop))?;
                     self.deps.run_engine.rearm_after_restart(&live_run).await?;
                     rearmed.in_progress.push(live_run);

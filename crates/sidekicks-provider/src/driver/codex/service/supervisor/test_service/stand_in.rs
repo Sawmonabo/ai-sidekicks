@@ -295,9 +295,12 @@ impl Drop for CodexServiceStandIn {
             }
             Ok(())
         });
-        // A drop has no caller to fail, so a service left running is told where the test ran.
+        // A drop has no caller to fail, so a service left running is logged.
         if let Err(error) = ended {
-            eprintln!("a stand-in Codex service could not be ended: {error}");
+            tracing::warn!(
+                error = &error as &(dyn std::error::Error + 'static),
+                "a stand-in Codex service could not be ended"
+            );
         }
     }
 }

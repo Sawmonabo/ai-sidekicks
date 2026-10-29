@@ -196,7 +196,13 @@ impl ResumeHarness {
         answer: impl FnMut(&ScriptedService, &Value),
     ) -> DriverResumeResult {
         let params = resume_params(self.session_id, &self.binding, live_runs);
-        drive_resume(&self.driver, &mut self.scripted.script, params, answer).await
+        Box::pin(drive_resume(
+            &self.driver,
+            &mut self.scripted.script,
+            params,
+            answer,
+        ))
+        .await
     }
 }
 
@@ -229,7 +235,7 @@ async fn resume_and_record(
     binding: &RuntimeBinding,
 ) -> RuntimeBinding {
     let params = resume_params(session_id, binding, Vec::new());
-    let resumed = drive_resume(driver, script, params, answer_resume_request).await;
+    let resumed = Box::pin(drive_resume(driver, script, params, answer_resume_request)).await;
     let DriverResumeResult::Resumed {
         binding_id,
         resume_handle,
@@ -488,7 +494,12 @@ async fn a_loaded_conversation_is_joined_as_it_runs() {
                     }
                     _ => None,
                 },
-                _ => None,
+                EngineCall::StartTurn(_)
+                | EngineCall::CountStep(_)
+                | EngineCall::RecordTurnEnd(..)
+                | EngineCall::StartDaemonTurn(_)
+                | EngineCall::EndTurnOnProcessExit(_)
+                | EngineCall::EndTurnOnClose(_) => None,
             })
         });
         tokio::time::timeout(Duration::from_secs(10), landing)
