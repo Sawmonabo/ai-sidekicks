@@ -164,8 +164,8 @@ impl SessionCreation {
     /// The bind and the activation of a session left provisioning, answering the state it reads
     /// after: `provisioning`, with nothing done, while its project is still cloning; `active` once
     /// activated; and as it reads now when it left `provisioning` meanwhile, an archive among
-    /// them, which nothing activates. Runs while its create's key is held, which it never takes.
-    /// Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no managed mount,
+    /// them, which nothing binds or activates. Runs while its create's key is held, which it never
+    /// takes. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no managed mount,
     /// refuses `repoMount.notFound` for a project with no attached folder,
     /// `agent.providerAxisInvalid` for a lead whose provider no driver answers now and
     /// `session.notFound` for a session purged meanwhile, and fails as the bind, the starting
@@ -176,6 +176,12 @@ impl SessionCreation {
     ) -> Result<SessionState, SessionCreateError> {
         let session_id = session.session_id;
         let project_id = session.project_id;
+        let driver = self.lead_driver(session.agent_id, &session.lead.provider_name)?;
+        // A session that left provisioning meanwhile is answered as it reads, with nothing bound.
+        let state = self.read_session_state(session_id).await?;
+        if state != SessionState::Provisioning {
+            return Ok(state);
+        }
         let Some((repo_mount_id, working_folder)) =
             self.read_session_mount(session_id, project_id).await?
         else {
@@ -196,8 +202,7 @@ impl SessionCreation {
             })
             .await?;
         let lead = &session.lead;
-        let starting = self
-            .lead_driver(session.agent_id, &lead.provider_name)?
+        let starting = driver
             .read_starting_level(StartingLevelParams::new(
                 working_folder,
                 lead.model_id.clone(),

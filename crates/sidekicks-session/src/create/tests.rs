@@ -641,7 +641,8 @@ async fn a_session_archived_while_its_finish_runs_stays_archived() {
 }
 
 // Dies to the finish's driver lookup answered as the registry refuses it: the retry then answers
-// `provider.notFound`, which the create does not declare.
+// `provider.notFound`, which the create does not declare; and to the lookup made after the bind,
+// which writes a workspace for a refused retry.
 #[tokio::test]
 async fn a_retry_whose_lead_driver_is_gone_is_refused_on_the_provider_axis() {
     let fixture = Fixture::new().await;
@@ -667,6 +668,7 @@ async fn a_retry_whose_lead_driver_is_gone_is_refused_on_the_provider_axis() {
         .expect_err("a lead whose driver is gone is refused");
 
     assert_eq!(refusal_code(refused), RefusalCode::AgentProviderAxisInvalid);
+    assert_eq!(fixture.count("SELECT count(*) FROM workspaces"), 0);
 }
 
 // Dies to the create run in its caller's future: the caller dropped mid-way then drops the create
