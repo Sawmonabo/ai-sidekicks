@@ -1,6 +1,5 @@
-//! A delivery other crates' tests build over their own test store, with no provider process, no
-//! run being started and no interrupted run to continue, and the hand a send into a live run
-//! makes.
+//! A delivery tests build over their own test store, with no provider process, no run being
+//! started and no interrupted run to continue, and the hand a send into a live run makes.
 
 use std::sync::Arc;
 
@@ -44,13 +43,24 @@ pub fn test_delivery(
     writer: Arc<DatabaseWriter>,
     providers: Arc<ProviderRegistry>,
 ) -> QueueDelivery {
+    QueueDelivery::new(test_delivery_deps(pool, event_log, writer, providers))
+}
+
+/// What [`test_delivery`] builds its delivery on, for the queue's own tests to replace the
+/// stand-ins they steer.
+pub(crate) fn test_delivery_deps(
+    pool: Arc<DatabaseReadPool>,
+    event_log: Arc<EventLogService>,
+    writer: Arc<DatabaseWriter>,
+    providers: Arc<ProviderRegistry>,
+) -> QueueDeliveryDeps {
     let recorder = Arc::new(QueueRecorder::new(QueueRecorderDeps {
         event_log,
         writer,
         pool: Arc::clone(&pool),
         signals: Arc::new(QueueChangeSignals::new()),
     }));
-    QueueDelivery::new(QueueDeliveryDeps {
+    QueueDeliveryDeps {
         pool,
         recorder,
         providers,
@@ -58,7 +68,7 @@ pub fn test_delivery(
         processes: Arc::new(ProcessStandIn::default()),
         openings: Arc::new(NoOpenings),
         continuation: Arc::new(NoContinuation),
-    })
+    }
 }
 
 /// Hands `run_id` of `session_id` every lead message waiting for it not yet handed, as a send into
