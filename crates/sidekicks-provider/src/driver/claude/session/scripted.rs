@@ -18,7 +18,7 @@ use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::run::id::RunId;
-use sidekicks_contracts::session::controls::methods::SessionMode;
+use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_platforms::Spawner;
@@ -50,6 +50,8 @@ use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, unreadable_claude_command_choices,
 };
 use crate::driver::claude::session::frame_observation::ClaudeStreamFrameRead;
+use crate::driver::claude::session::permission_level::claude_permission_mode_for;
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::process::{ClaudeProcessListener, ClaudeStreamFrame};
 use crate::driver::claude::session::state::{
     ClaudeLiveSettings, ClaudeRequestedSpawn, ClaudeSpawnBinding, LiveClaudeSession,
@@ -139,6 +141,9 @@ pub(crate) fn scripted_live_session(
             ultracode_requested: None,
             ultracode: None,
         }),
+        permission_mode: Arc::new(ClaudePermissionModeRecord::new(claude_permission_mode_for(
+            Some(PermissionLevel::Ask),
+        ))),
         spawned_version: spawned_build(SCRIPTED_BUILD_VERSION, "/scripted/claude"),
         resumed_binding_id: None,
         requested_spawn: ClaudeRequestedSpawn::default(),

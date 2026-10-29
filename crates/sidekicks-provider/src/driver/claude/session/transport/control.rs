@@ -423,7 +423,7 @@ lenient_object!(
 /// Claude Code's permission modes, as `--permission-mode` and `set_permission_mode` take them.
 /// Two namings with one spelling: serde's is the word a control request's JSON carries, strum's
 /// the word the command-line flag and a reported mode use, where `manual` is read as `default`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, IntoStaticStr, EnumString)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, IntoStaticStr, EnumString)]
 #[serde(rename_all = "camelCase")]
 #[strum(serialize_all = "camelCase")]
 pub(crate) enum ClaudePermissionMode {

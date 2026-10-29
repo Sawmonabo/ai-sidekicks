@@ -39,7 +39,9 @@ use sidekicks_contracts::provider::driver::tools::ProviderToolMetadata;
 use sidekicks_contracts::question::QuestionAnswer;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queue::{MessageContent, QueueItemId, QueuedSkillPick};
-use sidekicks_contracts::session::controls::methods::SessionReviewTarget;
+use sidekicks_contracts::session::controls::methods::{
+    PermissionLevel, SessionMode, SessionReviewTarget,
+};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
@@ -520,6 +522,11 @@ pub trait ProviderDriver: Send + Sync {
     fn observed_output_speed_for(&self, session_id: &SessionId)
     -> Option<ProviderOutputSpeedState>;
 
+    /// The level and session mode the provider itself moved the session's live process to, read
+    /// from its newest report; `None` with no live process, no report, or a report the daemon's
+    /// own move caused. A read of state the driver holds, never a request.
+    fn reported_level(&self, session_id: &SessionId) -> Option<ProviderReportedLevel>;
+
     /// The rows the driver declares on its provider's settings, each with its live value in every
     /// place, as `provider.list` serves them, `app_values` being the values the app stored for
     /// them; read again after each change.
@@ -632,6 +639,16 @@ pub enum SessionProcessState {
     /// reads the stored mode and level: never opened in this daemon, asleep, closed, or stopped
     /// restarting after a crash loop.
     Down,
+}
+
+/// The level and session mode a provider reported its process moved to on its own: no level where
+/// the reported mode runs none, as a planning mode.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ProviderReportedLevel {
+    /// The level the reported mode runs, if it runs one.
+    pub level: Option<PermissionLevel>,
+    /// Plan where the reported mode plans, else Build.
+    pub session_mode: SessionMode,
 }
 
 /// A follow of a session's live command list, ended when this drops.

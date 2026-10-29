@@ -31,7 +31,7 @@ use crate::driver::codex::permission_level::list_codex_modes;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -521,6 +521,11 @@ impl ProviderDriver for CodexDriver {
         session_id: &SessionId,
     ) -> Option<ProviderOutputSpeedState> {
         self.observed_output_speed_for(*session_id)
+    }
+
+    // Codex reports no permission mode of its own.
+    fn reported_level(&self, _session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        None
     }
 
     fn read_rows(

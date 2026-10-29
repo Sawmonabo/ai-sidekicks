@@ -54,7 +54,6 @@ use crate::driver::claude::session::tool_server_calls::{
     ClaudeToolServerCallContext, ClaudeToolServerCalls,
 };
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
-use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequest, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
     ClaudeToolUseAsk,
@@ -406,10 +405,7 @@ impl ClaudeInboundRequests {
         let is_sent_by_level_rule = session.level == Some(PermissionLevel::Reviewed)
             && ask.decision_reason_type.as_deref() == Some(CLAUDE_RULE_DECISION)
             && matches_claude_reviewed_removal_rule(&tool_name, &input)
-            && session
-                .stream
-                .permission_mode()
-                .and_then(|mode| mode.parse::<ClaudePermissionMode>().ok())
+            && session.stream.permission_mode().newest_report()
                 == Some(claude_permission_mode_for(Some(PermissionLevel::Reviewed)));
         let flags = Map::from_iter([(
             "suppress_always_allow_rule".to_owned(),

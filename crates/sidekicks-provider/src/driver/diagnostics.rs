@@ -148,6 +148,9 @@ pub enum DriverDiagnosticKind {
     /// A session's inbox could not be bound, or a frame it received could not be passed on; its
     /// sender gets no answer.
     SessionInboxFailed,
+    /// Claude Code reported a permission mode the driver does not know, which is not taken as a
+    /// mode.
+    PermissionModeUnknown,
 }
 
 impl DriverDiagnosticKind {
@@ -207,6 +210,7 @@ impl DriverDiagnosticKind {
             Self::StreamedTextDiverged => "driver.streamedText.diverged",
             Self::StreamedBlocksAbandoned => "driver.streamedText.blocksAbandoned",
             Self::SessionInboxFailed => "driver.sessionInbox.failed",
+            Self::PermissionModeUnknown => "driver.permissionMode.unknown",
         }
     }
 }

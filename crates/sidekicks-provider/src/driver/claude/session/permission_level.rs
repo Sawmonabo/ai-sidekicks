@@ -116,6 +116,23 @@ pub(crate) fn claude_permission_mode_for(level: Option<PermissionLevel>) -> Clau
     }
 }
 
+/// The level and session mode a permission mode runs, the inverse of
+/// [`claude_permission_mode_for`]: `plan` runs no level of its own and plans.
+pub(crate) fn claude_level_of_mode(
+    mode: ClaudePermissionMode,
+) -> (Option<PermissionLevel>, SessionMode) {
+    match mode {
+        ClaudePermissionMode::Default => (Some(PermissionLevel::Readonly), SessionMode::Build),
+        ClaudePermissionMode::AcceptEdits => (Some(PermissionLevel::Ask), SessionMode::Build),
+        ClaudePermissionMode::Auto => (Some(PermissionLevel::Reviewed), SessionMode::Build),
+        ClaudePermissionMode::DontAsk => (Some(PermissionLevel::Sandboxed), SessionMode::Build),
+        ClaudePermissionMode::BypassPermissions => {
+            (Some(PermissionLevel::Yolo), SessionMode::Build)
+        }
+        ClaudePermissionMode::Plan => (None, SessionMode::Plan),
+    }
+}
+
 /// The levels a Claude Code session can run at on this system, each named by the mode it runs in;
 /// Sandboxed only where `can_run_sandbox`, the descriptor's command-sandbox check, holds.
 pub(crate) fn list_claude_modes(can_run_sandbox: bool) -> Vec<ProviderMode> {
@@ -219,12 +236,14 @@ pub(crate) async fn move_claude_permission_level(
     .map_err(ClaudePermissionsError::Compose)?;
     // A planning session stays in plan mode; the level's own mode returns when it builds again.
     if session_mode == SessionMode::Build {
+        let mode = claude_permission_mode_for(Some(level));
+        // Held until the reply, so the report the send causes is known as the daemon's own.
+        let send = live.permission_mode.begin_send(mode);
         live.channel
-            .send_control_request(ClaudeControlRequest::SetPermissionMode {
-                mode: claude_permission_mode_for(Some(level)),
-            })
+            .send_control_request(ClaudeControlRequest::SetPermissionMode { mode })
             .await
             .map_err(level_request_failure)?;
+        send.acknowledge();
     }
     live.channel
         .send_control_request(ClaudeControlRequest::ApplyFlagSettings {
@@ -337,19 +356,18 @@ fn claude_starting_level(
 ) -> ClaudeStartingLevel {
     let (level, session_mode) = match default_mode {
         None => (PermissionLevel::Yolo, SessionMode::Build),
-        Some((source, mode)) => match (mode, source) {
-            ("acceptEdits", _) => (PermissionLevel::Ask, SessionMode::Build),
-            ("auto", ClaudeSettingsSource::Project) => (PermissionLevel::Yolo, SessionMode::Build),
-            ("auto", ClaudeSettingsSource::Managed | ClaudeSettingsSource::Person) => {
-                (PermissionLevel::Reviewed, SessionMode::Build)
-            }
-            ("dontAsk", _) => (PermissionLevel::Sandboxed, SessionMode::Build),
-            ("bypassPermissions", ClaudeSettingsSource::Managed | ClaudeSettingsSource::Person) => {
+        Some((source, mode)) => match (mode.parse::<ClaudePermissionMode>(), source) {
+            (Ok(ClaudePermissionMode::Auto), ClaudeSettingsSource::Project) => {
                 (PermissionLevel::Yolo, SessionMode::Build)
             }
-            ("plan", _) => (PermissionLevel::Readonly, SessionMode::Plan),
-            // `default`, `manual`, a project's `bypassPermissions` and any unknown mode.
-            (_, _) => (PermissionLevel::Readonly, SessionMode::Build),
+            // A project's `bypassPermissions` and any unknown mode start in the manual mode.
+            (Ok(ClaudePermissionMode::BypassPermissions), ClaudeSettingsSource::Project)
+            | (Err(_), _) => (PermissionLevel::Readonly, SessionMode::Build),
+            (Ok(mode), _) => {
+                let (level, session_mode) = claude_level_of_mode(mode);
+                // Plan runs no level of its own, so its session starts at the most careful.
+                (level.unwrap_or(PermissionLevel::Readonly), session_mode)
+            }
         },
     };
     let rank = PermissionLevel::VARIANTS

@@ -63,6 +63,7 @@ use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, record_unheard_claude_failure,
 };
 use crate::driver::claude::session::ignored_settings::find_ignored_setting_notice;
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::claude::session::permissions::read_claude_session_rules;
 use crate::driver::claude::session::slots::{ClaudeSessionSlots, ClaudeSlotClaim};
 use crate::driver::claude::session::state::{
@@ -74,7 +75,9 @@ use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::launch::ClaudeLaunchError;
-use crate::driver::claude::spawn::launch::bring_up::{ClaudeBringUpRequest, ClaudeSessionSpawn};
+use crate::driver::claude::spawn::launch::bring_up::{
+    ClaudeBringUpRequest, ClaudeSessionSpawn, claude_spawn_permission_mode,
+};
 use crate::driver::claude::spawn::launch::installed_build::{
     ClaudeProcessStarts, ClaudeStartedSession,
 };
@@ -571,6 +574,12 @@ impl ClaudeSessionEstablishment {
                     return Err(ClaudeEstablishmentError::SessionRules(error));
                 }
             };
+        // A process starts in its level's own mode, so only Plan is named.
+        let requested_mode =
+            (session_mode == SessionMode::Plan).then_some(ClaudePermissionMode::Plan);
+        let permission_mode = Arc::new(ClaudePermissionModeRecord::new(
+            claude_spawn_permission_mode(requested_mode, legs.execution_posture.as_ref()),
+        ));
         let (arrivals, receiver) = claude_session_arrivals(session_id);
         let stream = Arc::new(ClaudeSessionStream::new(
             provider_account_id.clone(),
@@ -578,6 +587,7 @@ impl ClaudeSessionEstablishment {
             arrivals.clone(),
             Arc::clone(&self.routes),
             Arc::clone(&self.prompts),
+            Arc::clone(&permission_mode),
         ));
         let mut band = ClaudeSessionRoutingBand::new();
         self.routing
@@ -612,9 +622,7 @@ impl ClaudeSessionEstablishment {
                     routes: Arc::clone(&self.routes),
                     session_id,
                 }),
-                // A process starts in its level's own mode, so only Plan is named.
-                permission_mode: (session_mode == SessionMode::Plan)
-                    .then_some(ClaudePermissionMode::Plan),
+                permission_mode: requested_mode,
                 messaging_socket: messaging_socket.as_deref(),
             })
             .await;
@@ -699,6 +707,7 @@ impl ClaudeSessionEstablishment {
                 ultracode_requested: ultracode,
                 ultracode: ultracode_reading.or(started.settings_readback.ultracode),
             }),
+            permission_mode,
             process_identity: started.identity,
             callback_tool_binding: callback_tools.into_shared(),
             process_exit: OnceLock::new(),

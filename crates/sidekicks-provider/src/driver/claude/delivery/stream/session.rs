@@ -18,6 +18,7 @@ use crate::driver::claude::delivery::turn_end::read_claude_result_message_uuids;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::session::arrivals::{ClaudeArrivalSender, ClaudeTurnAtRead};
+use crate::driver::claude::session::permission_mode::ClaudePermissionModeRecord;
 use crate::driver::diagnostics::OnceReportedDiagnostics;
 
 /// One session's stream while its process runs: its readings, behind one lock never held across
@@ -30,6 +31,7 @@ pub(crate) struct ClaudeSessionStream {
     arrivals: ClaudeArrivalSender,
     routes: Arc<ClaudeRunRoutes>,
     prompts: Arc<Mutex<ClaudeSentPrompts>>,
+    permission_mode: Arc<ClaudePermissionModeRecord>,
     // The kinds of the frames no daemon run held, already logged on this process's connection.
     pub(super) unheld_reports: Mutex<OnceReportedDiagnostics>,
     // The `result` kinds of unlisted subtypes that ended a run, already logged on this connection,
@@ -41,13 +43,15 @@ pub(crate) struct ClaudeSessionStream {
 
 impl ClaudeSessionStream {
     /// A stream for the process running on `provider_account_id`'s home, counting each turn's
-    /// steps against `step_bound` and queuing onto `arrivals`.
+    /// steps against `step_bound`, queuing onto `arrivals` and taking the mode reports into
+    /// `permission_mode`, the process's record the live session shares.
     pub(crate) fn new(
         provider_account_id: ProviderAccountId,
         step_bound: Option<SafeInt<1>>,
         arrivals: ClaudeArrivalSender,
         routes: Arc<ClaudeRunRoutes>,
         prompts: Arc<Mutex<ClaudeSentPrompts>>,
+        permission_mode: Arc<ClaudePermissionModeRecord>,
     ) -> Self {
         Self {
             session_id: arrivals.session_id(),
@@ -57,6 +61,7 @@ impl ClaudeSessionStream {
             arrivals,
             routes,
             prompts,
+            permission_mode,
             unheld_reports: Mutex::default(),
             unlisted_result_reports: Mutex::default(),
             unnumbered_turns: AtomicU64::new(0),
@@ -159,9 +164,9 @@ impl ClaudeSessionStream {
         self.lock().gate.signal_intended_close();
     }
 
-    /// The permission mode the process last reported it runs in, if any.
-    pub(crate) fn permission_mode(&self) -> Option<String> {
-        self.lock().permission_mode.clone()
+    /// The process's permission mode: the mode it runs, the daemon's sends and its newest report.
+    pub(crate) fn permission_mode(&self) -> &ClaudePermissionModeRecord {
+        &self.permission_mode
     }
 
     /// When the stream's timed work next comes due: a streamed piece's interval or a held tool

@@ -28,7 +28,7 @@ use crate::driver::claude::lifecycle::ClaudeDriver;
 use crate::driver::contract::{
     ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
     ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+    ProviderReportedLevel, RespondToRequestParams, SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -552,6 +552,10 @@ impl ProviderDriver for ClaudeDriver {
         session_id: &SessionId,
     ) -> Option<ProviderOutputSpeedState> {
         self.observed_output_speed_for(*session_id)
+    }
+
+    fn reported_level(&self, session_id: &SessionId) -> Option<ProviderReportedLevel> {
+        self.reported_level(*session_id)
     }
 
     fn read_rows(

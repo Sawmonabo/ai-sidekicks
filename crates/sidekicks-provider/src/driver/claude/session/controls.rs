@@ -159,6 +159,8 @@ impl ClaudeSessionControls {
             SessionMode::Plan => ClaudePermissionMode::Plan,
             SessionMode::Build => claude_permission_mode_for(level),
         };
+        // Held until the reply, so the report the send causes is known as the daemon's own.
+        let send = live.permission_mode.begin_send(permission_mode);
         live.channel
             .send_control_request(ClaudeControlRequest::SetPermissionMode {
                 mode: permission_mode,
@@ -173,6 +175,7 @@ impl ClaudeSessionControls {
                     Err(error) => error.into(),
                 }
             })?;
+        send.acknowledge();
         lock(&live.settings).session_mode = mode;
         Ok(())
     }

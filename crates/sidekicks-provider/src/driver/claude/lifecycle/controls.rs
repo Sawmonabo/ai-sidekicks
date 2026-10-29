@@ -63,7 +63,9 @@ use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
 use crate::driver::contract::ProviderCommandsSubscription;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
+use crate::driver::contract::{
+    DriverError, GetCapabilitiesResult, ListModelsParams, ProviderReportedLevel,
+};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::ports::SessionPlace;
 use crate::driver::read_current_account;
@@ -502,6 +504,16 @@ impl ClaudeDriver {
             .run_start
             .handshakes
             .observed_output_speed_for(session_id, &live.provider_session_id)
+    }
+
+    /// The level and session mode Claude Code itself moved the live process to, from its newest
+    /// report; `None` with no live process or while the report is the daemon's own.
+    pub(crate) fn reported_level(&self, session_id: SessionId) -> Option<ProviderReportedLevel> {
+        self.composed_parts()?
+            .slots()
+            .live_session(session_id)?
+            .permission_mode
+            .reported_level()
     }
 
     /// Moves the session between Build and Plan from its next turn: a live process at once, and
