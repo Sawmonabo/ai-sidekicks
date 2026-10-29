@@ -24,7 +24,7 @@ use crate::driver::claude::session::transport::inbound::{
     ClaudeHookCallback, ClaudeInboundRequestBody, ClaudeInboundRequestEvent,
 };
 use crate::driver::claude::session::transport::user_message::ClaudeWriteAttempt;
-use crate::driver::contract::bound_failure_detail;
+use crate::driver::contract::error::bound_failure_detail;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };

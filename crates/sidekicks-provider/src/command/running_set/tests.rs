@@ -25,7 +25,8 @@ use super::{
 };
 use crate::command::channel::PartyId;
 use crate::command::waiting_checks::WaitingState;
-use crate::driver::contract::{DriverError, MockProviderDriver};
+use crate::driver::contract::MockProviderDriver;
+use crate::driver::contract::error::DriverError;
 use crate::port::running_command_publisher::{
     CommandStart, ProviderCommandEnd, ReseedScope, RunningCommandPublisher as _,
 };
@@ -178,7 +179,7 @@ fn end(code: Option<i64>, summary: Option<&str>) -> ProviderCommandEnd {
 }
 
 fn refused_stop(acts: &DriverScript) {
-    *lock(&acts.stop_refusal) = Some(DriverError::Refused(DomainError::new(
+    *lock(&acts.stop_refusal) = Some(DriverError::from(DomainError::new(
         "gone",
         RefusalCode::ProviderUnavailable,
     )));

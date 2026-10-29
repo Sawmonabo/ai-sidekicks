@@ -11,9 +11,10 @@ use crate::driver::claude::compaction::compact_claude_context;
 use crate::driver::claude::session::ultracode::{
     apply_claude_ultracode, requested_claude_ultracode,
 };
-use crate::driver::contract::{
-    CompactContextParams, DriverError, ListProviderCommandsParams, RespondToRequestParams,
-    RunOpeningItem, StartRunParams,
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    CompactContextParams, ListProviderCommandsParams, RespondToRequestParams, RunOpeningItem,
+    StartRunParams,
 };
 use crate::driver::run_control::{
     AnswerProviderChoiceParams, AnswerProviderChoiceResult, ApplyInterventionParams,

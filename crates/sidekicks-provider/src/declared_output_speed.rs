@@ -99,5 +99,9 @@ fn report_rejected_state(
 
 /// Receives, once per run, the declared output-speed state that run runs at, read once the run's
 /// carrier has settled; the run engine compares it with the level the run carried.
+#[expect(
+    dead_code,
+    reason = "the run engine's notice that a run did not get the fast output it asked for"
+)]
 pub(crate) type RunOutputSpeedSettledListener =
     Arc<dyn Fn(SessionId, RunId, ProviderOutputSpeedState) + Send + Sync>;

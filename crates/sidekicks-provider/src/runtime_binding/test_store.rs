@@ -17,7 +17,9 @@ use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 
 use crate::driver::PROVIDERS;
-use crate::driver::contract::{DriverCliVersionReport, SpawnedVersionBindingCarriers};
+use crate::driver::contract::params_and_results::{
+    DriverCliVersionReport, SpawnedVersionBindingCarriers,
+};
 #[cfg(test)]
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::runtime_binding::store::{

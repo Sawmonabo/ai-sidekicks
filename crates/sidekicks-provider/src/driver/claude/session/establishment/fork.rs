@@ -24,7 +24,7 @@ use crate::driver::claude::session::errors::ClaudeSessionUnavailableReason;
 use crate::driver::claude::session::state::{ClaudeUsageEstablishment, LiveClaudeSession};
 use crate::driver::claude::session::transport::spawn_legs::ClaudeSpawnBoundLegs;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
-use crate::driver::contract::{DriverError, bound_failure_detail};
+use crate::driver::contract::error::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{MoveSessionToForkParams, MoveSessionToForkResult};
 use crate::left_conversations::LeftConversation;

@@ -30,7 +30,7 @@ use crate::driver::claude::session::scripted::{binding_id, settle};
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::SessionProcessState;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::session_control::{
     CloseSessionParams, CreateSessionParams, DriverResumeResult, ProviderBuildChange,
     ResumeSessionParams, UpdateSessionModeParams,
@@ -57,6 +57,20 @@ async fn a_full_crash_window_reports_the_loop_and_restarts_nothing() {
         .script_session(Arc::new(ScriptedChannel::default()));
 
     ScriptedDriver::exit(&current);
+    // The loop's notice comes from the session's task, which load can delay past any fixed sleep.
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        fixture.engine.wait_until(|_| {
+            fixture
+                .engine
+                .deliveries()
+                .iter()
+                .any(|delivery| delivery.kind == "sessionNotice")
+                .then_some(())
+        }),
+    )
+    .await
+    .expect("the crash loop is reported");
     tokio::time::sleep(RESTART_WAITS_PASSED).await;
 
     assert!(fixture.starts.take_started().is_empty());

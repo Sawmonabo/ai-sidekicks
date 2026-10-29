@@ -39,7 +39,10 @@ use crate::driver::claude::spawn::launch::one_turn::{
 };
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
 use crate::driver::claude::version::read_reported_version;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, SpawnedVersionBindingCarriers};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    GetCapabilitiesResult, SpawnedVersionBindingCarriers,
+};
 use crate::process_identity::ProviderProcessIdentity;
 use crate::spawned_version::{
     ProviderVersionHandshakeRequest, ResolvedProviderExecutable, read_spawned_version,

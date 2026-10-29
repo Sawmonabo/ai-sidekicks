@@ -37,7 +37,7 @@ use crate::driver::claude::spawn::environment::{
     compose_claude_process_environment,
 };
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::StartRunParams;
+use crate::driver::contract::params_and_results::StartRunParams;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
 use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::run::posture::{

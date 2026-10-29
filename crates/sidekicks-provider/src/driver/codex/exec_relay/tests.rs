@@ -48,7 +48,7 @@ use crate::driver::codex::service::supervisor::{CodexService, CodexServiceSocket
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::thread::settings::compose_codex_relay_environments;
 use crate::driver::codex::thread::view::{THREAD_START_METHOD, TURN_START_METHOD};
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 use crate::driver::test_registry::new_run_id;
 use crate::driver::test_registry::{new_session_id, test_driver_services};
 use crate::port::running_command_publisher::{

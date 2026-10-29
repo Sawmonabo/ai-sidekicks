@@ -19,7 +19,7 @@ use crate::driver::codex::service::supervisor::routing::read_codex_ask_thread_id
 use crate::driver::codex::session::inbound::CodexSessionInbound;
 use crate::driver::codex::transport::connection::CodexForgottenRequest;
 use crate::driver::codex::transport::diagnostics::CodexTransportDiagnostic;
-use crate::driver::contract::DriverError;
+use crate::driver::contract::error::DriverError;
 
 /// Routes one service's asks to their sessions and withdraws those a closed connection let go.
 pub(super) struct CodexServiceAsks {

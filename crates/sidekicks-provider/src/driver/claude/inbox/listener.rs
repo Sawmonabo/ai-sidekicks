@@ -203,38 +203,37 @@ impl ClaudeSessionInboxes {
             .slots
             .live_session(session_id)
             .filter(|_| !self.idle_sleep.is_asleep(session_id));
-        let (live, held_line) = match awake {
-            Some(live) => (live, None),
-            None => {
-                let mut first_line = Vec::new();
-                let Ok(read) = tokio::time::timeout(
-                    FIRST_LINE_LIMIT,
-                    from_sender.read_until(b'\n', &mut first_line),
-                )
-                .await
-                else {
-                    return Ok(());
-                };
-                read?;
-                if !first_line.ends_with(b"\n") {
-                    return Ok(());
-                }
-                self.session_wakes
-                    .require_port()?
-                    .wake_for_message(session_id)
-                    .await?;
-                // A restart or a wake still bringing the process up is waited out, so the line
-                // reaches the process it brings up.
-                let live = tokio::time::timeout(
-                    FIRST_LINE_LIMIT,
-                    self.slots.live_after_transitions(session_id),
-                )
-                .await
-                .ok()
-                .flatten()
-                .ok_or(ClaudeInboxRefusal::NoProcess)?;
-                (live, Some(first_line))
+        let (live, held_line) = if let Some(live) = awake {
+            (live, None)
+        } else {
+            let mut first_line = Vec::new();
+            let Ok(read) = tokio::time::timeout(
+                FIRST_LINE_LIMIT,
+                from_sender.read_until(b'\n', &mut first_line),
+            )
+            .await
+            else {
+                return Ok(());
+            };
+            read?;
+            if !first_line.ends_with(b"\n") {
+                return Ok(());
             }
+            self.session_wakes
+                .require_port()?
+                .wake_for_message(session_id)
+                .await?;
+            // A restart or a wake still bringing the process up is waited out, so the line
+            // reaches the process it brings up.
+            let live = tokio::time::timeout(
+                FIRST_LINE_LIMIT,
+                self.slots.live_after_transitions(session_id),
+            )
+            .await
+            .ok()
+            .flatten()
+            .ok_or(ClaudeInboxRefusal::NoProcess)?;
+            (live, Some(first_line))
         };
         let process_socket = live
             .messaging_socket

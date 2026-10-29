@@ -19,7 +19,8 @@ use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::{
     TEST_THREAD, TestCodexSession, turn_completed, turn_reply, turn_started,
 };
-use crate::driver::contract::{DriverError, RunOpening, RunOpeningItem, StartRunParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{RunOpening, RunOpeningItem, StartRunParams};
 use crate::driver::test_registry::new_run_id;
 
 /// How long a test waits before it counts a hold on the session's task as a deadlock.

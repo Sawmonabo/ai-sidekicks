@@ -32,7 +32,8 @@ use crate::driver::codex::session::state::CodexTurnMessage;
 use crate::driver::codex::session::test_fixture::{
     RefusedRelaunchStep, TEST_THREAD, TakenRelaunches, turn_completed, turn_reply,
 };
-use crate::driver::contract::{DriverError, SessionProcessState};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::SessionProcessState;
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::ports::{ProcessGoneListener, SessionRelaunchListener};
 use crate::driver::session_control::CloseSessionParams;

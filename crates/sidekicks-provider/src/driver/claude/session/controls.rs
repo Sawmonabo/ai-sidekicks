@@ -61,7 +61,8 @@ use crate::driver::claude::spawn::launch::bring_up::ClaudeSessionSpawn;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::spawn::launch::one_turn::{ClaudeOneTurnReply, ClaudeOneTurnRequest};
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
-use crate::driver::contract::{DriverError, ProviderCommandsSubscription};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::error_causes::side_question_refusal;
 use crate::driver::session_control::{ProviderCommandsListener, SessionCommandAnswer};
@@ -169,7 +170,7 @@ impl ClaudeSessionControls {
                     RefusalCode::SessionModeNotOffered,
                     "Claude Code refused the mode",
                 ) {
-                    Ok(refusal) => DriverError::Refused(refusal),
+                    Ok(refusal) => DriverError::from(refusal),
                     Err(error) => error.into(),
                 }
             })?;
@@ -667,7 +668,7 @@ fn side_question_row(
     reply: ClaudeOneTurnReply,
 ) -> Result<SessionScopedRow, DriverError> {
     if let Some(cause) = reply.refusal {
-        return Err(DriverError::Refused(side_question_refusal(
+        return Err(DriverError::from(side_question_refusal(
             session_id,
             side_question_id,
             &cause,

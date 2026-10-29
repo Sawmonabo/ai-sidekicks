@@ -23,12 +23,16 @@ use sidekicks_platforms::{
     WindowsSystemFolder,
 };
 
+use crate::command::running_set::takes_no_input;
 use crate::driver::claude::attachments::CLAUDE_PICTURE_BASE64_LIMIT;
+use crate::driver::claude::delivery::turn_readings::read_claude_task_list_change;
 use crate::driver::claude::lifecycle::ClaudeDriver;
-use crate::driver::contract::{
-    ApplyRowValueParams, CompactContextParams, DriverError, GetCapabilitiesResult,
-    ListModelsParams, ListProviderCommandsParams, ProviderCommandsSubscription, ProviderDriver,
-    RespondToRequestParams, SessionProcessState, StartRunParams,
+use crate::driver::contract::ProviderDriver;
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::{
+    ApplyRowValueParams, CompactContextParams, GetCapabilitiesResult, ListModelsParams,
+    ListProviderCommandsParams, ProviderCommandsSubscription, RespondToRequestParams,
+    SessionProcessState, StartRunParams,
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
@@ -512,14 +516,15 @@ impl ProviderDriver for ClaudeDriver {
         &self,
         params: WriteCommandInputParams,
     ) -> BoxFuture<'_, Result<(), DriverError>> {
-        ready(self.write_command_input(&params)).boxed()
+        // Claude Code's commands take no input, so the person's input is refused.
+        ready(Err(takes_no_input(&params.command.command_id).into())).boxed()
     }
 
     fn idle_sleep_holds(
         &self,
         session_id: SessionId,
     ) -> BoxFuture<'_, Result<IdleSleepHolds, DriverError>> {
-        self.idle_sleep_holds(session_id).boxed()
+        ready(Ok(self.idle_sleep_holds(session_id))).boxed()
     }
 
     fn sleep_session(
@@ -537,7 +542,7 @@ impl ProviderDriver for ClaudeDriver {
     }
 
     fn task_list_change(&self, call: &ToolCallRecord<'_>) -> Option<TaskListChange> {
-        self.task_list_change(call)
+        read_claude_task_list_change(call)
     }
 
     fn stop_helper_at_token_limit(

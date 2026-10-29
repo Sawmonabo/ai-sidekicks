@@ -62,8 +62,9 @@ use crate::driver::claude::spawn::launch::{
 use crate::driver::claude::spawn::legs::{
     ClaudeSpawnLegServices, ClaudeSpawnLegsRequest, build_claude_spawn_bound_legs,
 };
-use crate::driver::contract::ProviderCommandsSubscription;
-use crate::driver::contract::{DriverError, GetCapabilitiesResult, ListModelsParams};
+use crate::driver::contract::error::DriverError;
+use crate::driver::contract::params_and_results::ProviderCommandsSubscription;
+use crate::driver::contract::params_and_results::{GetCapabilitiesResult, ListModelsParams};
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::ports::SessionPlace;
 use crate::driver::read_current_account;
@@ -207,7 +208,7 @@ impl ClaudeDriver {
                     can_run_sandbox,
                 );
                 if !is_runnable {
-                    return Err(DriverError::Refused(permission_level_not_offered(level)));
+                    return Err(DriverError::from(permission_level_not_offered(level)));
                 }
                 Ok(parts.restarts.write_held_settings(&ended, |settings| {
                     settings.execution_posture = Some(params.execution_posture.clone());
