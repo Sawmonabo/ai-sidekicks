@@ -7,7 +7,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
-use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
@@ -21,6 +20,7 @@ use tokio::sync::oneshot;
 use crate::driver::attachments::ProviderAttachment;
 use crate::driver::codex::delivery::frames::CodexPromptHookRun;
 use crate::driver::codex::delivery::memory::CodexDeliveryMemory;
+use crate::driver::codex::notification_routing::CodexMcpServerStartups;
 use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::inbound::CodexSessionInboundSender;
 use crate::driver::codex::thread::permission_profiles::CodexThreadPermissionProfiles;
@@ -204,11 +204,13 @@ pub(crate) struct CodexSessionRecord {
     pub(crate) delivery: CodexDeliveryMemory,
     /// The status sink of the leg the conversation runs on, which its tool servers' startup
     /// reports go to; taken and ended once that leg's process ends, and ended when the record
-    /// goes.
+    /// goes. A resume in place and a fork onto another binding end it and take the new leg's; a
+    /// run start that adopts another binding keeps it, since the leg is the process's, not the
+    /// run's.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
-    /// The tool servers whose startup the conversation last reported as still starting, so the
-    /// leg lists its servers' tools once none is.
-    pub(crate) starting_mcp_server_names: HashSet<McpServerName>,
+    /// What the tool servers' startups on the conversation said, which the leg's list of their
+    /// tools reads; begun afresh whenever the conversation is bound.
+    pub(crate) mcp_server_startups: CodexMcpServerStartups,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -286,7 +288,7 @@ impl CodexSessionRecord {
             turn_input_by_turn_id: HashMap::new(),
             delivery: CodexDeliveryMemory::new(),
             on_mcp_server_status: established.on_mcp_server_status,
-            starting_mcp_server_names: HashSet::new(),
+            mcp_server_startups: CodexMcpServerStartups::default(),
         }
     }
 
