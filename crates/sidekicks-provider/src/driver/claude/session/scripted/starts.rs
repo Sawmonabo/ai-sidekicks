@@ -1,6 +1,7 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
-//! answers the next scripted reply; a catalog or figures read answers the next scripted reading.
+//! answers the next scripted reply; a catalog, figures or account read answers the next scripted
+//! reading.
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
@@ -12,6 +13,9 @@ use serde_json::Value;
 use tokio::sync::{Notify, oneshot};
 
 use super::channel::ScriptedChannel;
+use crate::driver::claude::mcp::connectors::{
+    ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
+};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::process::ClaudeProcessListener;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
@@ -75,6 +79,9 @@ struct ScriptedStartTables {
     one_turn_replies: VecDeque<ClaudeOneTurnReply>,
     one_turns: Vec<ScriptedOneTurnRecord>,
     one_turn_environments: Vec<Vec<(String, String)>>,
+    account_server_answers: VecDeque<(Value, Value)>,
+    account_server_holds: VecDeque<oneshot::Receiver<()>>,
+    account_server_reads: usize,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
 }
@@ -129,6 +136,26 @@ impl ScriptedStarts {
     /// Scripts the next one-turn process to answer `reply`.
     pub(crate) fn script_one_turn(&self, reply: ClaudeOneTurnReply) {
         self.lock().one_turn_replies.push_back(reply);
+    }
+
+    /// Scripts the next account read to answer `mcp_status` and `settings`, in place of answers
+    /// that carry no list and no settings.
+    pub(crate) fn script_account_servers(&self, mcp_status: Value, settings: Value) {
+        self.lock()
+            .account_server_answers
+            .push_back((mcp_status, settings));
+    }
+
+    /// Holds the next account read, once counted, until the returned sender fires or drops.
+    pub(crate) fn hold_next_account_servers_read(&self) -> oneshot::Sender<()> {
+        let (release, held) = oneshot::channel();
+        self.lock().account_server_holds.push_back(held);
+        release
+    }
+
+    /// Takes the count of account reads so far, each one process.
+    pub(crate) fn take_account_servers_read_count(&self) -> usize {
+        std::mem::take(&mut self.lock().account_server_reads)
     }
 
     /// Takes the environment of each model catalog read so far.
@@ -302,6 +329,40 @@ impl ClaudeProcessStarts for ScriptedStarts {
         _environment: Vec<(String, String)>,
     ) -> BoxFuture<'_, Result<GetCapabilitiesResult, DriverError>> {
         async { Err(DriverError::Internal("no capabilities scripted".into())) }.boxed()
+    }
+
+    fn read_account_servers(
+        &self,
+        _request: ClaudeAccountServersReadRequest,
+    ) -> BoxFuture<'_, Result<ClaudeAccountServerAnswers, ClaudeLaunchError>> {
+        let (answers, hold) = {
+            let mut tables = self.lock();
+            tables.account_server_reads += 1;
+            (
+                tables.account_server_answers.pop_front(),
+                tables.account_server_holds.pop_front(),
+            )
+        };
+        async move {
+            if let Some(hold) = hold {
+                // A dropped sender releases the read too.
+                hold.await.unwrap_or(());
+            }
+            let raw = |value: &Value| {
+                Some(serde_json::value::to_raw_value(value).expect("a scripted reply serializes"))
+            };
+            Ok(match answers {
+                Some((mcp_status, settings)) => ClaudeAccountServerAnswers {
+                    mcp_status: raw(&mcp_status),
+                    settings: raw(&settings),
+                },
+                None => ClaudeAccountServerAnswers {
+                    mcp_status: None,
+                    settings: None,
+                },
+            })
+        }
+        .boxed()
     }
 
     fn stop_every_process(&self) -> BoxFuture<'_, ()> {

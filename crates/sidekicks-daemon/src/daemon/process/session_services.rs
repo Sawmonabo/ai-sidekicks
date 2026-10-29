@@ -2,21 +2,23 @@
 //! setup gate comes from, the pauses, the run queue and the interventions that close the engine's
 //! cycles, the sessions' reads and stores, the self-naming, the questions and plans, a chat's file
 //! versions, the code highlighter and the terminals, and what the drivers report to: the turn and
-//! context readings, the usage record, the running commands and the idle sleep. The follows the
-//! attachments start, and the idle sleep, begin once the start's recovery pass has settled the
-//! runs.
+//! context readings, the usage record, the running commands, the idle sleep and the MCP status. The
+//! follows the attachments start, and the idle sleep, begin once the start's recovery pass has
+//! settled the runs.
 
 pub(crate) mod stored_resumes;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, Weak};
 
+use futures::future::BoxFuture;
 use sidekicks_artifact::chat_file_versions::ChatFileVersions;
 use sidekicks_artifact::payload_store::PayloadStore;
 use sidekicks_artifact::plans::service::PlansService;
 use sidekicks_artifact::publish::ArtifactPublishService;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_platforms::{Spawner, WallClock};
 use sidekicks_policy::authorizer::Authorizer;
 use sidekicks_policy::shell_commands::reading_bound::ShellLineReadingBound;
@@ -152,6 +154,11 @@ pub(crate) struct SessionServiceStart {
     pub(crate) token_limits: Arc<PortRegistration<Arc<dyn RunTokenLimitReader>>>,
     /// The program's scheduler, which runs the idle sleep's check and each scheduled wake.
     pub(crate) scheduler: Arc<Scheduler>,
+    /// The one keeper of every MCP server binding's status.
+    pub(crate) mcp_status: Arc<McpServerStatusTracker>,
+    /// The run that records each MCP binding the status tracker first observes, ending once the
+    /// tracker is let go; spawned with the services.
+    pub(crate) mcp_first_observations: BoxFuture<'static, ()>,
 }
 
 /// The session services, each built once for the daemon's life.
@@ -230,6 +237,16 @@ pub(crate) struct SessionServices {
     pub(crate) idle_sleep: Arc<SessionIdleSleep>,
     /// The resume of a session no driver holds in memory, composed from its stored leg.
     pub(crate) stored_resumes: Arc<StoredSessionResumes>,
+    /// The one keeper of every MCP server binding's status, which the producer wiring and the
+    /// machine probe reach.
+    #[expect(
+        dead_code,
+        reason = "the producer wiring and the machine probe reach the status tracker"
+    )]
+    pub(crate) mcp_status: Arc<McpServerStatusTracker>,
+    /// Records each MCP binding the status tracker first observes until the tracker is let go;
+    /// the stop takes it, lets the services go and waits for it before the database closes.
+    pub(crate) mcp_first_observations: Option<JoinHandle<()>>,
 }
 
 /// Why the session services could not be built.
@@ -286,6 +303,8 @@ pub(crate) fn build_session_services(
         provider_accounts,
         token_limits,
         scheduler,
+        mcp_status,
+        mcp_first_observations,
     } = start;
     // The fallible steps first, so a failure leaves no follow or task begun.
     let terminals = Arc::new(Terminals::new(spawner, console_helper(daemon_program)?));
@@ -449,6 +468,7 @@ pub(crate) fn build_session_services(
             chat_versions.record_reported_writes(workspace_writes).await;
         })
     };
+    let mcp_first_observations = tokio::spawn(mcp_first_observations);
     Ok(SessionServices {
         terminals,
         highlighter,
@@ -513,6 +533,8 @@ pub(crate) fn build_session_services(
         running_commands,
         idle_sleep,
         stored_resumes,
+        mcp_status,
+        mcp_first_observations: Some(mcp_first_observations),
     })
 }
 

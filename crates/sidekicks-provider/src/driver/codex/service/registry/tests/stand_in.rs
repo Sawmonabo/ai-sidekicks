@@ -42,6 +42,10 @@ const LISTEN_ADDRESS_NAME: &str = "SIDEKICKS_TEST_LISTEN_ADDRESS";
 /// only a test's program sets it.
 pub(super) const HANG_UP_IGNORED_NAME: &str = "SIDEKICKS_TEST_HANG_UP_IGNORED";
 
+/// The file the stand-in appends each request it is sent to, one to a line; only a test's program
+/// sets it.
+pub(super) const REQUEST_RECORD_NAME: &str = "SIDEKICKS_TEST_REQUEST_RECORD";
+
 /// The Codex home the stand-in serves, as Codex reads it.
 const CODEX_HOME_NAME: &str = "CODEX_HOME";
 
@@ -66,8 +70,9 @@ async fn an_app_server_stand_in() {
     let real_socket = codex_home.join(format!("real-{}.sock", std::process::id()));
     let listener = bind_socket_listener(&real_socket).expect("the real socket listens");
     replace_socket_link(&link, &real_socket).expect("the link names the real socket");
+    let record = std::env::var_os(REQUEST_RECORD_NAME).map(PathBuf::from);
     while let Ok(stream) = listener.accept().await {
-        tokio::spawn(answer_as_codex_service(stream));
+        tokio::spawn(answer_as_codex_service(stream, record.clone()));
     }
 }
 

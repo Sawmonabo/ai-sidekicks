@@ -8660,6 +8660,7 @@ dependencies = [
  "sidekicks-provider",
  "sidekicks-std",
  "sidekicks-store",
+ "sidekicks-workspace",
  "sse-stream 0.3.0",
  "strum 0.28.0",
  "subtle",

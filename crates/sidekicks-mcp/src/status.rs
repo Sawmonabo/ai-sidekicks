@@ -19,14 +19,14 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
 use sidekicks_ipc::stream::latest_value::KeyedLatestValueOutlet;
-use sidekicks_provider::driver::mcp_server_status::{
+use sidekicks_provider::driver::mcp_server::status::{
     McpServerStatusEmission, McpServerStatusUpdate,
 };
 use sidekicks_std::mutex_lock::lock;
 
 use self::legs::{ChangeOrigin, LegId, McpLegs, ObservationOutcome, StatusChange};
 use self::notices::{McpNoticeBoard, McpNoticeKey, McpNoticeKind, McpNoticeOrigin};
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// A binding's status as the inventory reads it.
 #[cfg_attr(
@@ -49,15 +49,7 @@ pub(crate) struct McpBindingStatusReading {
 /// The one keeper of every binding's MCP status. Its state sits behind one lock that is never held
 /// across an await: each call applies its change and sends its notice synchronously, so a reader
 /// of the board sees changes in the order they were applied.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the producer wiring, the session-close and driver-exit retires, the machine \
-                  probe and the inventory call it"
-    )
-)]
-pub(crate) struct McpServerStatusTracker {
+pub struct McpServerStatusTracker {
     legs: Mutex<McpLegs>,
     board: Arc<McpNoticeBoard>,
     /// Each binding a leg reports or the probe reads, for the drain to record; the drain keeps
@@ -70,14 +62,13 @@ pub(crate) struct McpServerStatusTracker {
     not(test),
     expect(
         dead_code,
-        reason = "the producer wiring, the session-close and driver-exit retires, the machine \
-                  probe and the inventory call it"
+        reason = "the producer wiring, each leg's end, the machine probe and the inventory call it"
     )
 )]
 impl McpServerStatusTracker {
     /// A tracker with no leg, sending its status notices on `board` and the ref of each binding a
     /// leg reports or the probe reads through `first_observations`, whose drain records it.
-    pub(crate) fn new(
+    pub fn new(
         board: Arc<McpNoticeBoard>,
         first_observations: KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
     ) -> Self {
@@ -115,8 +106,8 @@ impl McpServerStatusTracker {
         self.apply(outcome);
     }
 
-    /// Retires the leg `binding_id` of `session_id`, at its session's close or its driver's exit:
-    /// its servers leave the aggregate, each binding whose aggregate it was in sends `sessionEnded`,
+    /// Retires the leg `binding_id` of `session_id`, at the end of its provider process: its
+    /// servers leave the aggregate, each binding whose aggregate it was in sends `sessionEnded`,
     /// and what the leg reports later is ignored.
     pub(crate) fn retire_leg(&self, session_id: SessionId, binding_id: RuntimeBindingId) {
         let leg = LegId {
@@ -304,7 +295,7 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
     use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
-    use sidekicks_provider::driver::mcp_server_status::McpServerReading;
+    use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 
     use super::*;
 

@@ -398,7 +398,7 @@ impl ClaudeDriver {
             .require_port()?
             .resolve_spawn_context(session_id, provider_account_id.clone())
             .await?;
-        Ok(self.account_process_environment(
+        Ok(self.sources.account_process_environment(
             &context.account_folders,
             &provider_account_id,
             &context.every_project_rows,

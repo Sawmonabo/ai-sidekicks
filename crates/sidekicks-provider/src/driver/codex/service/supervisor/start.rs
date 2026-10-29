@@ -1,8 +1,9 @@
 //! How each kind of Codex service starts, and what every start shares: the connect, the read of
 //! the loaded conversations and of the reported version, and the launch on Codex's native program.
 //! A service on an account home is the daemon's own child, dialed once it listens, with the
-//! daemon's relay to its executor added before it answers; the capability read's runs without one;
-//! the terminal service on the person's own Codex folder starts as `terminal` says.
+//! daemon's relay to its executor added before it answers; the capability read's, and a read's
+//! transient one on the person's own Codex folder, run without one; the terminal service on that
+//! folder starts as `terminal` says.
 
 pub(super) mod kept_records;
 mod terminal;
@@ -164,6 +165,10 @@ pub(super) async fn start_codex_service(
         CodexHomeKind::CapabilityRead => {
             start_account_service(&service, launch, &cancel, &executable).await
         }
+        // A read's transient service on the folder is the daemon's own child, as an account's is.
+        CodexHomeKind::PersonalFolder if service.kind() == CodexServiceKind::Account => {
+            start_account_service(&service, launch, &cancel, &executable).await
+        }
         CodexHomeKind::PersonalFolder => {
             start_terminal_service(&service, launch, &cancel, &executable, start_lock).await
         }
@@ -227,7 +232,8 @@ fn compose_exec_relay(service: &Arc<CodexService>) -> Arc<CodexExecRelay> {
     )
 }
 
-// The daemon's own child: launched with the shared switches alone, dialed once it listens.
+// The daemon's own child: launched with the shared switches and the service's own, dialed once
+// it listens.
 async fn start_account_service(
     service: &Arc<CodexService>,
     launch: u64,
@@ -237,7 +243,7 @@ async fn start_account_service(
     let process_launch = compose_launch(
         service,
         executable,
-        service.dependencies().additional_config_overrides.clone(),
+        service.launch_config_overrides(),
         service.socket_path(),
     )
     .await?;

@@ -18,6 +18,9 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
+use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
+use sidekicks_mcp::status::McpServerStatusTracker;
+use sidekicks_mcp::status::notices::McpNoticeBoard;
 use sidekicks_platforms::{
     DaemonRunFolder, Spawner, TOOL_MEMORY_CAP_ENFORCEABLE, WallClock, available_memory,
     physical_memory, read_process_peak_bytes,
@@ -320,6 +323,12 @@ pub(crate) async fn register_method_inputs(
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");
     token_limits.register(Arc::clone(&configuration) as Arc<dyn RunTokenLimitReader>)?;
+    // The status tracker sends each binding it first observes to the drain, which records it.
+    let (first_observations, mcp_first_observations) = open_first_observation_drain(
+        McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads)),
+    )
+    .await;
+    let mcp_notice_board = Arc::new(McpNoticeBoard::default());
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -364,6 +373,11 @@ pub(crate) async fn register_method_inputs(
         provider_accounts: Arc::clone(&providers.ports.provider_accounts),
         token_limits: Arc::new(token_limits),
         scheduler: Arc::clone(&scheduler),
+        mcp_status: Arc::new(McpServerStatusTracker::new(
+            Arc::clone(&mcp_notice_board),
+            first_observations,
+        )),
+        mcp_first_observations: mcp_first_observations.boxed(),
     })?;
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
@@ -563,6 +577,7 @@ pub(crate) async fn register_method_inputs(
                 read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
             },
             event_log: Arc::clone(&database.event_log),
+            mcp_notice_board,
             run_safety_holds: Arc::clone(&session.run_safety_holds),
             sessions: Arc::clone(&session.sessions),
             drafts: Arc::clone(&session.drafts),

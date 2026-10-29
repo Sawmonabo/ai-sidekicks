@@ -57,6 +57,7 @@ pub(crate) async fn read_claude_creation_figures(
         executable,
         Some(place.working_directory.clone()),
         Some(&place.model),
+        None,
     )
     .await?;
     let read = async {
@@ -100,6 +101,7 @@ pub(crate) async fn read_claude_reply_reserve(
         executable,
         Some(place.working_directory.clone()),
         Some(&place.model),
+        None,
     )
     .await?;
     let read = async {

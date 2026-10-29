@@ -53,6 +53,7 @@ use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::run::start::claude_session_unavailable;
+use crate::driver::claude::session::account_servers::ClaudeAccountServerReads;
 use crate::driver::claude::session::arrivals::task::{
     ClaudeSessionTask, ClaudeSessionTaskServices,
 };
@@ -86,7 +87,7 @@ use crate::driver::claude::spawn::legs::{
 use crate::driver::claude::spawn::settings::ClaudeSessionAdvisor;
 use crate::driver::contract::{DriverError, SpawnedVersionBindingCarriers};
 use crate::driver::diagnostics::DriverDiagnosticKind;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
@@ -248,6 +249,8 @@ pub(crate) struct ClaudeSessionEstablishment {
     pub(crate) task_services: Arc<ClaudeSessionTaskServices>,
     /// The daemon's services a spawn reads.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
+    /// Each account's read of its connectors and organization servers.
+    pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
 }
 
 // The callback tools a spawn binds: its own, rolled back should it fail, or a fork's, shared with
@@ -705,6 +708,7 @@ impl ClaudeSessionEstablishment {
             task_ended: SetOnce::new(),
             served_bindings: Mutex::default(),
             messaging_socket,
+            mcp_server_readings: Mutex::default(),
             spawned_version: started.spawned_version.clone(),
             resumed_binding_id,
             requested_spawn,
@@ -723,6 +727,8 @@ impl ClaudeSessionEstablishment {
             return Err(ClaudeEstablishmentError::Closed);
         }
         self.adopt(&live, stream, band, receiver, &started);
+        self.account_servers
+            .read_at_session_start(&live.admitted_provider_account_id);
         Ok(started.spawned_version)
     }
 

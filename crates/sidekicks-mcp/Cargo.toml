@@ -38,6 +38,7 @@ sidekicks-platforms.workspace = true
 sidekicks-provider.workspace = true
 sidekicks-std.workspace = true
 sidekicks-store.workspace = true
+sidekicks-workspace.workspace = true
 sse-stream.workspace = true
 strum.workspace = true
 subtle.workspace = true

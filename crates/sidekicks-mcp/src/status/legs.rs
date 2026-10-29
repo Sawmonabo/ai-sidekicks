@@ -13,16 +13,12 @@ use sidekicks_contracts::mcp::server::{
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_provider::driver::mcp_server_status::{McpServerReading, McpServerStatusUpdate};
+use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusUpdate};
 
 use super::McpBindingStatusReading;
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// One leg: a runtime binding of one session.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keys its legs by it")
-)]
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(super) struct LegId {
     /// The session.

@@ -13,7 +13,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::driver::idle_sleep::KeptSchedule;
-use crate::driver::mcp_server_status::McpServerStatusProducer;
+use crate::driver::mcp_server::status::McpServerStatusProducer;
 use crate::driver::session_control::ResumeSessionParams;
 use crate::runtime_binding::store::RuntimeBinding;
 

@@ -64,9 +64,12 @@ pub(crate) enum ClaudeControlRequest {
         thinking_display: ClaudeThinkingDisplay,
     },
     /// Installs the session's tool-server routes, replacing the set.
-    #[expect(
-        dead_code,
-        reason = "setting the session's tool servers at start and after each resume sends it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "setting the session's tool servers at start and after each resume sends it"
+        )
     )]
     McpSetServers {
         /// Each route by its server name.
@@ -108,6 +111,9 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Reads the settings that took effect.
     GetSettings {},
+    /// Reads the status of each MCP server the process holds, answered by a
+    /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
+    McpStatus {},
     /// Cuts the conversation back to before one message.
     RewindConversation {
         /// The message the cut removes, with all after it.
@@ -176,6 +182,7 @@ impl ClaudeControlRequest {
             Self::SetMaxThinkingTokens { .. } => ClaudeControlSubtype::SetMaxThinkingTokens,
             Self::McpSetServers { .. } => ClaudeControlSubtype::McpSetServers,
             Self::GetSettings {} => ClaudeControlSubtype::GetSettings,
+            Self::McpStatus {} => ClaudeControlSubtype::McpStatus,
             Self::RewindConversation { .. } => ClaudeControlSubtype::RewindConversation,
             Self::CancelAsyncMessage { .. } => ClaudeControlSubtype::CancelAsyncMessage,
             Self::GetContextUsage { .. } => ClaudeControlSubtype::GetContextUsage,
@@ -208,6 +215,8 @@ pub(crate) enum ClaudeControlSubtype {
     McpSetServers,
     /// `get_settings`.
     GetSettings,
+    /// `mcp_status`.
+    McpStatus,
     /// `rewind_conversation`.
     RewindConversation,
     /// `cancel_async_message`.
@@ -243,6 +252,7 @@ impl ClaudeControlSubtype {
             Self::SetMaxThinkingTokens => "set_max_thinking_tokens",
             Self::McpSetServers => "mcp_set_servers",
             Self::GetSettings => "get_settings",
+            Self::McpStatus => "mcp_status",
             Self::RewindConversation => "rewind_conversation",
             Self::CancelAsyncMessage => "cancel_async_message",
             Self::GetContextUsage => "get_context_usage",
@@ -339,9 +349,12 @@ pub(crate) struct ClaudeAgentDefinition {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudeToolServerEntry {
     /// Reached over HTTP at `url`.
-    #[expect(
-        dead_code,
-        reason = "setting the session's tool servers names an HTTP server with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "setting the session's tool servers names an HTTP server with it"
+        )
     )]
     Http {
         /// The route's address.
