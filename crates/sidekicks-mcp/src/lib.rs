@@ -1,8 +1,8 @@
 //! MCP: the client a session's tool servers are reached through, the tool calls it runs, the
-//! receipts of a tool call's two phases, the governance store's binding rows, the `mcp.*`
-//! refusals, each binding's live status and the notices it sends, and the crate's part of the
-//! daemon's schema. It sits over std, store, ipc and provider and is taken by session and the
-//! daemon.
+//! receipts of a tool call's two phases, the governance store's binding rows and the resolver
+//! that attributes a reported server to its binding, the `mcp.*` refusals, each binding's live
+//! status and the notices it sends, and the crate's part of the daemon's schema. It sits over std,
+//! store, ipc, workspace and provider and is taken by session and the daemon.
 
 pub mod binding;
 pub(crate) mod client;

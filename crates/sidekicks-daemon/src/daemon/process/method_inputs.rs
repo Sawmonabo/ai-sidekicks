@@ -324,8 +324,10 @@ pub(crate) async fn register_method_inputs(
     let token_limits = PortRegistration::new("run token limits");
     token_limits.register(Arc::clone(&configuration) as Arc<dyn RunTokenLimitReader>)?;
     // The status tracker sends each binding it first observes to the drain, which records it.
-    let (first_observations, mcp_first_observations) =
-        open_first_observation_drain(McpBindingStore::new(Arc::clone(&writer))).await;
+    let (first_observations, mcp_first_observations) = open_first_observation_drain(
+        McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads)),
+    )
+    .await;
     let mcp_notice_board = Arc::new(McpNoticeBoard::default());
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),

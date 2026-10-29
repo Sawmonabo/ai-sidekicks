@@ -177,8 +177,10 @@ async fn fixture() -> Fixture {
         .register(Arc::new(configuration) as Arc<dyn RunTokenLimitReader>)
         .expect("a new registration takes its port");
     let token_limits = Arc::new(token_limits);
-    let (first_observations, mcp_first_observations) =
-        open_first_observation_drain(McpBindingStore::new(Arc::clone(&log.writer))).await;
+    let (first_observations, mcp_first_observations) = open_first_observation_drain(
+        McpBindingStore::new(Arc::clone(&log.writer), Arc::clone(&reads)),
+    )
+    .await;
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&log.writer),

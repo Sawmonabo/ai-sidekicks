@@ -8626,6 +8626,7 @@ dependencies = [
  "sidekicks-provider",
  "sidekicks-std",
  "sidekicks-store",
+ "sidekicks-workspace",
  "sse-stream 0.3.0",
  "strum 0.28.0",
  "thiserror 2.0.21",
