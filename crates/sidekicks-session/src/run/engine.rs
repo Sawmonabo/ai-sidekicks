@@ -773,8 +773,7 @@ impl RunEngine {
     }
 
     /// Whether `run_id` ended `failed` at its setup, before its provider started it, as a helper
-    /// the daemon refused after its provider started it does; `false` for a run with no row. Its
-    /// session is read from the run's row, so the event read stays on that session's index. Fails
+    /// the daemon refused after its provider started it does; `false` for a run with no row. Fails
     /// as the read does.
     pub(crate) async fn is_failed_at_setup(&self, run_id: RunId) -> Result<bool, RunEngineError> {
         self.pool

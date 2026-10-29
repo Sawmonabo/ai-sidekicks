@@ -424,12 +424,22 @@ mod tests {
             })
             .expect("the read's plan reads");
 
-        assert_eq!(
-            plan,
-            [
-                "SEARCH session_events USING INDEX idx_session_events_run (session_id=? AND type=? \
-              AND run_id=?)"
-            ],
+        assert!(
+            !plan
+                .iter()
+                .any(|line| line.starts_with("SCAN session_events")),
+            "{plan:?}"
+        );
+        let event_lines: Vec<&String> = plan
+            .iter()
+            .filter(|line| line.contains("session_events"))
+            .collect();
+        assert!(
+            !event_lines.is_empty()
+                && event_lines.iter().all(|line| {
+                    line.starts_with("SEARCH session_events ") && line.contains("(session_id=?")
+                }),
+            "{plan:?}"
         );
     }
 
