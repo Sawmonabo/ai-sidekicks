@@ -34,6 +34,7 @@ use crate::driver::claude::session::transport::inbound::ClaudeInboundRequestEven
 use crate::driver::delivery_dispatch::dispatch_delivery;
 use crate::port::inbound_dispatch::InboundDispatch;
 use crate::run::delivery::{InboundDelivery, InboundOutcome};
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// The depth past which a session's queue is logged, then again at each doubling.
 const CLAUDE_SESSION_ARRIVALS_DEPTH_MARK: usize = 1_024;
@@ -101,6 +102,15 @@ pub(crate) enum ClaudeOwnDelivery {
     CarriedRelease {
         /// The run.
         run_id: RunId,
+    },
+    /// The process acknowledged an account switch: the session's bindings move here, among the
+    /// frames, so each usage frame before it stays on the old account and each after it is the
+    /// new one's.
+    AccountMove {
+        /// The account the bindings move onto.
+        provider_account_id: ProviderAccountId,
+        /// Where the move is written.
+        bindings: Arc<dyn RuntimeBindingWriter>,
     },
 }
 

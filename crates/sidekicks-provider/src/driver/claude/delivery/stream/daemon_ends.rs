@@ -265,6 +265,13 @@ impl ClaudeDeliveryStream {
             ClaudeOwnDelivery::CarriedRelease { run_id } => {
                 self.release_carried_turn(session, run_id).await;
             }
+            ClaudeOwnDelivery::AccountMove {
+                provider_account_id,
+                bindings,
+            } => {
+                self.move_account(session, &provider_account_id, &*bindings)
+                    .await;
+            }
         }
     }
 }

@@ -407,6 +407,19 @@ impl ClaudeRunRoutes {
             .map(|(run_id, _)| *run_id)
     }
 
+    /// Every helper's child run bound on the session, with the binding it is attributed on.
+    pub(crate) fn child_runs_on(&self, session_id: SessionId) -> Vec<ClaudeBoundRun> {
+        self.lock()
+            .children
+            .iter()
+            .filter(|(_, route)| route.session_id == session_id)
+            .map(|(run_id, route)| ClaudeBoundRun {
+                run_id: *run_id,
+                binding_id: route.binding_id.clone(),
+            })
+            .collect()
+    }
+
     /// Drops every child route on a session whose process is gone; its helpers went with it.
     pub(crate) fn retire_child_routes(&self, session_id: SessionId) {
         self.lock()

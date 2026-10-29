@@ -2,14 +2,20 @@
 //! under. Ids count up per process, so an answer for an id already retired is told apart from one
 //! the process never got. A request waits at most its deadline, then is withdrawn; every one fails
 //! at once when the process exits, and a later one is refused before it is written, so nothing
-//! waits on a process that will never answer. The table's lock is never held across a wait.
+//! waits on a process that will never answer. The table's lock is never held across a wait. A
+//! request may carry an account move, which its answer hands into the session's queue once the
+//! process carried the request out.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::sync::oneshot;
 
+use crate::driver::claude::session::arrivals::{
+    ClaudeArrivalSender, ClaudeOwnDelivery, ClaudeSessionArrival,
+};
 use crate::driver::claude::session::errors::{
     ClaudeSessionError, ClaudeSessionUnavailableReason, ClaudeUnansweredCause,
 };
@@ -20,6 +26,7 @@ use crate::driver::claude::session::transport::inbound::{
 use crate::driver::claude::session::transport::user_message::{
     ClaudeWriteAttempt, ClaudeWriteDelivery,
 };
+use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 /// Queues `control_cancel_request {request_id}` on the process's input without waiting, so a
 /// request withdrawn on a deadline or from a dropped caller never blocks.
@@ -37,6 +44,48 @@ pub(crate) enum ClaudeControlSettlement {
     NeverIssued,
 }
 
+/// What became of an answer, and the account move it acknowledged: present only when the answer
+/// settled a pending request that carried one and the process carried that request out.
+pub(crate) struct ClaudeAnswerSettlement {
+    /// What became of the answer.
+    pub(crate) settlement: ClaudeControlSettlement,
+    /// The move the answer acknowledged.
+    pub(crate) account_move: Option<ClaudeAccountMoveMarker>,
+}
+
+/// The "moved" marker a switch's request carries: the reader hands it into the session's queue at
+/// the answer, so the session's bindings move after every frame written before the answer and
+/// before every frame written after it.
+pub(crate) struct ClaudeAccountMoveMarker {
+    /// The session's queue.
+    pub(crate) arrivals: ClaudeArrivalSender,
+    /// The account the session's bindings move onto.
+    pub(crate) provider_account_id: ProviderAccountId,
+    /// Where the move is written.
+    pub(crate) bindings: Arc<dyn RuntimeBindingWriter>,
+}
+
+impl ClaudeAccountMoveMarker {
+    /// Queues the move behind every frame the reader handed over before the answer. A session
+    /// whose task already ended keeps its bindings' account, which its resume moves again.
+    pub(crate) fn hand_over(self) {
+        let session_id = self.arrivals.session_id();
+        let is_queued = self.arrivals.push(ClaudeSessionArrival::Deliver(
+            ClaudeOwnDelivery::AccountMove {
+                provider_account_id: self.provider_account_id,
+                bindings: self.bindings,
+            },
+        ));
+        if !is_queued {
+            tracing::warn!(
+                %session_id,
+                "an account move was acknowledged after the session's task ended, so its bindings \
+                 keep their account"
+            );
+        }
+    }
+}
+
 /// The pending control requests of one process.
 #[derive(Clone)]
 pub(crate) struct ClaudeControlRequests {
@@ -45,10 +94,16 @@ pub(crate) struct ClaudeControlRequests {
 }
 
 struct RequestTable {
-    pending: HashMap<u64, oneshot::Sender<ClaudeControlOutcome>>,
+    pending: HashMap<u64, PendingAnswer>,
     next_id: u64,
     // Why the table closed: the process exited, with the exit's words.
     exit_detail: Option<String>,
+}
+
+// Where a pending request's answer goes, and the account move it carries.
+struct PendingAnswer {
+    sender: oneshot::Sender<ClaudeControlOutcome>,
+    account_move: Option<ClaudeAccountMoveMarker>,
 }
 
 impl ClaudeControlRequests {
@@ -70,6 +125,32 @@ impl ClaudeControlRequests {
         &self,
         subtype: ClaudeControlSubtype,
     ) -> Result<PendingControlRequest, ClaudeSessionError> {
+        self.open_carrying(subtype, None)
+    }
+
+    /// Opens a request as [`Self::open`] does, carrying `account_move`, which the answer hands
+    /// into the session's queue once the process carried the request out; a refusal, a withdrawal
+    /// or the process's exit drops it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the account switch's Claude Code leg opens its settings request with the move"
+        )
+    )]
+    pub(crate) fn open_account_move(
+        &self,
+        subtype: ClaudeControlSubtype,
+        account_move: ClaudeAccountMoveMarker,
+    ) -> Result<PendingControlRequest, ClaudeSessionError> {
+        self.open_carrying(subtype, Some(account_move))
+    }
+
+    fn open_carrying(
+        &self,
+        subtype: ClaudeControlSubtype,
+        account_move: Option<ClaudeAccountMoveMarker>,
+    ) -> Result<PendingControlRequest, ClaudeSessionError> {
         let mut table = lock(&self.table);
         if let Some(detail) = &table.exit_detail {
             return Err(process_exited(detail.clone()));
@@ -77,7 +158,13 @@ impl ClaudeControlRequests {
         let id = table.next_id;
         table.next_id += 1;
         let (sender, receiver) = oneshot::channel();
-        table.pending.insert(id, sender);
+        table.pending.insert(
+            id,
+            PendingAnswer {
+                sender,
+                account_move,
+            },
+        );
         Ok(PendingControlRequest {
             id,
             subtype,
@@ -86,32 +173,47 @@ impl ClaudeControlRequests {
         })
     }
 
-    /// Settles the request an answer names by its `request_id`, as sent.
+    /// Settles the request an answer names by its `request_id`, as sent, and gives back the
+    /// account move it carried when the process carried it out.
     pub(crate) fn settle(
         &self,
         request_id: &str,
         outcome: ClaudeControlOutcome,
-    ) -> ClaudeControlSettlement {
+    ) -> ClaudeAnswerSettlement {
+        let unmoved = |settlement| ClaudeAnswerSettlement {
+            settlement,
+            account_move: None,
+        };
         // Matched as text, so an id written back in another spelling is never mistaken for ours.
         let Some(id) = request_id
             .parse::<u64>()
             .ok()
             .filter(|id| id.to_string() == request_id)
         else {
-            return ClaudeControlSettlement::NeverIssued;
+            return unmoved(ClaudeControlSettlement::NeverIssued);
         };
         let mut table = lock(&self.table);
         match table.pending.remove(&id) {
-            Some(sender) => {
+            Some(PendingAnswer {
+                sender,
+                account_move,
+            }) => {
                 drop(table);
-                match sender.send(outcome) {
+                // The process carried the request out whether or not its caller still waits.
+                let account_move =
+                    account_move.filter(|_| matches!(outcome, ClaudeControlOutcome::Success(_)));
+                let settlement = match sender.send(outcome) {
                     Ok(()) => ClaudeControlSettlement::Settled,
                     // The caller stopped waiting between the answer's arrival and its delivery.
                     Err(_unread) => late(id),
+                };
+                ClaudeAnswerSettlement {
+                    settlement,
+                    account_move,
                 }
             }
-            None if id < table.next_id => late(id),
-            None => ClaudeControlSettlement::NeverIssued,
+            None if id < table.next_id => unmoved(late(id)),
+            None => unmoved(ClaudeControlSettlement::NeverIssued),
         }
     }
 
@@ -337,15 +439,15 @@ mod tests {
 
         let answer = || ClaudeControlOutcome::Success(ClaudeControlAnswer::default());
         assert_eq!(
-            requests.settle(&retired_id, answer()),
+            requests.settle(&retired_id, answer()).settlement,
             ClaudeControlSettlement::Late
         );
         assert_eq!(
-            requests.settle("1", answer()),
+            requests.settle("1", answer()).settlement,
             ClaudeControlSettlement::NeverIssued
         );
         assert_eq!(
-            requests.settle("00", answer()),
+            requests.settle("00", answer()).settlement,
             ClaudeControlSettlement::NeverIssued
         );
         // A dropped caller took its slot back and withdrew its request.
@@ -361,10 +463,12 @@ mod tests {
             .open(ClaudeControlSubtype::GetSettings)
             .expect("the table is open");
         assert_eq!(
-            requests.settle(
-                &pending.request_id(),
-                ClaudeControlOutcome::Success(ClaudeControlAnswer::default())
-            ),
+            requests
+                .settle(
+                    &pending.request_id(),
+                    ClaudeControlOutcome::Success(ClaudeControlAnswer::default())
+                )
+                .settlement,
             ClaudeControlSettlement::Settled
         );
 

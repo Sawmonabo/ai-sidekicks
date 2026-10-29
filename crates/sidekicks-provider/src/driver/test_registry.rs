@@ -96,6 +96,14 @@ impl RuntimeBindingWriter for NothingServed {
     ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
         async { Err(NotServedInTest("runtime binding").into()) }.boxed()
     }
+
+    fn move_account(
+        &self,
+        _binding_id: RuntimeBindingId,
+        _provider_account_id: ProviderAccountId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async { Err(NotServedInTest("runtime binding").into()) }.boxed()
+    }
 }
 
 impl AttachmentResolver for NothingServed {
