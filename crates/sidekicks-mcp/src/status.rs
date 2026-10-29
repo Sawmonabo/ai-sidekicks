@@ -19,7 +19,7 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
 use sidekicks_ipc::stream::latest_value::KeyedLatestValueOutlet;
-use sidekicks_provider::driver::mcp_server_status::{
+use sidekicks_provider::driver::mcp_server::status::{
     McpServerStatusEmission, McpServerStatusUpdate,
 };
 use sidekicks_std::mutex_lock::lock;
@@ -304,7 +304,7 @@ mod tests {
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
     use sidekicks_ipc::stream::latest_value::KeyedLatestValueFeed;
-    use sidekicks_provider::driver::mcp_server_status::McpServerReading;
+    use sidekicks_provider::driver::mcp_server::status::McpServerReading;
 
     use super::*;
 

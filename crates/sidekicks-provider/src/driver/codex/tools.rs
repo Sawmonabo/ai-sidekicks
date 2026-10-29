@@ -14,7 +14,7 @@ use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
 use sidekicks_contracts::wire::text::FreeFormText;
 
-use crate::driver::mcp_server_status::{
+use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusIngestRejection, McpServerStatusIngestResult,
     bound_mcp_server_status_emission,
 };
@@ -236,8 +236,8 @@ mod tests {
     use super::{
         normalize_codex_mcp_server_status_list, normalize_codex_mcp_server_status_notification,
     };
-    use crate::driver::mcp_server_status::McpServerReading::{Observed, SwitchedOff};
-    use crate::driver::mcp_server_status::{McpServerReading, McpServerStatusIngestResult};
+    use crate::driver::mcp_server::status::McpServerReading::{Observed, SwitchedOff};
+    use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusIngestResult};
 
     // One `mcpServerStatus/list` row for the server, read through the list's reader.
     fn list(runtime_status: Value, auth_status: &str) -> McpServerStatusIngestResult {

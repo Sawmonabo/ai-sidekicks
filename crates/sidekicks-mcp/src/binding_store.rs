@@ -298,7 +298,7 @@ mod tests {
     use sidekicks_contracts::provider::id::ProviderId;
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
-    use sidekicks_provider::driver::mcp_server_status::{
+    use sidekicks_provider::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission,
     };
     use sidekicks_store::database::writer::test_file::TestDatabase;

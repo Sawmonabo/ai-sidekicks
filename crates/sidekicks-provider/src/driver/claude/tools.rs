@@ -11,7 +11,7 @@ use sidekicks_contracts::mcp::server::McpServerStatus;
 use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
 
-use crate::driver::mcp_server_status::{
+use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusIngestRejection, McpServerStatusIngestResult,
     bound_mcp_server_status_emission,
 };
@@ -137,8 +137,8 @@ mod tests {
     };
 
     use super::normalize_claude_mcp_server_init_census;
-    use crate::driver::mcp_server_status::McpServerReading;
-    use crate::driver::mcp_server_status::McpServerReading::{Observed, SwitchedOff};
+    use crate::driver::mcp_server::status::McpServerReading;
+    use crate::driver::mcp_server::status::McpServerReading::{Observed, SwitchedOff};
 
     // Every status word Claude Code sends maps to its reading, `disabled` to the server switched
     // off rather than a status, and a row's `error` text reaches the emission. Killed by mapping
