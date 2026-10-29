@@ -156,7 +156,7 @@ pub struct SessionConversionSkippedFileListRequest {
 #[schemars(inline)]
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesContinuing {
-    /// The files, in path order.
+    /// The files, in the order of their path keys.
     #[garde(custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files:
@@ -174,7 +174,7 @@ pub struct SessionConvertSkippedFilesContinuing {
 #[schemars(inline)]
 #[garde(allow_unvalidated)]
 pub struct SessionConvertSkippedFilesTerminal {
-    /// The files, in path order.
+    /// The files, in the order of their path keys.
     #[garde(custom(fits_one_page))]
     #[schemars(extend("maxJsonBytes" = PAGE_MAX_BYTES))]
     pub files:
@@ -183,7 +183,10 @@ pub struct SessionConvertSkippedFilesTerminal {
     pub has_more: False,
 }
 
-/// One page of the files a conversion did not copy, in path order, split on `hasMore`.
+/// One page of the files a conversion did not copy, in the order of their path keys, split on
+/// `hasMore`. A path key is the path's stable bytes compared byte by byte: on macOS and Linux the
+/// path's own bytes, on Windows its UTF-16 units as two little-endian bytes each, so the order
+/// follows no text collation and a client keeps it as given.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(untagged)]
 pub enum SessionConversionSkippedFileListResponse {

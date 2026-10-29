@@ -11,6 +11,7 @@ The daemon keeps one row per session it hosts in `sessions`, the directory that 
 - `muted_at` — RFC 3339 UTC; NULL while the session is not muted. `session.muted` sets it and `session.unmuted` clears it, and a rebuild restores it from those events; it reaches clients as `muted` on `session.read` and `session.subscribe`. While it is set, the session's `Finished` and `Failed` moments reach no channel and no device; `Waiting on you` and a workflow's Notify step are never silenced by it. The attention service reads it when it writes an entry.
 - `group_id` — the one group of its project the session sits in; NULL for a session in no group and for every chat. Indexed (`idx_sessions_group`), because the sessions list and search read a group's sessions by it. An archived session keeps it.
 - `pending_working_folder` — the folder a `session.workingFolder.update` move goes to, applied at the active run's next boundary; NULL while no move waits. Written by the session service with no event of its own, so a rebuild, which rewrites only the row's event-derived columns, keeps it; it reaches clients as `pendingWorkingFolder` on `session.read`, and a purge keeps every worktree a pending move names.
+- `pending_working_folder_workspace_id` — the workspace the waiting move was asked for, set and cleared with `pending_working_folder` (a CHECK holds both set or both NULL). A move whose session works in another workspace by the time it is made is dropped, and a run's gate makes only a move asked for the workspace it holds.
 - `permission_level` — the session's permission level, which the run queue's admission reads: every process the session opens or resumes starts at it. `session.create` writes the level the provider's own settings give for the session's project ([Spec-010 §Default Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#default-behavior)); the column's `yolo` is that read's answer when they set none. `session.permissionLevel.update` writes it once an open session's provider has taken the level, under the lock the session's opening takes, so the process never runs at another level than the stored one. Written with no event of its own, so a rebuild keeps it.
 
 A session's groups, links and tags are the three layers of [Spec-001 §Groups, Links And Tags](../../specs/001-session-core.md#groups-links-and-tags): one place in the list, any number of relationships, any number of categories. All three are row-canonical daemon state written by the session service and the session tools, not rebuilt from the event log, and removed with their session.
@@ -53,6 +54,9 @@ CREATE TABLE sessions (
   last_activity_at           TEXT NOT NULL,
   group_id                   TEXT REFERENCES session_groups(id),
   pending_working_folder     TEXT,
+  pending_working_folder_workspace_id TEXT  -- the workspace the waiting move was asked for
+                             CHECK ((pending_working_folder IS NULL)
+                                    = (pending_working_folder_workspace_id IS NULL)),
   permission_level           TEXT NOT NULL DEFAULT 'yolo'
                              CHECK (permission_level IN ('readonly', 'ask', 'reviewed', 'sandboxed', 'yolo'))
 ) STRICT;
