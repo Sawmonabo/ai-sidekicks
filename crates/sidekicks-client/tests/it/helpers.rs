@@ -2,9 +2,13 @@
 //! messages, returning lane 0's credit as it takes each as the daemon does, records every CREDIT
 //! frame the client sends, and writes answers, refusals and subscription frames.
 
+use std::path::Path;
 use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
+use interprocess::local_socket::tokio::{Listener, Stream};
+use interprocess::local_socket::traits::tokio::Listener as _;
+use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName as _};
 use serde_json::{Value, json};
 use sidekicks_client::transport::json_rpc::{JsonRpcClient, RawRequest};
 use sidekicks_client::transport::link::Link;
@@ -21,8 +25,12 @@ use sidekicks_contracts::jsonrpc::streaming::{
     SUBSCRIPTION_END_METHOD, SUBSCRIPTION_NOTIFY_METHOD,
 };
 use sidekicks_contracts::method::MethodDescriptor;
+use sidekicks_platforms::DaemonRunFolder;
 use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
+
+/// How long a test waits for the client before it counts as stuck.
+pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The daemon side of one connection, generic over its stream.
 pub(crate) struct ScriptedDaemon<S> {
@@ -52,17 +60,16 @@ impl<S: AsyncRead + AsyncWrite> ScriptedDaemon<S> {
 
     /// Reads one frame: a CREDIT is recorded and granted; a message it completes is taken, its
     /// credit returned at once, and kept for `next_message`.
-    async fn read_frame(&mut self) {
-        let frame = self
-            .reader
-            .next()
-            .await
-            .expect("the client keeps the connection open")
-            .expect("the client's frames decode");
+    /// `false` once the client has closed the connection.
+    async fn read_frame(&mut self) -> bool {
+        let Some(frame) = self.reader.next().await else {
+            return false;
+        };
+        let frame = frame.expect("the client's frames decode");
         if let Frame::Credit { lane, granted } = frame {
             self.credits.push((lane, granted));
             self.outgoing.grant(lane, granted);
-            return;
+            return true;
         }
         let completed = self
             .incoming
@@ -77,21 +84,34 @@ impl<S: AsyncRead + AsyncWrite> ScriptedDaemon<S> {
         for credit in owed {
             self.write(credit.into()).await;
         }
+        true
     }
 
     /// The client's next whole message.
     pub(crate) async fn next_message(&mut self) -> Value {
+        self.next_message_or_close()
+            .await
+            .expect("the client keeps the connection open")
+    }
+
+    /// The client's next whole message, or `None` once it has closed the connection.
+    pub(crate) async fn next_message_or_close(&mut self) -> Option<Value> {
         while self.messages.is_empty() {
-            self.read_frame().await;
+            if !self.read_frame().await {
+                return None;
+            }
         }
-        self.messages.remove(0)
+        Some(self.messages.remove(0))
     }
 
     /// Reads frames for `duration` of the paused clock, keeping what arrives.
     pub(crate) async fn read_for(&mut self, duration: Duration) {
         let reading = async {
             loop {
-                self.read_frame().await;
+                assert!(
+                    self.read_frame().await,
+                    "the client keeps the connection open"
+                );
             }
         };
         let outcome = tokio::time::timeout(duration, reading).await;
@@ -186,6 +206,19 @@ impl<S: AsyncRead + AsyncWrite> ScriptedDaemon<S> {
         let request = self.next_message().await;
         assert_eq!(request["params"]["sessionToken"], token);
         self.answer_initialize_request(&request).await;
+    }
+
+    /// Reads `connection.initialize`, checks that it presents `token`, and answers that this
+    /// daemon speaks no protocol the client does.
+    pub(crate) async fn answer_initialize_incompatibly(&mut self, token: &str) {
+        let request = self.next_message().await;
+        assert_eq!(request["params"]["sessionToken"], token);
+        let result = json!({
+            "compatible": false,
+            "protocolVersion": "2099-01-01",
+            "deviceId": "scripted-daemon",
+        });
+        self.answer(&request["id"], result).await;
     }
 
     async fn answer_initialize_request(&mut self, request: &Value) {
@@ -299,4 +332,36 @@ pub(crate) fn raw_request(descriptor: &'static MethodDescriptor, params: &Value)
         params: Some(serde_json::value::to_raw_value(params).expect("test params are JSON")),
         attachments: Vec::new(),
     }
+}
+
+/// The run folder at `folder_path`, its socket and files in `socket_folder`.
+pub(crate) fn run_folder(folder_path: &Path, socket_folder: &Path) -> DaemonRunFolder {
+    DaemonRunFolder {
+        folder_path: folder_path.to_path_buf(),
+        socket_path: socket_folder.join("daemon.sock"),
+        token_path: socket_folder.join("token"),
+        status_path: socket_folder.join("service-status.json"),
+    }
+}
+
+/// Binds the socket of `run_folder`.
+pub(crate) fn listen(run_folder: &DaemonRunFolder) -> Listener {
+    let name = run_folder
+        .socket_path
+        .as_path()
+        .to_fs_name::<GenericFilePath>()
+        .expect("a socket path in a temporary folder");
+    ListenerOptions::new()
+        .name(name)
+        .create_tokio()
+        .expect("the test binds its socket")
+}
+
+/// Accepts the client's next connection as a scripted daemon.
+pub(crate) async fn accept(listener: &Listener) -> ScriptedDaemon<Stream> {
+    let stream = tokio::time::timeout(PATIENCE, listener.accept())
+        .await
+        .expect("the client connects")
+        .expect("the connection is accepted");
+    ScriptedDaemon::new(stream)
 }

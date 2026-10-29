@@ -3,6 +3,7 @@
 mod call_cap;
 mod credit;
 mod daemon_connection;
+mod daemon_ending;
 mod helpers;
 mod keyed_resend;
 mod orphan_lane;

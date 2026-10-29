@@ -7,15 +7,13 @@
 //! repairing its database file keeps the link it refused for the repairing form's stop, and each of
 //! its refusals moves the handshake wait's deadline on.
 
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futures::FutureExt as _;
-use interprocess::local_socket::tokio::{Listener, Stream};
+use interprocess::local_socket::tokio::Stream;
 use interprocess::local_socket::traits::tokio::Listener as _;
-use interprocess::local_socket::{GenericFilePath, ListenerOptions, ToFsName as _};
 use serde_json::json;
 use sidekicks_client::daemon_connection::handshake_wait::wait_for_handshake;
 use sidekicks_client::daemon_connection::{
@@ -28,16 +26,12 @@ use sidekicks_contracts::jsonrpc::negotiation::NegotiationText;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::method::Method;
 use sidekicks_contracts::session::methods::SessionRead;
-use sidekicks_platforms::DaemonRunFolder;
 use tokio::io::{AsyncReadExt as _, DuplexStream};
 use tokio::sync::{mpsc, watch};
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
-use crate::helpers::{ScriptedDaemon, raw_request};
-
-/// How long a test waits for the client before it counts as stuck.
-const PATIENCE: Duration = Duration::from_secs(10);
+use crate::helpers::{PATIENCE, ScriptedDaemon, accept, listen, raw_request, run_folder};
 
 /// Longer than the reopen window with a handshake deadline, on the paused clock.
 const SCHEDULE_PATIENCE: Duration = Duration::from_secs(300);
@@ -47,35 +41,6 @@ const TICK_SLACK: Duration = Duration::from_millis(5);
 
 /// The token the in-memory daemon wrote.
 const TOKEN: &str = "token";
-
-fn run_folder(folder_path: &Path, socket_folder: &Path) -> DaemonRunFolder {
-    DaemonRunFolder {
-        folder_path: folder_path.to_path_buf(),
-        socket_path: socket_folder.join("daemon.sock"),
-        token_path: socket_folder.join("token"),
-        status_path: socket_folder.join("service-status.json"),
-    }
-}
-
-fn listen(run_folder: &DaemonRunFolder) -> Listener {
-    let name = run_folder
-        .socket_path
-        .as_path()
-        .to_fs_name::<GenericFilePath>()
-        .expect("a socket path in a temporary folder");
-    ListenerOptions::new()
-        .name(name)
-        .create_tokio()
-        .expect("the test binds its socket")
-}
-
-async fn accept(listener: &Listener) -> ScriptedDaemon<Stream> {
-    let stream = tokio::time::timeout(PATIENCE, listener.accept())
-        .await
-        .expect("the client connects")
-        .expect("the connection is accepted");
-    ScriptedDaemon::new(stream)
-}
 
 /// Reads `connection.initialize`, checks the token it presents and answers its id.
 async fn read_initialize(daemon: &mut ScriptedDaemon<Stream>, token: &str) -> serde_json::Value {
