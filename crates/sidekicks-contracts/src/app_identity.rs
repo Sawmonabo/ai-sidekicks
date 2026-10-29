@@ -1,6 +1,6 @@
 //! The app's identity with the operating system: the name it shows the system under, and the
-//! bundle identifier the desktop's build signs the app under, by which the daemon starts the app and
-//! from which it derives the identifier the app's client helper carries.
+//! bundle identifier the desktop's build signs the app under, by which the daemon starts the app
+//! and from which it derives the identifier the app's client helper carries.
 
 use crate::typescript::{TypeScriptModule, ts_constants};
 
