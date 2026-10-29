@@ -11,6 +11,6 @@ pub(crate) mod command_receipts;
 pub(crate) mod errors;
 pub mod oauth;
 pub mod schema;
-pub(crate) mod sign_in;
+pub mod sign_in;
 pub mod status;
 pub(crate) mod tool_calls;

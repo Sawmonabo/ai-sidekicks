@@ -51,13 +51,6 @@ use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
 
 /// The bound on one OAuth call when its caller sets none: rmcp's own for its OAuth calls.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's authorization managers send through the clients"
-    )
-)]
 const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The idle connections each pool keeps per host: sign-ins are rare, so one is enough.
@@ -109,9 +102,12 @@ pub(crate) struct OAuthHttpPools {
 impl OAuthHttpPools {
     /// The pools over the system's resolver, leaving the hosts of the environment's proxies
     /// unfiltered. Fails when reqwest cannot build a pool.
-    #[expect(
-        dead_code,
-        reason = "the daemon's start builds the one set the sign-ins share"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's start builds the one set the sign-ins share"
+        )
     )]
     pub(crate) fn new() -> Result<Self, reqwest::Error> {
         let proxy_hosts = PROXY_VARIABLES
@@ -169,13 +165,6 @@ impl OAuthHttpPools {
 /// One authorization manager's OAuth client for one server: the pool its address allows, the
 /// server's `DPoP` key slot and authorization-server nonce slot, and what its last registration
 /// request got.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's launch gives one to each authorization manager"
-    )
-)]
 pub(crate) struct ServerOAuthHttpClient {
     http: reqwest::Client,
     policy: AddressPolicy,
@@ -189,10 +178,6 @@ pub(crate) struct ServerOAuthHttpClient {
 
 /// What the last registration request a client sent got, read to tell a refusal from a failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the registration's classification reads it")
-)]
 pub(crate) enum RegistrationOutcome {
     /// No registration request was sent.
     NotSent,
@@ -209,10 +194,6 @@ pub(crate) enum RegistrationOutcome {
 }
 
 /// One OAuth call a server's client sends.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the pushed authorization request is sent as one")
-)]
 pub(crate) struct OAuthCall {
     /// The request's method.
     pub(crate) method: Method,
@@ -231,13 +212,6 @@ pub(crate) struct OAuthCall {
 
 /// Why an OAuth call got no response.
 #[derive(Debug, thiserror::Error)]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in's launch reads the refusal from a failed sign-in's source chain"
-    )
-)]
 pub(crate) enum OAuthCallError {
     /// The call's literal address, or a redirect's, is not one this server may reach.
     #[error("an OAuth call to `{0}` was refused: the address is not allowed for this server")]
@@ -264,8 +238,8 @@ pub(crate) enum OAuthCallError {
     not(test),
     expect(
         dead_code,
-        reason = "the sign-in's launch fills the key slot, sends the pushed authorization \
-                  request and reads the registration outcome"
+        reason = "the sign-in's launch fills the key slot and sends the pushed authorization \
+                  request"
     )
 )]
 impl ServerOAuthHttpClient {
@@ -275,7 +249,6 @@ impl ServerOAuthHttpClient {
     }
 
     /// What the last registration request got, or that none was sent.
-    #[expect(dead_code, reason = "the registration's classification reads it")]
     pub(crate) fn registration_outcome(&self) -> RegistrationOutcome {
         lock(&self.registration).clone()
     }

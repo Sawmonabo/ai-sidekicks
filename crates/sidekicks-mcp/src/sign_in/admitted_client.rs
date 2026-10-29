@@ -84,13 +84,6 @@ struct StoredProviderIdInvalid;
 
 /// Holds each server's admitted client in `mcp_server_admitted_clients`, reading through the
 /// daemon's read pool and writing through its writer, keyed by the server's canonical address.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the sign-in reads it to pick a client and records each attempt's end in it"
-    )
-)]
 pub(crate) struct AdmittedClientStore {
     pool: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
@@ -100,7 +93,8 @@ pub(crate) struct AdmittedClientStore {
     not(test),
     expect(
         dead_code,
-        reason = "the sign-in reads it to pick a client and records each attempt's end in it"
+        reason = "the daemon's start builds the store and the sign-in records each attempt's end \
+                  in it"
     )
 )]
 impl AdmittedClientStore {

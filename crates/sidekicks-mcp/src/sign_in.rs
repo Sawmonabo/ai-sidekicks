@@ -1,10 +1,11 @@
 //! The sign-in to an MCP server reached at an address: what it keeps, the credentials in the
-//! keychain and which client each server admitted, both under the server's canonical address, and
-//! the filtered HTTP its OAuth calls go through.
+//! keychain and which client each server admitted, both under the server's canonical address, the
+//! filtered HTTP its OAuth calls go through, and which client each sign-in goes through.
 
 pub(crate) mod admitted_client;
 pub(crate) mod credential_store;
 pub(crate) mod oauth_http_client;
+pub mod registration;
 
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
