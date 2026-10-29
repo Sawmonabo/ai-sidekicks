@@ -270,9 +270,12 @@ impl EntryRow {
                 ..
             } => row.run_id = Some(run_id.to_string()),
             AttentionRaise::Wait {
-                wait: AttentionWait::Plan(plan_id),
+                wait: AttentionWait::Plan { plan_id, run_id },
                 ..
-            } => row.plan_id = Some(plan_id.to_string()),
+            } => {
+                row.plan_id = Some(plan_id.to_string());
+                row.run_id = Some(run_id.to_string());
+            }
             AttentionRaise::Wait {
                 wait: AttentionWait::Step(step),
                 ..
@@ -423,7 +426,8 @@ pub(crate) fn version_bump_sql(guard: &str) -> String {
     )
 }
 
-fn raised_banner_states() -> String {
+/// The banner states a withdrawal takes down, as an SQL list: `pending` and `posted`.
+pub(crate) fn raised_banner_states() -> String {
     format!(
         "'{}', '{}'",
         <&'static str>::from(AttentionBannerState::Pending),

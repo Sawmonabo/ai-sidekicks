@@ -100,7 +100,12 @@ pub(crate) enum AttentionWait {
     /// An agent run waiting on an approval or an answer.
     Run(RunId),
     /// A plan waiting on its card.
-    Plan(PlanId),
+    Plan {
+        /// The plan.
+        plan_id: PlanId,
+        /// The run that proposed it, which its entry names.
+        run_id: RunId,
+    },
     /// One workflow step waiting on the person.
     Step(WorkflowStepKey),
 }
@@ -110,7 +115,7 @@ impl AttentionWait {
     pub(crate) fn moment(&self) -> AttentionMoment {
         match self {
             Self::Run(run_id) => AttentionMoment::Run(*run_id),
-            Self::Plan(plan_id) => AttentionMoment::Plan(*plan_id),
+            Self::Plan { plan_id, .. } => AttentionMoment::Plan(*plan_id),
             Self::Step(step) => AttentionMoment::WorkflowRun(step.workflow_run_id),
         }
     }
@@ -359,7 +364,10 @@ pub(crate) fn entry_change_of(event: &SessionEvent) -> AttentionChange {
                 AttentionChange::Nothing
             } else {
                 raise_wait(
-                    AttentionWait::Plan(payload.plan_id),
+                    AttentionWait::Plan {
+                        plan_id: payload.plan_id,
+                        run_id: payload.run_id,
+                    },
                     AttentionMomentTrigger::PendingInput,
                 )
             }

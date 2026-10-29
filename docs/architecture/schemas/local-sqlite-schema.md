@@ -858,7 +858,7 @@ CREATE TABLE attention_entries (
   id                TEXT PRIMARY KEY,
   moment_id         TEXT NOT NULL,             -- what a later state of the same moment replaces
   session_id        TEXT NOT NULL,
-  run_id            TEXT,                      -- an agent run's wait or end
+  run_id            TEXT,                      -- an agent run's wait or end, or a plan's run
   workflow_run_id   TEXT,                      -- a workflow run's end, a step's wait or a Notify step
   plan_id           TEXT,                      -- a plan waiting on its card
   node_id           TEXT,                      -- a workflow step's node, attempt and execution;

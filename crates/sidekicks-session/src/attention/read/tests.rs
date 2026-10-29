@@ -143,6 +143,37 @@ async fn an_entry_carries_none_of_its_plan_text() {
     assert!(!served.contains("billing"), "{served}");
 }
 
+/// Mutation: the plan's run id dropped from its wait or from the entry's insert, which serves the
+/// plan's entry with no `runId`, the session aggregate's shape.
+#[tokio::test]
+async fn a_plan_entry_names_the_run_that_proposed_it() {
+    let log = named_session_log().await;
+    let run_id = log.run(None);
+    log.append(json!({"type": "plan.proposed", "payload": {
+        "planId": PLAN, "sessionId": log.session_id, "runId": run_id, "title": "Plan",
+        "text": "Do it", "stepCount": 1, "fileCount": 0, "artifactId": ARTIFACT,
+        "holdsRequest": false,
+    }}))
+    .await;
+
+    let projection = read(
+        &log,
+        AttentionSubscribeRequest {
+            session_id: None,
+            scope: None,
+            run_id: None,
+        },
+    );
+
+    let [AttentionItem::Moment(plan_entry)] = projection.items.as_slice() else {
+        panic!("the plan's one entry reads: {projection:?}");
+    };
+    assert_eq!(
+        plan_entry.run_id.as_ref().map(|id| id.as_str().to_owned()),
+        Some(run_id.to_string())
+    );
+}
+
 /// Mutation: seen read by comparing the entry's or its event's instant with the mark's.
 #[tokio::test]
 async fn an_entry_committed_after_the_seen_mark_in_its_millisecond_reads_unseen() {

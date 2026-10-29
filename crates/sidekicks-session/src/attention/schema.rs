@@ -34,7 +34,7 @@ CREATE TABLE attention_entries (
   id                TEXT PRIMARY KEY,
   moment_id         TEXT NOT NULL,             -- what a later state of it replaces
   session_id        TEXT NOT NULL,
-  run_id            TEXT,                      -- an agent run's wait or end
+  run_id            TEXT,                      -- an agent run's wait or end, or a plan's run
   workflow_run_id   TEXT,                      -- a workflow run's end, step wait or Notify
   plan_id           TEXT,                      -- a plan's wait on its card
   -- A workflow step's whole key: its node, attempt and execution; a Notify step has no attempt.

@@ -284,7 +284,13 @@ fn workflow_run_end(trigger: AttentionMomentTrigger) -> AttentionChange {
 )]
 #[case::plan_holding_no_request(
     plan_proposed(false),
-    raise_wait(AttentionWait::Plan(plan_id()), PendingInput)
+    raise_wait(
+        AttentionWait::Plan {
+            plan_id: plan_id(),
+            run_id: run_id(),
+        },
+        PendingInput
+    )
 )]
 #[case::plan_holding_its_request(plan_proposed(true), AttentionChange::Nothing)]
 #[case::plan_accepted(
