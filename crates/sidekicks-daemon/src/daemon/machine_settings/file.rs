@@ -3,12 +3,17 @@
 //! defaults and is written with them, with nothing for the page to say. A broken file, one that is
 //! not JSON or that the schema refuses, reads as the defaults and is rewritten with them, and the
 //! repair is carried on every reading until the next change is written, so the page can say both
-//! happened. Reads, writes and repairs run one at a time, so a change never interleaves with
-//! another and a new listener's first reading is never older than a change announced after it.
+//! happened. A rewrite that fails still reads as the defaults, since the settings are known, with
+//! no repair kept; the first such reading since a write succeeded is logged at warn and announced,
+//! so every listener holds what a read answers, and later ones are logged at debug. Reads, writes
+//! and repairs run one at a time, so a change
+//! never interleaves with another and a new listener's first reading is never older than a change
+//! announced after it.
 
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 
 use futures::FutureExt as _;
@@ -54,6 +59,8 @@ pub(crate) struct MachineSettingsFile {
     repair: tokio::sync::Mutex<Option<SettingsFileRepair>>,
     /// Every listener's outlet and in-process reader's channel.
     listeners: Mutex<Listeners>,
+    /// Whether a rewrite of the defaults failed with no write succeeding since.
+    has_unwritten_defaults: AtomicBool,
 }
 
 #[derive(Default)]
@@ -79,19 +86,22 @@ impl MachineSettingsFile {
             file_path,
             repair: tokio::sync::Mutex::new(None),
             listeners: Mutex::default(),
+            has_unwritten_defaults: AtomicBool::new(false),
         }
     }
 
     /// The file as it stands, with the repair made since the last change, if any. Fails with
-    /// [`MachineSettingsFileError`] when the file cannot be read or rewritten.
+    /// [`MachineSettingsFileError::Read`] when the file cannot be read; a missing or broken file
+    /// whose rewrite fails reads as the defaults.
     pub(crate) async fn read(&self) -> Result<MachineSettingsReading, MachineSettingsFileError> {
         let mut repair = self.repair.lock().await;
         self.read_from_disk(&mut repair).await
     }
 
     /// Writes `change` over the file as it stands, clears the repair and tells every listener.
-    /// Fails with [`MachineSettingsFileError::BranchNamePattern`] for a refused pattern, and as
-    /// [`Self::read`] does.
+    /// Fails with [`MachineSettingsFileError::BranchNamePattern`] for a refused pattern, with
+    /// [`MachineSettingsFileError::Folder`] or [`MachineSettingsFileError::Write`] when the change
+    /// cannot be written, and as [`Self::read`] does.
     pub(crate) async fn update(
         &self,
         change: MachineSettingsChange,
@@ -153,8 +163,12 @@ impl MachineSettingsFile {
             Ok(file_text) => file_text,
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 let settings = MachineSettings::default();
-                self.write(&settings).await?;
-                return Ok(reading_of(settings, repair.as_ref()));
+                return Ok(match self.write_defaults(&settings).await {
+                    DefaultsWrite::Written => reading_of(settings, repair.as_ref()),
+                    DefaultsWrite::Failed { is_first } => {
+                        self.unwritten_defaults(settings, repair, is_first)
+                    }
+                });
             }
             Err(error) => return Err(MachineSettingsFileError::Read(error)),
         };
@@ -166,7 +180,9 @@ impl MachineSettingsFile {
             },
         };
         let settings = MachineSettings::default();
-        self.write(&settings).await?;
+        if let DefaultsWrite::Failed { is_first } = self.write_defaults(&settings).await {
+            return Ok(self.unwritten_defaults(settings, repair, is_first));
+        }
         *repair = Some(SettingsFileRepair {
             repaired_at: WireInstant::now(),
             cause,
@@ -174,6 +190,46 @@ impl MachineSettingsFile {
         let reading = reading_of(settings, repair.as_ref());
         self.announce(&reading);
         Ok(reading)
+    }
+
+    // Writes the defaults over a missing or broken file and answers whether it did. A failed write
+    // fails no read, since the defaults are known; the first since a write succeeded is logged at
+    // warn, later ones at debug, so a folder that keeps refusing grows the log once.
+    async fn write_defaults(&self, defaults: &MachineSettings) -> DefaultsWrite {
+        let Err(error) = self.write(defaults).await else {
+            return DefaultsWrite::Written;
+        };
+        let is_first = !self.has_unwritten_defaults.swap(true, Ordering::Relaxed);
+        let error = &error as &(dyn Error + 'static);
+        if is_first {
+            tracing::warn!(
+                error,
+                "the machine settings file could not be written with the defaults; they are read \
+                 as the settings"
+            );
+        } else {
+            tracing::debug!(
+                error,
+                "the machine settings file still could not be written with the defaults"
+            );
+        }
+        DefaultsWrite::Failed { is_first }
+    }
+
+    // The reading of defaults no write put on disk, which carries no repair since none was made;
+    // the first since a write succeeded is announced, as the listeners may hold other settings.
+    fn unwritten_defaults(
+        &self,
+        settings: MachineSettings,
+        repair: &mut Option<SettingsFileRepair>,
+        is_first: bool,
+    ) -> MachineSettingsReading {
+        *repair = None;
+        let reading = reading_of(settings, None);
+        if is_first {
+            self.announce(&reading);
+        }
+        reading
     }
 
     // A reader sees the old file or the new one, never half of either.
@@ -185,6 +241,7 @@ impl MachineSettingsFile {
             serde_json::to_vec_pretty(settings).expect("the settings serialize as JSON");
         contents.push(b'\n');
         write_file_atomically(&self.file_path, contents, SETTINGS_FILE_MODE).await?;
+        self.has_unwritten_defaults.store(false, Ordering::Relaxed);
         Ok(())
     }
 
@@ -200,6 +257,13 @@ impl MachineSettingsFile {
         // A panic while the list was held leaves a list still whole.
         lock(&self.listeners)
     }
+}
+
+// What writing the defaults over a missing or broken file did.
+enum DefaultsWrite {
+    Written,
+    // The write failed; `is_first` when no failed one came before it since a write succeeded.
+    Failed { is_first: bool },
 }
 
 fn reading_of(
@@ -277,7 +341,28 @@ mod tests {
         MachineSettings, MachineSettingsChange, SettingsFileRepairCause,
     };
 
+    use sidekicks_platforms::make_folder_link;
+
     use super::{MachineSettingsFile, machine_settings_file_path};
+
+    // A missing file whose folder cannot be made, a link to a folder that is gone standing where
+    // it must go, reads as the defaults with no repair claimed and nothing written. A link stops
+    // the make for root too, which a read-only folder would not. Killed by failing the read on the
+    // rewrite's failure.
+    #[tokio::test]
+    async fn a_missing_file_that_cannot_be_written_reads_as_the_defaults() {
+        let home_folder = tempfile::tempdir().expect("a scratch folder is made");
+        let file_path = machine_settings_file_path(home_folder.path());
+        let data_folder = file_path.parent().expect("the file has a folder");
+        make_folder_link(&home_folder.path().join("gone"), data_folder).expect("the link is made");
+        let file = MachineSettingsFile::new(file_path.clone());
+
+        let reading = file.read().await.expect("the missing file reads");
+
+        assert_eq!(reading.settings, MachineSettings::default());
+        assert_eq!(reading.repair, None);
+        assert!(!file_path.exists());
+    }
 
     // A broken file reads as the defaults with its repair until a change is written, and a
     // reader of the watch holds the settings and hears the change. Killed by a watch the
