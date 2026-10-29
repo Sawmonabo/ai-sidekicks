@@ -38,7 +38,7 @@ use sidekicks_store::database::connection::read_pool::ReadLength;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::session::appender::SessionEventDraft;
 use sidekicks_workspace::run_setup_gates::{
-    RunSetupContext, RunSetupGateError, RunTerminalContext,
+    RunSetupContext, RunSetupGateError, RunTerminalContext, RunTerminalReleaseError,
 };
 use tokio::sync::SetOnce;
 
@@ -154,13 +154,27 @@ impl RunEngine {
         // An interrupt may have landed while a gate ran; a run no longer starting is not started.
         let after_gates = self.require_run(run_id).await?;
         if entry.is_interrupted.load(Ordering::Acquire) || after_gates.state != RunState::Starting {
-            return Err(RunRefusal::InvalidTransition {
+            let refusal: RunEngineError = RunRefusal::InvalidTransition {
                 run_id,
                 from_state: after_gates.state,
                 to_state: RunStateChangeState::Running,
                 source: None,
             }
-            .into());
+            .into();
+            // An end written while a gate ran let go only what the gates held by then; what a gate
+            // took after it is let go here. An end still to come lets go everything itself.
+            if !after_gates.state.is_terminal() {
+                return Err(refusal);
+            }
+            let released = self
+                .release_gates_after_end(run_id, &after_gates)
+                .await
+                .map_err(RunEngineError::from);
+            return Err(with_cleanup_failures(
+                refusal,
+                [released],
+                "starting a run that ended during its gates failed, and a terminal hook failed",
+            ));
         }
         // The driver runs at, and the run records, the posture the gate checked and resolved.
         let Some(resolved_posture) = self.execution_postures.resolved_posture_for(&run_id) else {
@@ -687,6 +701,16 @@ impl RunEngine {
         else {
             return Ok(());
         };
+        self.release_gates_after_end(run_id, &run).await?;
+        Ok(())
+    }
+
+    // Runs every terminal hook of `run_id`, read at its end as `run`, for what a gate took since.
+    async fn release_gates_after_end(
+        &self,
+        run_id: RunId,
+        run: &RunRead,
+    ) -> Result<(), RunTerminalReleaseError> {
         self.gates
             .release_for_terminal(
                 &RunTerminalContext {
@@ -697,8 +721,7 @@ impl RunEngine {
                 },
                 None,
             )
-            .await?;
-        Ok(())
+            .await
     }
 }
 
