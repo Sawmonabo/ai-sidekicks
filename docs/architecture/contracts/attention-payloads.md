@@ -95,8 +95,8 @@ interface AttentionItem {
   createdAt: string;
   // set once the state that produced the entry resolves; absent means outstanding
   resolvedAt?: string;
-  // The one seen-or-unseen fact the daemon keeps, which the session's row reads too; absent on an
-  // entry with no session.
+  // The entry's subject's seen fact: a session's entry reads its session's, a workflow-run entry
+  // its run's; absent on an entry with no session.
   seen?: boolean;
 }
 
@@ -175,7 +175,7 @@ interface AttentionWebAddressSecretRotateResponse {
 // `attention.delivery.notConfigured` (`missing: address | password`).
 ```
 
-> **Scope and aggregate carrier (Plan-016 D-016-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation — `actionable` while **any** unresolved contributor (a run-scoped item or a pending request) is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.subscribe` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-016 §API And Transport Changes](../../plans/016-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-016](../../plans/016-notifications-and-attention-model.md) D-016-2.
+> **Scope and aggregate carrier (Plan-016 D-016-2).** `runId` is the scope discriminator: an item carrying it is run-scoped, an item omitting it is the session-scoped aggregate that [Spec-017 §Required Behavior](../../specs/017-notifications-and-attention-model.md#required-behavior) requires alongside run scope. There is no separate aggregate type and no aggregate-only field. On an aggregate, `severity` carries the aggregation over its contributors, the session's unresolved waiting entries and its informational entries not yet seen — `actionable` while **any** contributor is actionable, `informational` only when every contributor is — per [Spec-017 §Default Behavior](../../specs/017-notifications-and-attention-model.md#default-behavior), while `trigger` and `sourceEventId` are taken from one deterministically selected representative contributor: highest severity first (`actionable` before `informational`), then earliest `createdAt`, then lexicographically smallest `id`. Because the representative is a real contributor rather than a synthesized placeholder, `sourceEventId` always resolves on an aggregate and stays non-optional. Aggregates are read-projection-only: `attention.subscribe` returns them and no delivery carries one — a banner, a web-address message or an email line speaks for the single canonical trigger that caused it, so no aggregate is ever delivered and no per-contributor fan-out is inferred from one. Canonical statement: [Plan-016 §API And Transport Changes](../../plans/016-notifications-and-attention-model.md#api-and-transport-changes) and [Plan-016](../../plans/016-notifications-and-attention-model.md) D-016-2.
 
 ## Attention Method-Name Registry
 
