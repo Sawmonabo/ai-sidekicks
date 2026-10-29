@@ -11,7 +11,7 @@
 //!   every attempt at the daemon's stop; each closes its listener, appends nothing, and marks that
 //!   the daemon's own client did not finish, so the next press goes to a provider's flow.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -25,6 +25,7 @@ use sidekicks_contracts::mcp::server::config::McpServerAddress;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::port_registration::PortRegistration;
+use tokio::sync::watch;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
 use crate::binding_store::McpBindingKey;
@@ -85,8 +86,10 @@ pub(crate) enum SignInServer {
 /// A server reached at an address, with the client its owner issued when the entry names one.
 #[derive(Clone)]
 pub(crate) struct AddressedServer {
-    address: McpServerAddress,
-    canonical_address: String,
+    /// The server's address as the binding declares it.
+    pub(super) address: McpServerAddress,
+    /// The address its sign-in is kept under.
+    pub(super) canonical_address: String,
     owner_client: Option<OwnerIssuedClient>,
 }
 
@@ -150,11 +153,17 @@ pub(crate) enum SignInLaunch {
     )
 )]
 pub(crate) struct SignInService {
-    custody: Arc<SignInCustody>,
+    /// Every server's sign-in in the keychain.
+    pub(super) custody: Arc<SignInCustody>,
     admitted_clients: Arc<AdmittedClientStore>,
-    pools: OAuthHttpPools,
+    /// The filtered pools every OAuth call goes through.
+    pub(super) pools: OAuthHttpPools,
     relay: &'static PortRegistration<RelayAddress>,
     attempts: Mutex<Attempts>,
+    /// The canonical addresses of the servers a sign-in is held for.
+    pub(super) signed_in_addresses: watch::Sender<BTreeSet<String>>,
+    /// Stops every sign-out's revocation still running, at `close` or when the service drops.
+    pub(super) revocations: DropGuard,
 }
 
 // The open attempts by canonical server address.
@@ -165,13 +174,13 @@ struct Attempts {
     is_closed: bool,
 }
 
-// One attempt waiting for the browser's return; dropping it closes its listener and stops its
-// timer. Every attempt kept is the daemon's own client's.
+/// One attempt waiting for the browser's return; dropping it closes its listener and stops its
+/// timer. Every attempt kept is the daemon's own client's.
 #[expect(
     dead_code,
     reason = "the callback's redemption drives the receiver and redeems through the manager"
 )]
-struct SignInAttempt {
+pub(super) struct SignInAttempt {
     id: u64,
     // The binding, which the completion event names.
     binding: McpServerBindingRef,
@@ -187,9 +196,9 @@ struct SignInAttempt {
 }
 
 impl SignInAttempt {
-    // Ends the attempt, closing its listener and stopping its timer, and answers its server's
-    // address.
-    fn end(self) -> McpServerAddress {
+    /// Ends the attempt, closing its listener and stopping its timer, and answers its server's
+    /// address.
+    pub(super) fn end(self) -> McpServerAddress {
         self.server.address
     }
 }
@@ -221,6 +230,8 @@ impl SignInService {
             pools,
             relay,
             attempts: Mutex::new(Attempts::default()),
+            signed_in_addresses: watch::Sender::new(BTreeSet::new()),
+            revocations: CancellationToken::new().drop_guard(),
         })
     }
 
@@ -392,10 +403,12 @@ impl SignInService {
         Ok(SignInLaunch::Browser(browser_url))
     }
 
-    /// Ends every open attempt for the daemon's stop, each closing its listener and appending
-    /// nothing, and opens none after. A mark that does not keep is logged, since the stop goes on.
+    /// Ends every open attempt and every sign-out's revocation still running for the daemon's
+    /// stop, each attempt closing its listener and appending nothing, and opens none after. A mark
+    /// that does not keep is logged, since the stop goes on.
     #[cfg_attr(test, expect(dead_code, reason = "the daemon's stop calls it"))]
     pub(crate) async fn close(&self) {
+        self.revocations.token().cancel();
         let ended: Vec<SignInAttempt> = {
             let mut attempts = lock(&self.attempts);
             attempts.is_closed = true;
@@ -505,8 +518,12 @@ impl SignInService {
         stop.drop_guard()
     }
 
-    // Takes the attempt kept at `canonical_address`, only when it is attempt `id` if one is named.
-    fn take_attempt(&self, canonical_address: &str, id: Option<u64>) -> Option<SignInAttempt> {
+    /// Takes the attempt kept at `canonical_address`, only when it is attempt `id` if one is named.
+    pub(super) fn take_attempt(
+        &self,
+        canonical_address: &str,
+        id: Option<u64>,
+    ) -> Option<SignInAttempt> {
         let mut attempts = lock(&self.attempts);
         let is_named = attempts
             .by_address
@@ -535,8 +552,8 @@ impl SignInService {
     }
 }
 
-// The target's server when its binding is one a sign-in reaches: an address, never a connector.
-fn addressed_server(target: &SignInTarget) -> Option<&AddressedServer> {
+/// The target's server when its binding is one a sign-in reaches: an address, never a connector.
+pub(super) fn addressed_server(target: &SignInTarget) -> Option<&AddressedServer> {
     if matches!(target.binding, McpServerBindingRef::Connector { .. }) {
         return None;
     }

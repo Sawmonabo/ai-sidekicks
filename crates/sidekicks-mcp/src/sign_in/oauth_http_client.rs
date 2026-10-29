@@ -21,8 +21,8 @@
 //!   the same reach as any call that reuses it. Redirects are followed here, never by reqwest, so
 //!   each hop is judged against the server's own policy.
 //! - **The per-server client.** It holds the server's `DPoP` key slot, filled once discovery shows
-//!   `DPoP`, and the authorization server's nonce slot; it signs token and pushed authorization
-//!   requests through the signed send, applies each call's timeout, and keeps the outcome of the
+//!   `DPoP`, and the authorization server's nonce slot; it signs token, pushed authorization and
+//!   revocation requests through the signed send, applies each call's timeout, and keeps the outcome of the
 //!   last registration request it sent.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -54,7 +54,7 @@ use crate::sign_in::canonical_server_address;
 use crate::sign_in::credential_store::DpopKeyScalar;
 
 /// The bound on one OAuth call when its caller sets none: rmcp's own for its OAuth calls.
-const CALL_TIMEOUT: Duration = Duration::from_secs(30);
+pub(super) const CALL_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The idle connections each pool keeps per host: sign-ins are rare, so one is enough.
 const IDLE_CONNECTIONS_PER_HOST: usize = 1;
@@ -258,7 +258,8 @@ pub(crate) enum OAuthCallError {
     )
 )]
 impl ServerOAuthHttpClient {
-    /// Signs the server's token and pushed authorization requests with `dpop_key` from now on.
+    /// Signs the server's token, pushed authorization and revocation requests with `dpop_key` from
+    /// now on.
     pub(crate) fn set_dpop_key(&self, dpop_key: Arc<DpopKeyScalar>) {
         *lock(&self.dpop_key) = Some(dpop_key);
     }
@@ -268,8 +269,8 @@ impl ServerOAuthHttpClient {
         lock(&self.registration).clone()
     }
 
-    /// Sends `call`, its address and every redirect's judged first; a token or pushed
-    /// authorization request carries a proof when the key slot is filled, and a JSON post is a
+    /// Sends `call`, its address and every redirect's judged first; a token, pushed authorization
+    /// or revocation request carries a proof when the key slot is filled, and a JSON post is a
     /// registration request whose outcome is kept. Fails with [`OAuthCallError`].
     pub(crate) async fn call(
         &self,
@@ -369,8 +370,8 @@ impl ServerOAuthHttpClient {
         }
     }
 
-    // Sends `call` once, signed when it is a token or pushed authorization request and the key
-    // slot is filled.
+    // Sends `call` once, signed when it is a token, pushed authorization or revocation request and
+    // the key slot is filled.
     async fn send_once(
         &self,
         call: &OAuthCall,
@@ -431,13 +432,13 @@ impl OAuthHttpClient for ServerOAuthHttpClient {
     }
 }
 
-// Whether `call` is a token request (it names a `grant_type`) or a pushed authorization request
-// (it names a `response_type`), the two a `DPoP` sign-in signs.
+// Whether `call` is a token request (it names a `grant_type`), a pushed authorization request (a
+// `response_type`) or a revocation (a `token`, RFC 7009), the three a `DPoP` sign-in signs.
 fn is_bound_to_key(call: &OAuthCall) -> bool {
     call.method == Method::POST
         && has_content_type(&call.headers, "application/x-www-form-urlencoded")
         && url::form_urlencoded::parse(&call.body)
-            .any(|(name, _)| name == "grant_type" || name == "response_type")
+            .any(|(name, _)| name == "grant_type" || name == "response_type" || name == "token")
 }
 
 // Whether `headers` declare a body of `media_type`, parameters aside.

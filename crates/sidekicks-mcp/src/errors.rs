@@ -12,6 +12,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::mcp::governance::McpServerConfigWriteConflictReason;
 use sidekicks_contracts::mcp::server::McpServerBindingRef;
 use sidekicks_ipc::domain_error::{DomainError, refusal_fields};
+use sidekicks_store::credential_store::KeychainRefusal;
 
 use crate::binding_store::McpBindingKey;
 
@@ -88,6 +89,15 @@ pub(crate) enum McpRefusal {
         /// The binding being signed in to.
         binding: McpServerBindingRef,
     },
+    /// The keychain refused to delete the sign-in, so the server stays signed in.
+    #[error("the sign-out of {} did not finish: {source}", binding_words(.binding))]
+    ServerSignOutFailed {
+        /// The binding being signed out of.
+        binding: McpServerBindingRef,
+        /// The keychain's refusal, whose cause goes on the wire.
+        #[source]
+        source: KeychainRefusal,
+    },
 }
 
 impl From<McpRefusal> for DomainError {
@@ -129,6 +139,16 @@ impl From<McpRefusal> for DomainError {
                 Some(binding_fields(&binding)),
                 None,
             ),
+            McpRefusal::ServerSignOutFailed { binding, source } => {
+                return Self {
+                    message,
+                    ..Self::keychain_refused(source, RefusalCode::McpServerSignOutFailed, |cause| {
+                        let mut fields = binding_fields(&binding);
+                        fields.extend(refusal_fields(json!({ "cause": cause })));
+                        fields
+                    })
+                };
+            }
         };
         DomainError {
             message,
