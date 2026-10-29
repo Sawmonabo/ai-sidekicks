@@ -1,7 +1,8 @@
 //! A fork of a session's conversation at a recorded turn, adopted in place of the process it
 //! forks: the conversation is cut at the turn's end and the next turn's prompt dropped, the fork
 //! brought up on the predecessor's legs but for a tool-server status leg of its own, the session's
-//! binding pointed at it, and the predecessor stopped. A fork that cannot be brought up or adopted leaves the predecessor the session's.
+//! binding pointed at it, and the predecessor stopped. A fork that cannot be brought up or adopted
+//! leaves the predecessor the session's.
 
 use std::error::Error;
 use std::sync::Arc;

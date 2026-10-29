@@ -9,11 +9,12 @@ pub(crate) mod context;
 pub(crate) mod figures;
 mod fork;
 mod resume;
+pub(crate) mod spawn_sources;
 
 use std::error::Error;
 use std::io;
 use std::num::NonZeroUsize;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{Map, Value};
@@ -31,20 +32,17 @@ use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
-use sidekicks_platforms::{PathRules, Spawner};
+use sidekicks_platforms::PathRules;
 use sidekicks_std::mutex_lock::lock;
-use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::events::canonicalizer::CanonicalizationRefusal;
 use tokio::sync::SetOnce;
 
 use self::context::{ClaudeSpawnContextError, record_claude_resolved_advisor};
 use self::figures::ClaudeHeldFigures;
-use crate::background_work::BackgroundWorkForms;
+use self::spawn_sources::ClaudeSpawnSources;
 use crate::callback_tools::spawn_binding::CallbackToolSpawnBinding;
 use crate::driver::claude::DESCRIPTOR;
-use crate::driver::claude::delivery::commands::{
-    ClaudeCommandChannel, ClaudeCommandChannels, ClaudeSessionChannel,
-};
+use crate::driver::claude::delivery::commands::{ClaudeCommandChannel, ClaudeSessionChannel};
 use crate::driver::claude::delivery::stream::{ClaudeSessionStream, ClaudeSessionStreams};
 use crate::driver::claude::frame_routing::ClaudeFrameRouting;
 use crate::driver::claude::handshake_register::ClaudeHandshakeRegister;
@@ -89,16 +87,12 @@ use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::SpawnedVersionBindingCarriers;
 use crate::driver::diagnostics::DriverDiagnosticKind;
 use crate::driver::mcp_server::status::McpServerStatusProducer;
-use crate::driver::ports::DriverPorts;
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, SessionToolServer,
     SubagentPolicy,
 };
-use crate::process_registry::ProviderProcessRegistry;
 use crate::run::delivery::InboundDelivery;
-use crate::run::posture::{CredentialPolicyResolveError, ExecutionPostureService};
-use crate::runtime_binding::writer::RuntimeBindingWriter;
-use crate::spawn_environment::ReservedEnvironmentNames;
+use crate::run::posture::CredentialPolicyResolveError;
 use sidekicks_std::port_registration::PortRegistrationError;
 
 /// Why a session's process could not be brought up and adopted.
@@ -195,34 +189,6 @@ impl From<ClaudeEstablishmentError> for DriverError {
             | ClaudeEstablishmentError::CommandChannel(_)) => Self::Internal(Box::new(error)),
         }
     }
-}
-
-/// The daemon's services a spawn reads where it builds its legs and context.
-pub(crate) struct ClaudeSpawnSources {
-    /// The one thread every child is spawned from, which also checks the command sandbox.
-    pub(crate) spawner: Spawner,
-    /// Points the session's binding at the conversation it moved onto.
-    pub(crate) runtime_bindings: Arc<dyn RuntimeBindingWriter>,
-    /// The read pool, for the session's stored settings.
-    pub(crate) pool: Arc<DatabaseReadPool>,
-    /// Each posture's credential list.
-    pub(crate) execution_postures: Arc<ExecutionPostureService>,
-    /// The login shell's environment, every process's base.
-    pub(crate) base_environment: Arc<[(String, String)]>,
-    /// The names no environment row may set.
-    pub(crate) reserved_names: Arc<ReservedEnvironmentNames>,
-    /// Every provider's background work, which a process's settings deny.
-    pub(crate) background_work: Arc<BackgroundWorkForms>,
-    /// The daemon's data folder.
-    pub(crate) data_folder: PathBuf,
-    /// The person's home folder.
-    pub(crate) home_folder: PathBuf,
-    /// Which process runs each session.
-    pub(crate) processes: Arc<ProviderProcessRegistry>,
-    /// Every session's command channel.
-    pub(crate) command_channels: Arc<ClaudeCommandChannels>,
-    /// The handles the daemon registers after the drivers.
-    pub(crate) ports: Arc<DriverPorts>,
 }
 
 /// What every establishment shares: the build processes start from, the figures held for it, the

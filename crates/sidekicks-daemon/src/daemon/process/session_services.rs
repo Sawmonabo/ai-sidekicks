@@ -238,8 +238,7 @@ pub(crate) struct SessionServices {
     /// The resume of a session no driver holds in memory, composed from its stored leg.
     pub(crate) stored_resumes: Arc<StoredSessionResumes>,
     /// The one keeper of every MCP server binding's status, which each process's status producer
-    /// reports to and the machine probe reaches.
-    #[expect(dead_code, reason = "the machine probe reaches the status tracker")]
+    /// reports to; the daemon's stop ends its first-observation drain through it.
     pub(crate) mcp_status: Arc<McpServerStatusTracker>,
     /// Records each MCP binding the status tracker first observes until the tracker is let go;
     /// the stop takes it, lets the services go and waits for it before the database closes.

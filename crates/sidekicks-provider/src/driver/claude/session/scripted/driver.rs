@@ -153,9 +153,8 @@ impl SessionAdvisorStore for RecordedAdvisors {
 
 /// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
 /// each binding it had opened before its resume and each it asked legs alone for, answered with
-/// the status sink a test sets;
-/// every opening is refused once a test sets `is_open_refused`, and every report once it sets
-/// `is_relaunch_refused`.
+/// the status sink a test sets; every opening is refused once a test sets `is_open_refused`, and
+/// every report once it sets `is_relaunch_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,

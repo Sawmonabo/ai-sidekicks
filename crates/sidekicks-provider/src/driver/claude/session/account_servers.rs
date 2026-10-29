@@ -1,9 +1,10 @@
 //! When each account's connectors and organization servers are read, and what is kept between
 //! reads: an account is read at its first session after the daemon starts and again on a refresh,
 //! one read per account at a time, a second ask while one runs joining it, and the result kept for
-//! the account until a refresh, each connector marked from its organization's connector list. Budget: one Claude Code process of about 140 to 150 MB per
-//! account at a time, and none once the account's result is kept; a failed read is kept only
-//! until the account's next session or refresh asks again.
+//! the account until a refresh, each connector marked from its organization's connector list.
+//! Budget: one Claude Code process of about 140 to 150 MB per account at a time, and none once the
+//! account's result is kept; a failed read is kept only until the account's next session or
+//! refresh asks again.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -20,7 +21,7 @@ use crate::driver::claude::mcp::connectors::{
 };
 use crate::driver::claude::mcp::precedence::ClaudeMcpAccountServers;
 use crate::driver::claude::session::errors::record_unheard_claude_failure;
-use crate::driver::claude::session::establishment::ClaudeSpawnSources;
+use crate::driver::claude::session::establishment::spawn_sources::ClaudeSpawnSources;
 use crate::driver::claude::spawn::environment::claude_config_folder;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::contract::error::DriverError;
