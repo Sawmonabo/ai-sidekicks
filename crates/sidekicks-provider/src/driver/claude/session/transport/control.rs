@@ -108,6 +108,14 @@ pub(crate) enum ClaudeControlRequest {
     },
     /// Reads the settings that took effect.
     GetSettings {},
+    /// Reads the status of each MCP server the process holds, answered by a
+    /// [`ClaudeMcpStatusReply`](super::mcp_status::ClaudeMcpStatusReply).
+    #[expect(
+        dead_code,
+        reason = "the MCP server settings' live status and the account read of connector and \
+                  organization servers send it"
+    )]
+    McpStatus {},
     /// Cuts the conversation back to before one message.
     RewindConversation {
         /// The message the cut removes, with all after it.
@@ -176,6 +184,7 @@ impl ClaudeControlRequest {
             Self::SetMaxThinkingTokens { .. } => ClaudeControlSubtype::SetMaxThinkingTokens,
             Self::McpSetServers { .. } => ClaudeControlSubtype::McpSetServers,
             Self::GetSettings {} => ClaudeControlSubtype::GetSettings,
+            Self::McpStatus {} => ClaudeControlSubtype::McpStatus,
             Self::RewindConversation { .. } => ClaudeControlSubtype::RewindConversation,
             Self::CancelAsyncMessage { .. } => ClaudeControlSubtype::CancelAsyncMessage,
             Self::GetContextUsage { .. } => ClaudeControlSubtype::GetContextUsage,
@@ -208,6 +217,8 @@ pub(crate) enum ClaudeControlSubtype {
     McpSetServers,
     /// `get_settings`.
     GetSettings,
+    /// `mcp_status`.
+    McpStatus,
     /// `rewind_conversation`.
     RewindConversation,
     /// `cancel_async_message`.
@@ -243,6 +254,7 @@ impl ClaudeControlSubtype {
             Self::SetMaxThinkingTokens => "set_max_thinking_tokens",
             Self::McpSetServers => "mcp_set_servers",
             Self::GetSettings => "get_settings",
+            Self::McpStatus => "mcp_status",
             Self::RewindConversation => "rewind_conversation",
             Self::CancelAsyncMessage => "cancel_async_message",
             Self::GetContextUsage => "get_context_usage",
