@@ -613,6 +613,21 @@ impl PassFixture {
     }
 }
 
+/// Writes one run of `session` per entry of `runs` into `database`, each left in its state's
+/// stored word.
+pub(crate) fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(RunId, &str)]) {
+    for &(run_id, run_state) in runs {
+        insert_running_run(database, session, run_id);
+        database
+            .reader()
+            .execute(
+                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
+                params![run_state, run_id.text().as_str()],
+            )
+            .expect("the test sets the run's state");
+    }
+}
+
 // The provider sessions over `store`'s database, resuming on `providers` and recording bindings in
 // `bindings`, each resume's runs settled through recovery's finalize over `engine`.
 fn resuming_provider_sessions(

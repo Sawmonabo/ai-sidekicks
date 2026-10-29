@@ -3,9 +3,10 @@
 //! restart left in every session, and records the pass on the service's own session. A session
 //! whose runs were in progress has them re-armed from the log and its conversation resumed through
 //! the provider sessions, which settle each run the resume names as the provider answers for it;
-//! every other session is not opened. The runs no resume took are then settled: failed as no
-//! provider session came back, or with the provider's own words where it refused the resume, each
-//! of those then listed for the person until the session's next run starts. No write is taken until
+//! every other session is not opened, a session whose live runs are all paused among them. The runs
+//! no resume took are then settled: failed as no provider session came back, or with the
+//! provider's own words where it refused the resume, each of those then listed for the person until
+//! the session's next run starts, and a lead the person paused kept paused. No write is taken until
 //! the pass has listed the sessions it rebuilds and those whose runs it ends; from then each listed
 //! session alone refuses the calls that name it until it is rebuilt and settled, so every other
 //! session takes its writes while the pass goes on. A session whose rebuild fails is healed: the
@@ -446,24 +447,24 @@ impl StartupRecovery {
         Ok(())
     }
 
-    // Re-arms the session's runs that were past their queue and resumes its conversation through
-    // the provider sessions, which settle each run the resume names as the provider answers for
-    // it; a session with no run past its queue is not opened. Answers the runs the resume took and
-    // the provider's refusal where it refused; a session with no conversation to resume, or whose
-    // resume failed short of the provider's answer, answers neither, and its runs are settled as
-    // before any resume.
+    // Re-arms the session's runs in progress and resumes its conversation through the provider
+    // sessions, which settle each run the resume names as the provider answers for it; a session
+    // with no run in progress, its paused runs included, is not opened. Answers the runs the
+    // resume took, a paused one among them staying paused, and the provider's refusal where it
+    // refused; a session with no conversation to resume, or whose resume failed short of the
+    // provider's answer, answers neither, and its runs are settled as before any resume.
     async fn resume_session(
         &self,
         session_id: SessionId,
         tally: &mut PassTally,
         stop: &CancellationToken,
     ) -> Result<SessionResume, PassFailure> {
-        let in_progress = self
+        let rearmed = self
             .deps
             .restart_settle
             .rearm_live(session_id, stop)
             .await?;
-        if in_progress.is_empty() {
+        if rearmed.in_progress.is_empty() {
             return Ok(SessionResume::default());
         }
         if stop.is_cancelled() {
@@ -482,9 +483,11 @@ impl StartupRecovery {
                         .named_run_ids
                         .into_iter()
                         .filter(|run_id| {
-                            in_progress
-                                .iter()
-                                .any(|live_run| live_run.run_id == *run_id)
+                            rearmed.paused_run_ids.contains(run_id)
+                                || rearmed
+                                    .in_progress
+                                    .iter()
+                                    .any(|live_run| live_run.run_id == *run_id)
                         })
                         .collect(),
                     refusal: None,

@@ -323,8 +323,8 @@ impl RunEngine {
     }
 
     /// Settles a run a restart left live that recovery could not resume, without a driver, as
-    /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end, every
-    /// pending interrupt applied, and its open turns' ends, each a limit's row names with that
+    /// `decide_restart_settlement` decides, a run it leaves returned as it is: its end or a lead's
+    /// pause reached, every pending interrupt applied, and its open turns' ends, each a limit's row names with that
     /// limit and every other with `daemonRestart`, guarded on no interrupt appearing since, a
     /// `failed` end carrying `failure_detail`. An interrupt that moved or appeared since the facts
     /// were read refuses the write, and the run and its facts are read again once. Every write goes
@@ -520,9 +520,9 @@ enum RunProcessEnd<'exit> {
     Closed,
 }
 
-// The change that ends `run_id` as `settlement` decides, an interrupted or stopped end carrying
-// `intended_close`; `None` or a `failed` settlement takes `fallback_change`: the exit's failure,
-// or the close's interruption.
+// The change that settles `run_id` as `settlement` decides, an interrupted or stopped end carrying
+// `intended_close`, a reached pause moving it to `paused`; `None` or a `failed` settlement takes
+// `fallback_change`: the exit's failure, or the close's interruption.
 fn settlement_change(
     run_id: RunId,
     settlement: Option<RestartSettlement>,
@@ -544,6 +544,7 @@ fn settlement_change(
                 trigger: Some(trigger),
             },
         ),
+        Some(RestartSettlement::Paused) => RunStateChange::new(run_id, RunStateEntry::Paused),
         Some(RestartSettlement::Failed) | None => fallback_change(),
     }
 }

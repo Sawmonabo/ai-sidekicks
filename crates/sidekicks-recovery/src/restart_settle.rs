@@ -1,8 +1,9 @@
 //! What a restart left in one session, settled in an order no later step undoes: the faster-model
-//! retries still pending, before the run ends that would expire an accepted one; the runs still
-//! live past their queue re-armed from the log before a resume of the session's conversation; the
-//! runs still live that no resume took, failed as no provider session came back, or with the
-//! provider's own words where it refused the resume; the open turns of runs that had already ended,
+//! retries still pending, before the run ends that would expire an accepted one; the runs still in
+//! progress, past their queue and not paused, re-armed from the log before a resume of the
+//! session's conversation; the runs still live that no resume took, failed as no provider session
+//! came back, or with the provider's own words where it refused the resume, a lead the person
+//! paused kept paused; the open turns of runs that had already ended,
 //! before their unresolved interventions, whose expiry would drop the limit a turn ends with; then
 //! the asks, the choices and the held plans those ended runs left open. Every read is of the one
 //! session and taken after its rebuild; every write is guarded on the rows it read. The recovery
@@ -68,7 +69,7 @@ pub struct RestartSettle {
 /// state the settle or the resume's finalize ended them in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RestartTally {
-    /// The runs a resume took that are still live.
+    /// The runs a resume took that are still live and neither paused nor pausing.
     pub(crate) resumed: u64,
     /// The runs ended `failed`.
     pub(crate) failed: u64,
@@ -105,6 +106,16 @@ impl RestartTally {
             | RunState::Completed => {}
         }
     }
+}
+
+/// A session's live runs past their queue at a restart: those in progress, each re-armed, and
+/// those the person paused or was pausing, which are no work in progress and are not re-armed.
+#[derive(Debug, Default)]
+pub(crate) struct RearmedRuns {
+    /// The runs in progress, re-armed from the log.
+    pub(crate) in_progress: Vec<LiveRun>,
+    /// The runs `paused` or `pausing`.
+    pub(crate) paused_run_ids: Vec<RunId>,
 }
 
 /// What a settle of a session's live runs did: its tally, and the runs it ended `failed`.
@@ -153,38 +164,47 @@ impl RestartSettle {
         Self { deps }
     }
 
-    /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still live
-    /// past its queue from the log, as the engine held it before the restart, so a resume of the
-    /// session's conversation finds them armed; answers those runs, none where nothing of the
-    /// session was in progress. Reads `stop` before each step. Fails at the first read or write
-    /// that fails, or with `Stopped`.
+    /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still in
+    /// progress, live past its queue and neither paused nor pausing, from the log, as the engine
+    /// held it before the restart, so a resume of the session's conversation finds them armed;
+    /// answers those runs, none where nothing of the session was in progress, beside the runs
+    /// paused or pausing. Reads `stop` before each step. Fails at the first read or write that
+    /// fails, or with `Stopped`.
     pub(crate) async fn rearm_live(
         &self,
         session_id: SessionId,
         stop: &CancellationToken,
-    ) -> Result<Vec<LiveRun>, RestartSettleError> {
+    ) -> Result<RearmedRuns, RestartSettleError> {
         check_stop(Some(stop))?;
         self.settle_pending_retries(session_id, None).await?;
         check_stop(Some(stop))?;
-        let in_progress: Vec<LiveRun> = self
+        let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
-            .await?
-            .into_iter()
-            .filter(|live_run| live_run.run.state != RunState::Queued)
-            .collect();
-        for live_run in &in_progress {
-            check_stop(Some(stop))?;
-            self.deps.run_engine.rearm_after_restart(live_run).await?;
+            .await?;
+        let mut rearmed = RearmedRuns::default();
+        for live_run in live_runs {
+            match live_run.run.state {
+                RunState::Queued => {}
+                RunState::Paused | RunState::Pausing => {
+                    rearmed.paused_run_ids.push(live_run.run_id);
+                }
+                _ => {
+                    check_stop(Some(stop))?;
+                    self.deps.run_engine.rearm_after_restart(&live_run).await?;
+                    rearmed.in_progress.push(live_run);
+                }
+            }
         }
-        Ok(in_progress)
+        Ok(rearmed)
     }
 
     /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live
     /// that `resumed` does not name as [`RunEngine::settle_run_after_restart`] decides, a `failed`
     /// end carrying `failure_detail`, writing under `hold` where the caller holds the session's
     /// appends and reading `stop`, where the caller has one, before each step. A run `resumed`
-    /// names is counted resumed while it is live, and by its end where the resume's finalize ended
-    /// it. Fails at the first read or write that fails, or with `Stopped`.
+    /// names is counted resumed while it is live and neither paused nor pausing, nowhere while it
+    /// is, and by its end where the resume's finalize ended it. Fails at the first read or write
+    /// that fails, or with `Stopped`.
     pub(crate) async fn settle_live(
         &self,
         session_id: SessionId,
@@ -202,7 +222,10 @@ impl RestartSettle {
         let mut settlement = LiveSettlement::default();
         for live_run in &live_runs {
             if resumed.contains(&live_run.run_id) {
-                settlement.tally.resumed += 1;
+                // A paused run the resume named stays paused, so it is counted nowhere.
+                if !matches!(live_run.run.state, RunState::Paused | RunState::Pausing) {
+                    settlement.tally.resumed += 1;
+                }
                 continue;
             }
             check_stop(stop)?;

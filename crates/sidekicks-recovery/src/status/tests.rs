@@ -1,6 +1,5 @@
 //! The runs that need the person, as the status read lists them beside the damaged sessions.
 
-use rusqlite::params;
 use sidekicks_contracts::daemon::recovery::{
     DaemonRecoveryHaltedRun, DaemonRecoverySession, DaemonRecoverySessionState, DaemonRecoveryState,
 };
@@ -10,11 +9,11 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_session::run::engine::test_fixture::insert_running_run;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_run_id, test_session_id};
 
 use super::{LastGoodPoint, RECOVERY_STATUS_STATEMENT_CAPACITY, RecoveryStatusTracker};
+use crate::test_pass::insert_runs;
 
 // A database with the daemon's tables and no run, and the read pool the status read checks halts
 // through.
@@ -137,20 +136,6 @@ async fn a_halted_run_lists_its_session_without_refusing_it() {
     );
     tracker.mark_session_deleted(&halted);
     assert_eq!(entry_of(&tracker, &reads, &halted).await, None);
-}
-
-// The test database with one run of `session` per state, each left in that state.
-fn insert_runs(database: &TestDatabase, session: SessionId, runs: &[(RunId, &str)]) {
-    for &(run_id, run_state) in runs {
-        insert_running_run(database, session, run_id);
-        database
-            .reader()
-            .execute(
-                "UPDATE runs SET state = ?1 WHERE run_id = ?2",
-                params![run_state, run_id.text().as_str()],
-            )
-            .expect("the test sets the run's state");
-    }
 }
 
 // A halt on a diverged resume that carries no failure.

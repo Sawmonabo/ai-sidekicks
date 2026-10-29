@@ -1,9 +1,9 @@
-//! How a run a restart left live ends when recovery cannot resume it: interrupted when the person
+//! How a run a restart left live settles when recovery cannot resume it: interrupted when the person
 //! had asked to stop it or it was a child held when the daemon went down, interrupted or stopped
 //! with its limit when its log still owes one, left alone when it is queued behind a message
-//! still waiting to start it, failed otherwise. A run with open turns ends them as the daemon's
-//! own report, each turn a limit's interrupt row names with that limit's cause, the newest in the
-//! run's own write. And how a run moves once a resume succeeded, from its state before the restart
+//! still waiting to start it or is a lead the person paused, a lead's pause under way reached,
+//! failed otherwise. A run with open turns ends them as the daemon's own report, each turn a
+//! limit's interrupt row names with that limit's cause, the newest in the run's own write. And how a run moves once a resume succeeded, from its state before the restart
 //! and what its provider holds of its turn: left while the provider runs or ends its turn or the
 //! run rests, paused out of `pausing`, and interrupted with `daemonRestart` where its turn is gone.
 
@@ -178,7 +178,7 @@ pub(crate) struct RestartFacts {
     pub(crate) has_queued_item: bool,
 }
 
-/// The end a restart gives a live run.
+/// How a restart settles a live run: the end it gives it, or a lead's pause under way reached.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RestartSettlement {
     /// `interrupted`, with the daemon's own reason where the interrupt was its own.
@@ -193,6 +193,8 @@ pub(crate) enum RestartSettlement {
     },
     /// `failed`, by the restart.
     Failed,
+    /// `pausing → paused`: the lead's pause reached, since no provider runs its turn on.
+    Paused,
 }
 
 /// How a restart ends an open turn no limit cut, with `daemonRestart` as its cause, reported by
@@ -205,12 +207,12 @@ pub(crate) enum RestartTurnEnd {
     Failed,
 }
 
-/// How a restart settles one live run: its end, and how an open turn no limit cut ends. A turn's
-/// cause is its cut's whatever settles the run: each cut turn ends interrupted with its limit,
-/// every other open turn as `open_turn_end` with `daemonRestart`.
+/// How a restart settles one live run: its end or its pause reached, and how an open turn no limit
+/// cut ends. A turn's cause is its cut's whatever settles the run: each cut turn ends interrupted
+/// with its limit, every other open turn as `open_turn_end` with `daemonRestart`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RestartDecision {
-    /// The run's end.
+    /// The run's end, or its pause reached.
     pub(crate) settlement: RestartSettlement,
     /// How an open turn no limit cut ends; `None` for a queued run, which started none.
     pub(crate) open_turn_end: Option<RestartTurnEnd>,
@@ -356,8 +358,9 @@ pub(crate) fn settlement_by_stops(
 /// Decides how `run` settles, or `None` for a run left as it is. A queued run is left while a
 /// message waits to start it and fails otherwise, since nothing else will. Any other run settles
 /// by its stops; with none, a child held in a pause the restart orphaned reads interrupted and
-/// continues from its own box, and any other run fails. Whatever settles the run, each open turn a
-/// limit's interrupt row names keeps that limit's cause.
+/// continues from its own box, a paused lead stays paused, a pausing lead becomes paused, and any
+/// other run fails. Whatever settles the run, each open turn a limit's interrupt row names keeps
+/// that limit's cause.
 pub(crate) fn decide_restart_settlement(
     run: &LiveRun,
     facts: &RestartFacts,
@@ -369,24 +372,24 @@ pub(crate) fn decide_restart_settlement(
         });
     }
     // The person's pending interrupt, if any, is applied by the token limit's end in its write.
-    let settlement = settlement_by_stops(&facts.pending_interrupts, facts.owed_limit)
-        .unwrap_or_else(|| {
-            if run.parent_run_id.is_some()
-                && matches!(run.run.state, RunState::Paused | RunState::Pausing)
-            {
-                RestartSettlement::Interrupted {
-                    trigger: Some(InterruptReason::DaemonRestart),
-                }
-            } else {
-                RestartSettlement::Failed
-            }
-        });
+    let settlement = match settlement_by_stops(&facts.pending_interrupts, facts.owed_limit) {
+        Some(settlement) => settlement,
+        None => match (run.run.state, run.parent_run_id.is_some()) {
+            (RunState::Paused | RunState::Pausing, true) => RestartSettlement::Interrupted {
+                trigger: Some(InterruptReason::DaemonRestart),
+            },
+            // A paused run is no work in progress: the person's pause holds.
+            (RunState::Paused, false) => return None,
+            (RunState::Pausing, false) => RestartSettlement::Paused,
+            _ => RestartSettlement::Failed,
+        },
+    };
     Some(RestartDecision {
         settlement,
         open_turn_end: Some(match settlement {
-            RestartSettlement::Interrupted { .. } | RestartSettlement::Stopped { .. } => {
-                RestartTurnEnd::Interrupted
-            }
+            RestartSettlement::Interrupted { .. }
+            | RestartSettlement::Stopped { .. }
+            | RestartSettlement::Paused => RestartTurnEnd::Interrupted,
             RestartSettlement::Failed => RestartTurnEnd::Failed,
         }),
     })
