@@ -322,7 +322,7 @@ impl<W: Watcher + Send + 'static> ExecutionRootService<W> {
 
 /// The `lastError` a failed preparation records: a refusal's code and message, else the failure's
 /// own message, each free of paths; the cause underneath, which can name one, stays out.
-pub(super) fn last_error_detail(failure: &ExecutionRootError) -> String {
+pub(crate) fn last_error_detail(failure: &ExecutionRootError) -> String {
     if let Some(refusal) = failure.refusal() {
         return format!("{}: {}", refusal.code.as_str(), refusal.message);
     }

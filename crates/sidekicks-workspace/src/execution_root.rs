@@ -16,6 +16,8 @@
 mod bind;
 mod bracket;
 #[cfg(test)]
+pub(crate) mod test_fixture;
+#[cfg(test)]
 mod tests;
 
 use std::error::Error;
@@ -46,6 +48,7 @@ use sidekicks_store::database::connection::read_pool::{
 use sidekicks_store::database::stored_column::text_column;
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 
+pub(crate) use self::bind::last_error_detail;
 use self::bind::{ExistingWorktree, NewWorktree, RootMaterialization};
 use self::bracket::BracketGate;
 use crate::errors::{WorkspaceRefusal, WorkspaceServiceInvariantError};

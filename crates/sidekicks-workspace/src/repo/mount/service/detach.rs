@@ -10,6 +10,7 @@ use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::repo::mount::{
     LifecycleActor, RepoMountId, RepoMountState, WorkspaceId, WorkspaceState,
 };
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
@@ -27,7 +28,7 @@ use crate::schema::MountOrigin;
 
 // The detach write's statements, by position: the running check refuses when it finds a run, and
 // the flip refuses when another detach or a re-attach moved the mount first.
-const RUNNING_SESSION_STATEMENT: usize = 0;
+const RUNNING_RUN_STATEMENT: usize = 0;
 const ARCHIVABLE_DEPENDENTS_STATEMENT: usize = 1;
 const DETACH_MOUNT_STATEMENT: usize = 3;
 
@@ -43,11 +44,12 @@ const RUN_IN_PROJECT_PREDICATE: &str = "run_context.released_at IS NULL
          OR project_mount.project_id = (
               SELECT project_id FROM repo_mounts WHERE id = @repo_mount_id))";
 
-// The oldest unreleased run's session is the one a refusal names; `run_id` breaks ties between
-// runs started in the same tick.
-static SELECT_RUNNING_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
+/// The oldest unreleased run in the project `@repo_mount_id` serves, its session then its run: the
+/// one a detach's or a re-attach's refusal names. `run_id` breaks ties between runs started in the
+/// same tick. Bound to `@repo_mount_id` alone.
+pub(crate) static SELECT_RUNNING_RUN_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
-        "SELECT run_context.session_id
+        "SELECT run_context.session_id, run_context.run_id
      FROM run_execution_contexts AS run_context
     WHERE {RUN_IN_PROJECT_PREDICATE}
     ORDER BY run_context.created_at ASC, run_context.run_id ASC
@@ -98,6 +100,15 @@ pub(crate) struct RepoMountDetachOutcome {
     pub(crate) state: RepoMountState,
     /// The workspaces this call archived, in event order.
     pub(crate) archived_workspace_ids: Vec<WorkspaceId>,
+}
+
+/// An agent's run in a project: what a detach's and a re-attach's running check finds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RunningRun {
+    /// The session the run is in.
+    pub(crate) session_id: SessionId,
+    /// The run.
+    pub(crate) run_id: RunId,
 }
 
 // How one try of a detach's write ended.
@@ -182,7 +193,7 @@ impl RepoMountService {
         };
         let mut statements = vec![
             statement(
-                SELECT_RUNNING_SESSION_SQL.as_str(),
+                SELECT_RUNNING_RUN_SQL.as_str(),
                 vec![mount.clone()],
                 Some(0),
             ),
@@ -251,19 +262,21 @@ impl RepoMountService {
         error: WriteError,
     ) -> Result<DetachTry, RepoMountServiceError> {
         match error.refused_statement_index() {
-            Some(RUNNING_SESSION_STATEMENT) => {
+            Some(RUNNING_RUN_STATEMENT) => {
                 #[cfg(test)]
                 self.running_read_pause.pass().await;
                 let running = self
                     .reads
                     .read(ReadLength::Short, move |connection| {
-                        read_running_session(connection, repo_mount_id)
+                        read_running_run(connection, repo_mount_id)
+                            .map_err(RepoMountServiceError::from)
                     })
                     .await?;
                 return match running {
-                    Some(running_session_id) => {
-                        Err(RepoRefusal::DetachConflict { running_session_id }.into())
+                    Some(running) => Err(RepoRefusal::DetachConflict {
+                        running_session_id: running.session_id,
                     }
+                    .into()),
                     None => Ok(DetachTry::RunEnded(error)),
                 };
             }
@@ -319,15 +332,22 @@ fn conversion_failure(
     rusqlite::Error::FromSqlConversionFailure(index, rusqlite::types::Type::Text, Box::new(failure))
 }
 
-fn read_running_session(
+/// The run [`SELECT_RUNNING_RUN_SQL`] finds in the project `repo_mount_id` serves, `None` when no
+/// agent runs there. Fails as the read fails, and for a stored id the contracts refuse.
+pub(crate) fn read_running_run(
     connection: &Connection,
     repo_mount_id: RepoMountId,
-) -> Result<Option<SessionId>, RepoMountServiceError> {
-    Ok(connection
-        .prepare_cached(&SELECT_RUNNING_SESSION_SQL)?
+) -> rusqlite::Result<Option<RunningRun>> {
+    connection
+        .prepare_cached(&SELECT_RUNNING_RUN_SQL)?
         .query_row(
             named_params! { "@repo_mount_id": repo_mount_id.text().as_str() },
-            |row| text_column(row, 0, |text| SessionId::new(&text)),
+            |row| {
+                Ok(RunningRun {
+                    session_id: text_column(row, 0, |text| SessionId::new(&text))?,
+                    run_id: text_column(row, 1, |text| RunId::new(&text))?,
+                })
+            },
         )
-        .optional()?)
+        .optional()
 }

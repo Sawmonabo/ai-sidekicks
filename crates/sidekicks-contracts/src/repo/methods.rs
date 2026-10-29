@@ -80,6 +80,7 @@ methods! {
             result: RepoMountReattachResponse,
             refusals: [
                 RepoMountNotFound,
+                RepoMountManaged,
                 RepoMountReattachRefused,
                 RepoMountReattachConflict,
                 RepoMountRootResolutionFailed,
