@@ -1,7 +1,8 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
-//! the session inbox addresser the table's own drivers answer, and an accounts reader answering
-//! one current account; the run, session and message ids the drivers' tests mint, and the run
+//! the session inbox addresser the table's own drivers answer, an accounts reader answering one
+//! current account, and the table with Codex's driver over a scripted service; the run, session
+//! and message ids the drivers' tests mint, and the run
 //! queue's intake as a driver tells it.
 
 use std::cell::RefCell;
@@ -45,6 +46,7 @@ use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
+pub use crate::driver::codex::{ScriptedCodexService, start_scripted_codex_service};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]
@@ -54,7 +56,7 @@ use crate::driver::ports::{
 use crate::driver::registry::ProviderRegistry;
 use crate::driver::{
     AccountFoldersError, CurrentProviderAccount, DriverServices, PROVIDER_REGISTRATIONS, PROVIDERS,
-    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration,
+    ProviderAccountFolders, ProviderAccountReader, ProviderRegistration, codex,
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 use crate::process_registry::ProviderProcessRegistry;
@@ -234,6 +236,28 @@ pub fn registrations_of_first_providers(
         .collect();
     NEXT_DRIVERS.with_borrow_mut(|next| *next = drivers.into());
     table
+}
+
+/// The table's providers in its order, each built as the table builds it but Codex, whose driver's
+/// registry holds `scripted`'s service, every account resolving to its home; the next build from
+/// it takes that service, so each daemon start over it is given its service by its own call.
+pub fn registrations_over_scripted_codex(
+    scripted: &ScriptedCodexService,
+) -> &'static [ProviderRegistration] {
+    codex::hold_scripted_service(scripted);
+    // A start keeps its table for its whole life, and a test makes one or two.
+    PROVIDER_REGISTRATIONS
+        .iter()
+        .map(|registration| ProviderRegistration {
+            descriptor: registration.descriptor,
+            build: if registration.descriptor.id == codex::DESCRIPTOR.id {
+                codex::build_over_scripted_service
+            } else {
+                registration.build
+            },
+        })
+        .collect::<Vec<_>>()
+        .leak()
 }
 
 /// Binds `run_id` in `database` to the table's first provider, as a live runtime binding does, so a

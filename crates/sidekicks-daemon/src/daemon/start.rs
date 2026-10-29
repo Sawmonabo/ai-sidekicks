@@ -17,14 +17,16 @@ use sidekicks_ipc::caller_process::system_reader::ProcessTableReader;
 use sidekicks_platforms::{
     CodeSignatureError, ProgramLinkError, StopRequest, contain_daemon_descendants,
     create_missing_private_folders, daemon_run_folder, install_tree_sitter_allocator, link_program,
-    process_identity, restrict_library_search, stable_working_folder,
+    process_identity, restrict_library_search, secret_store_offer, stable_working_folder,
     turn_off_transparent_huge_pages,
 };
 use sidekicks_provider::command::askpass::command_askpass_program_path;
 use sidekicks_provider::command::wrapper::command_wrapper_program_path;
+use sidekicks_provider::driver::PROVIDER_REGISTRATIONS;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::standard_error::write_error_line;
+use sidekicks_store::credential_store::os::SystemCredentialStore;
 use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
 use sidekicks_store::data_folder::{data_folder, program_link_folder};
 use sidekicks_store::events::session::insert::monotonic_ns_now;
@@ -237,7 +239,11 @@ fn run_daemon(
             caller_process_reader,
             stop,
             base_environment: ProviderBaseEnvironment::Capture,
+            credential_store: Arc::new(SystemCredentialStore {
+                offer: secret_store_offer(),
+            }),
             service_log_files,
+            provider_registrations: PROVIDER_REGISTRATIONS,
         })
         .await;
         let ran = match started {

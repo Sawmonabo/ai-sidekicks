@@ -14,7 +14,7 @@ mod reconnect;
 pub(crate) mod routing;
 mod runner;
 pub(crate) mod start;
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) mod test_service;
 #[cfg(test)]
 mod tests;

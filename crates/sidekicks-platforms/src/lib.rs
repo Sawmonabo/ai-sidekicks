@@ -207,7 +207,10 @@ pub use linux::user_namespace::can_create_user_namespace;
 #[cfg(target_os = "linux")]
 pub use linux::user_scope::leave_daemon_scope;
 #[cfg(target_os = "linux")]
-pub use linux::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use linux::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
+    windows_drive_mounts,
+};
 #[cfg(target_os = "linux")]
 pub use linux::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use machine_name::MachineNameError;
@@ -247,7 +250,10 @@ pub use macos::responsibility::become_own_root;
 #[cfg(target_os = "macos")]
 pub use macos::session_child::{SessionChild, start_session_child};
 #[cfg(target_os = "macos")]
-pub use macos::{SHOULD_MEMORY_MAP_READS, machine_name, windows_drive_mounts};
+pub use macos::{
+    CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER, SHOULD_MEMORY_MAP_READS, machine_name,
+    windows_drive_mounts,
+};
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
 pub use memory::physical_memory;
@@ -476,6 +482,8 @@ pub use windows::command_wrapper::{
     signal_command_group, signal_foreground_group, start_in_own_group, stop_signal_number,
     take_inherited_secret, wait_for_exit, wait_for_terminal_command,
 };
+#[cfg(target_os = "windows")]
+pub use windows::credential_store::CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER;
 #[cfg(target_os = "windows")]
 pub use windows::ctrl_c::{CtrlCListener, ctrl_c, end_as_ctrl_c};
 #[cfg(target_os = "windows")]

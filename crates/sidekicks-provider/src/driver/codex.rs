@@ -4,6 +4,8 @@ use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+#[cfg(any(test, feature = "test-support"))]
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use futures::FutureExt;
@@ -25,9 +27,13 @@ use sidekicks_platforms::{
     LinuxSystemFolder, MacosSystemFolder, PerSystem, SystemFolder, SystemFolders,
     WindowsSystemFolder,
 };
+#[cfg(any(test, feature = "test-support"))]
+use sidekicks_std::mutex_lock::lock;
 
 use crate::driver::codex::lifecycle::CodexDriver;
 use crate::driver::codex::permission_level::list_codex_modes;
+#[cfg(any(test, feature = "test-support"))]
+use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::contract::ProviderDriver;
 use crate::driver::contract::error::DriverError;
 use crate::driver::contract::params_and_results::{
@@ -102,6 +108,9 @@ mod usage_limit_signal;
 #[cfg(test)]
 mod vendored_schema;
 mod version;
+
+#[cfg(any(test, feature = "test-support"))]
+pub use service::supervisor::test_service::{ScriptedCodexService, start_scripted_codex_service};
 
 /// Codex's fixed facts.
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
@@ -229,6 +238,28 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.
 pub(super) fn build(services: &DriverServices) -> Arc<dyn ProviderDriver> {
     Arc::new(CodexDriver::new(services))
+}
+
+/// The service registry the next driver [`build_over_scripted_service`] builds holds.
+#[cfg(any(test, feature = "test-support"))]
+static NEXT_SCRIPTED_REGISTRY: Mutex<Option<Arc<CodexServiceRegistry>>> = Mutex::new(None);
+
+/// Holds `scripted`'s service for the next driver [`build_over_scripted_service`] builds, every
+/// account resolving to its home.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn hold_scripted_service(scripted: &ScriptedCodexService) {
+    *lock(&NEXT_SCRIPTED_REGISTRY) = Some(CodexServiceRegistry::holding(scripted));
+}
+
+/// Builds the Codex driver as [`build`] does, its registry holding the service
+/// [`hold_scripted_service`] last held, which it takes. Panics when no service is held.
+#[cfg(any(test, feature = "test-support"))]
+pub(super) fn build_over_scripted_service(services: &DriverServices) -> Arc<dyn ProviderDriver> {
+    let mut driver = CodexDriver::new(services);
+    driver.registry = lock(&NEXT_SCRIPTED_REGISTRY)
+        .take()
+        .expect("a scripted service is held before its driver is built");
+    Arc::new(driver)
 }
 
 /// Codex takes a message the run queue hands a running turn as a steer between its steps, has no

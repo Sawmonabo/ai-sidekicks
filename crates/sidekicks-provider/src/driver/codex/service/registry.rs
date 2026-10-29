@@ -23,7 +23,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
 use crate::driver::codex::service::record::recorded_home_keys;
 use crate::driver::codex::service::socket_link::{is_listening, point_socket_link_at_service};
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 use crate::driver::codex::service::supervisor::test_service::ScriptedCodexService;
 use crate::driver::codex::service::supervisor::{
     CodexService, CodexServiceDependencies, CodexServiceSocket,
@@ -446,7 +446,7 @@ impl CodexServiceRegistry {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl CodexServiceRegistry {
     /// A registry holding `scripted`'s service as its home's, every account resolving to that
     /// home.
@@ -472,10 +472,10 @@ impl CodexServiceRegistry {
 }
 
 /// A home resolver answering the one home a test names for every account and for terminal reach.
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 pub(crate) struct OneHome(pub(crate) CodexServiceHome);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-support"))]
 impl CodexHomeResolver for OneHome {
     fn codex_home_for<'call>(
         &'call self,

@@ -96,6 +96,10 @@ pub fn windows_drive_mounts() -> io::Result<Vec<PathBuf>> {
 /// file's clean pages, so a mapped file measures smaller.
 pub const SHOULD_MEMORY_MAP_READS: bool = true;
 
+/// Whether the daemon's credential store keeps its items in a file in the data folder: no, since
+/// they go into the login keychain, the account's own.
+pub const CREDENTIAL_STORE_LIVES_IN_THE_DATA_FOLDER: bool = false;
+
 /// A bound in bytes that no single argument a program can start with reaches:
 /// `sysconf(_SC_ARG_MAX)`, which counts the arguments and the environment together, never
 /// `<limits.h>`'s smaller `ARG_MAX`. Fails with the system's error when the read fails, and with

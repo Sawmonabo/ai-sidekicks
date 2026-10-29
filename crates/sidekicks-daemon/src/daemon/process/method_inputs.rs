@@ -110,6 +110,8 @@ pub(crate) struct MethodInputsStart<'start> {
     pub(crate) artifacts: &'start ArtifactMethods,
     /// This machine.
     pub(crate) machine: LocalMachine,
+    /// This machine's device id, which a run's hold on a shell names.
+    pub(crate) machine_device_id: DeviceId,
     /// The daemon's one scheduler.
     pub(crate) scheduler: Arc<Scheduler>,
     /// The session search index.
@@ -202,7 +204,8 @@ pub(crate) enum MethodInputsError {
     /// A method was registered twice.
     #[error(transparent)]
     Registration(#[from] RegistrationError),
-    /// This machine's stored id is no device id, so no run's hold can name it.
+    /// This machine's stored id is no device id, so neither the served socket nor a run's hold
+    /// can name it.
     #[error("this computer's id {} is not a device id", machine_id.as_str())]
     MachineDeviceId {
         /// The stored id.
@@ -239,6 +242,7 @@ pub(crate) async fn register_method_inputs(
         providers,
         artifacts,
         machine,
+        machine_device_id,
         scheduler,
         search_index,
         clock,
@@ -368,7 +372,7 @@ pub(crate) async fn register_method_inputs(
     let shells = Arc::new(
         build_shell_table(ShellTableStart {
             terminals: Arc::clone(&session.terminals),
-            machine_device_id: device_id_of(&machine.machine_id)?,
+            machine_device_id,
             reads: Arc::clone(&reads),
             appender: Arc::clone(&session.appender),
             settings: Arc::clone(&settings),
@@ -608,9 +612,10 @@ pub(crate) async fn register_method_inputs(
     })
 }
 
-// This machine's own device id, which a run's hold on a shell names: a machine's id is the device
-// of every local connection to its service.
-fn device_id_of(machine_id: &MachineId) -> Result<DeviceId, MethodInputsError> {
+/// This machine's own device id, which the served socket and a run's hold on a shell name: a
+/// machine's id is the device of every local connection to its service. Fails with
+/// [`MethodInputsError::MachineDeviceId`] when the stored id is no device id.
+pub(crate) fn device_id_of(machine_id: &MachineId) -> Result<DeviceId, MethodInputsError> {
     DeviceId::new(machine_id.as_str().to_owned()).ok_or_else(|| {
         MethodInputsError::MachineDeviceId {
             machine_id: machine_id.clone(),
