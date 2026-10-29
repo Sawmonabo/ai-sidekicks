@@ -1,6 +1,7 @@
 //! One server entry of Codex's config or a plugin's MCP file, read into its redacted declaration:
-//! environment and header values are skipped as they are read, the address is stripped, and the
-//! sign-in client keeps its id and callback address only.
+//! environment and header values are skipped as they are read, the address is stripped, the
+//! sign-in client keeps its id and callback address only, and the values it gives its tools are
+//! kept.
 
 use std::collections::BTreeMap;
 
@@ -8,10 +9,11 @@ use serde::Deserialize;
 use serde::de::IgnoredAny;
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::{McpApprovalMode, McpToolName};
 use sidekicks_contracts::wire::number::PositiveNumber;
 
 use crate::driver::mcp_server::address::read_server_address;
-use crate::driver::mcp_server::read::McpServerSignInClient;
+use crate::driver::mcp_server::read::{McpServerSignInClient, McpServerToolDefaults};
 
 // The members that name how a server is reached: a program for stdio, an address for HTTP.
 const COMMAND_MEMBER: &str = "command";
@@ -20,13 +22,18 @@ const URL_MEMBER: &str = "url";
 pub(crate) const ENABLED_MEMBER: &str = "enabled";
 // The header Codex sends a bearer token in.
 const AUTHORIZATION_HEADER: &str = "Authorization";
+// The approval mode Codex gives a server's tools when its entry sets none.
+const CODEX_TOOL_APPROVAL_MODE: McpApprovalMode = McpApprovalMode::Auto;
 
-/// One server entry's redacted declaration and the sign-in client it names.
+/// One server entry's redacted declaration, the sign-in client it names and the values it gives
+/// its tools.
 pub(crate) struct CodexServerDeclaration {
     /// The declaration, every credential-bearing value reduced to its name.
     pub(crate) config: McpServerConfigView,
     /// The sign-in client the entry names, where it names one.
     pub(crate) sign_in_client: Option<McpServerSignInClient>,
+    /// The values the entry gives its tools: Codex's allow and deny lists and approval modes.
+    pub(crate) tool_defaults: McpServerToolDefaults,
 }
 
 /// Whether `entry` names how its server is reached, so it declares a server rather than overriding
@@ -73,6 +80,22 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
         })
         .and_then(PositiveNumber::new);
     let tool_timeout_sec = entry.tool_timeout_sec.and_then(PositiveNumber::new);
+    let tool_defaults = McpServerToolDefaults {
+        approval_mode: entry
+            .default_tools_approval_mode
+            .unwrap_or(CODEX_TOOL_APPROVAL_MODE),
+        tool_approval_modes: entry
+            .tools
+            .into_iter()
+            .flatten()
+            .filter_map(|(name, tool)| Some((McpToolName::new(name).ok()?, tool.approval_mode?)))
+            .collect(),
+        enabled_tools: entry.enabled_tools.map(read_tool_names),
+        disabled_tools: entry
+            .disabled_tools
+            .map(read_tool_names)
+            .unwrap_or_default(),
+    };
     let config = if let Some(command) = entry.command {
         let mut env_var_names: Vec<String> = Vec::new();
         let declared = entry.env.iter().flat_map(BTreeMap::keys).cloned().chain(
@@ -134,7 +157,16 @@ pub(crate) fn read_codex_server_entry(entry: &Value) -> Option<CodexServerDeclar
     Some(CodexServerDeclaration {
         config,
         sign_in_client,
+        tool_defaults,
     })
+}
+
+// A tool list's names that pass the wire bound; Codex matches a longer one against no tool.
+fn read_tool_names(names: Vec<String>) -> Vec<McpToolName> {
+    names
+        .into_iter()
+        .filter_map(|name| McpToolName::new(name).ok())
+        .collect()
 }
 
 // The members of a Codex server entry the read keeps. Environment and header values are skipped as
@@ -174,6 +206,21 @@ struct CodexServerEntry {
     oauth: Option<CodexSignInClient>,
     #[serde(default)]
     oauth_resource: Option<String>,
+    #[serde(default)]
+    default_tools_approval_mode: Option<McpApprovalMode>,
+    #[serde(default)]
+    enabled_tools: Option<Vec<String>>,
+    #[serde(default)]
+    disabled_tools: Option<Vec<String>>,
+    #[serde(default)]
+    tools: Option<BTreeMap<String, CodexToolEntry>>,
+}
+
+// One tool's entry under a server's `tools`: its approval mode, where it sets one.
+#[derive(Deserialize)]
+struct CodexToolEntry {
+    #[serde(default)]
+    approval_mode: Option<McpApprovalMode>,
 }
 
 // One variable a stdio server inherits: its name, or its name with where it is read.

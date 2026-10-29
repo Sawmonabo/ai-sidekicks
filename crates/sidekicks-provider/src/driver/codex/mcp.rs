@@ -8,31 +8,55 @@ pub(super) mod machine_probe;
 mod requirements;
 pub(super) mod sign_in;
 
-use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
-use crate::driver::codex::mcp::config::{CodexMcpConfigSources, read_codex_mcp_config};
-use crate::driver::codex::mcp::machine_probe::{plan_codex_mcp_probe, probe_codex_mcp_servers};
-use crate::driver::codex::session::errors::CodexError;
-use crate::driver::mcp_server::read::{McpProbeTarget, ProviderMcpServersReading};
+use std::path::{Path, PathBuf};
 
-/// What Codex's MCP servers are on this computer: the declarations, roots and allow list the
-/// config read finds, and what the machine probe read of each of `probe_targets`, which runs only
-/// when there is one. Codex brings no account's servers here. Fails as the config read fails, or
-/// as the probe's service cannot be started or a probe request fails.
-#[expect(
-    dead_code,
-    reason = "the Codex driver's answer to the daemon's MCP server read"
-)]
+use sidekicks_store::data_folder::plugin_home;
+
+use crate::driver::codex::DESCRIPTOR;
+use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
+use crate::driver::codex::mcp::config::{
+    CodexMcpConfigSources, CodexMcpRoot, read_codex_mcp_config,
+};
+use crate::driver::codex::mcp::machine_probe::{plan_codex_mcp_probe, probe_codex_mcp_servers};
+use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::session::errors::CodexError;
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+
+/// What Codex's MCP servers are on this computer for `request`: the declarations, roots and allow
+/// list the config read finds on `registry`'s service on the person's own Codex folder, `home`
+/// being the person's home folder, and what the machine probe read of each of the request's probe
+/// targets, which runs only when there is one. Codex brings no account's servers and keeps nothing
+/// between reads, so a refresh reads as any read does. Fails as the config read fails, or as the
+/// probe's service cannot be started or a probe request fails.
 pub(crate) async fn read_codex_mcp_servers(
-    sources: &CodexMcpConfigSources<'_>,
-    probe_targets: &[McpProbeTarget],
+    registry: &CodexServiceRegistry,
+    home: &Path,
+    request: &McpServersReadRequest,
 ) -> Result<ProviderMcpServersReading, CodexError> {
-    let reading = read_codex_mcp_config(sources).await?;
-    let probe_readings = if probe_targets.is_empty() {
+    let plugin_home = plugin_home(home, &DESCRIPTOR.provider_id());
+    let managed_settings_folder = DESCRIPTOR.managed_settings_folder();
+    let roots: Vec<CodexMcpRoot> = request
+        .attached_roots
+        .iter()
+        .map(|root| CodexMcpRoot {
+            root: root.clone(),
+            folder: PathBuf::from(root.path.as_str()),
+        })
+        .collect();
+    let sources = CodexMcpConfigSources {
+        registry,
+        home,
+        plugin_home: &plugin_home,
+        roots: &roots,
+        managed_settings_folder: managed_settings_folder.as_deref(),
+    };
+    let reading = read_codex_mcp_config(&sources).await?;
+    let probe_readings = if request.probe_targets.is_empty() {
         Vec::new()
     } else {
         let plugin_servers = read_plugin_server_entries(sources.plugin_home).await;
         let sites = plan_codex_mcp_probe(
-            probe_targets,
+            &request.probe_targets,
             &reading,
             sources.roots,
             sources.home,

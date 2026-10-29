@@ -2,8 +2,12 @@
 //! answers. Nothing here holds a secret value: a declaration crosses redacted, and a probed
 //! server's declaration is re-read inside the driver, never sent in the request.
 
+use std::collections::BTreeMap;
+
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpToolName};
+use sidekicks_contracts::mcp::server::{
+    McpApprovalMode, McpServerBindingRef, McpServerName, McpToolName,
+};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
@@ -79,6 +83,57 @@ pub struct McpServerDeclaration {
     pub is_read_only: bool,
     /// The sign-in client the declaration names, where it names one.
     pub sign_in_client: Option<McpServerSignInClient>,
+    /// Whether the daemon keeps the binding's switch in its own store, since the provider's own
+    /// config has none for it; the provider's `enabled` member is its switch otherwise.
+    pub is_switch_kept_by_daemon: bool,
+    /// The values the declaration gives its server's tools, which clearing an override returns
+    /// to.
+    pub tool_defaults: McpServerToolDefaults,
+    /// Whether the account's organization manages a connector's sign-in, as the provider's own
+    /// connector list reads it; `None` for every other server and where the list was not read.
+    pub organization_managed: Option<bool>,
+}
+
+/// The values a declaration gives its server's tools: whether each is on, and its approval mode.
+#[derive(Clone, Debug, PartialEq)]
+pub struct McpServerToolDefaults {
+    /// The approval mode of a tool the declaration names none for.
+    pub approval_mode: McpApprovalMode,
+    /// Each tool's own approval mode, where the declaration names one.
+    pub tool_approval_modes: BTreeMap<McpToolName, McpApprovalMode>,
+    /// The tools the declaration allows; `None` where it allows every tool.
+    pub enabled_tools: Option<Vec<McpToolName>>,
+    /// The tools the declaration denies, applied after the allow list.
+    pub disabled_tools: Vec<McpToolName>,
+}
+
+impl McpServerToolDefaults {
+    /// Defaults that give every tool `approval_mode` and switch none off.
+    pub fn with_approval_mode(approval_mode: McpApprovalMode) -> Self {
+        Self {
+            approval_mode,
+            tool_approval_modes: BTreeMap::new(),
+            enabled_tools: None,
+            disabled_tools: Vec::new(),
+        }
+    }
+
+    /// Whether the declaration leaves `tool` on: allowed, where an allow list is set, and not
+    /// denied.
+    pub fn is_tool_enabled(&self, tool: &McpToolName) -> bool {
+        self.enabled_tools
+            .as_ref()
+            .is_none_or(|allowed| allowed.contains(tool))
+            && !self.disabled_tools.contains(tool)
+    }
+
+    /// The approval mode the declaration gives `tool`.
+    pub fn tool_approval_mode(&self, tool: &McpToolName) -> McpApprovalMode {
+        self.tool_approval_modes
+            .get(tool)
+            .copied()
+            .unwrap_or(self.approval_mode)
+    }
 }
 
 /// The sign-in client a declaration names: never its secret.

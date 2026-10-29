@@ -98,6 +98,7 @@ use crate::port::run_host::RunHost;
 use crate::port::run_host::test_host::RecordingRunEngine;
 use crate::process_registry::ProviderProcessRegistry;
 use crate::run::posture::{ExecutionPostureService, compose_execution_posture};
+use crate::runtime_binding::resume::ResumeFunctionLegs;
 use crate::runtime_binding::store::RuntimeBindingStore;
 use crate::runtime_binding::test_store::{
     binding_input, open_store, spawn_config_on, spawned_build, test_provider_account_id,
@@ -362,14 +363,14 @@ impl SessionRelaunchListener for TakenRelaunches {
         &self,
         _session_id: SessionId,
         binding_id: RuntimeBindingId,
-    ) -> BoxFuture<'_, Result<(), Box<dyn std::error::Error + Send + Sync>>> {
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
         (self.heard)(format!("opened {binding_id:?}"));
         let is_refused = self.refused == RefusedRelaunchStep::Opening;
         async move {
             if is_refused {
                 return Err("the test refuses the opening".into());
             }
-            Ok(())
+            Ok(ResumeFunctionLegs::default())
         }
         .boxed()
     }

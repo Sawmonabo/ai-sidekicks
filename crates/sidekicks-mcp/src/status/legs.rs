@@ -28,10 +28,6 @@ pub(super) struct LegId {
 }
 
 /// What one leg last saw of one server.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps each leg's servers")
-)]
 struct LegServer {
     /// The effective binding the leg serves the server from.
     binding_key: McpBindingKey,
@@ -46,10 +42,6 @@ struct LegServer {
 }
 
 /// A leg's servers and the sinks that can still report for it.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps each leg")
-)]
 struct Leg {
     /// Each server the leg reported, by name.
     servers: HashMap<McpServerName, LegServer>,
@@ -60,10 +52,6 @@ struct Leg {
 }
 
 /// The machine probe's newest reading of a binding.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the machine probe records its readings")
-)]
 struct ProbeReading {
     status: McpServerStatus,
     failure_text: Option<String>,
@@ -71,10 +59,6 @@ struct ProbeReading {
 }
 
 /// One binding's sources and its folded status.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker folds each binding")
-)]
 struct BindingStatus {
     /// The legs holding an entry for the binding: the index the fold reads instead of every leg.
     legs: HashSet<LegId>,
@@ -107,10 +91,6 @@ pub(super) enum ChangeOrigin {
 /// One status notice to send: a `sessionFeed`'s two statuses are its leg's own, a
 /// `sessionEnded`'s the binding's aggregate before and after the leg left, a `machineProbe`'s the
 /// probe's own readings.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker sends a notice per change")
-)]
 pub(super) struct StatusChange {
     /// The binding's key.
     pub(super) binding_key: McpBindingKey,
@@ -126,10 +106,6 @@ pub(super) struct StatusChange {
 
 /// What a reading changed: the status changes to send, and the binding for the drain to record,
 /// which every reading of a live leg or of the probe hands over.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker applies each reading")
-)]
 pub(super) struct ObservationOutcome {
     /// The status changes to send, in order.
     pub(super) changes: Vec<StatusChange>,
@@ -145,10 +121,6 @@ struct Fold {
 }
 
 /// Every leg and every binding's sources.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps its state in it")
-)]
 pub(super) struct McpLegs {
     legs: HashMap<LegId, Leg>,
     bindings: HashMap<McpBindingKey, BindingStatus>,
@@ -446,10 +418,6 @@ impl AggregateFold {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps each leg")
-)]
 impl Leg {
     /// A leg with no server and no open sink.
     fn new() -> Self {
@@ -461,10 +429,6 @@ impl Leg {
     }
 }
 
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker folds each binding")
-)]
 impl BindingStatus {
     /// A binding with no source yet.
     fn new() -> Self {
@@ -477,10 +441,6 @@ impl BindingStatus {
 }
 
 /// A new leg entry for one reading.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker keeps each leg's servers")
-)]
 fn leg_server(
     binding_key: McpBindingKey,
     reading: McpServerReading,
@@ -502,10 +462,6 @@ fn leg_server(
 
 /// The entries of `key`'s legs that are in its aggregate, not switched off and holding a status,
 /// each with that status.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker folds each binding")
-)]
 fn live_servers<'a>(
     legs: &'a HashMap<LegId, Leg>,
     key: &'a McpBindingKey,
@@ -523,10 +479,6 @@ fn live_servers<'a>(
 /// The most severe status among `key`'s live legs, ties going to the newest, with its error text;
 /// else the probe's newest reading; else `unknown`. `observed_at` is the newest live leg's, else
 /// the probe's.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker folds each binding")
-)]
 fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &BindingStatus) -> Fold {
     let mut deciding: Option<(usize, McpServerStatus, &LegServer)> = None;
     let mut newest: Option<&WireInstant> = None;
@@ -565,10 +517,6 @@ fn fold(legs: &HashMap<LegId, Leg>, key: &McpBindingKey, binding_status: &Bindin
 }
 
 /// `status`'s place in the severity order, `0` the most severe.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the status tracker folds each binding")
-)]
 fn severity_rank(status: McpServerStatus) -> usize {
     MCP_SERVER_STATUS_SEVERITY_ORDER
         .iter()

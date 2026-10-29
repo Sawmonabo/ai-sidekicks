@@ -1,6 +1,6 @@
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 
 use super::read_codex_mcp_requirements;
@@ -8,6 +8,7 @@ use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::CodexMcpConfigReading;
 use crate::driver::mcp_server::read::{
     McpRootReading, McpServerDeclaration, McpServerPolicy, McpServerPolicyEntry,
+    McpServerToolDefaults,
 };
 
 /// The attached project root.
@@ -25,6 +26,9 @@ fn declared(binding: McpServerBindingRef, config: McpServerConfigView) -> McpSer
         disabled_in: Vec::new(),
         is_read_only: false,
         sign_in_client: None,
+        is_switch_kept_by_daemon: false,
+        tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
+        organization_managed: None,
     }
 }
 

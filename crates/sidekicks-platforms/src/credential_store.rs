@@ -63,6 +63,22 @@ pub fn secret_store_offer() -> SecretStoreOffer {
     }
 }
 
+/// The macOS login keychain, where a provider's program files its own sign-in; `None` on Windows
+/// and Linux, where a provider keeps its sign-in in a file.
+pub fn login_keychain() -> Option<StoreOpener> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(StoreOpener {
+            open: CredentialStore::open,
+            description: native::DESCRIPTION,
+        })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 /// Opens the operating system's credential store and names it for the service log.
 #[derive(Clone, Copy, Debug)]
 pub struct StoreOpener {

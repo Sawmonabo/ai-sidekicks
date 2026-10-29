@@ -1,10 +1,13 @@
 //! The account read of Claude Code's claude.ai connectors and its organization's servers: one
 //! process that keeps nothing, started under the account without `--strict-mcp-config` in an
 //! empty folder under the account's home, so nothing of the person's loads, answers `mcp_status`
-//! and `get_settings`, and each `claudeai` row becomes a read-only connector of the account while
-//! the organization's rows and `managedMcpServers` become read-only managed servers. Budget: one
-//! such process of about 140 to 150 MB per account at a time, run at the account's first session
-//! after the daemon starts and again only on a refresh, never on a poll.
+//! and `get_settings`, and each `claudeai` row becomes a read-only connector of the account, with
+//! the status and tools the row reports, while the organization's rows and `managedMcpServers`
+//! become read-only managed servers, each connector marked as its organization's connector list
+//! reads it. Budget: one such process of about 140 to 150 MB per account at a time, run at the
+//! account's first session after the daemon starts and again only on a refresh, never on a poll.
+
+pub(crate) mod organization_mark;
 
 use std::path::PathBuf;
 
@@ -12,8 +15,10 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
+use crate::driver::ReportedVersionReading;
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{ClaudeMcpEndpoint, ClaudeMcpServer};
+use crate::driver::claude::mcp::connectors::organization_mark::ClaudeConnectorMarks;
 use crate::driver::claude::mcp::organization::{
     read_claude_organization_servers, remote_server_view,
 };
@@ -28,6 +33,10 @@ use crate::driver::claude::session::transport::mcp_status::{
 };
 use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcess;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
+use crate::driver::claude::version::read_reported_version;
+use crate::driver::mcp_server::read::McpProbeReading;
+use crate::driver::mcp_server::status::McpServerStatusEmission;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Where one account's read runs: the account's process environment, the account, and the empty
@@ -41,19 +50,23 @@ pub(crate) struct ClaudeAccountServersReadRequest {
     pub(crate) working_folder: PathBuf,
 }
 
-/// What one account's process answered, unread: its `mcp_status` and `get_settings` replies. They
-/// can carry headers and whole addresses, so they live only until they are read.
+/// What one account's process answered, unread: its `mcp_status` and `get_settings` replies,
+/// which can carry headers and whole addresses, so they live only until they are read, and the
+/// version of the build that answered.
 pub(crate) struct ClaudeAccountServerAnswers {
     /// The `mcp_status` reply.
     pub(crate) mcp_status: Option<Box<RawValue>>,
     /// The `get_settings` reply.
     pub(crate) settings: Option<Box<RawValue>>,
+    /// The build's canonical version, as its `get_binary_version` reply reports it; `None` where
+    /// the reply carries none.
+    pub(crate) build_version: Option<String>,
 }
 
 /// Starts one process that keeps nothing on `executable` under `provider_account_id`'s account in
-/// `working_folder`, made where absent, and takes its `mcp_status` and `get_settings` answers.
-/// Fails with `ControlOnlyFolder` when the folder cannot be made, and as the start or a request
-/// does, a refused request included; the process is closed either way.
+/// `working_folder`, made where absent, and takes its `mcp_status`, `get_settings` and
+/// `get_binary_version` answers. Fails with `ControlOnlyFolder` when the folder cannot be made, and
+/// as the start or a request does, a refused request included; the process is closed either way.
 pub(crate) async fn read_claude_account_answers(
     launcher: &ClaudeProcessLauncher,
     executable: &ResolvedProviderExecutable,
@@ -81,9 +94,14 @@ pub(crate) async fn read_claude_account_answers(
             .process
             .send_control_request(ClaudeControlRequest::GetSettings {})
             .await?;
+        let version = short
+            .process
+            .send_control_request(ClaudeControlRequest::GetBinaryVersion {})
+            .await?;
         Ok::<_, ClaudeSessionError>(ClaudeAccountServerAnswers {
             mcp_status: mcp_status.response,
             settings: settings.response,
+            build_version: read_build_version(version.response.as_deref()),
         })
     }
     .await;
@@ -92,34 +110,91 @@ pub(crate) async fn read_claude_account_answers(
 }
 
 /// The servers `provider_account_id` brings, read from its process's `answers`: each `claudeai`
-/// row as a connector named by its display name, and the organization's servers. Every other row
-/// is the person's own config, which the config read lists.
+/// row as a connector named by its display name, with the status, error text and tools the row
+/// reports and its mark from `marks`, and the organization's servers. Every other row is the
+/// person's own config, which the config read lists.
 pub(crate) fn read_claude_account_servers(
     provider_account_id: &ProviderAccountId,
     answers: &ClaudeAccountServerAnswers,
+    marks: Option<&ClaudeConnectorMarks>,
 ) -> ClaudeMcpAccountServers {
     let reply = ClaudeMcpStatusReply::read(answers.mcp_status.as_deref());
+    let emissions = normalize_claude_mcp_status_reply(&reply)
+        .map(|read| read.emissions)
+        .unwrap_or_default();
     let rows = reply.servers.map(|rows| rows.0).unwrap_or_default();
     let settings = ClaudeSettingsReply::read(answers.settings.as_deref());
+    let organization = read_claude_organization_servers(&rows, settings.effective.as_ref());
+    let (connectors, connector_readings) = rows
+        .iter()
+        .filter(|row| is_connector_row(row))
+        .filter_map(|row| {
+            let connector = read_connector(provider_account_id, row, marks)?;
+            let reading = read_connector_reading(&connector, row, &emissions)?;
+            Some((connector, reading))
+        })
+        .unzip();
     ClaudeMcpAccountServers {
         provider_account_id: provider_account_id.clone(),
-        organization_servers: read_claude_organization_servers(&rows, settings.effective.as_ref()),
-        connectors: rows
-            .iter()
-            .filter(|row| row.source.as_deref().or(row.scope.as_deref()) == Some("claudeai"))
-            .filter_map(|row| read_connector(provider_account_id, row))
-            .collect(),
+        organization_servers: organization.servers,
+        connectors,
+        connector_readings,
+        organization_entries: organization.entries,
     }
 }
 
-// A `claudeai` row as the account's connector, reached at its own address; `None` for a row with
-// no name the wire carries or no address.
+// Whether the account's process reports any connector, so its organization marks are worth a read.
+fn lists_connectors(answers: &ClaudeAccountServerAnswers) -> bool {
+    ClaudeMcpStatusReply::read(answers.mcp_status.as_deref())
+        .servers
+        .is_some_and(|rows| rows.0.iter().any(is_connector_row))
+}
+
+// Whether `row` is one of the account's claude.ai connectors.
+fn is_connector_row(row: &ClaudeMcpServerStatusRow) -> bool {
+    row.source.as_deref().or(row.scope.as_deref()) == Some("claudeai")
+}
+
+// The canonical version a `get_binary_version` `reply` reports; `None` where it reports none.
+fn read_build_version(reply: Option<&RawValue>) -> Option<String> {
+    let reply: serde_json::Value = serde_json::from_str(reply?.get()).ok()?;
+    match read_reported_version(&reply) {
+        ReportedVersionReading::Version(version) => Some(version),
+        ReportedVersionReading::UnreadableReply(_) => None,
+    }
+}
+
+// What the account's process reported of `connector` through `row`: the row's reading and error
+// text through the one status mapping, and its tools; `None` for a row the mapping refused.
+fn read_connector_reading(
+    connector: &ClaudeMcpServer,
+    row: &ClaudeMcpServerStatusRow,
+    emissions: &[McpServerStatusEmission],
+) -> Option<McpProbeReading> {
+    let emission = emissions
+        .iter()
+        .find(|emission| Some(emission.server_name.as_str()) == row.name.as_deref())?;
+    Some(McpProbeReading {
+        binding: connector.binding.clone(),
+        reading: emission.reading,
+        failure_text: emission.failure_text.clone(),
+        tool_names: row.tool_names(),
+    })
+}
+
+// A `claudeai` row as the account's connector, reached at its own address and marked as `marks`
+// reads its id; `None` for a row with no name the wire carries or no address.
 fn read_connector(
     provider_account_id: &ProviderAccountId,
     row: &ClaudeMcpServerStatusRow,
+    marks: Option<&ClaudeConnectorMarks>,
 ) -> Option<ClaudeMcpServer> {
     let server_name = McpServerName::new(row.name.clone()?).ok()?;
-    let address = row.config.as_ref()?.address.as_ref()?;
+    let config = row.config.as_ref()?;
+    let address = config.address.as_ref()?;
+    let organization_managed = marks
+        .zip(config.connector_id.as_deref())
+        .and_then(|(marks, connector_id)| marks.mark(connector_id));
     let url_query_param_names =
         (!address.query_param_names.is_empty()).then(|| address.query_param_names.clone());
     Some(ClaudeMcpServer {
@@ -130,19 +205,21 @@ fn read_connector(
         },
         config: remote_server_view("http", address.stripped_url.clone(), url_query_param_names)?,
         endpoint: address.identity.clone().map(ClaudeMcpEndpoint::Address),
+        organization_managed,
     })
 }
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
 
     use serde_json::json;
     use serde_json::value::{RawValue, to_raw_value};
-    use sidekicks_contracts::mcp::server::McpServerBindingRef;
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
     use sidekicks_platforms::{ProgramStart, Spawner};
     use tokio::runtime::Handle;
 
@@ -163,6 +240,7 @@ mod tests {
         CLAUDE_CONTROL_ONLY_ARGUMENTS, ClaudeShortProcess,
     };
     use crate::driver::mcp_server::read::McpServerPolicy;
+    use crate::driver::mcp_server::status::McpServerReading;
     use crate::process_registry::ProviderProcessRegistry;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawned_version::ResolvedProviderExecutable;
@@ -181,11 +259,13 @@ mod tests {
         }
     }
 
-    // A `claudeai` row becomes a read-only connector of the account under its display name, and
-    // the `managed` row and the `managedMcpServers` entry read-only organization servers served
-    // with their host alone; the person's own `user` row is left to the config read. Killed by a
-    // connector bound in a writable scope, by an organization address kept with its path or
-    // query, and by a `managedMcpServers` entry listed twice.
+    // A `claudeai` row becomes a read-only connector of the account under its display name, read
+    // with the status and tools its row reports, and the `managed` row and the
+    // `managedMcpServers` entry read-only organization servers served with their host alone, the
+    // entry kept whole only in the form a probe sends; the person's own `user` row is left to the
+    // config read. Killed by a connector bound in a writable scope, by a connector's reading
+    // dropped, by an organization address kept with its path or query, by a `managedMcpServers`
+    // entry listed twice, and by its address or headers lost from the form a probe sends.
     #[test]
     fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_servers() {
         let account = test_provider_account_id();
@@ -201,7 +281,8 @@ mod tests {
                             "type": "claudeai-proxy",
                             "url": "https://mcp.slack.example.com/mcp?team=t-secret",
                             "id": "connector-id-secret"
-                        }
+                        },
+                        "tools": [{ "name": "send_message" }]
                     },
                     {
                         "name": "tracker",
@@ -234,9 +315,10 @@ mod tests {
                     }
                 }
             })),
+            build_version: None,
         };
 
-        let servers = read_claude_account_servers(&account, &answers);
+        let servers = read_claude_account_servers(&account, &answers, None);
 
         let [connector] = servers.connectors.as_slice() else {
             panic!("one connector: {:?}", servers.connectors);
@@ -254,6 +336,39 @@ mod tests {
         assert_eq!(
             remote_url(&connector.config),
             "https://mcp.slack.example.com/mcp"
+        );
+        let [reading] = servers.connector_readings.as_slice() else {
+            panic!("one connector reading: {:?}", servers.connector_readings);
+        };
+        assert_eq!(reading.binding, connector.binding);
+        assert_eq!(
+            reading.reading,
+            McpServerReading::Observed(McpServerStatus::Connected)
+        );
+        let tool_names: Vec<&str> = reading
+            .tool_names
+            .iter()
+            .map(|name| name.as_str())
+            .collect();
+        assert_eq!(tool_names, ["send_message"]);
+        let sendable: Vec<(&str, &ClaudeToolServerEntry)> = servers
+            .organization_entries
+            .iter()
+            .map(|(name, entry)| (name.as_str(), entry))
+            .collect();
+        assert_eq!(
+            sendable,
+            [(
+                "docs",
+                &ClaudeToolServerEntry::Sse {
+                    url: "https://docs.example.com/v1/sse?key=organization-secret".to_owned(),
+                    headers: [(
+                        "Authorization".to_owned(),
+                        "Bearer header-secret".to_owned()
+                    )]
+                    .into(),
+                }
+            )]
         );
         let organization: Vec<(&str, &str)> = servers
             .organization_servers
@@ -405,7 +520,7 @@ mod tests {
             .expect("the account reports a connector")
             .clone();
         assert!(
-            !read_claude_account_servers(&account, &answers)
+            !read_claude_account_servers(&account, &answers, None)
                 .connectors
                 .is_empty()
         );
@@ -451,6 +566,7 @@ mod tests {
                     "probe-organization".to_owned(),
                     ClaudeToolServerEntry::Http {
                         url: organization_url.clone(),
+                        headers: BTreeMap::new(),
                     },
                 )]
                 .into(),

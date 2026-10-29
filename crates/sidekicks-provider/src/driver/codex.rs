@@ -36,6 +36,7 @@ use crate::driver::contract::{
 };
 use crate::driver::daemon_stop::DaemonStopIntent;
 use crate::driver::idle_sleep::{IdleSleepHolds, SessionSleepState};
+use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
 use crate::driver::message_handing::{HandMoment, MessageHanding};
 use crate::driver::rewind::{RewindConversationParams, RewindConversationResult};
 use crate::driver::run_control::{
@@ -453,6 +454,13 @@ impl ProviderDriver for CodexDriver {
         provider_account_id: ProviderAccountId,
     ) -> BoxFuture<'_, Result<DriverAuthProbeResult, DriverError>> {
         self.probe_auth(provider_account_id).boxed()
+    }
+
+    fn read_mcp_servers(
+        &self,
+        request: McpServersReadRequest,
+    ) -> BoxFuture<'_, Result<ProviderMcpServersReading, DriverError>> {
+        self.read_mcp_servers(request).boxed()
     }
 
     fn compact_context(

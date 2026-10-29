@@ -29,6 +29,7 @@ use crate::command::wrapper::command_wrapper_program_path;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::AttachmentResolver;
 use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::account_credentials::ClaudeSignInReader;
 use crate::driver::claude::delivery::commands::{ClaudeCommandChannels, ClaudeCommandPrograms};
 use crate::driver::claude::delivery::dialogs::ClaudeProviderDialogs;
 use crate::driver::claude::delivery::requests::answers::{
@@ -50,6 +51,7 @@ use crate::driver::claude::hooks::helper_steers::ClaudeHelperSteers;
 use crate::driver::claude::hooks::pause::ClaudeRunPauses;
 use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::intervention::ClaudeInterventions;
+use crate::driver::claude::mcp::connectors::organization_mark::ClaudeOrganizationMarks;
 use crate::driver::claude::rate_limit_windows::ClaudeUsageProbeModels;
 use crate::driver::claude::run::controls::ClaudeRunControls;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
@@ -87,9 +89,11 @@ use crate::spawn_environment::SessionEnvironment;
 
 /// The Claude Code driver: what it stores when built, and the session pieces it composes once.
 pub(crate) struct ClaudeDriver {
-    starts: Arc<dyn ClaudeProcessStarts>,
+    /// Every process the driver starts.
+    pub(crate) starts: Arc<dyn ClaudeProcessStarts>,
     figures: Arc<ClaudeHeldFigures>,
-    account_servers: Arc<ClaudeAccountServerReads>,
+    /// Each account's read of its connectors and organization servers.
+    pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
     /// The daemon's services every session's process is started from.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
     attachments: Arc<dyn AttachmentResolver>,
@@ -135,13 +139,29 @@ impl ClaudeDriver {
             Arc::clone(&services.command_search),
             services.home_folder.clone(),
         ));
-        Self::with_starts(services, starts)
+        Self::with_sign_in(services, starts, ClaudeSignInReader::system())
     }
 
-    /// The driver over the shared services, starting every process through `starts`.
+    /// The driver over the shared services, starting every process through `starts` and reading
+    /// sign-ins from a keychain of the test's own, never the system's.
+    #[cfg(test)]
     pub(crate) fn with_starts(
         services: &DriverServices,
         starts: Arc<dyn ClaudeProcessStarts>,
+    ) -> Self {
+        Self::with_sign_in(
+            services,
+            starts,
+            ClaudeSignInReader::with_keychain(sidekicks_platforms::CredentialStore::in_memory()),
+        )
+    }
+
+    // The driver over the shared services, starting every process through `starts` and reading
+    // each account's claude.ai sign-in through `sign_in`.
+    fn with_sign_in(
+        services: &DriverServices,
+        starts: Arc<dyn ClaudeProcessStarts>,
+        sign_in: ClaudeSignInReader,
     ) -> Self {
         let link_folder = program_link_folder(&services.data_folder);
         let sources = Arc::new(ClaudeSpawnSources {
@@ -175,6 +195,7 @@ impl ClaudeDriver {
             account_servers: Arc::new(ClaudeAccountServerReads::new(
                 Arc::clone(&starts),
                 Arc::clone(&sources),
+                ClaudeOrganizationMarks::new(sign_in),
             )),
             starts,
             sources,

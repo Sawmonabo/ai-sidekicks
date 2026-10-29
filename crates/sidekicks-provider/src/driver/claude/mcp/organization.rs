@@ -1,8 +1,10 @@
 //! An organization's MCP servers for Claude Code: whether its administrator's MCP file is on this
 //! computer, and the servers a Claude Code process reports from it and from the managed settings'
-//! `managedMcpServers`, each served with its address's host only. The file's own entries are never
-//! read: the process reports each of them as an `enterprise` row, as Claude Code loads it.
+//! `managedMcpServers`, each served with its address's host only, and kept whole, headers
+//! included, only in the form a probe sends. The file's own entries are never read: the process
+//! reports each of them as an `enterprise` row, as Claude Code loads it.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -13,6 +15,7 @@ use url::{Position, Url};
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::mcp::config::{ClaudeMcpEndpoint, ClaudeMcpServer};
+use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
 use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
 use crate::driver::mcp_server::address::{ServerAddressReading, read_server_address};
 
@@ -33,15 +36,28 @@ pub(crate) async fn has_readable_managed_mcp_file(managed_settings_folder: Optio
         .is_ok()
 }
 
+/// An organization's servers as one account's process reports them: each one's declaration, and
+/// each `managedMcpServers` entry in the form `mcp_set_servers` takes, its whole address and its
+/// headers included. It derives no `Debug`, and an entry's own prints its transport alone.
+pub(crate) struct ClaudeOrganizationServers {
+    /// The servers, each served with its address's host only.
+    pub(crate) servers: Vec<ClaudeMcpServer>,
+    /// Each `managedMcpServers` entry a probe can send, by its server's name.
+    pub(crate) entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
+}
+
 /// The organization's servers among `rows`, an account's `mcp_status` rows, and in
 /// `effective_settings`, its `get_settings` reply's merged settings: each `managedMcpServers`
 /// entry, then each `managed` or `enterprise` row of a name not yet listed, so an entry Claude
-/// Code reports both ways is listed once, by the settings' whole address.
+/// Code reports both ways is listed once, by the settings' whole address. Only a
+/// `managedMcpServers` entry is kept in a form a probe sends: Claude Code reports a row's address
+/// cut short and its headers not at all.
 pub(crate) fn read_claude_organization_servers(
     rows: &[ClaudeMcpServerStatusRow],
     effective_settings: Option<&Value>,
-) -> Vec<ClaudeMcpServer> {
+) -> ClaudeOrganizationServers {
     let mut servers: Vec<ClaudeMcpServer> = Vec::new();
+    let mut entries = BTreeMap::new();
     let managed_entries = effective_settings
         .and_then(|settings| settings.get("managedMcpServers"))
         .and_then(Value::as_object);
@@ -51,6 +67,11 @@ pub(crate) fn read_claude_organization_servers(
         };
         let address = entry.url.as_deref().map(read_server_address);
         if let Some(server) = managed_server(name, entry.transport.as_deref(), address, None) {
+            if let (McpServerBindingRef::Managed { server_name, .. }, Some(sendable)) =
+                (&server.binding, compose_organization_entry(entry))
+            {
+                entries.insert(server_name.clone(), sendable);
+            }
             push_unlisted(&mut servers, server);
         }
     }
@@ -71,7 +92,7 @@ pub(crate) fn read_claude_organization_servers(
             push_unlisted(&mut servers, server);
         }
     }
-    servers
+    ClaudeOrganizationServers { servers, entries }
 }
 
 /// The declaration of a remote server reached over `transport`, `http` or `sse`, at `url`, with
@@ -112,13 +133,32 @@ pub(crate) fn remote_server_view(
     })
 }
 
-// An entry of `managedMcpServers`: its transport and address; its headers are left unread.
+// An entry of `managedMcpServers`: its transport, address and headers, values included. It derives
+// no `Debug`, so nothing prints a value.
 #[derive(Deserialize)]
 struct ClaudeManagedServerEntry {
     #[serde(rename = "type", default)]
     transport: Option<String>,
     #[serde(default)]
     url: Option<String>,
+    #[serde(default)]
+    headers: Option<Value>,
+}
+
+// A `managedMcpServers` entry as `mcp_set_servers` takes it; `None` for one with no address, a
+// transport the set has no remote form for, or headers that are not all text, which a probe could
+// not send whole.
+fn compose_organization_entry(entry: ClaudeManagedServerEntry) -> Option<ClaudeToolServerEntry> {
+    let url = entry.url?;
+    let headers: BTreeMap<String, String> = match entry.headers {
+        Some(headers) => serde_json::from_value(headers).ok()?,
+        None => BTreeMap::new(),
+    };
+    match entry.transport.as_deref()? {
+        "http" => Some(ClaudeToolServerEntry::Http { url, headers }),
+        "sse" => Some(ClaudeToolServerEntry::Sse { url, headers }),
+        _ => None,
+    }
 }
 
 // One organization server named `name`: a remote one served with its address's host alone, a
@@ -157,6 +197,7 @@ fn managed_server(
         },
         config,
         endpoint,
+        organization_managed: None,
     })
 }
 

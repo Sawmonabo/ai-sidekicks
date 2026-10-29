@@ -41,10 +41,15 @@ pub struct McpServerStatusEmission {
     pub(crate) failure_text: Option<String>,
 }
 
-#[cfg(any(test, feature = "test-support"))]
 impl McpServerStatusEmission {
+    /// The server's name, which the daemon attributes to the binding a session serves it from.
+    pub fn server_name(&self) -> &McpServerName {
+        &self.server_name
+    }
+
     /// An emission as a driver's status reader builds one, for the tests of the crates that
     /// apply emissions.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(
         server_name: McpServerName,
         reading: McpServerReading,

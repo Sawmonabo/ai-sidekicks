@@ -43,7 +43,10 @@ notify.workspace = true
 opentelemetry-proto.workspace = true
 process-wrap.workspace = true
 regex.workspace = true
+# The claude.ai connector list a connector's organization mark is read from.
+reqwest.workspace = true
 rusqlite.workspace = true
+secrecy.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -69,6 +72,7 @@ toml_edit.workspace = true
 tracing.workspace = true
 # The diagnostics recorder other crates' tests install.
 tracing-subscriber = { workspace = true, optional = true }
+unicode-normalization.workspace = true
 url.workspace = true
 zeroize.workspace = true
 

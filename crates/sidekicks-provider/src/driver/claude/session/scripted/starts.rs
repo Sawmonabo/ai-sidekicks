@@ -1,8 +1,9 @@
 //! Every process start answered by a script instead of a Claude Code program: a session's process
 //! is the next scripted channel, declaring the next scripted `initialize` reply; a one-turn process
 //! answers the next scripted reply; a catalog, figures or account read answers the next scripted
-//! reading; an MCP sign-in's process is the next scripted channel, its credential folder given the
-//! next scripted saved sign-ins.
+//! reading; the MCP server probe's process is the next scripted probe channel; an MCP sign-in's
+//! process is the next scripted channel, its credential folder given the next scripted saved
+//! sign-ins.
 //! Each start is recorded with what it asked for.
 
 use std::collections::{HashSet, VecDeque};
@@ -17,9 +18,11 @@ use super::channel::ScriptedChannel;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest,
 };
+use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::answered_commands::ClaudeAttachedAdvisor;
 use crate::driver::claude::session::process::ClaudeProcessListener;
+use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::ClaudePermissionMode;
 use crate::driver::claude::session::transport::declarations::ClaudeInitializeDeclaration;
 use crate::driver::claude::session::transport::readings::{
@@ -86,6 +89,8 @@ struct ScriptedStartTables {
     account_server_reads: usize,
     sign_ins: VecDeque<(Arc<ScriptedChannel>, Value)>,
     sign_in_environments: Vec<Vec<(String, String)>>,
+    mcp_probe_channels: VecDeque<Arc<ScriptedChannel>>,
+    mcp_probe_starts: Vec<ClaudeMcpProbeProcessRequest>,
     started: Vec<ScriptedStartRecord>,
     next_process_id: u32,
 }
@@ -171,6 +176,16 @@ impl ScriptedStarts {
     /// Takes the count of account reads so far, each one process.
     pub(crate) fn take_account_servers_read_count(&self) -> usize {
         std::mem::take(&mut self.lock().account_server_reads)
+    }
+
+    /// Scripts the next MCP server probe's process to be `channel`.
+    pub(crate) fn script_mcp_probe(&self, channel: Arc<ScriptedChannel>) {
+        self.lock().mcp_probe_channels.push_back(channel);
+    }
+
+    /// Takes every MCP server probe's start recorded so far, each with its command line.
+    pub(crate) fn take_mcp_probe_starts(&self) -> Vec<ClaudeMcpProbeProcessRequest> {
+        std::mem::take(&mut self.lock().mcp_probe_starts)
     }
 
     /// Takes the environment of each model catalog read so far.
@@ -370,10 +385,12 @@ impl ClaudeProcessStarts for ScriptedStarts {
                 Some((mcp_status, settings)) => ClaudeAccountServerAnswers {
                     mcp_status: raw(&mcp_status),
                     settings: raw(&settings),
+                    build_version: None,
                 },
                 None => ClaudeAccountServerAnswers {
                     mcp_status: None,
                     settings: None,
+                    build_version: None,
                 },
             })
         }
@@ -405,6 +422,23 @@ impl ClaudeProcessStarts for ScriptedStarts {
             .await
             .map_err(ClaudeLaunchError::Spawn)?;
             Ok(channel as ClaudeMcpSignInChannel)
+        }
+        .boxed()
+    }
+
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+        let channel = {
+            let mut tables = self.lock();
+            tables.mcp_probe_starts.push(request);
+            tables.mcp_probe_channels.pop_front()
+        };
+        async move {
+            let channel: Arc<dyn ClaudeProcessChannel> =
+                channel.ok_or_else(|| spawn_failure("no probe scripted"))?;
+            Ok(channel)
         }
         .boxed()
     }

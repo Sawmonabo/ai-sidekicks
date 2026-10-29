@@ -18,6 +18,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::wire::text::{BoundedText, TextError};
 use sidekicks_ipc::in_flight_mutations::InFlightMutations;
 use sidekicks_ipc::registry::{HandlerError, MethodRegistryBuilder, RegistrationError};
+use sidekicks_mcp::binding::resolver::McpAttributionTable;
 use sidekicks_mcp::binding::store::{McpBindingStore, open_first_observation_drain};
 use sidekicks_mcp::status::McpServerStatusTracker;
 use sidekicks_mcp::status::notices::McpNoticeBoard;
@@ -285,6 +286,16 @@ pub(crate) async fn register_method_inputs(
         Arc::clone(&providers.runtime_bindings),
         Arc::clone(&epochs),
     ));
+    // The status tracker sends each binding it first observes to the drain, which records it.
+    let (first_observations, mcp_first_observations) = open_first_observation_drain(
+        McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads)),
+    )
+    .await;
+    let mcp_notice_board = Arc::new(McpNoticeBoard::default());
+    let mcp_status = Arc::new(McpServerStatusTracker::new(
+        Arc::clone(&mcp_notice_board),
+        first_observations,
+    ));
     let port = build_provider_port(ProviderPortStart {
         reads: Arc::clone(&reads),
         read_damaged_from_sequence: Arc::clone(&read_damaged_from_sequence),
@@ -293,6 +304,8 @@ pub(crate) async fn register_method_inputs(
         settings: Arc::clone(&settings_reader),
         plan_holds: plan_holds.as_ref(),
         ports: &providers.ports,
+        mcp_status: Arc::clone(&mcp_status),
+        mcp_attribution: Arc::new(McpAttributionTable::default()),
     })?;
     let worktree_sources = Arc::new(WorktreeSources {
         reads: Arc::clone(&reads),
@@ -323,12 +336,6 @@ pub(crate) async fn register_method_inputs(
     // The daemon's `Tokens per run`, which run admission admits each new lead run with.
     let token_limits = PortRegistration::new("run token limits");
     token_limits.register(Arc::clone(&configuration) as Arc<dyn RunTokenLimitReader>)?;
-    // The status tracker sends each binding it first observes to the drain, which records it.
-    let (first_observations, mcp_first_observations) = open_first_observation_drain(
-        McpBindingStore::new(Arc::clone(&writer), Arc::clone(&reads)),
-    )
-    .await;
-    let mcp_notice_board = Arc::new(McpNoticeBoard::default());
     let session = build_session_services(SessionServiceStart {
         reads: Arc::clone(&reads),
         writer: Arc::clone(&writer),
@@ -373,10 +380,7 @@ pub(crate) async fn register_method_inputs(
         provider_accounts: Arc::clone(&providers.ports.provider_accounts),
         token_limits: Arc::new(token_limits),
         scheduler: Arc::clone(&scheduler),
-        mcp_status: Arc::new(McpServerStatusTracker::new(
-            Arc::clone(&mcp_notice_board),
-            first_observations,
-        )),
+        mcp_status,
         mcp_first_observations: mcp_first_observations.boxed(),
     })?;
     let shells = Arc::new(

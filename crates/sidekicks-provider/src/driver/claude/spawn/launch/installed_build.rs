@@ -10,6 +10,7 @@ use std::sync::Arc;
 use futures::FutureExt;
 use futures::future::BoxFuture;
 use serde_json::{Value, json};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_platforms::PathRules;
 
 use crate::capability::probe::CapabilityProbeExchange;
@@ -20,6 +21,7 @@ use crate::driver::claude::capabilities::read_claude_capabilities;
 use crate::driver::claude::mcp::connectors::{
     ClaudeAccountServerAnswers, ClaudeAccountServersReadRequest, read_claude_account_answers,
 };
+use crate::driver::claude::mcp::machine_probe::ClaudeMcpProbeProcessRequest;
 use crate::driver::claude::mcp::sign_in::{ClaudeMcpSignInChannel, ClaudeMcpSignInStart};
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
@@ -127,6 +129,14 @@ pub(crate) trait ClaudeProcessStarts: Send + Sync {
         start: ClaudeMcpSignInStart,
     ) -> BoxFuture<'_, Result<ClaudeMcpSignInChannel, ClaudeLaunchError>>;
 
+    /// Starts the MCP server probe's process as `request` names and sends its `initialize`,
+    /// handing back the process to send the probe's requests on and close. Fails as the start or
+    /// `initialize` does, the process then closed.
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>>;
+
     /// Stops every live process and starts none after.
     fn stop_every_process(&self) -> BoxFuture<'_, ()>;
 }
@@ -172,6 +182,31 @@ impl ClaudeInstalledBuild {
             search_folders,
         )
         .await
+    }
+
+    // Starts `executable` with `arguments` in `working_folder` for `provider_account_id` and sends
+    // its `initialize`, closing the process when `initialize` fails.
+    async fn start_initialized(
+        &self,
+        executable: &ResolvedProviderExecutable,
+        arguments: Vec<String>,
+        working_folder: PathBuf,
+        provider_account_id: ProviderAccountId,
+    ) -> Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError> {
+        let short = ClaudeShortProcess::start(
+            &self.launcher,
+            executable,
+            arguments,
+            working_folder,
+            Some(provider_account_id),
+        )
+        .await?;
+        if let Err(error) = short.initialize().await {
+            short.close().await;
+            return Err(error.into());
+        }
+        let process: Arc<dyn ClaudeProcessChannel> = short.process;
+        Ok(process)
     }
 }
 
@@ -370,19 +405,35 @@ impl ClaudeProcessStarts for ClaudeInstalledBuild {
                     start.servers_file.to_string_lossy().into_owned(),
                 ])
                 .collect();
-            let short = ClaudeShortProcess::start(
-                &self.launcher,
+            self.start_initialized(
                 &executable,
                 arguments,
                 start.folder,
-                Some(start.provider_account_id),
+                start.provider_account_id,
             )
-            .await?;
-            if let Err(error) = short.initialize().await {
-                short.close().await;
-                return Err(error.into());
-            }
-            Ok(short.process as ClaudeMcpSignInChannel)
+            .await
+        }
+        .boxed()
+    }
+
+    fn start_mcp_probe(
+        &self,
+        request: ClaudeMcpProbeProcessRequest,
+    ) -> BoxFuture<'_, Result<Arc<dyn ClaudeProcessChannel>, ClaudeLaunchError>> {
+        async move {
+            let executable =
+                Self::resolve(&self.command_search, &self.home_folder, request.environment).await?;
+            let working_folder = match request.working_folder {
+                Some(folder) => folder,
+                None => self.launcher.control_only_folder().await?,
+            };
+            self.start_initialized(
+                &executable,
+                request.arguments,
+                working_folder,
+                request.provider_account_id,
+            )
+            .await
         }
         .boxed()
     }
