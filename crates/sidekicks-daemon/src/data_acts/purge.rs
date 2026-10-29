@@ -17,9 +17,9 @@
 //! - After the commit the recovery state forgets the session's damage, the session reads let go of
 //!   its block cuts, the runs' postures forget its level moves, the project's other sessions are
 //!   handed their rules again, the live list loses the session, the project list counts it no
-//!   more, and each stored payload no surviving manifest names is unlinked. Once every session is done the sessions they were linked to are
-//!   scored again, and the write-ahead log is truncated, tried again until it succeeds, even when
-//!   nothing was deleted.
+//!   more, and each stored payload no surviving manifest names is unlinked. Once every session is
+//!   done the sessions they were linked to are scored again, and the write-ahead log is truncated,
+//!   tried again until it succeeds, even when nothing was deleted.
 
 pub(crate) mod rows;
 #[cfg(test)]
