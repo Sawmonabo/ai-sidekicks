@@ -143,6 +143,11 @@ CREATE TABLE sessions (
   -- The folder a requested working-folder move goes to, applied at the active run's next
   -- boundary; NULL while no move waits.
   pending_working_folder     TEXT,
+  -- The workspace the waiting move was asked for, set and cleared with the folder; a move whose
+  -- session works in another workspace by then is dropped.
+  pending_working_folder_workspace_id TEXT
+                             CHECK((pending_working_folder IS NULL)
+                                   = (pending_working_folder_workspace_id IS NULL)),
   -- The level every process the session opens or resumes starts at, which the run queue's
   -- admission reads.
   permission_level           TEXT NOT NULL DEFAULT '{yolo}'

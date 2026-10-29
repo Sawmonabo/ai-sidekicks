@@ -35,6 +35,7 @@ use sidekicks_contracts::session::directory::{
 };
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::True;
+use sidekicks_contracts::wire::id::UuidText;
 use sidekicks_contracts::worktree::events::SessionSweptToCheckoutPayload;
 use sidekicks_contracts::worktree::lifecycle::{WorktreeId, WorktreeState};
 use sidekicks_ipc::domain_error::DomainError;
@@ -78,7 +79,8 @@ pub const SESSION_WORKING_FOLDERS_STATEMENT_CAPACITY: usize = 8;
 const CANNOT_MOVE: &str = "The session works in no folder any more, so it cannot move.";
 
 const SELECT_PENDING_SQL: &str =
-    "SELECT pending_working_folder FROM sessions WHERE id = @session_id";
+    "SELECT pending_working_folder, pending_working_folder_workspace_id
+  FROM sessions WHERE id = @session_id";
 
 const SELECT_EVERY_PENDING_SQL: &str =
     "SELECT id, pending_working_folder FROM sessions WHERE pending_working_folder IS NOT NULL";
@@ -150,12 +152,16 @@ static SELECT_REMOVED_TREE_OF_SESSION_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-const SET_PENDING_SQL: &str =
-    "UPDATE sessions SET pending_working_folder = @path WHERE id = @session_id";
+const SET_PENDING_SQL: &str = "UPDATE sessions
+  SET pending_working_folder = @path, pending_working_folder_workspace_id = @workspace_id
+  WHERE id = @session_id";
 
-// Clears the pending move only while it still names `@path`, so a newer request survives.
-const CLEAR_PENDING_AT_SQL: &str = "UPDATE sessions SET pending_working_folder = NULL
-  WHERE id = @session_id AND pending_working_folder = @path";
+// Clears the pending move only while it still names `@path` and `@workspace_id`, so a newer
+// request survives.
+const CLEAR_PENDING_AT_SQL: &str = "UPDATE sessions
+  SET pending_working_folder = NULL, pending_working_folder_workspace_id = NULL
+  WHERE id = @session_id AND pending_working_folder = @path
+    AND pending_working_folder_workspace_id = @workspace_id";
 
 /// What the working folders run with; `W` is the worktree setup card's file watch.
 pub struct SessionWorkingFoldersDeps<W = RecommendedWatcher> {
@@ -272,6 +278,12 @@ struct SessionWorkspace {
     folder: Option<PathBuf>,
 }
 
+/// A move held on the session's row: the folder, as stored, and the workspace it was asked for.
+struct PendingMove {
+    path: String,
+    workspace_id: WorkspaceId,
+}
+
 /// A live workspace on a swept mount.
 struct MountWorkspace {
     id: WorkspaceId,
@@ -340,44 +352,56 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         self.execution_roots
             .require_listed_tree(workspace.id, folder)
             .await?;
-        self.write_pending(session_id, Some(request.path.as_str()))
+        self.write_pending(session_id, Some((request.path.as_str(), workspace.id)))
             .await?;
         // A run that ended while the tree was checked found no move to apply, so it is made now.
-        if self.is_run_live(session_id).await? {
-            return Ok(response(SessionWorkingFolderDisposition::Pending));
-        }
-        self.apply_pending_unheld(session_id, None).await?;
-        Ok(response(SessionWorkingFolderDisposition::Applied))
+        Ok(response(
+            if self.apply_pending_unheld(session_id, None).await? {
+                SessionWorkingFolderDisposition::Pending
+            } else {
+                SessionWorkingFolderDisposition::Applied
+            },
+        ))
     }
 
-    // Applies the session's pending move, taking its workspace's hold, the move's events under
-    // `append_hold`.
+    // Applies the session's pending move under the hold of the workspace it was asked for, the
+    // move's events under `append_hold`, answering whether a live run keeps it pending. The live
+    // run is read under the hold, which a run's gate holds while it binds the run, so a run bound
+    // before it keeps the move for that run's own end.
     async fn apply_pending_unheld(
         &self,
         session_id: SessionId,
         append_hold: Option<&SessionAppendHold>,
-    ) -> Result<(), SessionWorkingFolderError> {
-        let Some((workspace_id, folder)) = self.take_pending(session_id).await? else {
-            return Ok(());
+    ) -> Result<bool, SessionWorkingFolderError> {
+        let Some(Some(pending)) = self.read_pending(session_id).await? else {
+            return Ok(false);
         };
-        let hold = self.execution_roots.hold_preparation(workspace_id).await;
-        self.execution_roots
-            .move_to_folder_held(&hold, &folder, held_for(append_hold, session_id))
-            .await?;
-        Ok(())
+        let hold = self
+            .execution_roots
+            .hold_preparation(pending.workspace_id)
+            .await;
+        if self.is_run_live(session_id).await? {
+            return Ok(true);
+        }
+        // A move replaced since the read is left to the request that replaced it.
+        if let Some((_, folder)) = self.take_pending(session_id, pending).await? {
+            self.execution_roots
+                .move_to_folder_held(&hold, &folder, held_for(append_hold, session_id))
+                .await?;
+        }
+        Ok(false)
     }
 
-    // The session's pending move, cleared before it is made so a move that fails surfaces once and
-    // never wedges every later run: the workspace to move and its folder, `None` when none is held,
-    // another caller took it first, or the session already works there. Only the caller whose
-    // clear removed the row takes it, so two appliers never both make one move.
+    // Takes `pending`, the session's pending move as read, clearing it before it is made so a move
+    // that fails surfaces once and never wedges every later run: the workspace it was asked for and
+    // its folder, `None` when another caller took or replaced it first, the session works in
+    // another workspace now, or it already works there. Only the caller whose clear removed the row
+    // takes it, so two appliers never both make one move.
     async fn take_pending(
         &self,
         session_id: SessionId,
+        pending: PendingMove,
     ) -> Result<Option<(WorkspaceId, PathBuf)>, SessionWorkingFolderError> {
-        let Some(Some(pending)) = self.read_pending(session_id).await? else {
-            return Ok(None);
-        };
         #[cfg(test)]
         self.pending_take_pause.pass().await;
         let cleared = self
@@ -388,7 +412,16 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             return Ok(None);
         }
         let workspace = self.require_project_workspace(session_id).await?;
-        let folder = PathBuf::from(pending);
+        if workspace.id != pending.workspace_id {
+            tracing::info!(
+                session_id = session_id.text().as_str(),
+                pending_workspace_id = %pending.workspace_id,
+                live_workspace_id = %workspace.id,
+                "a pending move for a workspace the session no longer works in was dropped"
+            );
+            return Ok(None);
+        }
+        let folder = PathBuf::from(pending.path);
         if is_working_in(&workspace, &folder).await? {
             return Ok(None);
         }
@@ -478,7 +511,7 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
         if let Some(folder) = cleared_folder {
             // The clear names the stored spelling, which the sweep matched by its resolved form.
             if let Some(Some(pending)) = self.read_pending(session_id).await?
-                && canonical(Path::new(&pending)).await?.as_path() == folder
+                && canonical(Path::new(&pending.path)).await?.as_path() == folder
             {
                 transactional_prelude.push(clear_pending_statement(session_id, &pending));
             }
@@ -525,14 +558,22 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
     async fn read_pending(
         &self,
         session_id: SessionId,
-    ) -> Result<Option<Option<String>>, SessionWorkingFolderError> {
+    ) -> Result<Option<Option<PendingMove>>, SessionWorkingFolderError> {
         self.reads
             .read(ReadLength::Short, move |connection| {
                 Ok(connection
                     .prepare_cached(SELECT_PENDING_SQL)?
                     .query_row(
                         named_params! { "@session_id": session_id.text().as_str() },
-                        |row| row.get::<_, Option<String>>(0),
+                        |row| {
+                            let Some(path) = row.get::<_, Option<String>>(0)? else {
+                                return Ok(None);
+                            };
+                            Ok(Some(PendingMove {
+                                path,
+                                workspace_id: text_column(row, 1, |text| WorkspaceId::new(&text))?,
+                            }))
+                        },
                     )
                     .optional()?)
             })
@@ -655,13 +696,14 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
             .await
     }
 
-    // Stores `path` as the session's pending move, or clears it with `None`; refuses
-    // `session.notFound` for a session purged meanwhile.
+    // Stores `pending`, a folder and the workspace it was asked for, as the session's pending
+    // move, or clears it with `None`; refuses `session.notFound` for a session purged meanwhile.
     async fn write_pending(
         &self,
         session_id: SessionId,
-        path: Option<&str>,
+        pending: Option<(&str, WorkspaceId)>,
     ) -> Result<(), SessionWorkingFolderError> {
+        let workspace_text = pending.map(|(_, workspace_id)| workspace_id.text());
         write_while_session_exists(
             &self.writer,
             &session_id,
@@ -669,7 +711,11 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
                 sql: Cow::Borrowed(SET_PENDING_SQL),
                 bindings: StatementBindings::Named(vec![
                     text_binding("@session_id", session_id.text().as_str()),
-                    nullable_text_binding("@path", path),
+                    nullable_text_binding("@path", pending.map(|(path, _)| path)),
+                    nullable_text_binding(
+                        "@workspace_id",
+                        workspace_text.as_ref().map(UuidText::as_str),
+                    ),
                 ]),
                 expected_row_count: Some(1),
             },
@@ -681,14 +727,19 @@ impl<W: Watcher + Send + Sync + 'static> SessionWorkingFolders<W> {
 
 impl<W: Watcher + Send + Sync + 'static> SessionFolderMoves for SessionWorkingFolders<W> {
     /// Applies the session's pending move under the gate's hold of the workspace it moves. A move
-    /// for another workspace than the hold's, one the session no longer works in, is dropped.
+    /// asked for another workspace than the hold's, or for one the session no longer works in, is
+    /// dropped.
     fn apply_pending_held<'a>(
         &'a self,
         session_id: &'a SessionId,
         hold: &'a WorkspacePreparationHold<'_>,
     ) -> BoxFuture<'a, Result<(), Box<dyn Error + Send + Sync>>> {
         async move {
-            let Some((workspace_id, folder)) = self.take_pending(*session_id).await? else {
+            let Some(Some(pending)) = self.read_pending(*session_id).await? else {
+                return Ok(());
+            };
+            let Some((workspace_id, folder)) = self.take_pending(*session_id, pending).await?
+            else {
                 return Ok(());
             };
             if workspace_id != hold.workspace_id() {
@@ -810,12 +861,13 @@ fn sweep_failure(session_id: SessionId, failure: SessionWorkingFolderError) -> S
     }
 }
 
-fn clear_pending_statement(session_id: SessionId, path: &str) -> WriteStatement {
+fn clear_pending_statement(session_id: SessionId, pending: &PendingMove) -> WriteStatement {
     WriteStatement {
         sql: Cow::Borrowed(CLEAR_PENDING_AT_SQL),
         bindings: StatementBindings::Named(vec![
             text_binding("@session_id", session_id.text().as_str()),
-            text_binding("@path", path),
+            text_binding("@path", &pending.path),
+            text_binding("@workspace_id", pending.workspace_id.text().as_str()),
         ]),
         expected_row_count: None,
     }
