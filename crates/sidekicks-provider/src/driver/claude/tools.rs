@@ -124,6 +124,8 @@ pub(crate) fn normalize_claude_mcp_server_init_census(
             row.get("name").unwrap_or(&Value::Null),
             reading,
             row.get("error").unwrap_or(&Value::Null),
+            // The list names no tools.
+            None,
         ) {
             Ok(emission) => result.emissions.push(emission),
             Err(rejection) => result.rejections.push(rejection),
@@ -133,7 +135,8 @@ pub(crate) fn normalize_claude_mcp_server_init_census(
 }
 
 /// Reads an `mcp_status` answer's rows as one reading per server, each with its scrubbed error
-/// text; `None` for an answer that carries no list. A row whose name fails the wire bound is one
+/// text and the names of its tools where the row lists them; `None` for an answer that carries no
+/// list. A row whose name fails the wire bound is one
 /// rejection; the rest are emitted.
 pub(crate) fn normalize_claude_mcp_status_reply(
     reply: &ClaudeMcpStatusReply,
@@ -146,6 +149,7 @@ pub(crate) fn normalize_claude_mcp_status_reply(
             &text_of(&row.name),
             claude_mcp_server_reading(row.status),
             &text_of(&row.error),
+            row.tools.is_some().then(|| row.tool_names()),
         ) {
             Ok(emission) => result.emissions.push(emission),
             Err(rejection) => result.rejections.push(rejection),
@@ -162,7 +166,8 @@ mod tests {
         Connected, Failed, NeedsAuth, Starting, Unknown,
     };
 
-    use super::normalize_claude_mcp_server_init_census;
+    use super::{normalize_claude_mcp_server_init_census, normalize_claude_mcp_status_reply};
+    use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
     use crate::driver::mcp_server::status::McpServerReading;
     use crate::driver::mcp_server::status::McpServerReading::{Observed, SwitchedOff};
 
@@ -201,5 +206,40 @@ mod tests {
         assert_eq!(emission.server_name.as_str(), "github");
         assert_eq!(emission.reading, expected_reading);
         assert_eq!(emission.failure_text.as_deref(), expected_failure_text);
+    }
+
+    // An `mcp_status` row that lists its tools carries their names, and a row that sends no list,
+    // as one still starting does, carries none, so the leg keeps the list it last read. Killed by
+    // an absent list read as an empty one, and by the row's tools dropped.
+    #[test]
+    fn a_status_row_carries_its_tools_only_where_it_lists_them() {
+        let raw = serde_json::value::to_raw_value(&json!({ "mcpServers": [
+            { "name": "github", "status": "connected", "tools": [{ "name": "search" }] },
+            { "name": "tracker", "status": "pending" },
+        ] }))
+        .expect("the answer is JSON");
+        let read = normalize_claude_mcp_status_reply(&ClaudeMcpStatusReply::read(Some(&*raw)))
+            .expect("the answer carries a list");
+
+        let tools: Vec<_> = read
+            .emissions
+            .iter()
+            .map(|emission| {
+                let names = emission.tool_names.as_ref().map(|names| {
+                    names
+                        .iter()
+                        .map(|name| name.as_str().to_owned())
+                        .collect::<Vec<_>>()
+                });
+                (emission.server_name.as_str().to_owned(), names)
+            })
+            .collect();
+        assert_eq!(
+            tools,
+            [
+                ("github".to_owned(), Some(vec!["search".to_owned()])),
+                ("tracker".to_owned(), None),
+            ]
+        );
     }
 }

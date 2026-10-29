@@ -1,6 +1,7 @@
 //! The daemon's status producer of one session leg: each server name a driver reports is
 //! attributed, through the attribution table, to the binding a session at the session's project
-//! root serves it from, then applied to the leg's status; the leg's end retires that leg alone.
+//! root serves it from, or a session in no root from the provider's root-free bindings, then
+//! applied to the leg's status; the leg's end retires that leg alone.
 //! Beside it, the daemon's own MCP sign-in state, which reads a server whose sign-in the daemon
 //! holds and lacks as `needsAuth`.
 
@@ -22,27 +23,28 @@ use super::{McpLegStatusSink, McpServerStatusTracker};
 use crate::binding::resolver::{McpAttributionTable, attached_root_path};
 
 /// Where a session's reported server names are attributed: the attribution table, the provider
-/// the session runs on and its project's root. Composed once per session and shared by the
-/// producers of its legs.
+/// the session runs on and its project's root, none for a session in no project with an attached
+/// folder. Composed once per session and shared by the producers of its legs.
 #[derive(Clone)]
 pub struct McpSessionAttribution {
     table: Arc<McpAttributionTable>,
     provider: ProviderId,
-    root: PlacedPath,
+    root: Option<PlacedPath>,
 }
 
 impl McpSessionAttribution {
-    /// The attribution of a session of `provider` in the project whose folder is `root`. Fails
-    /// with the path's [`TextError`] when the stored root is no path the wire can carry.
+    /// The attribution of a session of `provider` in the project whose folder is `root`, or in
+    /// no root where it is `None`, as a chat is. Fails with the path's [`TextError`] when the
+    /// stored root is no path the wire can carry.
     pub fn new(
         table: Arc<McpAttributionTable>,
         provider: ProviderId,
-        root: &AttachedProjectRoot,
+        root: Option<&AttachedProjectRoot>,
     ) -> Result<Self, TextError> {
         Ok(Self {
             table,
             provider,
-            root: attached_root_path(root)?,
+            root: root.map(attached_root_path).transpose()?,
         })
     }
 }
@@ -84,20 +86,21 @@ impl McpLegStatusProducer {
 }
 
 impl McpServerStatusSink for McpLegStatusProducer {
-    /// Applies the reading to the binding its name resolves to at the session's root; a name that
-    /// resolves to none is logged and changes nothing.
+    /// Applies the reading to the binding its name resolves to at the session's root, or among the
+    /// provider's root-free bindings for a session in no root; a name that resolves to none is
+    /// logged and changes nothing.
     fn report_status(&self, emission: McpServerStatusEmission) {
         let McpSessionAttribution {
             table,
             provider,
             root,
         } = &self.attribution;
-        let Some(binding) = table.resolve(provider, root, emission.server_name()) else {
+        let Some(binding) = table.resolve(provider, root.as_ref(), emission.server_name()) else {
             tracing::debug!(
                 session_id = %self.sink.leg.session_id,
                 binding_id = self.sink.leg.binding_id.as_str(),
                 server_name = emission.server_name().as_str(),
-                "an MCP server a session reported resolves to no binding at its root"
+                "an MCP server a session reported resolves to no binding"
             );
             return;
         };
@@ -159,7 +162,9 @@ mod tests {
     use sidekicks_contracts::session::id::SessionId;
     use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_ipc::stream::feed::{CreditGate, Feed};
-    use sidekicks_provider::driver::mcp_server::read::McpRootReading;
+    use sidekicks_provider::driver::mcp_server::read::{
+        McpRootReading, McpServerPolicy, ProviderMcpServersReading,
+    };
     use sidekicks_provider::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission,
     };
@@ -198,27 +203,39 @@ mod tests {
         };
         table.replace_provider_loaded(
             &provider(),
-            &[McpRootReading {
-                root,
-                kept_out_server_names: Vec::new(),
-                provider_loaded: vec![binding("docs")],
-            }],
+            &ProviderMcpServersReading {
+                declarations: Vec::new(),
+                roots: vec![McpRootReading {
+                    root,
+                    kept_out_server_names: Vec::new(),
+                    provider_loaded: vec![binding("docs")],
+                }],
+                is_machine_managed: false,
+                server_policy: McpServerPolicy::default(),
+                account_servers: Vec::new(),
+                probe_readings: Vec::new(),
+            },
         );
         McpSessionAttribution::new(
             table,
             provider(),
-            &AttachedProjectRoot {
+            Some(&AttachedProjectRoot {
                 project_id: ProjectId::new(&mint_uuid_v7().to_string()).expect("a project id"),
                 repo_mount_id: RepoMountId::new("mount").expect("a mount id"),
                 canonical_root: ROOT.into(),
                 place: None,
-            },
+            }),
         )
         .expect("the root is a path")
     }
 
     fn report(name: &str, status: McpServerStatus) -> McpServerStatusEmission {
-        McpServerStatusEmission::new(server_name(name), McpServerReading::Observed(status), None)
+        McpServerStatusEmission::new(
+            server_name(name),
+            McpServerReading::Observed(status),
+            None,
+            None,
+        )
     }
 
     // Two legs of one session report `docs`; one producer's end leaves the other leg reading it.

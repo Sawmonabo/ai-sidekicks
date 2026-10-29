@@ -1,6 +1,7 @@
 //! The function legs each of a session's provider processes is handed: the MCP status producer
-//! of its own leg, which attributes the servers it reports at the session's project root. One
-//! composer serves a session's opening and each relaunch a driver starts on its own.
+//! of its own leg, which attributes the servers it reports at the session's project root, or for
+//! a session in no root among the provider's root-free bindings. One composer serves a session's
+//! opening, each relaunch a driver starts on its own and each relaunch that keeps its binding.
 
 use std::sync::Arc;
 
@@ -20,25 +21,25 @@ pub type SessionFunctionLegsFor =
 impl SessionDirectoryProviderPort {
     /// The function legs of each binding of `session_id`, whose processes run on `provider`: a
     /// status producer per binding, opened on the tracker when the binding's legs are composed. A
-    /// session in no project with an attached folder (a chat among them) has no root to attribute
-    /// at, so its legs carry no producer. Fails as the root's read fails, and when the stored root
-    /// is no path the wire carries.
+    /// session in no project with an attached folder (a chat among them) attributes at no root,
+    /// among the provider's root-free bindings. Fails as the root's read fails, and when the
+    /// stored root is no path the wire carries.
     pub(super) async fn compose_function_legs(
         &self,
         session_id: SessionId,
         provider: ProviderId,
     ) -> Result<SessionFunctionLegsFor, SessionDirectoryProviderPortError> {
-        let Some(root) = self
+        let root = self
             .deps
             .project_records
             .read_project_root_of_session(session_id)
-            .await?
-        else {
-            return Ok(Arc::new(|_| ResumeFunctionLegs::default()));
-        };
-        let attribution =
-            McpSessionAttribution::new(Arc::clone(&self.deps.mcp_attribution), provider, &root)
-                .map_err(SessionDirectoryProviderPortError::McpRootPath)?;
+            .await?;
+        let attribution = McpSessionAttribution::new(
+            Arc::clone(&self.deps.mcp_attribution),
+            provider,
+            root.as_ref(),
+        )
+        .map_err(SessionDirectoryProviderPortError::McpRootPath)?;
         let tracker = Arc::clone(&self.deps.mcp_status);
         Ok(Arc::new(move |binding_id| ResumeFunctionLegs {
             on_mcp_server_status: Some(open_mcp_leg_status_producer(
@@ -58,13 +59,7 @@ impl SessionDirectoryProviderPort {
         session_id: SessionId,
         binding_id: RuntimeBindingId,
     ) -> Result<ResumeFunctionLegs, SessionDirectoryProviderPortError> {
-        let function_legs_for = match read_session_leg(&self.deps.pool, session_id).await? {
-            Some(leg) => Some(
-                self.compose_function_legs(session_id, leg.provider_name)
-                    .await?,
-            ),
-            None => None,
-        };
+        let function_legs_for = self.compose_session_function_legs(session_id).await?;
         self.deps
             .binding_cursors
             .open_driver_relaunch(session_id, binding_id.clone())
@@ -72,5 +67,36 @@ impl SessionDirectoryProviderPort {
         Ok(function_legs_for
             .map(|function_legs_for| function_legs_for(&binding_id))
             .unwrap_or_default())
+    }
+
+    /// Answers the function legs of `binding_id`, the process a relaunch that keeps the session's
+    /// binding starts, composed for the provider of the session's leg, with no cursor opened: a
+    /// fresh status producer, never the ended process's. A session with no leg yet answers no
+    /// producer. Fails as the reads fail.
+    pub(super) async fn compose_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> Result<ResumeFunctionLegs, SessionDirectoryProviderPortError> {
+        Ok(self
+            .compose_session_function_legs(session_id)
+            .await?
+            .map(|function_legs_for| function_legs_for(&binding_id))
+            .unwrap_or_default())
+    }
+
+    // The function legs of `session_id`'s bindings, composed for the provider of its leg; `None`
+    // for a session with no leg yet.
+    async fn compose_session_function_legs(
+        &self,
+        session_id: SessionId,
+    ) -> Result<Option<SessionFunctionLegsFor>, SessionDirectoryProviderPortError> {
+        match read_session_leg(&self.deps.pool, session_id).await? {
+            Some(leg) => Ok(Some(
+                self.compose_function_legs(session_id, leg.provider_name)
+                    .await?,
+            )),
+            None => Ok(None),
+        }
     }
 }

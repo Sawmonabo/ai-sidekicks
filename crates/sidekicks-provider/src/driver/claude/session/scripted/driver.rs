@@ -152,13 +152,15 @@ impl SessionAdvisorStore for RecordedAdvisors {
 }
 
 /// Each relaunch the driver reported, with the binding it resumed on, `None` for one that failed,
-/// and each binding it had opened before its resume, answered with the status sink a test sets;
+/// each binding it had opened before its resume and each it asked legs alone for, answered with
+/// the status sink a test sets;
 /// every opening is refused once a test sets `is_open_refused`, and every report once it sets
 /// `is_relaunch_refused`.
 #[derive(Default)]
 pub(crate) struct RecordedRelaunches {
     taken: Mutex<Vec<(SessionId, Option<RuntimeBindingId>)>>,
     opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
+    legs_opened: Mutex<Vec<(SessionId, RuntimeBindingId)>>,
     reported: Notify,
     /// The status sink each opening answers in its function legs; none until a test sets one.
     pub(crate) status_sink: Mutex<Option<McpServerStatusProducer>>,
@@ -172,6 +174,11 @@ impl RecordedRelaunches {
     /// The bindings opened so far, in the order the driver opened them.
     pub(crate) fn opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
         lock(&self.opened).clone()
+    }
+
+    /// The bindings the driver asked legs alone for, with no cursor, in the order it asked.
+    pub(crate) fn legs_opened(&self) -> Vec<(SessionId, RuntimeBindingId)> {
+        lock(&self.legs_opened).clone()
     }
 
     /// The relaunches once `count` are reported, each after the process it started, which a start
@@ -209,6 +216,18 @@ impl SessionRelaunchListener for RecordedRelaunches {
             Ok(legs)
         }
         .boxed()
+    }
+
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn std::error::Error + Send + Sync>>> {
+        lock(&self.legs_opened).push((session_id, binding_id));
+        let legs = ResumeFunctionLegs {
+            on_mcp_server_status: lock(&self.status_sink).clone(),
+        };
+        async move { Ok(legs) }.boxed()
     }
 
     fn session_relaunched(

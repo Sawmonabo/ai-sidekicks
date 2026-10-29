@@ -25,9 +25,7 @@ use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeMcpSetServersReply, ClaudeToolServerEntry,
 };
-use crate::driver::claude::session::transport::mcp_status::{
-    ClaudeMcpServerStatusRow, ClaudeMcpStatusReply,
-};
+use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
 use crate::driver::claude::spawn::launch::control_only::compose_claude_control_only_arguments;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
@@ -323,10 +321,14 @@ async fn read_probe_statuses(
                 continue;
             }
             let reading = McpServerReading::Observed(McpServerStatus::Failed);
-            let failure_text =
-                bound_mcp_server_status_emission(&Value::String(name.clone()), reading, &error)
-                    .ok()
-                    .and_then(|emission| emission.failure_text);
+            let failure_text = bound_mcp_server_status_emission(
+                &Value::String(name.clone()),
+                reading,
+                &error,
+                None,
+            )
+            .ok()
+            .and_then(|emission| emission.failure_text);
             statuses.insert(
                 name,
                 ProbeStatus {
@@ -377,7 +379,6 @@ fn record_status_reply(
             "a row of the MCP server probe's status answer was refused"
         );
     }
-    let rows = reply.servers.iter().flat_map(|rows| &rows.0);
     for emission in read.emissions {
         let name = emission.server_name.as_str();
         let is_failed_by_set = statuses
@@ -386,17 +387,12 @@ fn record_status_reply(
         if !names.contains(&name) || is_failed_by_set {
             continue;
         }
-        let tool_names = rows
-            .clone()
-            .find(|row| row.name.as_deref() == Some(name))
-            .map(ClaudeMcpServerStatusRow::tool_names)
-            .unwrap_or_default();
         statuses.insert(
             name.to_owned(),
             ProbeStatus {
                 reading: emission.reading,
                 failure_text: emission.failure_text,
-                tool_names,
+                tool_names: emission.tool_names.unwrap_or_default(),
                 is_failed_by_set: false,
             },
         );

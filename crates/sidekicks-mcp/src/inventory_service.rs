@@ -288,9 +288,11 @@ impl McpInventoryService {
     /// Reads `provider`'s bindings through `driver`, asking it to probe the bindings `probe`
     /// names and, on `is_refresh`, to read again what it keeps; this is the one read a probe
     /// trigger calls. Each row is keyed by its binding. The attribution table takes the provider's
-    /// roots, and each probe reading the driver answers lands in [`Self::keep_probe_readings`].
-    /// Fails as the driver's read fails; a store that does not answer gives each row the
-    /// store-unavailable arm.
+    /// reading, each probe reading the driver answers lands in [`Self::keep_probe_readings`], and
+    /// the tracker forgets the probe reading of every binding of the provider the rows no longer
+    /// hold. Fails as the driver's read fails; a store that does not answer gives each row the
+    /// store-unavailable arm and forgets no probe reading, since without it the emulated `local`
+    /// rows are not listed.
     async fn read_provider_rows(
         &self,
         provider: &ProviderId,
@@ -324,7 +326,7 @@ impl McpInventoryService {
         })?;
         self.sources
             .attribution
-            .replace_provider_loaded(provider, &reading.roots);
+            .replace_provider_loaded(provider, &reading);
         self.keep_probe_readings(&reading.probe_readings);
         let stored = stored
             .inspect_err(|error| {
@@ -336,10 +338,18 @@ impl McpInventoryService {
                 );
             })
             .ok();
-        Ok(resolve_binding_rows(&reading, stored.as_ref())
+        let rows: Vec<(McpBindingKey, McpBindingRow)> =
+            resolve_binding_rows(&reading, stored.as_ref())
+                .into_iter()
+                .map(|row| (McpBindingKey::of(&row.declaration.binding), row))
+                .collect();
+        if stored.is_some() {
+            let listed = rows.iter().map(|(key, _row)| key.clone()).collect();
+            self.sources.tracker.forget_probes_of(provider, &listed);
+        }
+        Ok(rows
             .into_iter()
-            .map(|row| {
-                let key = McpBindingKey::of(&row.declaration.binding);
+            .map(|(key, row)| {
                 let entry = self.entry(&key, row);
                 (key, entry)
             })

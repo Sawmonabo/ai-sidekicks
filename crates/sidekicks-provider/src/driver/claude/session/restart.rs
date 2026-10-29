@@ -637,9 +637,10 @@ impl ClaudeSessionRestarts {
 
     // Resumes through the establishment, which is gone only once the driver is, under a binding
     // the session directory opened first where `is_recorded`, so what the resumed process delivers
-    // at once is taken, the process reporting its MCP servers on the status sink the directory
-    // answered for that binding; a binding that cannot be opened fails the relaunch with no
-    // resume.
+    // at once is taken; the process reports its MCP servers on the status sink the directory
+    // answered for that binding, or, where the session keeps its binding, answered with no cursor
+    // opened. A binding that cannot be opened, or legs that cannot be answered, fail the relaunch
+    // with no resume.
     async fn resume(
         &self,
         params: Option<ResumeSessionParams>,
@@ -653,36 +654,37 @@ impl ClaudeSessionRestarts {
         let Some(establishment) = self.establishment.upgrade() else {
             return relaunch_failure("The Claude Code driver has stopped.");
         };
-        if is_recorded {
-            match self
-                .open_relaunch_binding(params.session_id, params.binding_id.clone())
-                .await
-            {
-                Ok(legs) => params.on_mcp_server_status = legs.on_mcp_server_status,
-                Err(error) => {
-                    return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
-                }
+        match self
+            .open_relaunch_legs(params.session_id, params.binding_id.clone(), is_recorded)
+            .await
+        {
+            Ok(legs) => params.on_mcp_server_status = legs.on_mcp_server_status,
+            Err(error) => {
+                return relaunch_failure(&describe_error(&error as &(dyn Error + 'static)));
             }
         }
         establishment.resume(params).await
     }
 
-    // Has the session directory open the cursor of `binding_id`, the relaunch's binding, and
-    // answers that binding's function legs.
-    async fn open_relaunch_binding(
+    // Has the session directory answer the function legs of `binding_id`, the relaunch's binding,
+    // opening its cursor first where `is_recorded`.
+    async fn open_relaunch_legs(
         &self,
         session_id: SessionId,
         binding_id: RuntimeBindingId,
+        is_recorded: bool,
     ) -> Result<ResumeFunctionLegs, DriverError> {
         let listener = self
             .ports
             .session_relaunched
             .require_port()
             .map_err(|error| DriverError::Internal(Box::new(error)))?;
-        listener
-            .open_relaunch_binding(session_id, binding_id)
-            .await
-            .map_err(DriverError::Internal)
+        let legs = if is_recorded {
+            listener.open_relaunch_binding(session_id, binding_id)
+        } else {
+            listener.open_relaunch_legs(session_id, binding_id)
+        };
+        legs.await.map_err(DriverError::Internal)
     }
 
     // Hands the session directory a relaunch's answer, so it records the binding or the failure; a

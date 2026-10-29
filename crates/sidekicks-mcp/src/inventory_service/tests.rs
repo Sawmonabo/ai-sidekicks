@@ -15,13 +15,16 @@ use sidekicks_contracts::mcp::server::{
     McpApprovalMode, McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
 };
 use sidekicks_contracts::project::ProjectId;
+use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver};
 use sidekicks_provider::driver::mcp_server::read::{
     McpProbeReading, McpProbeScope, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
     McpServersReadRequest, ProviderMcpServersReading,
 };
-use sidekicks_provider::driver::mcp_server::status::McpServerReading;
+use sidekicks_provider::driver::mcp_server::status::{McpServerReading, McpServerStatusEmission};
 use sidekicks_provider::driver::test_registry::registry_of_first_provider;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::budget::ProcessorMeter;
@@ -397,4 +400,61 @@ async fn an_overrides_value_wins_and_keeps_the_servers_own_value(
             },
         ]
     );
+}
+
+/// A binding the driver no longer declares loses the probe's reading at the next read, while a
+/// binding a live leg reports keeps that leg. The refresh probes `docs`; a session's leg then
+/// reports `news`, which no read declares; the next read declares neither. Killed by no pruning (`docs` keeps
+/// the probe's `connected` and tools), and by pruning a live leg's binding whole (`news` loses
+/// its leg).
+#[tokio::test]
+async fn a_binding_gone_from_the_config_loses_its_probe_reading_and_a_live_leg_stays() {
+    let news = |provider: &ProviderId| McpServerBindingRef::User {
+        provider: provider.clone(),
+        server_name: McpServerName::new("news".to_owned()).expect("a server name"),
+    };
+    let inventory = open_inventory(Box::new(|provider, request| {
+        let mut reading = reading_of(&provider, &request);
+        if request.probe == McpProbeScope::None {
+            reading.declarations.clear();
+        }
+        ready(Ok(reading)).boxed()
+    }))
+    .await;
+    inventory
+        .service
+        .list(&REFRESH)
+        .await
+        .expect("the inventory lists on a refresh");
+    let leg = inventory.tracker.open_leg(
+        SessionId::try_from(mint_uuid_v7()).expect("a session id"),
+        RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id"),
+    );
+    leg.observe(
+        &news(&inventory.provider),
+        McpServerStatusEmission::new(
+            McpServerName::new("news".to_owned()).expect("a server name"),
+            McpServerReading::Observed(McpServerStatus::Failed),
+            None,
+            None,
+        ),
+    );
+
+    let entries = inventory
+        .service
+        .list(&PLAIN_LIST)
+        .await
+        .expect("the inventory lists");
+
+    assert!(entries.is_empty());
+    let docs = inventory
+        .tracker
+        .reading(&McpBindingKey::of(&docs_binding(&inventory.provider)));
+    assert_eq!(docs.status, McpServerStatus::Unknown);
+    assert!(docs.tool_names.is_empty());
+    let news = inventory
+        .tracker
+        .reading(&McpBindingKey::of(&news(&inventory.provider)));
+    assert_eq!(news.legs.len(), 1);
+    assert_eq!(news.status, McpServerStatus::Failed);
 }

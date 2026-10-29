@@ -524,6 +524,7 @@ mod tests {
                     McpServerName::new("docs".to_owned()).expect("a server name"),
                     McpServerReading::Observed(Connected),
                     None,
+                    None,
                 ),
             );
         };
@@ -534,6 +535,7 @@ mod tests {
                 McpServerStatusEmission::new(
                     McpServerName::new("news".to_owned()).expect("a server name"),
                     McpServerReading::SwitchedOff,
+                    None,
                     None,
                 ),
             );

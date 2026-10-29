@@ -565,6 +565,21 @@ impl SessionRelaunchListener for SessionDirectoryProviderPort {
         .boxed()
     }
 
+    /// Answers the binding's function legs, composed as an opening's are, with no cursor opened.
+    /// Fails as the reads fail.
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.compose_relaunch_legs(session_id, binding_id)
+                .await
+                .map_err(Into::into)
+        }
+        .boxed()
+    }
+
     /// A failed relaunch is logged and its opened cursor forgotten; a resumed one's binding is
     /// recorded on the leg its opening continued, else on the session's leg as it stands, the
     /// conversation that leg ran on recorded as left when the provider continued it in a new one.

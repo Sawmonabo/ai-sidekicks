@@ -7,12 +7,12 @@ use std::sync::Mutex;
 
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use sidekicks_contracts::mcp::server::{McpBindingScope, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::{Place, PlacedPath};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::wire::text::TextError;
 use sidekicks_provider::driver::mcp_server::read::{
-    McpRootReading, McpServerDeclaration, ProviderMcpServersReading,
+    McpServerDeclaration, ProviderMcpServersReading,
 };
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_workspace::project::records::AttachedProjectRoot;
@@ -149,8 +149,18 @@ pub(crate) fn attached_root_path(root: &AttachedProjectRoot) -> Result<PlacedPat
     })
 }
 
+/// The scopes a session in no project root loads its servers from, in the order a name two of them
+/// declare resolves: an administrator's first, as both providers rank it above the person's.
+const ROOT_FREE_SCOPES: [McpBindingScope; 4] = [
+    McpBindingScope::Managed,
+    McpBindingScope::User,
+    McpBindingScope::Plugin,
+    McpBindingScope::Connector,
+];
+
 /// Which binding each server name a session reports resolves to, per provider and project root:
-/// the set the daemon sent there, then what the provider loads there by its own config. It sits
+/// the set the daemon sent there, then what the provider loads there by its own config; and for
+/// a session in no root, the provider's root-free bindings. It sits
 /// behind a lock taken only for a lookup or a replacement, never across an await, so a status
 /// producer reads it without waiting.
 #[derive(Debug, Default)]
@@ -166,14 +176,24 @@ struct McpAttributionRoots {
     /// What the provider loads at each root by its own config, as its last inventory read said.
     provider_loaded:
         HashMap<ProviderId, HashMap<PlacedPath, HashMap<McpServerName, McpServerBindingRef>>>,
+    /// The provider's bindings in no project root (managed, user, plugin and connector), as its
+    /// last inventory read declared them, which a session in no root loads.
+    root_free: HashMap<ProviderId, HashMap<McpServerName, McpServerBindingRef>>,
 }
 
 impl McpAttributionTable {
-    /// Replaces whole what `provider` loads at each root by its own config with what its newest
-    /// read says: a root missing from `roots` resolves no provider-loaded name afterwards. Where a
-    /// root's list names a server twice, its first binding stands.
-    pub(crate) fn replace_provider_loaded(&self, provider: &ProviderId, roots: &[McpRootReading]) {
-        let loaded = roots
+    /// Replaces whole what `provider` loads by its own config with what its newest `reading` says:
+    /// at each root, where a root missing from the reading resolves no provider-loaded name
+    /// afterwards, and in no root, from the bindings it declares in a root-free scope. Where a
+    /// root's list names a server twice, its first binding stands; where two root-free scopes
+    /// declare one name, the scope first in [`ROOT_FREE_SCOPES`] stands.
+    pub(crate) fn replace_provider_loaded(
+        &self,
+        provider: &ProviderId,
+        reading: &ProviderMcpServersReading,
+    ) {
+        let loaded = reading
+            .roots
             .iter()
             .map(|root| {
                 let mut names = HashMap::new();
@@ -185,35 +205,65 @@ impl McpAttributionTable {
                 (root.root.clone(), names)
             })
             .collect();
-        lock(&self.roots)
-            .provider_loaded
-            .insert(provider.clone(), loaded);
+        let declared: Vec<&McpServerBindingRef> = reading
+            .declarations
+            .iter()
+            .chain(
+                reading
+                    .account_servers
+                    .iter()
+                    .flat_map(|account| &account.declarations),
+            )
+            .map(|declaration| &declaration.binding)
+            .collect();
+        let mut root_free = HashMap::new();
+        for scope in ROOT_FREE_SCOPES {
+            for binding in &declared {
+                let key = McpBindingKey::of(binding);
+                if key.scope == scope {
+                    root_free
+                        .entry(key.server_name)
+                        .or_insert_with(|| (*binding).clone());
+                }
+            }
+        }
+        let mut roots = lock(&self.roots);
+        roots.provider_loaded.insert(provider.clone(), loaded);
+        roots.root_free.insert(provider.clone(), root_free);
     }
 
     /// The binding `server_name` resolves to in a session of `provider` at `root`: the daemon's
-    /// sent set first, then what the provider loads there; `None` for a name neither holds, which
+    /// sent set first, then what the provider loads there; in a session with no root, the
+    /// provider's root-free binding of that name. `None` for a name none of them holds, which
     /// never falls back to another root's or scope's binding.
     pub fn resolve(
         &self,
         provider: &ProviderId,
-        root: &PlacedPath,
+        root: Option<&PlacedPath>,
         server_name: &McpServerName,
     ) -> Option<McpServerBindingRef> {
         let roots = lock(&self.roots);
-        [&roots.sent, &roots.provider_loaded]
-            .into_iter()
-            .find_map(|bindings| bindings.get(provider)?.get(root)?.get(server_name))
-            .cloned()
+        match root {
+            Some(root) => [&roots.sent, &roots.provider_loaded]
+                .into_iter()
+                .find_map(|bindings| bindings.get(provider)?.get(root)?.get(server_name)),
+            None => roots.root_free.get(provider)?.get(server_name),
+        }
+        .cloned()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use sidekicks_contracts::free_form_string::FilesystemPath;
-    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+    use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+    use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
     use sidekicks_contracts::place::PlacedPath;
     use sidekicks_contracts::provider::id::ProviderId;
-    use sidekicks_provider::driver::mcp_server::read::McpRootReading;
+    use sidekicks_provider::driver::mcp_server::read::{
+        McpRootReading, McpServerDeclaration, McpServerPolicy, McpServerToolDefaults,
+        ProviderMcpServersReading,
+    };
 
     use super::McpAttributionTable;
 
@@ -228,12 +278,62 @@ mod tests {
         McpServerName::new(name.to_owned()).expect("a server name")
     }
 
-    fn project_binding(provider: &ProviderId, root: &PlacedPath) -> McpServerBindingRef {
+    fn project_binding(
+        provider: &ProviderId,
+        root: &PlacedPath,
+        name: &str,
+    ) -> McpServerBindingRef {
         McpServerBindingRef::Project {
             provider: provider.clone(),
             scope_ref: root.path.clone(),
             place: None,
-            server_name: server_name("docs"),
+            server_name: server_name(name),
+        }
+    }
+
+    fn declaration(binding: McpServerBindingRef) -> McpServerDeclaration {
+        McpServerDeclaration {
+            binding,
+            config: McpServerConfigView::Stdio {
+                command: "server".to_owned(),
+                args: None,
+                env_var_names: None,
+                enabled: None,
+                required: None,
+                startup_timeout_sec: None,
+                tool_timeout_sec: None,
+            },
+            superseded_in: Vec::new(),
+            disabled_in: Vec::new(),
+            is_read_only: false,
+            sign_in_client: None,
+            is_switch_kept_by_daemon: false,
+            tool_defaults: McpServerToolDefaults::with_approval_mode(McpApprovalMode::Auto),
+            organization_managed: None,
+        }
+    }
+
+    // A provider's reading of `declarations`, with each of `roots` loading its own `docs` project
+    // binding by the provider's own config.
+    fn reading(
+        provider: &ProviderId,
+        roots: &[PlacedPath],
+        declarations: Vec<McpServerBindingRef>,
+    ) -> ProviderMcpServersReading {
+        ProviderMcpServersReading {
+            declarations: declarations.into_iter().map(declaration).collect(),
+            roots: roots
+                .iter()
+                .map(|root| McpRootReading {
+                    provider_loaded: vec![project_binding(provider, root, "docs")],
+                    root: root.clone(),
+                    kept_out_server_names: Vec::new(),
+                })
+                .collect(),
+            is_machine_managed: false,
+            server_policy: McpServerPolicy::default(),
+            account_servers: Vec::new(),
+            probe_readings: Vec::new(),
         }
     }
 
@@ -247,24 +347,57 @@ mod tests {
         let table = McpAttributionTable::default();
         table.replace_provider_loaded(
             &provider,
-            &[root_a.clone(), root_b.clone()].map(|root| McpRootReading {
-                provider_loaded: vec![project_binding(&provider, &root)],
-                root,
-                kept_out_server_names: Vec::new(),
-            }),
+            &reading(&provider, &[root_a.clone(), root_b.clone()], Vec::new()),
         );
 
         assert_eq!(
-            table.resolve(&provider, &root_a, &server_name("docs")),
-            Some(project_binding(&provider, &root_a))
+            table.resolve(&provider, Some(&root_a), &server_name("docs")),
+            Some(project_binding(&provider, &root_a, "docs"))
         );
         assert_eq!(
-            table.resolve(&provider, &root_b, &server_name("docs")),
-            Some(project_binding(&provider, &root_b))
+            table.resolve(&provider, Some(&root_b), &server_name("docs")),
+            Some(project_binding(&provider, &root_b, "docs"))
         );
         assert_eq!(
-            table.resolve(&provider, &root_a, &server_name("mail")),
+            table.resolve(&provider, Some(&root_a), &server_name("mail")),
             None
+        );
+    }
+
+    /// A session in no root, a chat, attributes a name to the provider's `user` binding of it,
+    /// never to a project's binding of the same or another name, while a session in a root keeps
+    /// its root's binding. Killed by no resolve without a root, and by a root-free resolve that
+    /// takes a project's binding.
+    #[test]
+    fn a_name_reported_in_no_root_resolves_to_the_providers_user_binding() {
+        let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
+        let root_a = root("/repos/a");
+        let user_docs = McpServerBindingRef::User {
+            provider: provider.clone(),
+            server_name: server_name("docs"),
+        };
+        let table = McpAttributionTable::default();
+        table.replace_provider_loaded(
+            &provider,
+            &reading(
+                &provider,
+                std::slice::from_ref(&root_a),
+                vec![
+                    user_docs.clone(),
+                    project_binding(&provider, &root_a, "docs"),
+                    project_binding(&provider, &root_a, "mail"),
+                ],
+            ),
+        );
+
+        assert_eq!(
+            table.resolve(&provider, None, &server_name("docs")),
+            Some(user_docs)
+        );
+        assert_eq!(table.resolve(&provider, None, &server_name("mail")), None);
+        assert_eq!(
+            table.resolve(&provider, Some(&root_a), &server_name("docs")),
+            Some(project_binding(&provider, &root_a, "docs"))
         );
     }
 }

@@ -89,6 +89,16 @@ pub trait SessionRelaunchListener: Send + Sync {
         binding_id: RuntimeBindingId,
     ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
 
+    /// Answers the function legs of `binding_id`, the process a relaunch of `session_id` starts
+    /// while the session keeps its binding, so the daemon opens no cursor and records no binding:
+    /// legs of their own, never the ended process's; a session with no binding yet gets none.
+    /// Fails as the daemon's reads fail, and the driver then does not resume.
+    fn open_relaunch_legs(
+        &self,
+        session_id: SessionId,
+        binding_id: RuntimeBindingId,
+    ) -> BoxFuture<'_, Result<ResumeFunctionLegs, Box<dyn Error + Send + Sync>>>;
+
     /// Records what `session_id`'s relaunch did: a `Resumed` one's binding row, under the cursor
     /// `open_relaunch_binding` opened, which it does not open again; a `Failed` one forgets that
     /// cursor. Fails when its binding could not be recorded, which the driver reports as a failed

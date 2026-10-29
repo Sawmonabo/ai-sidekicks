@@ -7,6 +7,7 @@ pub mod machine_probe;
 pub mod normalizer;
 pub mod notices;
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
@@ -17,6 +18,7 @@ use sidekicks_contracts::mcp::governance::{
 use sidekicks_contracts::mcp::server::inventory::McpServerLegStatus;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
+use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::redaction::sanitize_failure_reason;
@@ -39,8 +41,8 @@ pub(crate) struct McpBindingStatusReading {
     pub(crate) legs: Vec<McpServerLegStatus>,
     /// When the newest leg in the aggregate, else the probe, observed it.
     pub(crate) observed_at: Option<WireInstant>,
-    /// The names of the server's tools in the newest list the tracker holds, the machine
-    /// probe's; empty where none is held.
+    /// The names of the server's tools in the newest list a live leg in the aggregate reported,
+    /// else the machine probe's; empty where none is held.
     pub(crate) tool_names: Vec<McpToolName>,
 }
 
@@ -126,6 +128,13 @@ impl McpServerStatusTracker {
         let mut legs = lock(&self.legs);
         let outcome = legs.record_probe(binding, status, failure_text, tool_names, observed_at);
         self.apply(outcome);
+    }
+
+    /// Drops the machine probe's reading of every binding of `provider` that `except` does not
+    /// hold, the bindings its newest read declares, so a binding gone from its config is not kept;
+    /// a binding a live leg holds keeps its legs, and nothing is sent.
+    pub(crate) fn forget_probes_of(&self, provider: &ProviderId, except: &HashSet<McpBindingKey>) {
+        lock(&self.legs).forget_probes_of(provider, except);
     }
 
     /// The status of the binding `binding` keys.
@@ -489,6 +498,61 @@ mod tests {
         assert_ne!(ids[0], ids[1]);
     }
 
+    /// A live leg's tool list outranks the probe's, even a newer one, and a report that lists no
+    /// tools leaves the leg's last list; once the leg retires, the probe's list stands. Killed by
+    /// a report with no list read as an empty one, and by the probe's list outranking a live
+    /// leg's.
+    #[tokio::test]
+    async fn a_live_legs_tool_list_outranks_the_probes_and_a_report_without_one_keeps_it() {
+        let (tracker, _subscriber, _first_observation_feed) = open_test_tracker().await;
+        let provider = ProviderId::new("provider-a".to_owned()).expect("a provider id");
+        let server_name = McpServerName::new("docs".to_owned()).expect("a server name");
+        let binding = McpServerBindingRef::User {
+            provider,
+            server_name: server_name.clone(),
+        };
+        let key = McpBindingKey::of(&binding);
+        let tools = |names: &[&str]| -> Vec<McpToolName> {
+            names
+                .iter()
+                .map(|name| McpToolName::new((*name).to_owned()).expect("a tool name"))
+                .collect()
+        };
+        let session_id = SessionId::try_from(mint_uuid_v7()).expect("a session id");
+        let binding_id = RuntimeBindingId::new("leg-a".to_owned()).expect("a binding id");
+        let sink = tracker.open_leg(session_id, binding_id.clone());
+        let report = |status: McpServerStatus, tool_names: Option<Vec<McpToolName>>| {
+            sink.observe(
+                &binding,
+                McpServerStatusEmission::new(
+                    server_name.clone(),
+                    McpServerReading::Observed(status),
+                    None,
+                    tool_names,
+                ),
+            );
+        };
+
+        tracker.record_probe(&binding, Connected, None, tools(&["probed"]));
+        report(Connected, Some(tools(&["search", "delete"])));
+        assert_eq!(
+            tracker.reading(&key).tool_names,
+            tools(&["search", "delete"])
+        );
+        report(Starting, None);
+        assert_eq!(
+            tracker.reading(&key).tool_names,
+            tools(&["search", "delete"])
+        );
+        tracker.record_probe(&binding, Connected, None, tools(&["reprobed"]));
+        assert_eq!(
+            tracker.reading(&key).tool_names,
+            tools(&["search", "delete"])
+        );
+        tracker.retire_leg(session_id, binding_id);
+        assert_eq!(tracker.reading(&key).tool_names, tools(&["reprobed"]));
+    }
+
     // Each case's comment names the mistake it catches. A `sessionFeed` notice carries its leg's
     // own statuses; a `sessionEnded` one the binding's aggregate before and after the leg left.
     #[rstest]
@@ -645,6 +709,7 @@ mod tests {
                                 server_name.clone(),
                                 reading,
                                 failure_text.map(str::to_owned),
+                                None,
                             ),
                         );
                 }

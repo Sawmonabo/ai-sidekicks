@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 use sidekicks_contracts::error::ERROR_MESSAGE_MAX_LEN;
-use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
+use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus, McpToolName};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::text::{FreeFormText, is_ecmascript_whitespace};
@@ -28,7 +28,8 @@ pub enum McpServerReading {
 }
 
 /// What a driver reports for one MCP server: its name, bounded where the driver read it from
-/// provider output, its reading and the provider's own error text. It carries no leg identity:
+/// provider output, its reading, the provider's own error text and the server's tool names where
+/// the report lists them. It carries no leg identity:
 /// the producer it goes to is bound to the leg at spawn, so a driver cannot report for another leg.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct McpServerStatusEmission {
@@ -39,6 +40,9 @@ pub struct McpServerStatusEmission {
     /// The provider's error text for the server, untrusted, its credentials scrubbed before it
     /// was cut to a bound; the rest of the sanitizing happens when it leaves the daemon.
     pub(crate) failure_text: Option<String>,
+    /// The names of the server's tools; `None` where the report carries no list, which is no
+    /// claim that the server has none.
+    pub(crate) tool_names: Option<Vec<McpToolName>>,
 }
 
 impl McpServerStatusEmission {
@@ -54,11 +58,13 @@ impl McpServerStatusEmission {
         server_name: McpServerName,
         reading: McpServerReading,
         failure_text: Option<String>,
+        tool_names: Option<Vec<McpToolName>>,
     ) -> Self {
         Self {
             server_name,
             reading,
             failure_text,
+            tool_names,
         }
     }
 }
@@ -79,6 +85,8 @@ pub struct McpServerStatusUpdate {
     /// The provider's error text for the server, untrusted, its credentials scrubbed and cut to a
     /// bound; the daemon sanitizes the rest before it leaves.
     pub failure_text: Option<String>,
+    /// The names of the server's tools; `None` where the report carries no list.
+    pub tool_names: Option<Vec<McpToolName>>,
 }
 
 impl McpServerStatusUpdate {
@@ -95,6 +103,7 @@ impl McpServerStatusUpdate {
             server_name: emission.server_name,
             reading: emission.reading,
             failure_text: emission.failure_text,
+            tool_names: emission.tool_names,
         }
     }
 }
@@ -131,7 +140,8 @@ pub(crate) struct McpServerStatusIngestResult {
     pub(crate) rejections: Vec<McpServerStatusIngestRejection>,
 }
 
-/// Bounds one reported server: its name, its reading and its raw error text. The name is
+/// Bounds one reported server: its name, its reading and its raw error text, carrying the tool
+/// names the report lists, `None` where it lists none. The name is
 /// untrusted provider output: one that is not text, is blank, holds a NUL or passes its length
 /// bound comes back as a rejection instead of reaching the leg's producer. The error text has its
 /// credentials scrubbed whole, so a cut cannot split one past the scrub's reach, and is then cut
@@ -140,6 +150,7 @@ pub(crate) fn bound_mcp_server_status_emission(
     server_name: &Value,
     reading: McpServerReading,
     raw_failure_text: &Value,
+    tool_names: Option<Vec<McpToolName>>,
 ) -> Result<McpServerStatusEmission, McpServerStatusIngestRejection> {
     let Some(server_name) = server_name.as_str() else {
         return Err(McpServerStatusIngestRejection {
@@ -158,6 +169,7 @@ pub(crate) fn bound_mcp_server_status_emission(
             server_name,
             reading,
             failure_text,
+            tool_names,
         })
         .map_err(|text_failure| McpServerStatusIngestRejection {
             reason: format!(
@@ -187,6 +199,7 @@ mod tests {
             &json!("github"),
             McpServerReading::Observed(McpServerStatus::Failed),
             &Value::String(raw),
+            None,
         )
         .expect("the row passes the bound");
 

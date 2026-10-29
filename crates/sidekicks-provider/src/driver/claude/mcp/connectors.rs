@@ -178,7 +178,7 @@ fn read_connector_reading(
         binding: connector.binding.clone(),
         reading: emission.reading,
         failure_text: emission.failure_text.clone(),
-        tool_names: row.tool_names(),
+        tool_names: emission.tool_names.clone().unwrap_or_default(),
     })
 }
 
