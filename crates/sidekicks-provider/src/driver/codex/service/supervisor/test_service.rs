@@ -8,22 +8,31 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use futures::future::BoxFuture;
+#[cfg(test)]
 use futures::{SinkExt as _, StreamExt as _};
+#[cfg(test)]
 use interprocess::local_socket::tokio::Listener;
+#[cfg(test)]
 use serde_json::{Value, json};
 use sidekicks_contracts::run::control::ProcessExit;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
+use sidekicks_platforms::Spawner;
+#[cfg(test)]
 use sidekicks_platforms::{
-    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, Spawner, StandInAnswer, StandInProgram,
-    bind_socket_listener, write_stand_in_program,
+    CAN_BIND_A_SOCKET_LISTENER, ProgramStart, StandInAnswer, StandInProgram, bind_socket_listener,
+    write_stand_in_program,
 };
 use tempfile::TempDir;
+#[cfg(test)]
 use tokio::io::{AsyncRead, AsyncWrite};
+#[cfg(test)]
 use tokio_tungstenite::WebSocketStream;
+#[cfg(test)]
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::task::TaskTracker;
 
 use crate::driver::codex::lifecycle::CODEX_SERVICE_STARTUP_TIMEOUT;
+#[cfg(test)]
 use crate::driver::codex::service::command_line::{
     TerminalServiceHooks, read_terminal_service_hooks,
 };
@@ -38,16 +47,18 @@ use crate::driver::codex::service::supervisor::{
 };
 use crate::driver::codex::session::conversation_release::CodexConversationRelease;
 use crate::driver::codex::session::errors::CodexError;
+#[cfg(test)]
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::codex::transport::connection::scripted_service::{
     ScriptedService, connect_scripted_service,
 };
 use crate::driver::contract::DriverError;
+#[cfg(test)]
 use crate::process_identity::ProviderProcessIdentity;
 use crate::process_registry::ProviderProcessRegistry;
-use crate::spawned_version::{
-    ResolvedProviderExecutable, SpawnedProviderVersionReading, parse_cli_version_report,
-};
+use crate::spawned_version::ResolvedProviderExecutable;
+#[cfg(test)]
+use crate::spawned_version::{SpawnedProviderVersionReading, parse_cli_version_report};
 
 /// Whether the test services' daemon runs the hook mode a hook command starts: the tests' program
 /// runs none, so a terminal service starts, and is answered, with no hooks.
@@ -60,16 +71,24 @@ const SCRIPTED_MESSAGE_LIMIT: usize = 1 << 20;
 const SCRIPTED_DIAL: u64 = 1;
 
 /// A service on a scripted connection, the folder its home names, and the script.
-pub(crate) struct ScriptedCodexService {
+pub struct ScriptedCodexService {
     /// The service.
     pub(crate) service: Arc<CodexService>,
     /// What its connection sent, and what the service sends it.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the daemon's restart test scripts the service's conversation"
+        )
+    )]
     pub(crate) script: ScriptedService,
     /// What the service runs on, the conversations its sessions moved off among them.
     pub(crate) dependencies: Arc<CodexServiceDependencies>,
     _folder: TempDir,
 }
 
+#[cfg(test)]
 impl ScriptedCodexService {
     /// Publishes the service reconnecting, its connection set aside until [`Self::publish_up`]
     /// hands it back.
@@ -168,6 +187,7 @@ pub(crate) fn test_codex_service_dependencies(
 }
 
 /// The program a test names, run as the Codex build with `environment` its whole environment.
+#[cfg(test)]
 pub(crate) struct TestCodexProgram {
     /// The program.
     pub(crate) program: PathBuf,
@@ -175,6 +195,7 @@ pub(crate) struct TestCodexProgram {
     pub(crate) environment: Vec<(String, String)>,
 }
 
+#[cfg(test)]
 impl CodexProgramResolver for TestCodexProgram {
     fn resolve<'call>(
         &'call self,
@@ -195,7 +216,7 @@ impl CodexProgramResolver for TestCodexProgram {
 
 /// Starts a service on an account's home whose connection the test scripts. Must be called within
 /// a runtime.
-pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
+pub fn start_scripted_codex_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Account,
         CodexServiceKind::Account,
@@ -206,6 +227,7 @@ pub(crate) fn start_scripted_codex_service() -> ScriptedCodexService {
 /// Starts a service on an account's home whose connection the test scripts and whose own start,
 /// once its supervisor begins one, never answers, so the test publishes the new process up. Must
 /// be called within a runtime.
+#[cfg(test)]
 pub(crate) fn start_scripted_codex_service_whose_start_waits() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::Account,
@@ -216,6 +238,7 @@ pub(crate) fn start_scripted_codex_service_whose_start_waits() -> ScriptedCodexS
 
 /// Starts the terminal service on the person's own folder with terminal reach on, its connection
 /// scripted by the test. Must be called within a runtime.
+#[cfg(test)]
 pub(crate) fn start_scripted_terminal_service() -> ScriptedCodexService {
     start_scripted_codex_service_on(
         CodexHomeKind::PersonalFolder {
@@ -297,8 +320,10 @@ impl CodexProgramResolver for UnstartedProgram {
 }
 
 // A program whose resolve never answers, so a start on it stays starting.
+#[cfg(test)]
 struct WaitingProgram;
 
+#[cfg(test)]
 impl CodexProgramResolver for WaitingProgram {
     fn resolve<'call>(
         &'call self,
@@ -329,6 +354,7 @@ impl CodexServiceEvents for UnheardEvents {
 /// Answers one connection's requests on `stream` as far as a start needs: the version, the hooks
 /// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
 /// write is refused, so a start that writes trust fails.
+#[cfg(test)]
 pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite + Unpin) {
     let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
         .expect("the daemon's hooks read")
@@ -371,12 +397,14 @@ pub(crate) async fn answer_as_codex_service(stream: impl AsyncRead + AsyncWrite 
     }
 }
 
+#[cfg(test)]
 fn listed_hook(event_name: &str, command: &str) -> Value {
     json!({"source": "sessionFlags", "eventName": event_name, "command": command,
         "key": event_name, "currentHash": "hash", "trustStatus": "trusted"})
 }
 
 /// Waits until `service` is no longer up, which it leaves only once its connection is gone.
+#[cfg(test)]
 pub(crate) async fn wait_until_disconnected(service: &CodexService) {
     service
         .wait_for(|availability| !matches!(availability, CodexServiceAvailability::Up))
@@ -385,6 +413,7 @@ pub(crate) async fn wait_until_disconnected(service: &CodexService) {
 
 /// Drops `service`'s connection as its reader does when the socket closes under it, its process
 /// left running.
+#[cfg(test)]
 pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
     let dial = service.routed_dial.load(Ordering::Acquire);
     service
@@ -395,6 +424,7 @@ pub(crate) fn drop_service_connection(service: &Arc<CodexService>) {
 
 /// Writes in `folder` a Codex command that prints nothing and exits 1 at every call, which the
 /// search path finds as `codex`, and answers its path. Panics where it cannot be written.
+#[cfg(test)]
 pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
     write_stand_in_program(
         folder,
@@ -413,12 +443,14 @@ pub(crate) fn write_failing_codex(folder: &Path) -> PathBuf {
 
 /// A listener at `socket`, or `None` where the system binds no local socket listener. Panics
 /// where a bind the system offers fails.
+#[cfg(test)]
 pub(crate) fn bind_test_listener(socket: &Path) -> Option<Listener> {
     CAN_BIND_A_SOCKET_LISTENER
         .then(|| bind_socket_listener(socket).expect("the test's socket listens"))
 }
 
 /// The next request the daemon sent on `socket`, its notifications skipped.
+#[cfg(test)]
 pub(crate) async fn next_socket_request<Stream>(socket: &mut WebSocketStream<Stream>) -> Value
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
@@ -440,6 +472,7 @@ where
 }
 
 /// Sends `message` to the daemon on `socket`.
+#[cfg(test)]
 pub(crate) async fn send_on_socket<Stream>(socket: &mut WebSocketStream<Stream>, message: Value)
 where
     Stream: AsyncRead + AsyncWrite + Unpin,
