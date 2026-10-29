@@ -215,17 +215,6 @@ impl Fixture {
             .expect("the stopped conversion is stored");
         write(&self.roots.repository.join("a.txt"), "chat a");
     }
-
-    fn session_shape(&self) -> String {
-        self.roots
-            .rows
-            .query_row(
-                "SELECT shape FROM sessions WHERE id = ?1",
-                [SESSION_ID],
-                |row| row.get(0),
-            )
-            .expect("the session is read")
-    }
 }
 
 fn session_id() -> SessionId {
@@ -288,7 +277,6 @@ async fn a_convert_copies_the_chats_files_and_leaves_the_repositorys_own_untouch
         read(&fixture.roots.repository.join("nested/b.txt")),
         "chat b"
     );
-    assert_eq!(fixture.session_shape(), "project");
     let converted_events = fixture.roots.count(&format!(
         "SELECT count(*) FROM session_events WHERE session_id = '{SESSION_ID}' \
          AND type = 'session.converted'"

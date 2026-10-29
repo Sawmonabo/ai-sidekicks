@@ -270,7 +270,17 @@ impl From<SessionConversionError> for HandlerError {
             SessionConversionError::Incomplete { details, cause } => {
                 Self::Refused(conversion_incomplete(&details).with_source(cause))
             }
-            fault => Self::Internal(Box::new(fault)),
+            fault @ (SessionConversionError::Mount(_)
+            | SessionConversionError::Read(_)
+            | SessionConversionError::Row(_)
+            | SessionConversionError::Write(_)
+            | SessionConversionError::Workspace(_)
+            | SessionConversionError::Draft(_)
+            | SessionConversionError::Append(_)
+            | SessionConversionError::NoLongerOpenChat { .. }
+            | SessionConversionError::File(_)
+            | SessionConversionError::Copy(_)
+            | SessionConversionError::StoppedCopies(_)) => Self::Internal(Box::new(fault)),
         }
     }
 }
