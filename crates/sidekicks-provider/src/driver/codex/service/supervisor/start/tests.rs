@@ -17,7 +17,7 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest as _;
 use tokio_tungstenite::tungstenite::http::{HeaderValue, header};
 use tokio_util::sync::CancellationToken;
 
-use super::kept_records::retire_former_service;
+use super::kept_records::{retire_former_service, stop_kept_services};
 use super::{StartFailure, StartedService, start_codex_service};
 use crate::driver::child_records::UnrecordedChildren;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome, CodexServiceKind};
@@ -362,6 +362,9 @@ async fn an_account_start_adds_the_relay_environment_before_it_answers() {
             .to_owned();
         tokens.push((url.to_owned(), token));
     }
+
+    // The stop a daemon stop makes ends the kept service, which outlives this test otherwise.
+    stop_kept_services(service.dependencies().data_folder.clone()).await;
 
     let [(url, earlier), (_, current)] = tokens.as_slice() else {
         panic!("two starts");

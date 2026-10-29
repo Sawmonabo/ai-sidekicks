@@ -210,9 +210,9 @@ async fn a_crash_restart_of_the_home_s_service_never_takes_another_service_s_pro
     let is_home_killed = send_signal(home_process, "-KILL");
     let recovery_heard = tokio::time::timeout(CRASH_WAIT, services.recoveries.recv()).await;
     let recovered_process = home_service.process_id();
-    daemon.shutdown(DaemonStopIntent::Stop).await;
     let is_second_running = is_running(second_process);
-    send_signal(second_process, "-KILL");
+    // The stop ends the second too, a service a record keeps that this daemon never joined.
+    daemon.shutdown(DaemonStopIntent::Stop).await;
 
     assert!(is_home_killed);
     assert!(
