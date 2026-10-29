@@ -105,7 +105,8 @@ mod version;
 
 #[cfg(any(test, feature = "test-support"))]
 pub use service::supervisor::test_service::{
-    KeptTerminalService, ScriptedCodexService, keep_terminal_service, start_scripted_codex_service,
+    CodexServiceStandIn, KeptTerminalService, ScriptedCodexService, keep_terminal_service,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
 };
 
 /// Codex's fixed facts.

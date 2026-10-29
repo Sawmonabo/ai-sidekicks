@@ -40,7 +40,8 @@ use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
 pub use crate::driver::codex::{
-    KeptTerminalService, ScriptedCodexService, keep_terminal_service, start_scripted_codex_service,
+    CodexServiceStandIn, KeptTerminalService, ScriptedCodexService, keep_terminal_service,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
 };
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;

@@ -8,12 +8,14 @@ use sidekicks_platforms::{
 };
 
 use super::stand_in::{
-    CRASH_WAIT, HANG_UP_IGNORED_NAME, StandInServices, cut_short_planned_restart, home_record_file,
-    is_running, mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
+    CRASH_WAIT, StandInServices, cut_short_planned_restart, home_record_file, is_running,
+    mark_kept_records_draining, send_signal, stand_in_services, this_daemon,
     wait_for_end_and_record_removal, wait_until_gone,
 };
 use crate::driver::codex::service::registry::home_socket_path;
-use crate::driver::codex::service::supervisor::test_service::answer_as_codex_service;
+use crate::driver::codex::service::supervisor::test_service::{
+    HANG_UP_IGNORED_NAME, answer_as_codex_service,
+};
 use crate::driver::daemon_stop::DaemonStopIntent;
 
 // The services of one test in a folder whose socket paths fit the system's bound on them.
