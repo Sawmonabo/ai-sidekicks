@@ -14,6 +14,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::events::{SessionNotice, SessionNoticePostedPayload};
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::{
@@ -266,8 +267,11 @@ async fn a_followed_level_moves_a_live_session() {
         .reader()
         .execute(
             "INSERT INTO session_console_state (session_id, session_mode, updated_at)
-              VALUES (?1, 'plan', '2026-01-01T00:00:00.000Z')",
-            params![opening.session_id.text().as_str()],
+              VALUES (?1, 'plan', ?2)",
+            params![
+                opening.session_id.text().as_str(),
+                WireInstant::now().as_str()
+            ],
         )
         .expect("the test stores the mode");
     opening
