@@ -356,15 +356,18 @@ impl RunEngine {
             Ok(run) => Ok(run),
             Err(continue_error) => {
                 // A turn the driver started for a continue that was never recorded is
-                // interrupted, the run keeping its interrupted end.
-                let interrupted = if entry.is_turn_started.load(Ordering::Acquire) {
+                // interrupted, the run keeping its interrupted end; a run that ended meanwhile
+                // has no turn left to interrupt.
+                let read = self.read_run(run_id).await;
+                let has_ended = matches!(&read, Ok(Some(run)) if has_left_interrupted(run));
+                let interrupted = if entry.is_turn_started.load(Ordering::Acquire) && !has_ended {
                     interrupt_driver()
                         .await
                         .map_err(|source| RunEngineError::Driver { run_id, source })
                 } else {
                     Ok(())
                 };
-                let released = self.release_failed_continue(run_id).await;
+                let released = self.release_failed_continue(run_id, read).await;
                 Err(with_cleanup_failures(
                     continue_error,
                     [interrupted, released],
@@ -576,17 +579,15 @@ impl RunEngine {
             .map(drop)
     }
 
-    // A continue that failed with its run still interrupted leaves the run at that end, so what
-    // the gates took for it, its resolved posture among it, is released as at the end itself.
+    // Lets go of what the gates took for a failed continue of `run_id`, read once after the
+    // failure as `read`: a run still interrupted stays at that end, and a run that ended meanwhile
+    // let go only what the gates held at its end, so either has its terminal hooks run again.
     pub(super) async fn release_failed_continue(
         &self,
         run_id: RunId,
+        read: Result<Option<RunRead>, RunEngineError>,
     ) -> Result<(), RunEngineError> {
-        let Some(run) = self
-            .read_run(run_id)
-            .await?
-            .filter(|run| run.state == RunState::Interrupted)
-        else {
+        let Some(run) = read?.filter(|run| run.state.is_terminal()) else {
             return Ok(());
         };
         self.release_gates_after_end(run_id, &run).await?;
@@ -611,6 +612,12 @@ impl RunEngine {
             )
             .await
     }
+}
+
+// Whether an interrupted run being continued ended some other way meanwhile, so no turn of its
+// provider is left to interrupt.
+pub(super) fn has_left_interrupted(run: &RunRead) -> bool {
+    run.state.is_terminal() && run.state != RunState::Interrupted
 }
 
 // A failure's own words: a gate's or a driver's failure as it came, any other as the engine

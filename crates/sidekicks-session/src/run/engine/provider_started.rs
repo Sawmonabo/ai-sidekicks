@@ -24,6 +24,7 @@ use sidekicks_workspace::run_setup_gates::RunSetupContext;
 use crate::driver_resolution::read_run_driver;
 use crate::run::agent::RunAgentReader;
 use crate::run::engine::live::ContinuingGuard;
+use crate::run::engine::start::has_left_interrupted;
 use crate::run::engine::{
     LiveAppend, RunEngine, RunEngineError, SubagentRunStart, with_cleanup_failures,
 };
@@ -39,7 +40,8 @@ impl RunEngine {
     /// against, then `starting`, every setup gate at the posture the session's open process runs
     /// at now, and `running` stamped with the posture the gates resolved. A gate's refusal ends
     /// the run `failed` with no posture stamped and answers [`SubagentRunStart::Refused`]. Returns
-    /// `None` with nothing written when the parent has ended; fails with [`RunRefusal::NotFound`]
+    /// `None` with nothing written when the parent has ended, and `None`, what its gates took let
+    /// go, when the subagent's run ended some other way while its gates ran; fails with [`RunRefusal::NotFound`]
     /// for a parent the daemon has no run for, with [`RunEngineError::NoSessionPosture`], the run
     /// ended `failed`, when no posture of the session's open process can be read, and when a
     /// refused run's end is not written.
@@ -124,6 +126,12 @@ impl RunEngine {
             })
             .await;
         if let Err(source) = gated {
+            // A run that ended while its gates ran is no refusal: its helper is not stopped, and
+            // what a gate took after that end is let go.
+            if let Some(ended) = self.read_ended(run_id).await? {
+                self.release_gates_after_end(run_id, &ended).await?;
+                return Ok(None);
+            }
             let gate_error = RunEngineError::Gate { run_id, source };
             return match self.end_setup_failed(run_id, &gate_error).await {
                 Ok(()) => Ok(Some(SubagentRunStart::Refused(run_id))),
@@ -139,21 +147,38 @@ impl RunEngine {
                 .fail_setup(run_id, RunEngineError::NoResolvedPosture { run_id })
                 .await);
         };
-        self.change(
-            RunStateChange {
-                expected_state: Some(RunState::Starting),
-                ..RunStateChange::new(
-                    run_id,
-                    RunStateEntry::Running {
-                        execution_posture: Some(resolved_posture),
-                    },
-                )
-            },
-            RunStateChangeCompanions::default(),
-            None,
-        )
-        .await?;
-        Ok(Some(SubagentRunStart::Running(run_id)))
+        let running = self
+            .change(
+                RunStateChange {
+                    expected_state: Some(RunState::Starting),
+                    ..RunStateChange::new(
+                        run_id,
+                        RunStateEntry::Running {
+                            execution_posture: Some(resolved_posture),
+                        },
+                    )
+                },
+                RunStateChangeCompanions::default(),
+                None,
+            )
+            .await;
+        match running {
+            Ok(_) => Ok(Some(SubagentRunStart::Running(run_id))),
+            // A run that ended while its gates ran let go only what they held by then; what a gate
+            // took after that end is let go here.
+            Err(
+                refusal @ RunEngineError::Refused(
+                    RunRefusal::InvalidTransition { .. } | RunRefusal::AlreadyEnded { .. },
+                ),
+            ) => {
+                let Some(ended) = self.read_ended(run_id).await? else {
+                    return Err(refusal);
+                };
+                self.release_gates_after_end(run_id, &ended).await?;
+                Ok(None)
+            }
+            Err(running_error) => Err(running_error),
+        }
     }
 
     /// Continues the interrupted run `run_id` on the turn its provider started itself with
@@ -164,8 +189,8 @@ impl RunEngine {
     /// ended meanwhile has what the gates took released first. Whatever the provider reports on the
     /// run after this call waits for its write. A gate's refusal, a missing posture
     /// ([`RunEngineError::NoSessionPosture`], [`RunEngineError::NoResolvedPosture`]) or a failed
-    /// write interrupts the provider's turn and leaves the run interrupted, every terminal hook
-    /// releasing what the gates took, and is returned.
+    /// write interrupts the provider's turn, unless the run ended meanwhile, and leaves the run
+    /// interrupted, every terminal hook releasing what the gates took, and is returned.
     pub(crate) async fn continue_run_with_kept_messages(
         &self,
         run_id: RunId,
@@ -229,11 +254,7 @@ impl RunEngine {
             Err(RunEngineError::Refused(RunRefusal::InvalidTransition { .. })) => {
                 // A run that ended while its gates ran let go only what they held by then; what a
                 // gate took after that end is let go here, so no resolved posture outlives the run.
-                let Some(ended) = self
-                    .read_run(run_id)
-                    .await?
-                    .filter(|ended| ended.state.is_terminal())
-                else {
+                let Some(ended) = self.read_ended(run_id).await? else {
                     return Ok(None);
                 };
                 self.release_gates_after_end(run_id, &ended).await?;
@@ -241,9 +262,14 @@ impl RunEngine {
             }
             Err(continue_error) => {
                 // The provider already runs the turn, so it is interrupted, the run keeping its
-                // interrupted end.
-                let interrupted = self.interrupt_provider_turn(run_id).await;
-                let released = self.release_failed_continue(run_id).await;
+                // interrupted end; a run that ended meanwhile has no turn left to interrupt.
+                let read = self.read_run(run_id).await;
+                let interrupted = if matches!(&read, Ok(Some(run)) if has_left_interrupted(run)) {
+                    Ok(())
+                } else {
+                    self.interrupt_provider_turn(run_id).await
+                };
+                let released = self.release_failed_continue(run_id, read).await;
                 Err(with_cleanup_failures(
                     continue_error,
                     [interrupted, released],
@@ -252,6 +278,14 @@ impl RunEngine {
                 ))
             }
         }
+    }
+
+    // The run `run_id` as read now when it has ended, `None` while it has not.
+    async fn read_ended(&self, run_id: RunId) -> Result<Option<RunRead>, RunEngineError> {
+        Ok(self
+            .read_run(run_id)
+            .await?
+            .filter(|run| run.state.is_terminal()))
     }
 
     // Interrupts the turn the provider of `run_id` runs, through the run's own driver.
@@ -271,4 +305,4 @@ impl RunEngine {
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

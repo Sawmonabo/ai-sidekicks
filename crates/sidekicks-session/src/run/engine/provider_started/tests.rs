@@ -1,10 +1,11 @@
-use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Weak};
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
-use rusqlite::params;
+use rstest::rstest;
+use rusqlite::{Connection, params};
 use serde_json::Value;
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -29,9 +30,10 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_fixture::open_log;
 use sidekicks_workspace::run_setup_gates::{RunSetupContext, RunSetupGate, RunSetupGateError};
 
+use crate::plan_holds::NoPlanHolds;
 use crate::questions::schema::schema_parts;
 use crate::run::engine::test_fixture::{
-    TestSessionPostures, append, stored_run_state, test_engine, test_engine_on,
+    TestSessionPostures, append, stored_run_state, test_engine, test_engine_on, test_engine_with,
 };
 use crate::run::engine::tests::{started_turn, turn_start};
 use crate::run::engine::{RunEngine, RunEngineError, SubagentRunStart};
@@ -302,4 +304,145 @@ async fn a_refused_continue_on_its_providers_turn_interrupts_the_turn_and_lets_i
         None
     );
     assert_eq!(interrupts.load(Ordering::SeqCst), 1);
+}
+
+// Ends `run_id` `stopped` in the database at `path`, as an end landing beside the engine's writes.
+pub(crate) fn end_run_aside(path: &Path, run_id: &RunId) {
+    Connection::open(path)
+        .and_then(|connection| {
+            connection.execute(
+                "UPDATE runs SET state = 'stopped', run_version = run_version + 1
+                 WHERE run_id = ?1",
+                params![run_id.text().as_str()],
+            )
+        })
+        .expect("the test ends the run");
+}
+
+// A gate after the posture gate that, once armed, ends each run it checks while the posture gate
+// holds that run's posture, then passes or refuses it.
+struct EndingGate {
+    database: PathBuf,
+    is_armed: AtomicBool,
+    refuses: bool,
+}
+
+impl RunSetupGate for EndingGate {
+    fn assert_run_ready<'a>(
+        &'a self,
+        context: &'a RunSetupContext,
+    ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
+        if !self.is_armed.load(Ordering::SeqCst) {
+            return Box::pin(std::future::ready(Ok(())));
+        }
+        end_run_aside(&self.database, &context.run_id);
+        Box::pin(std::future::ready(if self.refuses {
+            Err(RunSetupGateError::Failed(
+                "the test's gate refuses the run".into(),
+            ))
+        } else {
+            Ok(())
+        }))
+    }
+}
+
+// A subagent's run that ends some other way while its gates run is answered as ended, never as
+// refused, so its helper is not stopped, and lets go of the posture the posture gate resolved,
+// whether the later gate passes or refuses it. Killed by skipping the release after the refused
+// `running` write, and by skipping the re-read before the refusal.
+#[rstest]
+#[case::gate_passes(false)]
+#[case::gate_refuses(true)]
+#[tokio::test]
+async fn a_subagent_whose_run_ends_during_its_gates_lets_its_posture_go_unrefused(
+    #[case] refuses: bool,
+) {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let gate = Arc::new(EndingGate {
+        database: database.path(),
+        is_armed: AtomicBool::new(false),
+        refuses,
+    });
+    let engine = test_engine_with(
+        &database,
+        log.service,
+        home.path(),
+        Arc::new(NoPlanHolds),
+        vec![Arc::clone(&gate) as _],
+    );
+    let session_postures = Arc::new(TestSessionPostures::default());
+    engine
+        .set_session_postures(Arc::downgrade(&session_postures) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
+    let parent = start_ask_parent(&database, &engine, &session_postures, &git_folder).await;
+    gate.is_armed.store(true, Ordering::SeqCst);
+
+    let started = engine
+        .start_provider_subagent_run(parent)
+        .await
+        .expect("the subagent's start is answered");
+
+    assert_eq!(started, None);
+    let child: String = database
+        .reader()
+        .query_row(
+            "SELECT run_id FROM runs WHERE run_id != ?1",
+            params![parent.text().as_str()],
+            |row| row.get(0),
+        )
+        .expect("the subagent's run is queued");
+    let child = RunId::new(&child).expect("a stored run id");
+    assert_eq!(stored_run_state(&database, &child).0, "stopped");
+    assert_eq!(engine.execution_postures.resolved_posture_for(&child), None);
+}
+
+// A continue on its provider's turn whose run ends some other way while its gates run, a gate then
+// refusing it, leaves the provider's turn alone, since the run holds none, and lets its posture
+// go. Killed by interrupting the provider's turn of a run that ended meanwhile.
+#[tokio::test]
+async fn a_continue_whose_run_ends_during_its_gates_interrupts_no_turn() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let git_folder = home.path().join("repo.git");
+    std::fs::create_dir(&git_folder).expect("the git folder is made");
+    let run_id = insert_interrupted_run(&database);
+    bind_run_to_first_provider(&database, run_id);
+    let mut driver = MockProviderDriver::new();
+    driver.expect_interrupt_run().never();
+    let engine = test_engine_on(
+        &database,
+        log.service,
+        home.path(),
+        registry_of_first_provider(Arc::new(driver)),
+        vec![Arc::new(EndingGate {
+            database: database.path(),
+            is_armed: AtomicBool::new(true),
+            refuses: true,
+        })],
+    );
+    let session_postures = Arc::new(TestSessionPostures::default());
+    engine
+        .set_session_postures(Arc::downgrade(&session_postures) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
+    session_postures.move_to(posture_at(PermissionLevel::Sandboxed, &git_folder));
+
+    let refused = engine
+        .continue_run_with_kept_messages(run_id)
+        .await
+        .expect_err("a refused continue fails");
+
+    assert!(
+        matches!(refused, RunEngineError::Gate { .. }),
+        "{refused:?}"
+    );
+    assert_eq!(stored_run_state(&database, &run_id).0, "stopped");
+    assert_eq!(
+        engine.execution_postures.resolved_posture_for(&run_id),
+        None
+    );
 }

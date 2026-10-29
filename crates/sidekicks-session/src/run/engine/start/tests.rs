@@ -1,3 +1,5 @@
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use futures::FutureExt;
@@ -20,8 +22,11 @@ use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id
 use sidekicks_store::events::log_service::test_fixture::open_log;
 
 use crate::questions::schema::schema_parts;
+use crate::run::engine::provider_started::tests::end_run_aside;
 use crate::run::engine::test_fixture::test_engine;
-use crate::run::engine::tests::{DRIVER_HOLD, SETTLE_WAIT, held_driver, turn_start};
+use crate::run::engine::tests::{
+    DRIVER_HOLD, SETTLE_WAIT, continue_request, held_driver, turn_start,
+};
 use crate::run::engine::{InterruptRoute, RunEngineError};
 use crate::run::refusals::RunRefusal;
 use crate::run::start_request::RunStartRequest;
@@ -242,6 +247,48 @@ async fn a_run_that_ended_during_its_gate_lets_go_its_resolved_posture() {
         ),
         "{refusal:?}"
     );
+    assert_eq!(
+        engine.execution_postures.resolved_posture_for(&run_id),
+        None
+    );
+}
+
+// A continue whose turn its driver started, its run then ending some other way before `running`
+// is written, interrupts no turn, since the ended run holds none, and lets the posture its gate
+// resolved go. Killed by interrupting the driver's turn of a run that ended meanwhile.
+#[tokio::test]
+async fn a_continue_whose_run_ends_after_its_driver_starts_interrupts_no_turn() {
+    let database = TestDatabase::new(schema_parts());
+    let log = open_log(&database, None).await;
+    let run_id = RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id");
+    database
+        .reader()
+        .execute(
+            "INSERT INTO runs (run_id, session_id, state, run_version)
+             VALUES (?1, ?2, 'interrupted', 1)",
+            params![run_id.text().as_str(), test_session_id().text().as_str()],
+        )
+        .expect("the test writes the interrupted run");
+    let home = tempfile::tempdir().expect("the test makes a home folder");
+    let engine = test_engine(&database, log.service, home.path());
+    let path = database.path();
+    let mut request = continue_request(run_id, move |_posture| {
+        end_run_aside(&path, &run_id);
+        async { Ok(()) }.boxed()
+    });
+    let interrupts = Arc::new(AtomicUsize::new(0));
+    let counted = Arc::clone(&interrupts);
+    request.turn.interrupt_driver = Box::new(move || {
+        counted.fetch_add(1, Ordering::SeqCst);
+        async { Ok(()) }.boxed()
+    });
+
+    engine
+        .continue_run(request)
+        .await
+        .expect_err("a continue whose run ended fails");
+
+    assert_eq!(interrupts.load(Ordering::SeqCst), 0);
     assert_eq!(
         engine.execution_postures.resolved_posture_for(&run_id),
         None
