@@ -10,6 +10,9 @@
 //!   one already answered, by its card or by the daemon, gets the kept answer again. A delivery
 //!   under a held request id that names another action is another ask: the held one's card is
 //!   withdrawn while it waits, and the new one is checked afresh.
+//! - An ask with no hold that names the tool call and action of a pending card no held ask owns,
+//!   as a provider resends its waiting asks after the daemon's restart, is held again under that
+//!   card's ask id: the same card stands, and its answer goes back under the resent request id.
 //! - A card's answer is recorded, kept with the held ask, then handed to the provider that holds
 //!   the call, decision first, with the rule it made, which is recorded once the provider kept it.
 //!   A hand that failed before the provider took it is handed again when the client sends the
@@ -51,7 +54,9 @@ use sidekicks_store::database::connection::read_pool::{
 };
 use tokio_util::sync::CancellationToken;
 
-use crate::permission_check::{PermissionCheck, PermissionCheckError, ProviderAskVerdict};
+use crate::permission_check::{
+    PermissionCheck, PermissionCheckError, ProviderAskVerdict, card_tool_call_id,
+};
 use crate::refusals::{approval_request_canceled, approval_rule_not_kept};
 use crate::rules::{ApprovalRuleError, ApprovalRules};
 use crate::service::{ApprovalService, ApprovalServiceError, ResolveAnswer, ResolvedAnswer};
@@ -138,7 +143,8 @@ enum HeldAskState {
 struct HeldAsk {
     /// The session.
     session_id: SessionId,
-    /// The daemon's own id for the ask, which its card carries; minted per delivery.
+    /// The daemon's own id for the ask, which its card carries; minted per delivery, or its
+    /// pending card's for a delivery held again under that card.
     ask_id: NonEmptyText,
     /// What the held call would do.
     action: ProviderAskAction,
@@ -181,15 +187,24 @@ impl PermissionAsks {
     }
 
     /// Answers the ask itself where the check has an answer, else raises its card under an ask id
-    /// the daemon mints; a second delivery of an ask still waiting raises nothing, and one already
-    /// answered gets that answer again. Fails, once the call is refused at its provider, as the
-    /// check fails or as withdrawing the card of another ask held under its request id fails; and
-    /// as handing an answer fails.
+    /// the daemon mints; a second delivery of an ask still waiting raises nothing, one already
+    /// answered gets that answer again, and one with no hold whose pending card stands is held
+    /// again under that card. Fails, once the call is refused at its provider, as the check or the
+    /// read of its pending card fails or as withdrawing the card of another ask held under its
+    /// request id fails; and as handing an answer fails.
     pub(crate) async fn take_ask(
         &self,
         ask: ProviderPermissionAsk,
     ) -> Result<(), PermissionAskError> {
         let key = (ask.run_id, ask.request_id.clone());
+        let is_held = self.lock_held().contains_key(&key);
+        if !is_held {
+            match self.hold_pending_card(&ask, &key).await {
+                Ok(true) => return Ok(()),
+                Ok(false) => {}
+                Err(failure) => return Err(self.refuse_unchecked(&ask, failure).await),
+            }
+        }
         let ask_id =
             NonEmptyText::new(mint_uuid_v7().to_string()).expect("a minted UUID is not empty");
         let withdrawal = CancellationToken::new();
@@ -292,6 +307,49 @@ impl PermissionAsks {
                 .await;
         }
         Ok(())
+    }
+
+    // Holds `ask` under `key` again, waiting, under the stored ask id of the run's pending card of
+    // the same tool call and action, where no ask held here owns that card; answers whether it did.
+    // A delivery held under `key` meanwhile, or another action under the tool call, is left to the
+    // minted path.
+    async fn hold_pending_card(
+        &self,
+        ask: &ProviderPermissionAsk,
+        key: &(RunId, String),
+    ) -> Result<bool, PermissionAskError> {
+        let Some(tool_call_id) = card_tool_call_id(ask) else {
+            return Ok(false);
+        };
+        let Some(stored) = self
+            .deps
+            .approvals
+            .read_pending_tool_call_request(ask.run_id, tool_call_id)
+            .await?
+        else {
+            return Ok(false);
+        };
+        let Some(ask_id) = stored.ask_id else {
+            return Ok(false);
+        };
+        if stored.resource_descriptor.action.as_ref() != Some(&ask.action) {
+            return Ok(false);
+        }
+        let mut held = self.lock_held();
+        if held.contains_key(key) || held.values().any(|other| other.ask_id == ask_id) {
+            return Ok(false);
+        }
+        held.insert(
+            key.clone(),
+            HeldAsk {
+                session_id: ask.session_id,
+                ask_id,
+                action: ask.action.clone(),
+                withdrawal: CancellationToken::new(),
+                state: HeldAskState::Waiting,
+            },
+        );
+        Ok(true)
     }
 
     /// Settles the card of an ask its provider took back, canceled; an answered one keeps its

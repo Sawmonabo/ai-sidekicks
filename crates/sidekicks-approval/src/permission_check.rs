@@ -281,14 +281,7 @@ impl PermissionCheck {
                 },
                 ApprovalRequestOrigin {
                     ask_id: Some(ask_id.clone()),
-                    // Cut as Codex's tool rows cut their call ids, so the held call's row draws its
-                    // mark; Claude Code draws no row for an id past the bound.
-                    tool_call_id: ask.tool_call_id.as_deref().and_then(|id| {
-                        ToolCallId::new(
-                            cut_to_code_points(id, PROVIDER_WIRE_HANDLE_MAX_LEN).to_owned(),
-                        )
-                        .ok()
-                    }),
+                    tool_call_id: card_tool_call_id(ask),
                 },
             )
             .await?;
@@ -442,6 +435,15 @@ impl PermissionCheck {
         Ok(NonEmptyText::new(agent_id.text().as_str().to_owned())
             .expect("an agent's id is a UUID, never empty"))
     }
+}
+
+/// The id of the tool call `ask` holds as its card keeps it, where its provider named one: cut as
+/// Codex's tool rows cut their call ids, so the held call's row draws its mark; Claude Code draws
+/// no row for an id past the bound.
+pub(crate) fn card_tool_call_id(ask: &ProviderPermissionAsk) -> Option<ToolCallId> {
+    ask.tool_call_id.as_deref().and_then(|id| {
+        ToolCallId::new(cut_to_code_points(id, PROVIDER_WIRE_HANDLE_MAX_LEN).to_owned()).ok()
+    })
 }
 
 fn refuse_withdrawn(withdrawal: &CancellationToken) -> Result<(), PermissionCheckError> {

@@ -11,6 +11,7 @@ use sidekicks_contracts::approval::{
     ApprovalCategory, ApprovalDecision, ApprovalRequestId, ApprovalScope, ApprovalState,
     RememberedScope, RememberedScopeKind,
 };
+use sidekicks_contracts::provider::tool_call::ToolCallId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionShape;
@@ -52,6 +53,8 @@ pub(crate) struct StoredApprovalRequest {
     pub(crate) resource_descriptor: ApprovalResourceDescriptor,
     /// The daemon's own id of the provider ask the request was minted for; absent on its own card.
     pub(crate) ask_id: Option<NonEmptyText>,
+    /// The tool call the ask holds, where its provider named one.
+    pub(crate) tool_call_id: Option<ToolCallId>,
     /// Where the ask stands.
     pub(crate) state: ApprovalState,
     /// When it was raised.
@@ -121,6 +124,8 @@ pub struct InsertedApprovalRequest {
     pub resource_descriptor: ApprovalResourceDescriptor,
     /// The daemon's own id of the provider ask; absent on a card the daemon raised itself.
     pub ask_id: Option<NonEmptyText>,
+    /// The tool call the ask holds, where its provider named one.
+    pub tool_call_id: Option<ToolCallId>,
     /// When it was raised.
     pub created_at: WireInstant,
 }
@@ -213,10 +218,10 @@ static RUN_LIVE_SQL: LazyLock<String> = LazyLock::new(|| {
 static INSERT_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO approval_requests
-    (id, session_id, run_id, requested_by, category, scope, resource_descriptor, ask_id, state,
-     created_at, updated_at)
+    (id, session_id, run_id, requested_by, category, scope, resource_descriptor, ask_id,
+     tool_call_id, state, created_at, updated_at)
   VALUES (@id, @session_id, @run_id, @requested_by, @category, @scope, @resource_descriptor,
-          @ask_id, '{}', @created_at, @created_at)",
+          @ask_id, @tool_call_id, '{}', @created_at, @created_at)",
         pending()
     )
 });
@@ -230,7 +235,7 @@ static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     session_id = excluded.session_id, run_id = excluded.run_id,
     requested_by = excluded.requested_by, category = excluded.category, scope = excluded.scope,
     resource_descriptor = excluded.resource_descriptor, ask_id = excluded.ask_id,
-    state = excluded.state, created_at = excluded.created_at, updated_at = excluded.updated_at",
+    tool_call_id = excluded.tool_call_id, state = excluded.state, created_at = excluded.created_at, updated_at = excluded.updated_at",
         *INSERT_REQUEST_SQL
     )
 });
@@ -291,7 +296,7 @@ const SELECT_REQUESTS_SQL: &str = "SELECT request.id, request.session_id, reques
        resolution.effective_scope, resolution.remembered_scope_kind,
        resolution.remembered_scope_pattern, resolution.asked_scope_kind,
        resolution.asked_scope_pattern, resolution.edited_action, resolution.decline_reason,
-       resolution.resolved_at, session.shape AS session_shape
+       resolution.resolved_at, session.shape AS session_shape, request.tool_call_id
   FROM approval_requests AS request
   LEFT JOIN approval_resolutions AS resolution ON resolution.request_id = request.id
   LEFT JOIN sessions AS session ON session.id = request.session_id";
@@ -532,6 +537,10 @@ fn request_statement(
                 Value::Text(resource_descriptor),
             ),
             nullable_text_binding("@ask_id", request.ask_id.as_ref().map(NonEmptyText::as_str)),
+            nullable_text_binding(
+                "@tool_call_id",
+                request.tool_call_id.as_ref().map(ToolCallId::as_str),
+            ),
             text_binding("@created_at", request.created_at.as_str()),
         ]),
         expected_row_count: Some(1),
@@ -675,6 +684,7 @@ fn stored_request_of(row: &Row<'_>) -> rusqlite::Result<StoredApprovalRequest> {
         scope: text_column(row, 5, ApprovalScope::new)?,
         resource_descriptor,
         ask_id,
+        tool_call_id: optional_text_column(row, 23, ToolCallId::new)?,
         state: text_column(row, 8, closed_word)?,
         created_at: text_column(row, 9, WireInstant::try_from)?,
         updated_at: text_column(row, 10, WireInstant::try_from)?,
