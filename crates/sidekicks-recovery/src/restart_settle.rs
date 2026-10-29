@@ -188,7 +188,12 @@ impl RestartSettle {
         let mut paused = Vec::new();
         for live_run in live_runs {
             match live_run.run.state {
-                RunState::Queued => {}
+                // A queued run waits for the queue's own delivery; no live run is a terminal one.
+                RunState::Queued
+                | RunState::Completed
+                | RunState::Interrupted
+                | RunState::Stopped
+                | RunState::Failed => {}
                 RunState::Paused | RunState::Pausing => {
                     rearmed.paused_run_ids.push(live_run.run_id);
                     paused.push(live_run);
@@ -196,11 +201,7 @@ impl RestartSettle {
                 RunState::Starting
                 | RunState::Running
                 | RunState::WaitingForApproval
-                | RunState::WaitingForInput
-                | RunState::Completed
-                | RunState::Interrupted
-                | RunState::Stopped
-                | RunState::Failed => {
+                | RunState::WaitingForInput => {
                     check_stop(Some(stop))?;
                     self.deps.run_engine.rearm_after_restart(&live_run).await?;
                     rearmed.in_progress.push(live_run);
