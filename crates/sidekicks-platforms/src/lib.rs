@@ -411,7 +411,7 @@ pub use process_containment::{
     ShellContainment, contain_daemon_descendants, end_leftover_shell_containments,
     stable_working_folder, take_in_orphans,
 };
-pub use process_identity::process_identity;
+pub use process_identity::{pin_identified_process, process_identity};
 pub use process_start::ProcessStart;
 pub use process_tree::{end_processes, process_table, tree_under};
 pub use program_install_folders::{ProgramFolder, program_install_folders};

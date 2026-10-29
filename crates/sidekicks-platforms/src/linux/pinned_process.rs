@@ -101,6 +101,19 @@ impl PinnedProcess {
         )
     }
 
+    /// Ends the daemon's process: `SIGTERM` through its descriptor, then once `grace` passes
+    /// without its exit `SIGKILL` the same way, to the process alone; each child it started ends
+    /// by its parent-death signal, which a lasting child does not arm, so every lasting session
+    /// outlives it. Blocking, so it runs in `spawn_blocking`; answers and fails as [`Self::stop`]
+    /// does.
+    pub fn stop_sparing_lasting_sessions(&self, grace: Duration) -> io::Result<ChildEnd> {
+        stop_pinned_process(
+            grace,
+            |signal| self.send_through_descriptor(signal, 0),
+            |bound| self.wait_for_exit(bound),
+        )
+    }
+
     /// Asks the process to end by itself: `SIGHUP` through its descriptor, so no process given its
     /// id meanwhile is signaled; `false` when it has ended. Fails with the system's error.
     pub fn hang_up(&self) -> io::Result<bool> {

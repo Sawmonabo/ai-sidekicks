@@ -48,6 +48,11 @@ pub(crate) const TOKEN_PROCESS_ID: usize = 5;
 /// The audit token's slot holding the process's id version.
 pub(crate) const TOKEN_ID_VERSION: usize = 7;
 
+// `<sys/proc_info.h>`'s `pbi_flags` bits, which `libc` does not bind: the process leads its
+// session, and the process has a controlling terminal.
+const PROC_FLAG_SLEADER: u32 = 0x20;
+const PROC_FLAG_CONTROLT: u32 = 0x80;
+
 // The name of the system's id for this boot, a UUID made anew at each start of the machine.
 const BOOT_SESSION_NAME: &CStr = c"kern.bootsessionuuid";
 
@@ -198,6 +203,35 @@ impl PinnedProcess {
         )
     }
 
+    /// Ends the daemon's process and what it started, sparing each lasting session: `SIGTERM` to
+    /// the process alone, then once `grace` passes without its exit `SIGKILL` to it alone, and
+    /// `SIGKILL` to every descendant listed before the first signal and again at the kill, except
+    /// a session leader with no controlling terminal and everything under it. A shell holds its
+    /// terminal, so it is ended, while a lasting child, or a program a person starts with `setsid`
+    /// inside a shell, is spared. Each signal names its process by its id version. Blocking, so
+    /// it runs in `spawn_blocking`; answers and fails as [`Self::stop`] does.
+    pub fn stop_sparing_lasting_sessions(&self, grace: Duration) -> io::Result<ChildEnd> {
+        let exit_watch = ExitWatch::attach(self.id)?;
+        // Listed before the first signal, since the process's exit hands its children to launchd.
+        let listed = list_descendants(self, is_ended_with_daemon);
+        stop_pinned_process(
+            grace,
+            |signal| {
+                if signal != Signal::SIGKILL {
+                    return self.send_checked_signal(signal);
+                }
+                // A child started during the grace is listed too while the process still runs.
+                let started_since = list_descendants(self, is_ended_with_daemon);
+                let is_running = self.send_checked_signal(signal);
+                let descendant_end = kill_each(listed.iter().chain(&started_since));
+                let is_running = is_running?;
+                descendant_end?;
+                Ok(is_running)
+            },
+            |bound| exit_watch.wait(bound),
+        )
+    }
+
     /// Asks the process to end by itself: `SIGHUP`, naming it by its id version, so no process
     /// given its id meanwhile is signaled; `false` when it has ended. Fails with the system's
     /// error, and with `Unsupported` on a macOS without the checked read.
@@ -248,15 +282,10 @@ impl PinnedProcess {
         if signal != Signal::SIGKILL {
             return self.send_checked_signal(signal);
         }
-        let descendants = list_descendants(self);
+        let descendants = list_descendants(self, |_| Ok(true));
         let is_running = self.send_checked_signal(signal);
         let group_end = self.signal_rest_of_own_group(signal);
-        // Every descendant is signaled, and the first refusal is kept.
-        let mut descendant_end = Ok(());
-        for descendant in &descendants {
-            let end = descendant.send_checked_signal(signal).map(drop);
-            descendant_end = descendant_end.and(end);
-        }
+        let descendant_end = kill_each(&descendants);
         let is_running = is_running?;
         group_end?;
         descendant_end?;
@@ -295,10 +324,22 @@ impl PinnedProcess {
     }
 }
 
-// Every running descendant of `process` the system lets this user read, each pinned by its unique
-// id, children before their own; a process whose children or identity cannot be read is skipped,
+// Kills each of `processes` with `SIGKILL`, naming it by its id version; every one is signaled, and
+// the first refusal is kept.
+fn kill_each<'a>(processes: impl IntoIterator<Item = &'a PinnedProcess>) -> io::Result<()> {
+    processes.into_iter().fold(Ok(()), |end, process| {
+        end.and(process.send_checked_signal(Signal::SIGKILL).map(drop))
+    })
+}
+
+// Every running descendant of `process` the system lets this user read that `is_listed` takes,
+// each pinned by its unique id, children before their own; a child `is_listed` leaves out is not
+// walked, and a process whose children, identity or `is_listed` answer cannot be read is skipped,
 // so the kill still reaches every descendant it can.
-fn list_descendants(process: &PinnedProcess) -> Vec<PinnedProcess> {
+fn list_descendants(
+    process: &PinnedProcess,
+    mut is_listed: impl FnMut(&PinnedProcess) -> io::Result<bool>,
+) -> Vec<PinnedProcess> {
     let mut descendants = Vec::new();
     let mut next = 0;
     let mut parent = process.clone();
@@ -309,10 +350,13 @@ fn list_descendants(process: &PinnedProcess) -> Vec<PinnedProcess> {
         });
         for child_id in child_ids {
             // A child read once its parent's id passed to another process is no descendant.
-            match pin_running_process(child_id).and_then(|child| Ok((child, is_running(&parent)?)))
-            {
-                Ok((Some(child), true)) => descendants.push(child),
-                Ok(_) => {}
+            let read = pin_running_process(child_id).and_then(|child| match child {
+                Some(child) if is_running(&parent)? => Ok(is_listed(&child)?.then_some(child)),
+                _ => Ok(None),
+            });
+            match read {
+                Ok(Some(child)) => descendants.push(child),
+                Ok(None) => {}
                 Err(error) => skip_unreadable_process(child_id, &error),
             }
         }
@@ -424,6 +468,27 @@ fn end_survivor(
 // The start time of process `id` in microseconds since the epoch, read only while `unique_id`
 // still names it; `None` otherwise.
 fn read_start_time(id: u32, unique_id: u64) -> io::Result<Option<u64>> {
+    Ok(read_bsd_info(id, unique_id)?.map(|record| {
+        record
+            .pbi_start_tvsec
+            .saturating_mul(1_000_000)
+            .saturating_add(record.pbi_start_tvusec)
+    }))
+}
+
+// Whether `process` ends with the daemon that started it: anything but a session leader with no
+// controlling terminal, the mark of a lasting child, which outlives the daemon with all it runs.
+// A process that has ended is no lasting session.
+fn is_ended_with_daemon(process: &PinnedProcess) -> io::Result<bool> {
+    Ok(
+        read_bsd_info(process.id, process.unique_id)?.is_none_or(|record| {
+            record.pbi_flags & PROC_FLAG_SLEADER == 0 || record.pbi_flags & PROC_FLAG_CONTROLT != 0
+        }),
+    )
+}
+
+// Process `id`'s BSD record, read only while `unique_id` still names it; `None` otherwise.
+fn read_bsd_info(id: u32, unique_id: u64) -> io::Result<Option<libc::proc_bsdinfo>> {
     // SAFETY: `proc_bsdinfo` is a C struct of integers and byte arrays, for which all zero bytes
     // are valid.
     let mut record: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
@@ -434,12 +499,7 @@ fn read_start_time(id: u32, unique_id: u64) -> io::Result<Option<u64>> {
         unique_id,
         &mut record,
     )?;
-    Ok(is_read.then(|| {
-        record
-            .pbi_start_tvsec
-            .saturating_mul(1_000_000)
-            .saturating_add(record.pbi_start_tvusec)
-    }))
+    Ok(is_read.then_some(record))
 }
 
 /// The machine's current boot, the system's boot session UUID. Fails with the system's error, and
@@ -599,4 +659,149 @@ pub(crate) fn read_checked<Record>(
         return Ok(false);
     }
     Err(error)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{BufRead as _, BufReader, Write as _};
+    use std::process::{Child, Stdio};
+    use std::time::Duration;
+
+    use super::{PinnedProcess, pin_child_process, pin_running_process};
+    use crate::child_command::ChildEnd;
+    use crate::test_program::this_test_program;
+
+    // The daemon's stand-in: this test program, run on the test below.
+    const DAEMON_STAND_IN: &str =
+        "macos::pinned_process::tests::a_daemon_with_a_lasting_and_a_group_child";
+
+    // What starts the stand-in's line of process ids.
+    const IDS_PREFIX: &str = "ids ";
+
+    #[test]
+    #[ignore = "run only as the ending test's daemon"]
+    fn a_daemon_with_a_lasting_and_a_group_child() {
+        use std::os::unix::process::CommandExt as _;
+
+        let lasting = crate::spawn_lasting_child(crate::LastingCommand {
+            program: "/bin/sleep".into(),
+            arguments: vec!["60".to_owned()],
+            environment: Vec::new(),
+            working_folder: "/".into(),
+            error_output: std::fs::File::options()
+                .write(true)
+                .open("/dev/null")
+                .expect("the null device opens"),
+        })
+        .expect("the lasting child starts");
+        let mut group_child = std::process::Command::new("/bin/sh")
+            .args(["-c", "/bin/sleep 60 & echo $!; wait"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .process_group(0)
+            .spawn()
+            .expect("the group child starts");
+        let mut grandchild = String::new();
+        BufReader::new(
+            group_child
+                .stdout
+                .take()
+                .expect("the group child's output is piped"),
+        )
+        .read_line(&mut grandchild)
+        .expect("the group child's line reads");
+        writeln!(
+            std::io::stdout().lock(),
+            "{IDS_PREFIX}{} {} {}",
+            lasting.process.id(),
+            group_child.id(),
+            grandchild.trim()
+        )
+        .expect("the stand-in writes its ids");
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    // Ends every process the test started, pass or fail.
+    struct StartedProcesses {
+        stand_in: Child,
+        pinned: Vec<PinnedProcess>,
+    }
+
+    impl Drop for StartedProcesses {
+        fn drop(&mut self) {
+            let ends = self.pinned.iter().map(|process| process.kill().map(drop));
+            let stand_in_end = self
+                .stand_in
+                .kill()
+                .and_then(|()| self.stand_in.wait().map(drop));
+            for end in ends.chain([stand_in_end]) {
+                if let Err(error) = end {
+                    tracing::warn!(
+                        error = &error as &(dyn std::error::Error + 'static),
+                        "a process the test started could not be ended"
+                    );
+                }
+            }
+        }
+    }
+
+    // Fails when the ending spares no descendant, which kills the lasting child, or spares every
+    // descendant, which leaves the group child and its own child running; or when the walk waits
+    // for the kill, by which time the stand-in, which ends on `SIGTERM`, has handed its children
+    // to launchd.
+    #[tokio::test]
+    async fn the_daemon_ending_spares_a_lasting_session_and_ends_the_rest() {
+        let mut stand_in = this_test_program(DAEMON_STAND_IN)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("the stand-in starts");
+        let output = stand_in
+            .stdout
+            .take()
+            .expect("the stand-in's output is piped");
+        let mut started = StartedProcesses {
+            stand_in,
+            pinned: Vec::new(),
+        };
+        let ids_line = BufReader::new(output)
+            .lines()
+            .map(|line| line.expect("the stand-in's output reads"))
+            .find_map(|line| line.strip_prefix(IDS_PREFIX).map(str::to_owned))
+            .expect("the stand-in writes its ids");
+        for id in ids_line.split(' ') {
+            let id = id.parse().expect("an id is a number");
+            let process = pin_running_process(id)
+                .expect("the pin reads")
+                .expect("the stand-in's process runs");
+            started.pinned.push(process);
+        }
+        let [lasting, group_child, grandchild] =
+            started.pinned.clone().try_into().expect("three ids");
+        let daemon = pin_child_process(started.stand_in.id()).expect("the stand-in pins");
+
+        let end = tokio::task::spawn_blocking(move || {
+            daemon.stop_sparing_lasting_sessions(Duration::from_millis(300))
+        })
+        .await
+        .expect("the ending runs");
+        let group_child_end =
+            tokio::time::timeout(Duration::from_secs(5), group_child.wait_for_end()).await;
+        let grandchild_end =
+            tokio::time::timeout(Duration::from_secs(5), grandchild.wait_for_end()).await;
+        let lasting_end =
+            tokio::time::timeout(Duration::from_millis(500), lasting.wait_for_end()).await;
+
+        assert_eq!(end.expect("the stand-in ends"), ChildEnd::Stop);
+        assert!(
+            matches!(group_child_end, Ok(Ok(()))),
+            "the group child outlived the ending"
+        );
+        assert!(
+            matches!(grandchild_end, Ok(Ok(()))),
+            "the group child's child outlived it"
+        );
+        assert!(lasting_end.is_err(), "the lasting child was ended");
+    }
 }
