@@ -46,7 +46,9 @@ use sidekicks_std::mutex_lock::lock;
 #[cfg(any(test, feature = "test-support"))]
 use sidekicks_std::pause_point::PausePoint;
 use sidekicks_std::settle_all::{SettleFailures, settle_all};
-use sidekicks_store::database::connection::read_pool::{DatabaseReadError, DatabaseReadPool};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::events::log_service::{EventLogAppendReceipt, EventLogService};
 use sidekicks_store::events::session::append_lock::SessionAppendHold;
@@ -69,7 +71,7 @@ use crate::run::engine::live::{ContinuingRun, LiveRuns, ProviderChangeGuard, Sta
 use crate::run::engine::turns::{TurnEnd, WriteWithResend};
 use crate::run::limit_interrupter::{LimitInterruptFailure, LimitInterrupter};
 use crate::run::provider_choice::held::HeldChoiceAnswers;
-use crate::run::read::{RunRead, read_run_through, safe_run_version};
+use crate::run::read::{RunRead, RunStateReader, read_run_through, safe_run_version};
 use crate::run::refusals::{RunRefusal, ended_run_refusal};
 use crate::run::session_posture::SessionPostureSource;
 use crate::run::state_change::{
@@ -86,8 +88,9 @@ use crate::run::state_change::{
 /// one, the two agent reads, and the run end's reads of its held questions open or waiting for it
 /// (`UNSETTLED_HELD_OF_RUN_SQL`), its plans still holding a request (its plan holds' read) and its
 /// open choices (the newest request of each dialog and whether it was settled since), and a
-/// driver's read of a session's stored leg (the session's runs and their bindings).
-pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 22 + RUN_AGENT_STATEMENT_CAPACITY;
+/// driver's read of a session's stored leg (the session's runs and their bindings), and whether a
+/// run ended at its setup.
+pub const RUN_ENGINE_STATEMENT_CAPACITY: usize = 23 + RUN_AGENT_STATEMENT_CAPACITY;
 
 // Reads of a live run before a guarded append gives up on a run that keeps moving under it.
 const LIVE_APPEND_ATTEMPTS: usize = 3;
@@ -767,6 +770,16 @@ impl RunEngine {
 
     async fn read_run(&self, run_id: RunId) -> Result<Option<RunRead>, RunEngineError> {
         read_run_through(&self.pool, run_id).await
+    }
+
+    /// Whether `run_id` ended `failed` at its setup, before its provider started it, as a helper
+    /// the daemon refused after its provider started it does. Fails as the read does.
+    pub(crate) async fn is_failed_at_setup(&self, run_id: RunId) -> Result<bool, RunEngineError> {
+        self.pool
+            .read(ReadLength::Short, move |reader| {
+                Ok::<_, RunEngineError>(RunStateReader::new(reader).is_failed_at_setup(&run_id)?)
+            })
+            .await
     }
 
     /// The run `run_id` as it reads now; fails with [`RunRefusal::NotFound`] when it has no row,

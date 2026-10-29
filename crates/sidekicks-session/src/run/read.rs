@@ -12,6 +12,7 @@ use sidekicks_contracts::event::envelope::EventCategory;
 use sidekicks_contracts::event::registry::{RUN_LIFECYCLE_EVENT_TYPES, SessionEventType};
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
@@ -77,6 +78,22 @@ pub struct LiveRun {
 }
 
 const SELECT_RUN_SQL: &str = "SELECT session_id, state, run_version FROM runs WHERE run_id = ?";
+
+// The run's own `agent.run.failed` row naming a setup failure, read on the run-and-type index.
+static SELECT_FAILED_AT_SETUP_SQL: LazyLock<String> = LazyLock::new(|| {
+    let setup_failure = serde_json::to_value(RunFailureCategory::SetupFailure)
+        .expect("a failure category writes as a word");
+    format!(
+        "SELECT 1 FROM session_events
+  WHERE run_id = @run_id AND type = '{failed}'
+    AND json_extract(payload, '$.failureCategory') = '{setup_failure}'
+  LIMIT 1",
+        failed = SessionEventType::AgentRunFailed.as_str(),
+        setup_failure = setup_failure
+            .as_str()
+            .expect("a failure category is a word"),
+    )
+});
 
 // Walks up from the run through each provider subagent to the parent whose process it runs in, and
 // takes the nearest run with a binding; a run's bindings all name the provider its first spawn
@@ -212,6 +229,14 @@ impl<'connection> RunStateReader<'connection> {
                 })
             })
             .optional()
+    }
+
+    /// Whether `run_id` ended `failed` at its setup, before its provider started it, as its own
+    /// `agent.run.failed` row records.
+    pub(crate) fn is_failed_at_setup(&self, run_id: &RunId) -> rusqlite::Result<bool> {
+        self.reader
+            .prepare_cached(&SELECT_FAILED_AT_SETUP_SQL)?
+            .exists(named_params! { "@run_id": run_id.text().as_str() })
     }
 
     /// Every run of `session_id`, or of every session when it is `None`, that has not ended,

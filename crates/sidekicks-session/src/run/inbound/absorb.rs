@@ -1,12 +1,7 @@
 //! The report of a delivery the inbound dispatch absorbed: one driver diagnostic naming why, the
-//! delivery and where it was attributed, while nothing of the delivery is written. A helper the
-//! daemon refused at its setup after its provider started it runs on in its provider, so what it
-//! delivers to its ended run is expected and absorbed with a debug line alone.
-
-use std::collections::VecDeque;
+//! delivery and where it was attributed, while nothing of the delivery is written.
 
 use serde_json::{Map, Value};
-use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::state::RunState;
 use sidekicks_provider::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
@@ -39,46 +34,6 @@ fn reason_sentence(reason: LateEventAbsorbReason) -> &'static str {
             "the delivery reported a pause or a turn under way after a resume had already set the \
              run running, so its write was refused and nothing is written"
         }
-    }
-}
-
-/// How many refused helpers' runs the dispatch remembers; past it the oldest is forgotten, so a
-/// delivery of its that comes later is reported as any late one is.
-const REFUSED_CHILD_RUNS_KEPT: usize = 64;
-
-/// The runs of the helpers the daemon refused at their setup whose provider has not yet reported
-/// their end, the oldest first.
-#[derive(Default)]
-pub(super) struct RefusedChildRuns {
-    runs: VecDeque<RunId>,
-}
-
-impl RefusedChildRuns {
-    /// Remembers `run_id`, a helper's run refused at its setup, forgetting the oldest past the
-    /// bound.
-    pub(super) fn note(&mut self, run_id: RunId) {
-        if self.runs.len() == REFUSED_CHILD_RUNS_KEPT {
-            self.runs.pop_front();
-        }
-        self.runs.push_back(run_id);
-    }
-
-    /// Whether `absorbed` is a delivery to a refused helper's ended run; the run is forgotten once
-    /// its provider reports its end.
-    pub(super) fn is_refused_run(&mut self, absorbed: &AbsorbedDelivery) -> bool {
-        let Some(run_id) = absorbed.run_id else {
-            return false;
-        };
-        let Some(index) = self.runs.iter().position(|refused| *refused == run_id) else {
-            return false;
-        };
-        if absorbed
-            .new_state
-            .is_some_and(|state| RunState::from(state).is_terminal())
-        {
-            self.runs.remove(index);
-        }
-        true
     }
 }
 

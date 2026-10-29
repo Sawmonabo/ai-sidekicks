@@ -296,9 +296,6 @@ impl SessionDirectoryProviderPort {
         Ok((place, PathBuf::from(folder)))
     }
 
-    // What an opening and a resume take from the session's records and the settings file now: the
-    // git folder of the repository its runs work in, the posture of its level there, its mode,
-    // and every provider's row values.
     /// The common git folder of the repository `session_id` runs in, which the posture of each
     /// level is built on. Fails for a session with no workspace, and as the reads or git fail.
     pub async fn read_git_folder(
@@ -313,6 +310,9 @@ impl SessionDirectoryProviderPort {
             .map_err(SessionDirectoryProviderPortError::GitFolderPath)
     }
 
+    // What an opening and a resume take from the session's records and the settings file now: the
+    // git folder of the repository its runs work in, the posture of its level there, its mode,
+    // and every provider's row values.
     async fn read_standing_opening(
         &self,
         session_id: SessionId,
