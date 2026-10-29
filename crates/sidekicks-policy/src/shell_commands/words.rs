@@ -1,6 +1,7 @@
 //! A shell word as the shell passes it to a program, held as pieces of the line it was read from
 //! and of its reading's one decoded buffer: quotes removed, backslash escapes undone, ANSI-C strings
-//! decoded, and every expansion and substitution kept as its source text in the line. A word is
+//! decoded, and every expansion, substitution and word the shell expands into file names or
+//! alternatives kept as its source text in the line. A word is
 //! never copied out of its pieces, and each query on it costs the pieces it reads.
 
 use std::fmt;
@@ -28,7 +29,8 @@ pub(super) fn node_text<'s>(node: Node<'_>, source: &'s str) -> &'s str {
 enum PieceKind {
     /// Text of the line that no quote or escape changes.
     Literal,
-    /// An expansion or a substitution, kept as its source text in the line.
+    /// An expansion, a substitution or a pattern the shell expands into file names or alternatives,
+    /// kept as its source text in the line.
     Expansion,
     /// Text an escape or an ANSI-C string decoded, in the decoded buffer.
     Decoded,
@@ -207,6 +209,15 @@ impl<'r> ShellWord<'r> {
     /// The word's text, one chunk per piece.
     pub(crate) fn chunks(self) -> impl Iterator<Item = &'r str> {
         self.pieces.iter().map(move |&piece| self.texts.text(piece))
+    }
+
+    /// Whether the shell passes the word as read here: false when an expansion, a substitution or
+    /// a leading pattern makes its text, which only the line's run decides and which can split it
+    /// into several words, any of them an option.
+    pub(crate) fn is_decided(self) -> bool {
+        self.pieces
+            .iter()
+            .all(|piece| piece.kind != PieceKind::Expansion)
     }
 }
 
@@ -408,23 +419,21 @@ impl<'s> WordBuilder<'s> {
         word_from(&self.pieces, first_piece)
     }
 
-    /// The word's name without its folder: the text past its last `/`, the word itself when it
-    /// has none.
-    pub(super) fn basename(&mut self, word: Word) -> Word {
+    /// The word's name without its folder, the text past its last `/`; `None` when the word has
+    /// no `/`, so names no folder.
+    pub(super) fn basename(&mut self, word: Word) -> Option<Word> {
         let texts = PieceTexts::new(self.line, &self.decoded, &self.positions);
-        let Some((index, slash)) = word.pieces().rev().find_map(|index| {
+        let (index, slash) = word.pieces().rev().find_map(|index| {
             texts
                 .last_position(self.pieces[index], PositionedByte::Slash)
                 .map(|slash| (index, slash))
-        }) else {
-            return word;
-        };
+        })?;
         let first_piece = self.pieces.len();
         let piece = self.pieces[index];
         push_piece(&mut self.pieces, slash + 1, piece.end, piece.kind);
         self.pieces
             .extend_from_within(index + 1..word.end_piece as usize);
-        word_from(&self.pieces, first_piece)
+        Some(word_from(&self.pieces, first_piece))
     }
 
     /// The words `env -S` splits `word` into: split on whitespace only inside its literal and
@@ -494,6 +503,11 @@ impl<'s> WordBuilder<'s> {
         let range = node.byte_range();
         let text = node_text(node, self.line);
         match node.kind() {
+            // A pattern at the start can expand into any file name, one that reads as an option too;
+            // one later in the word keeps the word's start.
+            "word" if text.starts_with(['*', '?', '[', '{']) => {
+                self.push_line(range, PieceKind::Expansion);
+            }
             "word" if memchr(b'\\', text.as_bytes()).is_some() => {
                 self.push_decoded(|value| unescape_bare(text, value));
             }
@@ -514,7 +528,9 @@ impl<'s> WordBuilder<'s> {
             | "expansion"
             | "command_substitution"
             | "process_substitution"
-            | "arithmetic_expansion" => self.push_line(range, PieceKind::Expansion),
+            | "arithmetic_expansion"
+            | "brace_expression"
+            | "extglob_pattern" => self.push_line(range, PieceKind::Expansion),
             _ => self.push_line(range, PieceKind::Literal),
         }
     }
