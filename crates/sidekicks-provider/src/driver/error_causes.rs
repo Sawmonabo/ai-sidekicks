@@ -11,6 +11,8 @@ use std::sync::LazyLock;
 use serde_json::{Value, json};
 use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+use sidekicks_contracts::provider::declaration::{ProviderOptionSettings, ProviderSessionOption};
+use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::failure_cause::RunFailureCause;
@@ -138,6 +140,47 @@ impl ProviderAxisInvalid {
             value: json!(provider.as_str()),
         }
     }
+
+    /// Checks a binding's model, effort and session options against what its driver offers now:
+    /// `models`, the driver's catalog, and `options`, the session options it declares. Refuses the
+    /// first axis set to a value not offered, in that order: a model the catalog does not list, an
+    /// effort the model's row does not list (a model with no effort axis takes none), and an option
+    /// the driver does not declare or a value its declaration refuses.
+    pub fn check_offered(
+        agent_id: AgentId,
+        model_id: &str,
+        effort: Option<&str>,
+        option_settings: Option<&ProviderOptionSettings>,
+        models: &[ProviderModel],
+        options: &[ProviderSessionOption],
+    ) -> Result<(), Self> {
+        let refused = |axis, value| Self {
+            agent_id,
+            axis,
+            value,
+        };
+        let Some(model) = models.iter().find(|row| row.id.as_str() == model_id) else {
+            return Err(refused(ProviderAxis::ModelId, json!(model_id)));
+        };
+        if let Some(effort) = effort
+            && !model
+                .effort_levels
+                .as_ref()
+                .is_some_and(|levels| levels.iter().any(|level| level.as_str() == effort))
+        {
+            return Err(refused(ProviderAxis::Effort, json!(effort)));
+        }
+        for setting in option_settings.map_or(&[][..], ProviderOptionSettings::as_slice) {
+            let is_offered = options
+                .iter()
+                .find(|option| option.id == setting.id)
+                .is_some_and(|option| option.check_value(&setting.value).is_ok());
+            if !is_offered {
+                return Err(refused(ProviderAxis::Options, json!(setting)));
+            }
+        }
+        Ok(())
+    }
 }
 
 /// The request members that set a provider axis, named as the request names them.
@@ -151,26 +194,18 @@ pub(crate) enum ProviderAxis {
     /// The model's larger context window.
     #[expect(
         dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
+        reason = "the binding check of an agent's provider switch names it"
     )]
     LargerWindow,
     /// The reasoning effort.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     Effort,
     /// The output speed.
     #[expect(
         dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
+        reason = "the binding check of an agent's provider switch names it"
     )]
     OutputSpeed,
     /// A session option.
-    #[expect(
-        dead_code,
-        reason = "the binding checks of an agent's provider switch and a session's create name it"
-    )]
     Options,
 }
 

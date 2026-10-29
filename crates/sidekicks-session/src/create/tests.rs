@@ -12,7 +12,12 @@ use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_contracts::machine::settings::{MachineSettings, ProviderRowValue};
 use sidekicks_contracts::project::ProjectId;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::declaration::ProviderDeclarationId;
+use sidekicks_contracts::provider::declaration::{
+    ProviderDeclarationId, ProviderDeclarationText, ProviderOptionSetting, ProviderOptionSettings,
+    ProviderSessionOption, ProviderSessionOptionControl, ProviderSessionOptionPlacement,
+    ProviderValue,
+};
+use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::ExecutionMode;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
@@ -27,6 +32,7 @@ use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::{ClientUuid, mint_uuid_v7};
 use sidekicks_contracts::wire::record::Record;
 use sidekicks_contracts::wire::text::FreeFormText;
+use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::real_path;
 use sidekicks_provider::driver::PROVIDERS;
@@ -101,7 +107,7 @@ struct Fixture {
     _writes: mpsc::Receiver<sidekicks_workspace::managed::write_watcher::ManagedWorkspaceReport>,
     settings: Arc<StoredSettings>,
     managed_workspaces: Arc<ManagedWorkspaceService>,
-    creation: SessionCreation,
+    creation: Arc<SessionCreation>,
 }
 
 impl Fixture {
@@ -192,7 +198,36 @@ impl Fixture {
             .boxed()
         });
         let settings = Arc::new(StoredSettings(Mutex::new(MachineSettings::default())));
-        let creation = SessionCreation::new(SessionCreationDeps {
+        driver.expect_list_models().returning(|_params| {
+            async {
+                Ok(vec![ProviderModel {
+                    id: ProviderToken::new("model-a".to_owned()).expect("the id fits"),
+                    name: ProviderToken::new("Model A".to_owned()).expect("the name fits"),
+                    capabilities: Vec::new(),
+                    effort_levels: Some(vec![
+                        ProviderToken::new("high".to_owned()).expect("the level fits"),
+                    ]),
+                    output_speed_levels: None,
+                    fast: false,
+                    larger_window: false,
+                    context_window: None,
+                }])
+            }
+            .boxed()
+        });
+        driver.expect_session_options().returning(|| {
+            async {
+                Ok(vec![ProviderSessionOption {
+                    id: option_id(),
+                    label: ProviderDeclarationText::new("Option".to_owned())
+                        .expect("the label fits"),
+                    placement: ProviderSessionOptionPlacement::EffortMenu,
+                    control: ProviderSessionOptionControl::Switch {},
+                }])
+            }
+            .boxed()
+        });
+        let creation = Arc::new(SessionCreation::new(SessionCreationDeps {
             reads,
             appender: Arc::new(SessionEventAppender::new(
                 event_log,
@@ -202,7 +237,7 @@ impl Fixture {
             workspaces,
             managed_workspaces: Arc::clone(&managed_workspaces),
             settings: Arc::clone(&settings) as _,
-        });
+        }));
         Self {
             database,
             _scratch: scratch,
@@ -250,6 +285,28 @@ impl Fixture {
             .execute_batch(sql)
             .expect("the test's change is stored");
     }
+
+    /// Puts the project back to cloning, its folder detached.
+    fn start_cloning(&self) {
+        self.execute(&format!(
+            "UPDATE repo_mounts SET state = 'detached' WHERE id = '{PROJECT_ID}';
+             UPDATE projects SET state = 'cloning', clone_url = 'https://example.com/app.git', \
+             clone_outcome = 'running' WHERE id = '{PROJECT_ID}';"
+        ));
+    }
+
+    /// Ends the project's clone, its folder attached again.
+    fn end_cloning(&self) {
+        self.execute(&format!(
+            "UPDATE projects SET state = 'active', clone_url = NULL, clone_outcome = NULL \
+             WHERE id = '{PROJECT_ID}';
+             UPDATE repo_mounts SET state = 'attached' WHERE id = '{PROJECT_ID}';"
+        ));
+    }
+}
+
+fn option_id() -> ProviderDeclarationId {
+    ProviderDeclarationId::new("option".to_owned()).expect("an option id")
 }
 
 fn opus() -> String {
@@ -299,13 +356,17 @@ fn chat_request(key: ClientUuid) -> SessionCreateRequest {
     })
 }
 
-fn refusal_code(error: SessionCreateError) -> RefusalCode {
+fn refusal_of(error: SessionCreateError) -> DomainError {
     match HandlerError::from(error) {
-        HandlerError::Refused(refusal) => refusal.code,
+        HandlerError::Refused(refusal) => refusal,
         other @ (HandlerError::Internal(_) | HandlerError::Canceled) => {
             panic!("the create is refused, not failed: {other:?}")
         }
     }
+}
+
+fn refusal_code(error: SessionCreateError) -> RefusalCode {
+    refusal_of(error).code
 }
 
 // Dies to the key lock removed: the second create, run while the first is held before its append,
@@ -317,13 +378,13 @@ async fn two_creates_with_one_key_make_one_session() {
     let first_held = fixture.creation.created_append_pause.arm();
     let second_held = fixture.creation.created_append_pause.arm();
 
-    let first = fixture.creation.create(&request);
+    let first = fixture.creation.create(request.clone());
     let second = async {
         first_held
             .reached
             .await
             .expect("the first create reaches its append");
-        let second = fixture.creation.create(&request);
+        let second = fixture.creation.create(request);
         let release = async {
             // Only a create the key's lock does not hold reaches its own append meanwhile.
             if tokio::time::timeout(UNHELD_REACH_BOUND, second_held.reached)
@@ -356,7 +417,7 @@ async fn a_create_runs_the_lead_on_the_account_made_current_on_its_way() {
     let held = fixture.creation.created_append_pause.arm();
     let request = project_request(new_key(), None);
 
-    let create = fixture.creation.create(&request);
+    let create = fixture.creation.create(request);
     let move_current = async {
         held.reached.await.expect("the create reaches its append");
         fixture.execute(&format!(
@@ -399,7 +460,7 @@ async fn a_group_of_another_project_is_refused_and_nothing_lands() {
 
     let refused = fixture
         .creation
-        .create(&project_request(new_key(), Some(group_id)))
+        .create(project_request(new_key(), Some(group_id)))
         .await
         .expect_err("a group of another project is refused");
 
@@ -415,24 +476,16 @@ async fn a_group_of_another_project_is_refused_and_nothing_lands() {
 #[tokio::test]
 async fn a_session_made_while_its_project_clones_is_finished_when_the_clone_attaches() {
     let fixture = Fixture::new().await;
-    fixture.execute(&format!(
-        "UPDATE repo_mounts SET state = 'detached' WHERE id = '{PROJECT_ID}';
-         UPDATE projects SET state = 'cloning', clone_url = 'https://example.com/app.git', \
-         clone_outcome = 'running' WHERE id = '{PROJECT_ID}';"
-    ));
+    fixture.start_cloning();
 
     let created = fixture
         .creation
-        .create(&project_request(new_key(), None))
+        .create(project_request(new_key(), None))
         .await
         .expect("the create lands");
     assert_eq!(created.state, SessionState::Provisioning);
 
-    fixture.execute(&format!(
-        "UPDATE projects SET state = 'active', clone_url = NULL, clone_outcome = NULL \
-         WHERE id = '{PROJECT_ID}';
-         UPDATE repo_mounts SET state = 'attached' WHERE id = '{PROJECT_ID}';"
-    ));
+    fixture.end_cloning();
     fixture
         .creation
         .clone_attached(ProjectId::new(PROJECT_ID).expect("a project id"))
@@ -470,7 +523,7 @@ async fn a_chat_not_born_leaves_no_workspace_and_the_start_keeps_one_being_made(
     ));
     fixture
         .creation
-        .create(&chat_request(key))
+        .create(chat_request(key))
         .await
         .expect_err("the chat's session.created is refused");
     assert_eq!(fixture.count(managed_mounts), 0);
@@ -484,7 +537,7 @@ async fn a_chat_not_born_leaves_no_workspace_and_the_start_keeps_one_being_made(
         .path;
     let held = fixture.creation.created_append_pause.arm();
     let request = chat_request(new_key());
-    let create = fixture.creation.create(&request);
+    let create = fixture.creation.create(request);
     let start = async {
         held.reached.await.expect("the chat reaches its append");
         fixture
@@ -516,14 +569,14 @@ async fn a_session_starts_at_its_drivers_level_and_mode_with_the_picked_advisor(
     let fixture = Fixture::new().await;
     let unpicked = fixture
         .creation
-        .create(&project_request(new_key(), None))
+        .create(project_request(new_key(), None))
         .await
         .expect("the create lands")
         .session_id;
     fixture.pick_advisor();
     let picked = fixture
         .creation
-        .create(&chat_request(new_key()))
+        .create(chat_request(new_key()))
         .await
         .expect("the create lands")
         .session_id;
@@ -550,4 +603,138 @@ async fn a_session_starts_at_its_drivers_level_and_mode_with_the_picked_advisor(
     };
     assert_eq!(advisor(unpicked), None);
     assert_eq!(advisor(picked), Some(opus()));
+}
+
+fn token(text: &str) -> ProviderToken {
+    ProviderToken::new(text.to_owned()).expect("the token fits")
+}
+
+// Dies to the model check dropped, and to the effort or the options check dropped: the session is
+// then born on an axis its driver does not offer, to fail at its first run.
+#[rstest::rstest]
+#[case::model(SessionLead { model_id: token("model-z"), ..lead() }, "modelId")]
+#[case::effort(SessionLead { effort: Some(token("max")), ..lead() }, "effort")]
+#[case::options(
+    SessionLead {
+        options: ProviderOptionSettings::new(vec![ProviderOptionSetting {
+            id: ProviderDeclarationId::new("other".to_owned()).expect("an option id"),
+            value: ProviderValue::Switch(true),
+        }]),
+        ..lead()
+    },
+    "options"
+)]
+#[tokio::test]
+async fn a_lead_axis_its_driver_does_not_offer_is_refused_and_nothing_lands(
+    #[case] lead: SessionLead,
+    #[case] axis: &str,
+) {
+    let fixture = Fixture::new().await;
+    let SessionCreateRequest::Project(mut request) = project_request(new_key(), None) else {
+        unreachable!("the request is a project's");
+    };
+    request.lead = lead;
+
+    let refusal = refusal_of(
+        fixture
+            .creation
+            .create(SessionCreateRequest::Project(request))
+            .await
+            .expect_err("an axis the driver does not offer is refused"),
+    );
+
+    assert_eq!(refusal.code, RefusalCode::AgentProviderAxisInvalid);
+    assert_eq!(
+        refusal
+            .detail
+            .and_then(|detail| detail.get("axis").cloned()),
+        Some(serde_json::json!(axis))
+    );
+    assert_eq!(fixture.count("SELECT count(*) FROM sessions"), 0);
+    assert_eq!(
+        fixture.count("SELECT count(*) FROM session_create_requests"),
+        0
+    );
+}
+
+// Dies to the provisioning guard dropped from `session.activated`'s prelude: the session archived
+// while its finish ran is then set active.
+#[tokio::test]
+async fn a_session_archived_while_its_finish_runs_stays_archived() {
+    let fixture = Fixture::new().await;
+    let held = fixture.creation.activated_append_pause.arm();
+    let create = fixture.creation.create(project_request(new_key(), None));
+    let archive = async {
+        held.reached.await.expect("the finish reaches its append");
+        fixture.execute("UPDATE sessions SET state = 'archived'");
+        held.release.send(()).expect("the finish waits");
+    };
+    let (created, ()) = tokio::join!(create, archive);
+
+    assert_eq!(
+        created.expect("the create answers").state,
+        SessionState::Archived
+    );
+    assert_eq!(
+        fixture.text("SELECT state FROM sessions"),
+        Some("archived".to_owned())
+    );
+    assert_eq!(
+        fixture.count("SELECT count(*) FROM session_events WHERE type = 'session.activated'"),
+        0
+    );
+}
+
+// Dies to the finish's driver lookup answered as the registry refuses it: the retry then answers
+// `provider.notFound`, which the create does not declare.
+#[tokio::test]
+async fn a_retry_whose_lead_driver_is_gone_is_refused_on_the_provider_axis() {
+    let fixture = Fixture::new().await;
+    fixture.start_cloning();
+    let request = project_request(new_key(), None);
+    let created = fixture
+        .creation
+        .create(request.clone())
+        .await
+        .expect("the create lands");
+    assert_eq!(created.state, SessionState::Provisioning);
+    fixture.end_cloning();
+    fixture.execute(
+        "UPDATE session_events \
+         SET payload = json_set(payload, '$.mainAgent.binding.providerName', 'gone') \
+         WHERE type = 'session.created'",
+    );
+
+    let refused = fixture
+        .creation
+        .create(request)
+        .await
+        .expect_err("a lead whose driver is gone is refused");
+
+    assert_eq!(refusal_code(refused), RefusalCode::AgentProviderAxisInvalid);
+}
+
+// Dies to the create run in its caller's future: the caller dropped mid-way then drops the create
+// with it, which leaves the session provisioning.
+#[tokio::test]
+async fn a_create_whose_caller_stops_waiting_still_activates_its_session() {
+    let fixture = Fixture::new().await;
+    let held = fixture.creation.activated_append_pause.arm();
+    let key = new_key();
+    let mut create = Box::pin(fixture.creation.create(project_request(key.clone(), None)));
+    tokio::select! {
+        created = &mut create => panic!("the create waits at its append: {created:?}"),
+        reached = held.reached => reached.expect("the finish reaches its append"),
+    }
+    drop(create);
+    held.release
+        .send(())
+        .expect("the create runs on without its caller");
+
+    // The key is held until the create's own task ends.
+    let _hold = fixture.creation.key_lock.acquire(key).await;
+    assert_eq!(
+        fixture.text("SELECT state FROM sessions"),
+        Some("active".to_owned())
+    );
 }

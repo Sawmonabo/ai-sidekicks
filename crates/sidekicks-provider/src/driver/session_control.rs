@@ -263,7 +263,8 @@ pub struct StartingLevel {
 }
 
 impl StartingLevel {
-    /// A session starting at `level` in `session_mode`.
+    /// A session starting at `level` in `session_mode`, as a test's driver answers it.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(level: PermissionLevel, session_mode: SessionMode) -> Self {
         Self {
             level,

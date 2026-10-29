@@ -4,6 +4,7 @@
 //! runs them for every session a stop left provisioning, after removing the workspace of each chat
 //! whose create stopped before the chat was born.
 
+use std::borrow::Cow;
 use std::error::Error;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -11,9 +12,11 @@ use std::sync::LazyLock;
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rusqlite::{OptionalExtension, named_params};
+use sidekicks_contracts::agent::definition::AgentId;
 use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::project::{ProjectId, ProjectState};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountId, RepoMountState};
 use sidekicks_contracts::repo::workspace::WorkspaceBindRequest;
 use sidekicks_contracts::session::events::SessionLifecycleChangePayload;
@@ -22,12 +25,13 @@ use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::SessionState;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_provider::driver::session_control::StartingLevelParams;
-use sidekicks_std::keyed_lock::KeyHold;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::settle_all::settle_all;
 use sidekicks_store::database::connection::read_pool::ReadLength;
-use sidekicks_store::database::stored_column::text_column;
+use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
+use sidekicks_store::database::stored_column::{closed_word, text_column};
 use sidekicks_store::events::session::appender::{SessionEventDraft, SessionEventLinkage};
 use sidekicks_workspace::clone::service::CloneAttachedListener;
 use sidekicks_workspace::schema::MountOrigin;
@@ -36,6 +40,10 @@ use crate::console_state::session_mode_change_statement;
 use crate::create::{SessionCreateError, SessionCreation, project_folder_not_attached};
 use crate::groups::store::session_group_placement_statement;
 use crate::permission_level::permission_level_change_statement;
+
+// `session.activated`'s first statement, which holds only while the session is still provisioning,
+// so a session archived or closed meanwhile is never set active.
+const PROVISIONING_GUARD_INDEX: usize = 0;
 
 // The sessions left provisioning with the key that made each, those of one project when
 // `@projectId` names it.
@@ -63,6 +71,15 @@ static SELECT_SESSION_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
         attached_origin = <&'static str>::from(MountOrigin::Attached),
     )
 });
+
+static PROVISIONING_GUARD_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT 1 FROM sessions WHERE id = @sessionId AND state = '{}'",
+        <&'static str>::from(SessionState::Provisioning)
+    )
+});
+
+const SELECT_SESSION_STATE_SQL: &str = "SELECT state FROM sessions WHERE id = @sessionId";
 
 static SELECT_PROJECT_CLONING_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -105,8 +122,12 @@ pub(crate) struct SessionToFinish {
     pub(crate) execution_mode: ExecutionMode,
     /// The group of its project it asked for.
     pub(crate) group_id: Option<SessionGroupId>,
+    /// Its lead.
+    pub(crate) agent_id: AgentId,
     /// The binding its lead was born on.
     pub(crate) lead: AgentProviderBinding,
+    /// The account its lead was born on.
+    pub(crate) provider_account_id: ProviderAccountId,
 }
 
 /// One session a stopped create's finish, or one chat workspace's removal, could not complete.
@@ -140,17 +161,19 @@ impl SessionCreation {
         Ok(())
     }
 
-    /// The bind and the activation of a session left provisioning: `false`, with nothing done,
-    /// while its project is still cloning. Runs under `_hold`, its key's hold, which it never
-    /// takes again. Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no
-    /// managed mount and [`SessionCreateError::LeadNamesNoAccount`] for a lead with no account,
-    /// refuses `repoMount.notFound` for a project with no attached folder, and
-    /// fails as the bind, the starting level's read and the append fail.
+    /// The bind and the activation of a session left provisioning, answering the state it reads
+    /// after: `provisioning`, with nothing done, while its project is still cloning; `active` once
+    /// activated; and as it reads now when it left `provisioning` meanwhile, an archive among
+    /// them, which nothing activates. Runs while its create's key is held, which it never takes.
+    /// Fails with [`SessionCreateError::ChatWithoutMount`] for a chat with no managed mount,
+    /// refuses `repoMount.notFound` for a project with no attached folder,
+    /// `agent.providerAxisInvalid` for a lead whose provider no driver answers now and
+    /// `session.notFound` for a session purged meanwhile, and fails as the bind, the starting
+    /// level's read and the append fail.
     pub(crate) async fn finish(
         &self,
         session: &SessionToFinish,
-        _hold: &KeyHold<'_, ClientUuid>,
-    ) -> Result<bool, SessionCreateError> {
+    ) -> Result<SessionState, SessionCreateError> {
         let session_id = session.session_id;
         let project_id = session.project_id;
         let Some((repo_mount_id, working_folder)) =
@@ -158,7 +181,9 @@ impl SessionCreation {
         else {
             return match project_id {
                 None => Err(SessionCreateError::ChatWithoutMount { session_id }),
-                Some(project_id) if self.is_project_cloning(project_id).await? => Ok(false),
+                Some(project_id) if self.is_project_cloning(project_id).await? => {
+                    Ok(SessionState::Provisioning)
+                }
                 Some(project_id) => Err(project_folder_not_attached(project_id).into()),
             };
         };
@@ -171,21 +196,24 @@ impl SessionCreation {
             })
             .await?;
         let lead = &session.lead;
-        let Some(provider_account_id) = lead.provider_account_id.clone() else {
-            return Err(SessionCreateError::LeadNamesNoAccount { session_id });
-        };
         let starting = self
-            .providers
-            .lookup(&lead.provider_name)?
+            .lead_driver(session.agent_id, &lead.provider_name)?
             .read_starting_level(StartingLevelParams::new(
                 working_folder,
                 lead.model_id.clone(),
-                provider_account_id,
+                session.provider_account_id.clone(),
             ))
             .await?;
 
         let activated_at = WireInstant::now();
-        let mut transactional_prelude = Vec::new();
+        let mut transactional_prelude = vec![WriteStatement {
+            sql: Cow::Borrowed(PROVISIONING_GUARD_SQL.as_str()),
+            bindings: StatementBindings::Named(vec![text_binding(
+                "@sessionId",
+                session_id.text().as_str(),
+            )]),
+            expected_row_count: Some(1),
+        }];
         // A group removed since the create took its sessions out with it, so a placement that
         // matches no group leaves this one out too.
         if let Some(group_id) = &session.group_id {
@@ -211,7 +239,10 @@ impl SessionCreation {
                 actor: None,
             }),
         )?;
-        self.appender
+        #[cfg(test)]
+        self.activated_append_pause.pass().await;
+        let appended = self
+            .appender
             .append(
                 draft,
                 SessionEventLinkage {
@@ -220,9 +251,36 @@ impl SessionCreation {
                     ..SessionEventLinkage::default()
                 },
             )
-            .await
-            .map_err(SessionCreateError::Append)?;
-        Ok(true)
+            .await;
+        match appended {
+            Ok(_) => Ok(SessionState::Active),
+            // The session already left provisioning, so there is nothing to activate.
+            Err(error) if error.refused_statement_index() == Some(PROVISIONING_GUARD_INDEX) => {
+                self.read_session_state(session_id).await
+            }
+            Err(error) => Err(SessionCreateError::Append(error)),
+        }
+    }
+
+    async fn read_session_state(
+        &self,
+        session_id: SessionId,
+    ) -> Result<SessionState, SessionCreateError> {
+        let state = self
+            .reads
+            .read(ReadLength::Short, move |connection| {
+                Ok::<_, SessionCreateError>(
+                    connection
+                        .prepare_cached(SELECT_SESSION_STATE_SQL)?
+                        .query_row(
+                            named_params! { "@sessionId": session_id.text().as_str() },
+                            |row| text_column(row, 0, closed_word),
+                        )
+                        .optional()?,
+                )
+            })
+            .await?;
+        state.ok_or_else(|| session_not_found(&session_id).into())
     }
 
     // Finishes each session left provisioning, `project_id`'s alone when given, each under its
@@ -241,11 +299,11 @@ impl SessionCreation {
 
     // Finishes the session `key` made when it still reads provisioning under the key's hold.
     async fn finish_recorded_key(&self, key: ClientUuid) -> Result<(), SessionCreateError> {
-        let hold = self.key_lock.acquire(key.clone()).await;
+        let _hold = self.key_lock.acquire(key.clone()).await;
         if let Some(recorded) = self.read_recorded(key).await?
             && recorded.state == SessionState::Provisioning
         {
-            self.finish(&recorded.session, &hold).await?;
+            self.finish(&recorded.session).await?;
         }
         Ok(())
     }

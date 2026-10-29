@@ -29,7 +29,7 @@ pub(crate) fn register_session_create(
             let creation = Arc::clone(&creation);
             let settings_file = Arc::clone(&settings_file);
             async move {
-                let created = creation.create(&request).await?;
+                let created = creation.create(request).await?;
                 keep_last_lead_pick(&settings_file, &created).await;
                 Ok(created)
             }

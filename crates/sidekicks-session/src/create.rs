@@ -7,8 +7,9 @@
 //!   request's idempotency key with where the session works, re-checks the lead's account, the
 //!   project and its group, and writes a picked advisor; it reads `active` once bound.
 //! - A session made in a project still cloning stays `provisioning` until the clone attaches.
-//! - Creates of one key run one at a time: a create with a recorded key answers the session that
-//!   key made, finishing it first when it was left `provisioning`.
+//! - Creates of one key run one at a time, each whole in a task of its own: a create with a
+//!   recorded key answers the session that key made, finishing it first when it was left
+//!   `provisioning`.
 
 mod account;
 mod provisioning;
@@ -24,7 +25,7 @@ use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, named_params};
 use serde_json::json;
 use sidekicks_contracts::agent::definition::AgentId;
-use sidekicks_contracts::agent::definition::binding::AgentProviderBinding;
+use sidekicks_contracts::agent::definition::binding::{AgentProviderBinding, ProviderToken};
 use sidekicks_contracts::agent::methods::AgentSubscribeEntry;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
@@ -32,6 +33,7 @@ use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::machine::settings::ProviderRowValues;
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::project::{ProjectId, ProjectState};
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::repo::mount::{ExecutionMode, RepoMountState};
 use sidekicks_contracts::session::directory::{
@@ -46,11 +48,13 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_ipc::domain_error::DomainError;
 use sidekicks_ipc::registry::HandlerError;
+use sidekicks_provider::driver::contract::ProviderDriver;
 use sidekicks_provider::driver::contract::error::DriverError;
+use sidekicks_provider::driver::contract::params_and_results::ListModelsParams;
 use sidekicks_provider::driver::error_causes::ProviderAxisInvalid;
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_std::cleanup_failures::CleanupFailures;
-use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
+use sidekicks_std::keyed_lock::KeyedLock;
 use sidekicks_std::mutex_lock::lock;
 #[cfg(test)]
 use sidekicks_std::pause_point::PausePoint;
@@ -69,6 +73,7 @@ use sidekicks_workspace::managed::service::{ManagedWorkspaceError, ManagedWorksp
 use sidekicks_workspace::repo::errors::RepoRefusal;
 use sidekicks_workspace::schema::MountOrigin;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceError};
+use tokio::task::JoinError;
 
 use crate::console_state::INSERT_CONSOLE_STATE_SQL;
 use crate::create::account::{ResolvedAccount, read_current_account};
@@ -76,9 +81,9 @@ use crate::create::provisioning::{SessionFinishFailure, SessionToFinish};
 
 /// The statements the creation's reads keep prepared on each read connection: a recorded create,
 /// the current account and whether any is registered, a project's target, the sessions left
-/// provisioning, a session's mount, whether a project clones, the unborn chats and whether one
-/// chat is unborn.
-pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 9;
+/// provisioning, a session's mount, whether a project clones, the unborn chats, whether one chat
+/// is unborn and a session's state.
+pub const SESSION_CREATION_STATEMENT_CAPACITY: usize = 10;
 
 // Each statement's position in `session.created`'s write: the request's record, then the account
 // guard; a project session's project and folder guards and its group guard follow.
@@ -91,13 +96,16 @@ const RECORD_CREATE_REQUEST_SQL: &str = "INSERT INTO session_create_requests
   (client_idempotency_key, session_id, project_id, execution_mode, group_id)
   VALUES (@key, @sessionId, @projectId, @executionMode, @groupId)";
 
-// A create's record joined with the session it made as it reads now, and the lead it was born on.
+// A create's record joined with the session it made as it reads now, and the lead it was born on
+// with its account.
 static SELECT_RECORDED_CREATE_SQL: LazyLock<String> = LazyLock::new(|| {
     let session_created = SessionEventType::SessionCreated.as_str();
     format!(
         "SELECT request.session_id, request.project_id, request.execution_mode, request.group_id,
         session.shape, session.state, session.place,
-        json_extract(created.payload, '$.mainAgent.binding')
+        json_extract(created.payload, '$.mainAgent.binding'),
+        json_extract(created.payload, '$.mainAgent.agentId'),
+        json_extract(created.payload, '$.mainAgent.binding.providerAccountId')
    FROM session_create_requests AS request
    JOIN sessions AS session ON session.id = request.session_id
    JOIN session_events AS created
@@ -176,20 +184,23 @@ pub struct SessionCreation {
     workspaces: Arc<WorkspaceService>,
     managed_workspaces: Arc<ManagedWorkspaceService>,
     settings: Arc<dyn MachineSettingsReader>,
-    key_lock: KeyedLock<ClientUuid>,
+    key_lock: Arc<KeyedLock<ClientUuid>>,
     // The chats whose workspace is made or being made and whose `session.created` has not settled,
     // so the removal of unborn chats' workspaces never takes one of theirs.
     chats_being_created: Mutex<HashSet<SessionId>>,
     /// Where a test holds a create just before it appends `session.created`.
     #[cfg(test)]
     pub(crate) created_append_pause: PausePoint,
+    /// Where a test holds a finish just before it appends `session.activated`.
+    #[cfg(test)]
+    pub(crate) activated_append_pause: PausePoint,
 }
 
 /// Why a create, or the finish of a session left provisioning, failed.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionCreateError {
     /// A refusal sent with its code: `project.notFound`, `repoMount.notFound`,
-    /// `session.group.refused`, `provider.account.notRegistered` or
+    /// `session.group.refused`, `session.notFound`, `provider.account.notRegistered` or
     /// `provider.account.current.notSet`.
     #[error(transparent)]
     Refused(#[from] DomainError),
@@ -226,12 +237,12 @@ pub enum SessionCreateError {
         /// The chat.
         session_id: SessionId,
     },
-    /// A session's lead names no account, which its create always resolves first.
-    #[error("session {session_id}'s lead names no account")]
-    LeadNamesNoAccount {
-        /// The session.
-        session_id: SessionId,
-    },
+    /// The create was skipped, since its caller stopped waiting before its key was held.
+    #[error("the session's create was skipped once its caller stopped waiting")]
+    Unanswered,
+    /// The task that ran the create ended before the create finished.
+    #[error("the session's create ended before it finished")]
+    Interrupted(#[source] JoinError),
     /// Some stopped creates could not be finished; every other one was.
     #[error(transparent)]
     Finish(#[from] SettleFailures<SessionFinishFailure>),
@@ -253,7 +264,8 @@ impl From<SessionCreateError> for HandlerError {
             | SessionCreateError::Draft(_)
             | SessionCreateError::Append(_)
             | SessionCreateError::ChatWithoutMount { .. }
-            | SessionCreateError::LeadNamesNoAccount { .. }
+            | SessionCreateError::Unanswered
+            | SessionCreateError::Interrupted(_)
             | SessionCreateError::Finish(_)) => Self::Internal(Box::new(fault)),
         }
     }
@@ -302,10 +314,12 @@ impl SessionCreation {
             workspaces: deps.workspaces,
             managed_workspaces: deps.managed_workspaces,
             settings: deps.settings,
-            key_lock: KeyedLock::new(),
+            key_lock: Arc::new(KeyedLock::new()),
             chats_being_created: Mutex::new(HashSet::new()),
             #[cfg(test)]
             created_append_pause: PausePoint::default(),
+            #[cfg(test)]
+            activated_append_pause: PausePoint::default(),
         }
     }
 
@@ -313,36 +327,62 @@ impl SessionCreation {
     /// `provisioning` in a project still cloning, with the lead's binding on its provider's
     /// current account. A request whose key already made a session answers that session as it
     /// reads now, binding and activating it first when it was left `provisioning`; one sent while
-    /// its key's create runs waits for it. Refuses, writing nothing, `agent.providerAxisInvalid`
-    /// for a provider no driver answers, `provider.account.notRegistered` or
+    /// its key's create runs waits for it. The create runs whole in a task of its own under its
+    /// key, so a caller that stops waiting never leaves it part made. Refuses, writing nothing,
+    /// `agent.providerAxisInvalid` for a provider no driver answers or a model, effort or session
+    /// option the lead's driver does not offer, `provider.account.notRegistered` or
     /// `provider.account.current.notSet` for a lead with no current account, `project.notFound`,
     /// `repoMount.notFound` for a project with no attached folder that is not cloning, and
-    /// `session.group.refused` for a group of another project. A failure after `session.created`
-    /// leaves the session `provisioning` for a retry or the daemon's next start to finish.
+    /// `session.group.refused` for a group of another project; fails as the driver's catalog read
+    /// fails. A failure after `session.created` leaves the session `provisioning` for a retry or
+    /// the daemon's next start to finish.
     pub async fn create(
+        self: &Arc<Self>,
+        request: SessionCreateRequest,
+    ) -> Result<SessionCreateResponse, SessionCreateError> {
+        let key = target_of(&request).key.clone();
+        let creation = Arc::clone(self);
+        let landed = self
+            .key_lock
+            .run_held(
+                key.clone(),
+                async move { creation.create_held(&request).await },
+                move |answer: &Result<SessionCreateResponse, SessionCreateError>| match answer {
+                    Ok(created) => tracing::info!(
+                        session_id = %created.session_id,
+                        client_idempotency_key = key.as_str(),
+                        "a session's create finished after its caller stopped waiting"
+                    ),
+                    Err(error) => tracing::error!(
+                        client_idempotency_key = key.as_str(),
+                        error = error as &(dyn Error + 'static),
+                        "a session's create failed after its caller stopped waiting"
+                    ),
+                },
+            )
+            .await;
+        match landed {
+            Ok(Some(answer)) => answer,
+            Ok(None) => Err(SessionCreateError::Unanswered),
+            Err(interrupted) => Err(SessionCreateError::Interrupted(interrupted)),
+        }
+    }
+
+    // The create `create` describes, run while its key is held.
+    async fn create_held(
         &self,
         request: &SessionCreateRequest,
     ) -> Result<SessionCreateResponse, SessionCreateError> {
         let target = target_of(request);
-        let hold = self.key_lock.acquire(target.key.clone()).await;
         if let Some(recorded) = self.read_recorded(target.key.clone()).await? {
-            return self.answer_recorded(recorded, &hold).await;
+            return self.answer_recorded(recorded).await;
         }
         let lead = target.lead;
         let agent_id = AgentId::try_from(mint_uuid_v7()).expect("a minted UUID is an agent id");
-        // The registry's one refusal is a provider no driver answers, which a create refuses as
-        // the lead's provider axis.
-        let Ok(driver) = self.providers.lookup(&lead.provider_name) else {
-            return Err(
-                DriverError::from(ProviderAxisInvalid::provider_not_registered(
-                    agent_id,
-                    &lead.provider_name,
-                ))
-                .into(),
-            );
-        };
+        let driver = self.lead_driver(agent_id, &lead.provider_name)?;
         let agent_name = self.providers.descriptor(&lead.provider_name)?.name();
         let account = self.resolve_account(&lead.provider_name).await?;
+        check_lead_offered(&*driver, agent_id, lead, &account.provider_account_id).await?;
         let settings = self
             .settings
             .read_machine_settings()
@@ -366,7 +406,7 @@ impl SessionCreation {
             place: None,
             advisor_pick,
         };
-        let lead_binding = match new_session.target.project_id {
+        let (lead_binding, provider_account_id) = match new_session.target.project_id {
             None => self.create_chat(&mut new_session, account).await?,
             Some(project_id) => {
                 new_session.place = self.read_project_place(project_id).await?;
@@ -378,20 +418,37 @@ impl SessionCreation {
             project_id: new_session.target.project_id,
             execution_mode: new_session.target.execution_mode,
             group_id: new_session.target.group_id,
+            agent_id,
             lead: lead_binding.clone(),
+            provider_account_id,
         };
-        let is_finished = self.finish(&session, &hold).await?;
+        let state = self.finish(&session).await?;
         Ok(SessionCreateResponse {
             session_id,
             shape: new_session.target.shape,
-            state: if is_finished {
-                SessionState::Active
-            } else {
-                SessionState::Provisioning
-            },
+            state,
             place: new_session.place,
             lead: lead_binding,
         })
+    }
+
+    // The lead's driver; a provider no driver answers is refused `agent.providerAxisInvalid` on
+    // the lead's provider axis, for the lead `agent_id`.
+    fn lead_driver(
+        &self,
+        agent_id: AgentId,
+        provider: &ProviderId,
+    ) -> Result<Arc<dyn ProviderDriver>, SessionCreateError> {
+        // The registry's one refusal is a provider no driver answers.
+        let Ok(driver) = self.providers.lookup(provider) else {
+            return Err(
+                DriverError::from(ProviderAxisInvalid::provider_not_registered(
+                    agent_id, provider,
+                ))
+                .into(),
+            );
+        };
+        Ok(driver)
     }
 
     // Makes the chat's workspace, then the chat; a chat not born takes its workspace with it.
@@ -399,13 +456,13 @@ impl SessionCreation {
         &self,
         new_session: &mut NewSession<'_>,
         account: ResolvedAccount,
-    ) -> Result<AgentProviderBinding, SessionCreateError> {
+    ) -> Result<(AgentProviderBinding, ProviderAccountId), SessionCreateError> {
         let session_id = new_session.session_id;
         let _being_created = ChatBeingCreated::enter(&self.chats_being_created, session_id);
         let workspace = self.managed_workspaces.create(session_id).await?;
         new_session.place = workspace.place;
         match self.append_created(new_session, account).await {
-            Ok(lead_binding) => Ok(lead_binding),
+            Ok(born) => Ok(born),
             Err(creation) => match self.managed_workspaces.delete(session_id).await {
                 Ok(()) => Err(creation),
                 Err(removal) => Err(SessionCreateError::WorkspaceNotRemoved(Box::new(
@@ -416,13 +473,13 @@ impl SessionCreation {
     }
 
     // Appends `session.created` with the request's record and its guards, answering the binding
-    // the lead was born on. A refused account guard means the current account moved since it was
+    // the lead was born on and its account. A refused account guard means the current account moved since it was
     // read, so it is read again and the write tried again.
     async fn append_created(
         &self,
         new_session: &NewSession<'_>,
         mut account: ResolvedAccount,
-    ) -> Result<AgentProviderBinding, SessionCreateError> {
+    ) -> Result<(AgentProviderBinding, ProviderAccountId), SessionCreateError> {
         let session_id = new_session.session_id;
         let target = &new_session.target;
         let lead = target.lead;
@@ -477,7 +534,7 @@ impl SessionCreation {
                 )
                 .await;
             let Err(error) = appended else {
-                return Ok(lead_binding);
+                return Ok((lead_binding, account.provider_account_id));
             };
             let refused_index = error.refused_statement_index();
             let project_id = target.project_id;
@@ -507,12 +564,9 @@ impl SessionCreation {
     async fn answer_recorded(
         &self,
         recorded: RecordedCreate,
-        hold: &KeyHold<'_, ClientUuid>,
     ) -> Result<SessionCreateResponse, SessionCreateError> {
-        let state = if recorded.state == SessionState::Provisioning
-            && self.finish(&recorded.session, hold).await?
-        {
-            SessionState::Active
+        let state = if recorded.state == SessionState::Provisioning {
+            self.finish(&recorded.session).await?
         } else {
             recorded.state
         };
@@ -708,6 +762,34 @@ pub(crate) fn project_folder_not_attached(project_id: ProjectId) -> DomainError 
     .with_detail(json!({ "projectId": project_id }))
 }
 
+// Refuses `agent.providerAxisInvalid` for the lead `agent_id` when its model, effort or session
+// options are not what its driver offers on `provider_account_id` now; fails as the reads fail.
+async fn check_lead_offered(
+    driver: &dyn ProviderDriver,
+    agent_id: AgentId,
+    lead: &SessionLead,
+    provider_account_id: &ProviderAccountId,
+) -> Result<(), SessionCreateError> {
+    let (models, options) = futures::future::try_join(
+        driver.list_models(ListModelsParams {
+            session_id: None,
+            provider_account_id: Some(provider_account_id.clone()),
+        }),
+        driver.session_options(),
+    )
+    .await?;
+    ProviderAxisInvalid::check_offered(
+        agent_id,
+        lead.model_id.as_str(),
+        lead.effort.as_ref().map(ProviderToken::as_str),
+        lead.options.as_ref(),
+        &models,
+        &options,
+    )
+    .map_err(DriverError::from)?;
+    Ok(())
+}
+
 fn read_recorded_create(
     connection: &Connection,
     key: &ClientUuid,
@@ -721,9 +803,11 @@ fn read_recorded_create(
                     project_id: optional_text_column(row, 1, |text| ProjectId::new(&text))?,
                     execution_mode: text_column(row, 2, closed_word)?,
                     group_id: optional_text_column(row, 3, |text| SessionGroupId::new(&text))?,
+                    agent_id: text_column(row, 8, |text| AgentId::new(&text))?,
                     lead: text_column(row, 7, |text| {
                         serde_json::from_str::<AgentProviderBinding>(&text)
                     })?,
+                    provider_account_id: text_column(row, 9, closed_word::<ProviderAccountId>)?,
                 },
                 shape: text_column(row, 4, closed_word)?,
                 state: text_column(row, 5, closed_word)?,
