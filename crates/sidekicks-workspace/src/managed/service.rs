@@ -36,7 +36,9 @@ use tokio::task::JoinError;
 use tokio_util::task::AbortOnDropHandle;
 
 use crate::git::process::{GitCall, GitError, GitRunner, in_folder};
-use crate::managed::write_watcher::{ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher};
+use crate::managed::write_watcher::{
+    ManagedWorkspaceWrite, ManagedWorkspaceWriteWatcher, ManagedWritesWatermark, MissedWrites,
+};
 use crate::repo::mount::service::{RepoMountService, RepoMountServiceError};
 
 const MANAGED_WORKSPACES_FOLDER_NAME: &str = "workspaces";
@@ -108,6 +110,8 @@ pub struct ManagedWorkspaceService {
     write_watch: Mutex<Option<WriteWatch>>,
     // The instant before which every write a chat made has been sent, across every watch started.
     whole_since: Arc<Mutex<SystemTime>>,
+    // Where each watch started keeps how far its walk has caught up.
+    watermark: Arc<dyn ManagedWritesWatermark>,
     document_counting: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
@@ -120,21 +124,21 @@ struct WriteWatch {
 }
 
 impl WriteWatch {
-    // Starts the watch, which walks for every write changed at or after `missed_since` once ready,
-    // keeping `whole_since` from that instant on.
+    // Starts the watch, which walks for every write changed at or after `missed.since` once
+    // ready, keeping `whole_since` from that instant on.
     fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
         changed_folders: Arc<PendingSessions>,
-        missed_since: SystemTime,
+        missed: MissedWrites,
         whole_since: &Arc<Mutex<SystemTime>>,
     ) -> Self {
-        *lock(whole_since) = missed_since;
+        *lock(whole_since) = missed.since;
         let (watcher, failure) = ManagedWorkspaceWriteWatcher::start(
             workspaces_folder,
             writes.clone(),
             changed_folders,
-            missed_since,
+            missed,
             Arc::clone(whole_since),
         );
         Self {
@@ -160,10 +164,10 @@ impl ManagedWorkspaceService {
     /// The workspaces under `home_folder`, which is in `place` (`None` on macOS and Linux), their
     /// rows written through `repo_mounts`, each made a repository through `git`, and every write a
     /// chat makes in one sent on `writes`; starts the watch that reports them, walking first for
-    /// every write since `missed_since` (the instant [`Self::whole_since`] named at the last clean
-    /// stop, or after a crash the previous start's instant), and the task that recounts a chat's
-    /// files on each change and names the chat to `list_feed` when its count moved. Dropping the
-    /// service ends both.
+    /// every write since `missed.since` (the instant [`Self::whole_since`] named at the last clean
+    /// stop, or the one a walk stored through `missed.watermark` once it had sent every write it
+    /// walked for), and the task that recounts a chat's files on each change and names the chat to
+    /// `list_feed` when its count moved. Dropping the service ends both.
     pub fn new(
         home_folder: &Path,
         place: Option<Place>,
@@ -171,16 +175,17 @@ impl ManagedWorkspaceService {
         git: GitRunner,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
         list_feed: Arc<dyn SessionListRefresh>,
-        missed_since: SystemTime,
+        missed: MissedWrites,
     ) -> Self {
         let workspaces_folder = managed_workspaces_folder(home_folder);
         let changed_folders = Arc::new(PendingSessions::default());
-        let whole_since = Arc::new(Mutex::new(missed_since));
+        let whole_since = Arc::new(Mutex::new(missed.since));
+        let watermark = Arc::clone(&missed.watermark);
         let write_watch = WriteWatch::start(
             workspaces_folder.clone(),
             writes,
             Arc::clone(&changed_folders),
-            missed_since,
+            missed,
             &whole_since,
         );
         let document_counting = AbortOnDropHandle::new(tokio::spawn(count_documents(
@@ -197,6 +202,7 @@ impl ManagedWorkspaceService {
             changed_folders,
             write_watch: Mutex::new(Some(write_watch)),
             whole_since,
+            watermark,
             document_counting: Mutex::new(Some(document_counting)),
         }
     }
@@ -312,7 +318,10 @@ impl ManagedWorkspaceService {
             self.workspaces_folder.clone(),
             write_watch.writes.clone(),
             Arc::clone(&self.changed_folders),
-            missed_since,
+            MissedWrites {
+                since: missed_since,
+                watermark: Arc::clone(&self.watermark),
+            },
             &self.whole_since,
         );
     }
@@ -491,7 +500,9 @@ mod tests {
     use super::{ManagedWorkspaceService, SessionListRefresh, managed_workspaces_folder};
     use crate::git::process::test_git_runner;
     use crate::git::worktree::schema::schema_parts;
-    use crate::managed::write_watcher::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind};
+    use crate::managed::write_watcher::{
+        ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, MissedWrites,
+    };
     use crate::repo::mount::service::RepoMountService;
     use crate::repo::root_resolver::RepoRootResolver;
 
@@ -525,7 +536,7 @@ mod tests {
             test_git_runner(),
             writes,
             Arc::new(NamedSessions(named_sender)),
-            std::time::SystemTime::now(),
+            MissedWrites::unkept(std::time::SystemTime::now()),
         );
         (named, service)
     }

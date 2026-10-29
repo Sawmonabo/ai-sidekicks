@@ -242,10 +242,6 @@ pub(crate) struct RepoMountRow {
 
 /// One mount's stored facts with a freshly probed health verdict.
 #[derive(Clone, Debug, PartialEq, Eq)]
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the repository mount read's handler")
-)]
 pub(crate) struct RepoMountRecord {
     /// The stored facts.
     pub(crate) row: RepoMountRow,
@@ -560,10 +556,6 @@ impl RepoMountService {
     /// the root or git gives no answer in time. Refuses `repoMount.notFound`, and
     /// `repoMount.rootResolutionFailed` (`vcsError`) when git cannot answer for the root otherwise;
     /// fails as [`RepoMountService::read_row`] does.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the repository mount read's handler")
-    )]
     pub(crate) async fn read(
         &self,
         repo_mount_id: RepoMountId,

@@ -26,6 +26,7 @@ use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use futures::future::BoxFuture;
 use lru::LruCache;
 use notify::{RecommendedWatcher, Watcher};
 use sidekicks_contracts::session::id::SessionId;
@@ -48,6 +49,48 @@ const GIT_METADATA_FOLDER_NAME: &str = ".git";
 // write; a path pushed out is reported once more on its next notice, which costs one extra version.
 const RECENT_REPORTED_PATH_LIMIT: NonZeroUsize =
     NonZeroUsize::new(10_000).expect("the recent-path limit is not zero");
+
+/// Keeps the instant the next start's walk for the chats' writes begins at, outside the folder
+/// the walk reads.
+pub trait ManagedWritesWatermark: Send + Sync {
+    /// Stores `instant`, before which every write a chat made has been sent; a failure is the
+    /// keeper's to log, since the next start then walks from the instant stored before.
+    fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()>;
+}
+
+/// Where a watch's walk for the writes it has not reported begins, and where the watch keeps its
+/// own start once that walk has sent them all, so a run that ends without a clean stop has the
+/// next start walk only from there.
+#[derive(Clone)]
+pub struct MissedWrites {
+    /// The instant the walk reports writes from.
+    pub since: SystemTime,
+    /// Where the watch stores how far it has caught up.
+    pub watermark: Arc<dyn ManagedWritesWatermark>,
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl MissedWrites {
+    /// A walk from `since` whose catch-up is kept nowhere, for a test whose daemon has no next
+    /// start.
+    pub fn unkept(since: SystemTime) -> Self {
+        Self {
+            since,
+            watermark: Arc::new(UnkeptWatermark),
+        }
+    }
+}
+
+// A keeper that keeps nothing.
+#[cfg(any(test, feature = "test-support"))]
+struct UnkeptWatermark;
+
+#[cfg(any(test, feature = "test-support"))]
+impl ManagedWritesWatermark for UnkeptWatermark {
+    fn store(&self, _instant: SystemTime) -> BoxFuture<'_, ()> {
+        Box::pin(async {})
+    }
+}
 
 /// One write a chat made in its managed workspace.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -95,17 +138,18 @@ pub(crate) struct ManagedWorkspaceWriteWatcher {
 
 impl ManagedWorkspaceWriteWatcher {
     /// Makes `workspaces_folder` when absent, watches it, walks it once ready for every write
-    /// changed at or after `missed_since`, and sends each write on `writes`, waiting for room so a
+    /// changed at or after `missed.since`, and sends each write on `writes`, waiting for room so a
     /// slow reader slows only this watch; every session a change names, a removal among them, is
     /// added to `changed_folders`. After each batch it sent, it stores in `whole_since` the instant
-    /// before which every write has been sent. When the watch cannot start or fails, the reason is
-    /// logged and the receiver answers with the instant since which writes may be unreported, for
-    /// the next watch's `missed_since`; it never answers otherwise.
+    /// before which every write has been sent, and once that instant passes `missed.since` it
+    /// stores it through `missed.watermark` too, once. When the watch cannot start or fails, the
+    /// reason is logged and the receiver answers with the instant since which writes may be
+    /// unreported, for the next watch's `missed.since`; it never answers otherwise.
     pub(crate) fn start(
         workspaces_folder: PathBuf,
         writes: mpsc::Sender<ManagedWorkspaceWrite>,
         changed_folders: Arc<PendingSessions>,
-        missed_since: SystemTime,
+        missed: MissedWrites,
         whole_since: Arc<Mutex<SystemTime>>,
     ) -> (Self, oneshot::Receiver<SystemTime>) {
         let (failure_sender, failure) = oneshot::channel();
@@ -115,18 +159,19 @@ impl ManagedWorkspaceWriteWatcher {
             let (outcome, unreported_since) =
                 match open_watch::<RecommendedWatcher>(workspaces_folder).await {
                     Ok((mut watch, _feed)) => {
-                        watch.catch_up(missed_since);
+                        watch.catch_up(missed.since);
                         let outcome = report_writes(
                             &mut watch,
                             &writes,
                             &changed_folders,
                             &stopped,
                             &whole_since,
+                            &missed,
                         )
                         .await;
                         (outcome, watch.whole_since())
                     }
-                    Err(error) => (Err(error), missed_since),
+                    Err(error) => (Err(error), missed.since),
                 };
             if let Err(error) = outcome {
                 tracing::error!(
@@ -184,13 +229,17 @@ async fn open_watch<W: Watcher + Send + 'static>(
 }
 
 // Reads the watch's notices until it fails, the reader of `writes` is gone or `stop` is canceled,
-// storing in `whole_since` after each batch the instant before which every write has been sent.
+// storing in `whole_since` after each batch the instant before which every write has been sent,
+// and through `missed.watermark` the first such instant past `missed.since`: the walk for the
+// missed writes has sent them all by then. A walk that finds nothing sends no batch, so the instant
+// is stored at the next batch or the clean stop.
 async fn report_writes<W: Watcher + Send + 'static>(
     watch: &mut FileWatch<W>,
     writes: &mpsc::Sender<ManagedWorkspaceWrite>,
     changed_folders: &PendingSessions,
     stop: &CancellationToken,
     whole_since: &Mutex<SystemTime>,
+    missed: &MissedWrites,
 ) -> Result<(), ManagedWorkspaceWatchError> {
     let root = watch
         .roots()
@@ -201,6 +250,7 @@ async fn report_writes<W: Watcher + Send + 'static>(
         root,
         recent: LruCache::new(RECENT_REPORTED_PATH_LIMIT),
     };
+    let mut is_caught_up = false;
     loop {
         let notice = tokio::select! {
             biased;
@@ -215,7 +265,12 @@ async fn report_writes<W: Watcher + Send + 'static>(
                 if !reporter.report(paths, writes, changed_folders).await? {
                     return Ok(());
                 }
-                *lock(whole_since) = watch.whole_since();
+                let sent_before = watch.whole_since();
+                *lock(whole_since) = sent_before;
+                if !is_caught_up && sent_before > missed.since {
+                    is_caught_up = true;
+                    missed.watermark.store(sent_before).await;
+                }
             }
             FileWatchNotice::Incomplete => tracing::warn!(
                 "some managed workspace folders are not watched, so writes in them are not \
@@ -422,7 +477,9 @@ mod tests {
     use tokio::time::timeout;
     use tokio_util::sync::CancellationToken;
 
-    use super::{ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, open_watch, report_writes};
+    use super::{
+        ManagedWorkspaceWrite, ManagedWorkspaceWriteKind, MissedWrites, open_watch, report_writes,
+    };
     use crate::file_watch::{FEED_CAPACITY, wait_for_the_next_whole_second};
 
     const SESSION: &str = "0190f5a2-7c1e-7a3b-8d4e-5f6a7b8c9d0e";
@@ -486,6 +543,7 @@ mod tests {
                 &named_folders,
                 &stop,
                 &whole_since,
+                &MissedWrites::unkept(SystemTime::UNIX_EPOCH),
             )
             .await
         });
@@ -585,6 +643,7 @@ mod tests {
                 &changed_folders,
                 &stop,
                 &whole_since,
+                &MissedWrites::unkept(SystemTime::UNIX_EPOCH),
             )
             .await
         });

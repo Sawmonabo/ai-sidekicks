@@ -211,7 +211,6 @@ pub(crate) struct WorkspaceServiceStart<'start> {
 }
 
 /// The repository mount methods' inputs.
-#[expect(dead_code, reason = "the repository mount methods' registration")]
 pub(crate) struct RepoMountMethods {
     /// The projects' edits, which attach and detach a mount.
     pub(crate) projects: Arc<ProjectService>,
@@ -221,16 +220,15 @@ pub(crate) struct RepoMountMethods {
     pub(crate) usage: Arc<RepoFolderUsage>,
     /// Re-attaches a mount whose folder holds another repository now.
     pub(crate) reattach: Arc<RepoMountReattachService>,
-    /// The setup card of every worktree made.
+    /// The setup card of every worktree made, whose retired trees a re-attach forgets.
     pub(crate) setup: Arc<WorktreeSetupRunner>,
-    /// The live projects list.
+    /// The live projects list, which a re-attach moves a project's mount in without an event.
     pub(crate) list_feed: Arc<ProjectListFeed>,
     /// Requests the worktree cleanup after a detach.
     pub(crate) cleanup: WorktreeCleanupRequests,
 }
 
 /// The worktree methods' inputs.
-#[expect(dead_code, reason = "the worktree methods' registration")]
 pub(crate) struct WorktreeMethods {
     /// Removes a tree, keeping aside what it would lose.
     pub(crate) removal: Arc<WorktreeRemoval>,
@@ -244,8 +242,6 @@ pub(crate) struct WorktreeMethods {
     pub(crate) copies: WorktreeCopiesUnderWay,
     /// The projects' rows, which a project's id is checked against.
     pub(crate) records: Arc<ProjectRecords>,
-    /// The live projects list.
-    pub(crate) list_feed: Arc<ProjectListFeed>,
     /// Requests the worktree cleanup after a retire.
     pub(crate) cleanup: WorktreeCleanupRequests,
 }
@@ -347,7 +343,7 @@ pub(crate) fn build_workspace_services(start: WorkspaceServiceStart<'_>) -> Work
             )),
             reattach: Arc::clone(&roots.reattach),
             setup: Arc::clone(&setup),
-            list_feed: Arc::clone(&project_list_feed),
+            list_feed: project_list_feed,
             cleanup: cleanup.clone(),
         },
         worktree_methods: WorktreeMethods {
@@ -362,7 +358,6 @@ pub(crate) fn build_workspace_services(start: WorkspaceServiceStart<'_>) -> Work
             setup,
             copies,
             records,
-            list_feed: project_list_feed,
             cleanup: cleanup.clone(),
         },
         creation: Arc::clone(&creation),

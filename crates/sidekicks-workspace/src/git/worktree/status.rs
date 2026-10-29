@@ -27,6 +27,8 @@ use sidekicks_contracts::worktree::lifecycle::{
     NewWorktreeSuggestion, RepoRootStatus, WorktreeId, WorktreeState, WorktreeStatusReadRequest,
     WorktreeStatusReadResponse,
 };
+use sidekicks_ipc::registry::HandlerError;
+use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_std::processor_bound::map_with_processor_bound;
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
@@ -46,6 +48,7 @@ use crate::git::worktree::reads::{
     ListedWorktree, commit_count, read_branch_figures, read_listed_worktrees, tree_name_of,
 };
 use crate::git::worktree::risks::{RemovalRiskReadError, read_removal_risks};
+use crate::repo::errors::RepoRefusal;
 
 static SELECT_PROJECT_MOUNT_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -71,6 +74,11 @@ static SELECT_WORKTREE_RECORDS_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
+/// The distinct statements the status read keeps prepared on each read connection.
+pub const WORKTREE_STATUS_READER_STATEMENT_CAPACITY: usize = 4;
+
+const SELECT_SESSION_EXISTS_SQL: &str = "SELECT EXISTS (SELECT 1 FROM sessions WHERE id = ?)";
+
 /// The one daemon function that names and creates a tree, answering what the new-worktree form
 /// opens with for a session of the project.
 pub trait NewWorktreeSuggestionSource: Send + Sync {
@@ -84,12 +92,18 @@ pub trait NewWorktreeSuggestionSource: Send + Sync {
 
 /// Why a project's trees could not be read; no message names a path.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum WorktreeStatusReadError {
+pub enum WorktreeStatusReadError {
     /// The project has no attached repository.
     #[error("project {project_id} has no attached repository to read")]
     NoAttachedRepository {
         /// The project asked for.
         project_id: ProjectId,
+    },
+    /// The session the read is asked for holds no row.
+    #[error("session {session_id} holds no row to suggest a worktree for")]
+    UnknownSession {
+        /// The session named.
+        session_id: SessionId,
     },
     /// git listed no checkout of the repository's own.
     #[error("project {project_id} has no checkout of its own to read")]
@@ -127,6 +141,32 @@ pub(crate) enum WorktreeStatusReadError {
     /// The new-worktree form's suggestion could not be made.
     #[error("the new worktree's suggestion could not be made")]
     Suggestion(#[source] Box<dyn Error + Send + Sync>),
+}
+
+impl From<WorktreeStatusReadError> for HandlerError {
+    /// A project with no attached repository is refused `project.notFound` and an unknown session
+    /// `session.notFound`; every other failure is a fault.
+    fn from(error: WorktreeStatusReadError) -> Self {
+        match error {
+            WorktreeStatusReadError::NoAttachedRepository { project_id } => {
+                Self::Refused(RepoRefusal::ProjectNotFound { project_id }.into())
+            }
+            WorktreeStatusReadError::UnknownSession { session_id } => {
+                Self::Refused(session_not_found(&session_id))
+            }
+            fault @ (WorktreeStatusReadError::NoCheckout { .. }
+            | WorktreeStatusReadError::TreeWithoutHead
+            | WorktreeStatusReadError::Pool(_)
+            | WorktreeStatusReadError::Database(_)
+            | WorktreeStatusReadError::Git(_)
+            | WorktreeStatusReadError::Risks(_)
+            | WorktreeStatusReadError::Occupancy(_)
+            | WorktreeStatusReadError::Folder(_)
+            | WorktreeStatusReadError::Text(_)
+            | WorktreeStatusReadError::Projection(_)
+            | WorktreeStatusReadError::Suggestion(_)) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 // A record the read found, with the folder and branch it stands at.
@@ -168,20 +208,22 @@ impl WorktreeStatusReader {
         Self { deps }
     }
 
-    /// Reads the project's checkout and trees, each tree's risks read alongside the others. Fails
-    /// when the project has no attached repository, and when a read fails, so the list is never
-    /// drawn from figures the daemon could not read.
-    #[expect(dead_code, reason = "the `worktree.status.read` handler")]
-    pub(crate) async fn read(
+    /// `worktree.status.read`: the project's checkout and trees, each tree's risks read alongside
+    /// the others, with the new-worktree form's suggestion for the session asking. Fails with
+    /// [`WorktreeStatusReadError::NoAttachedRepository`] when the project has no attached
+    /// repository, [`WorktreeStatusReadError::UnknownSession`] for a session with no row, and
+    /// when a read fails, so the list is never drawn from figures the daemon could not read.
+    pub async fn read(
         &self,
         request: &WorktreeStatusReadRequest,
     ) -> Result<WorktreeStatusReadResponse, WorktreeStatusReadError> {
         let project_id = request.project_id;
+        let session_id = request.session_id;
         let rows = self
             .deps
             .reads
             .read(ReadLength::Short, move |connection| {
-                read_rows(connection, &project_id)
+                read_rows(connection, &project_id, session_id.as_ref())
             })
             .await?
             .ok_or(WorktreeStatusReadError::NoAttachedRepository { project_id })?;
@@ -228,12 +270,16 @@ impl WorktreeStatusReader {
             listed_trees.push((tree, folder, record));
         }
         // The same read the removal confirm draws its risks from, so a row and its confirm agree.
+        // Each tree's folder and occupants taken first, so the reads hold no borrow of a row.
+        let risk_reads: Vec<(PathBuf, Vec<SessionId>)> = listed_trees
+            .iter()
+            .map(|(tree, folder, _)| (tree.path.clone(), occupants_of(&occupancy, folder).0))
+            .collect();
         let risks = map_with_processor_bound(
-            listed_trees.iter(),
+            risk_reads,
             "reading what the trees hold",
-            |(tree, folder, _)| {
-                let occupants = occupants_of(&occupancy, folder);
-                read_removal_risks(git, place, &tree.path, occupants.0)
+            |(tree_path, occupants)| async move {
+                read_removal_risks(git, place, &tree_path, occupants).await
             },
         )
         .await?;
@@ -301,10 +347,12 @@ impl WorktreeStatusReader {
     }
 }
 
-// The project's attached mount and its records, `None` when it has no attached mount.
+// The project's attached mount and its records, `None` when it has no attached mount. Refuses a
+// named session with no row.
 fn read_rows(
     connection: &Connection,
     project_id: &ProjectId,
+    session_id: Option<&SessionId>,
 ) -> Result<Option<StatusRows>, WorktreeStatusReadError> {
     let Some((repo_mount_id, repository_root, place)) = connection
         .prepare_cached(SELECT_PROJECT_MOUNT_SQL.as_str())?
@@ -320,6 +368,15 @@ fn read_rows(
     else {
         return Ok(None);
     };
+    if let Some(session_id) = session_id
+        && !connection
+            .prepare_cached(SELECT_SESSION_EXISTS_SQL)?
+            .query_row([session_id.to_string()], |row| row.get::<_, bool>(0))?
+    {
+        return Err(WorktreeStatusReadError::UnknownSession {
+            session_id: *session_id,
+        });
+    }
     let records = connection
         .prepare_cached(SELECT_WORKTREE_RECORDS_SQL.as_str())?
         .query_map([repo_mount_id.to_string()], |row| {
@@ -374,4 +431,64 @@ fn branch_name_of(tree: &ListedWorktree) -> Result<GitRefName, WorktreeStatusRea
 fn path_text(folder: &Path) -> Result<FilesystemPath, WorktreeStatusReadError> {
     FilesystemPath::new(folder.to_string_lossy().into_owned())
         .map_err(WorktreeStatusReadError::Text)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use futures::FutureExt as _;
+    use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
+    use sidekicks_store::database::writer::test_file::TestDatabase;
+
+    use super::*;
+    use crate::git::process::test_git_runner;
+    use crate::git::worktree::schema::schema_parts;
+
+    // A project with no attached repository asks for no suggestion.
+    struct NoSuggestion;
+
+    impl NewWorktreeSuggestionSource for NoSuggestion {
+        fn suggest_new_worktree<'a>(
+            &'a self,
+            _repo_mount_id: &'a RepoMountId,
+            _session_id: &'a SessionId,
+        ) -> BoxFuture<'a, Result<NewWorktreeSuggestion, Box<dyn Error + Send + Sync>>> {
+            async { panic!("no suggestion is asked for a project with no repository") }.boxed()
+        }
+    }
+
+    // Kills mapping a project with no attached repository to an internal failure.
+    #[tokio::test]
+    async fn a_project_with_no_attached_repository_is_refused_project_not_found() {
+        let database = TestDatabase::new(schema_parts());
+        let reads = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            WORKTREE_STATUS_READER_STATEMENT_CAPACITY,
+        ));
+        let reader = WorktreeStatusReader::new(WorktreeStatusReaderDeps {
+            git: test_git_runner(),
+            reads: Arc::clone(&reads),
+            occupancy: MountOccupancyReader::new(reads),
+            new_worktree: Arc::new(NoSuggestion),
+        });
+        let project_id =
+            ProjectId::try_from(mint_uuid_v7()).expect("a minted UUID is a project id");
+
+        let failure = reader
+            .read(&WorktreeStatusReadRequest {
+                project_id,
+                session_id: None,
+            })
+            .await
+            .expect_err("a project with no repository has no trees to read");
+
+        match HandlerError::from(failure) {
+            HandlerError::Refused(refusal) => {
+                assert_eq!(refusal.code, RefusalCode::ProjectNotFound)
+            }
+            other => panic!("the read is refused, not {other:?}"),
+        }
+    }
 }

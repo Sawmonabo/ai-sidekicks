@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use futures::FutureExt as _;
+use futures::future::BoxFuture;
 use sidekicks_contracts::machine::id::MachineId;
 use sidekicks_platforms::{askpass_socket_path, inotify_watch_ceiling};
 use sidekicks_session::directory::list_feed::SessionListFeed;
@@ -46,7 +47,9 @@ use sidekicks_workspace::git::worktree::watch::{
     SLOW_TICK_INTERVAL, WorkingFolderWatcher, WorkingFolderWatcherDeps,
 };
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
-use sidekicks_workspace::managed::write_watcher::ManagedWorkspaceWrite;
+use sidekicks_workspace::managed::write_watcher::{
+    ManagedWorkspaceWrite, ManagedWritesWatermark, MissedWrites,
+};
 use sidekicks_workspace::repo::mount::health::{RepoMountHealthReprobe, ReprobeError};
 use sidekicks_workspace::repo::mount::service::RepoMountService;
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
@@ -140,7 +143,7 @@ pub(crate) struct RepoServices {
     /// The daemon's worktrees folder, its links resolved.
     pub(crate) worktrees_folder: PathBuf,
     /// The record of the instant the chats' write watch walks from at the next start, which the
-    /// clean stop writes.
+    /// watch writes once its walk has caught up and the clean stop writes again.
     pub(crate) managed_writes_watermark: PathBuf,
 }
 
@@ -182,6 +185,7 @@ pub(crate) fn build_repo_services(
         machine_id,
     ));
     let (writes, workspace_writes) = mpsc::channel(MANAGED_WORKSPACE_WRITE_CAPACITY);
+    let managed_writes_watermark = managed_writes_watermark_path(&home_folder);
     let workspaces = Arc::new(ManagedWorkspaceService::new(
         &home_folder,
         // A folder in WSL or on Windows itself is the Windows build's to place.
@@ -190,7 +194,12 @@ pub(crate) fn build_repo_services(
         git.clone(),
         writes,
         list_feed,
-        missed_since,
+        MissedWrites {
+            since: missed_since,
+            watermark: Arc::new(ManagedWritesWatermarkFile {
+                path: managed_writes_watermark.clone(),
+            }),
+        },
     ));
     let askpass = askpass_or_unavailable(
         AskpassBroker::start(&run_folder, git_askpass_program_path(&daemon_program)),
@@ -257,7 +266,7 @@ pub(crate) fn build_repo_services(
         workspace_events,
         occupancy,
         worktrees_folder,
-        managed_writes_watermark: managed_writes_watermark_path(&home_folder),
+        managed_writes_watermark,
     })
 }
 
@@ -275,12 +284,12 @@ pub(crate) fn managed_writes_watermark_path(home_folder: &Path) -> PathBuf {
     data_folder(home_folder).join(MANAGED_WRITES_WATERMARK_FILE_NAME)
 }
 
-/// Reads the instant the record at `path` holds, the one the last clean stop stored or, after a
-/// crash, the previous start's, then stores `started` there, so a run that ends without a clean
-/// stop has the next start walk from this one. A missing or unreadable record reads as the epoch,
-/// so the walk reads every write; an unreadable record and a failed store are logged.
-pub(crate) async fn take_managed_writes_watermark(path: &Path, started: SystemTime) -> SystemTime {
-    let stored = match tokio::fs::read_to_string(path).await.none_if_missing() {
+/// Reads the instant the record at `path` holds: the one the last clean stop stored, or the one
+/// the last walk of the chats' writes stored once it had sent every write it walked for. A missing
+/// or unreadable record reads as the epoch, so the walk reads every write; an unreadable record is
+/// logged.
+pub(crate) async fn read_managed_writes_watermark(path: &Path) -> SystemTime {
+    match tokio::fs::read_to_string(path).await.none_if_missing() {
         Ok(Some(text)) => text.trim().parse::<u64>().map_or_else(
             |error| {
                 tracing::warn!(
@@ -301,9 +310,18 @@ pub(crate) async fn take_managed_writes_watermark(path: &Path, started: SystemTi
             );
             UNIX_EPOCH
         }
-    };
-    store_managed_writes_watermark(path, started).await;
-    stored
+    }
+}
+
+// The record the chats' write watch stores its catch-up in.
+struct ManagedWritesWatermarkFile {
+    path: PathBuf,
+}
+
+impl ManagedWritesWatermark for ManagedWritesWatermarkFile {
+    fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()> {
+        store_managed_writes_watermark(&self.path, instant).boxed()
+    }
 }
 
 /// Stores `instant` as the one the next start's walk of the chats' writes begins at; a failure is

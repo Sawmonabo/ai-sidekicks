@@ -48,6 +48,7 @@ use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
 use sidekicks_workspace::managed::service::{ManagedWorkspaceService, SessionListRefresh};
+use sidekicks_workspace::managed::write_watcher::MissedWrites;
 use sidekicks_workspace::repo::mount::service::RepoMountService;
 use sidekicks_workspace::repo::root_resolver::RepoRootResolver;
 use sidekicks_workspace::service::{WorkspaceService, WorkspaceServiceDeps};
@@ -176,7 +177,7 @@ impl Fixture {
             test_git_runner(),
             writes_sender,
             Arc::new(UnreadList),
-            std::time::SystemTime::now(),
+            MissedWrites::unkept(std::time::SystemTime::now()),
         ));
         let mut driver = MockProviderDriver::new();
         driver

@@ -62,7 +62,7 @@ pub(crate) struct WorktreeCopyReport {
 }
 
 /// One follower of the copies under way in a project, or in every project.
-pub(crate) struct WorktreeCopyFollower {
+pub struct WorktreeCopyFollower {
     // `None` follows every project's copies.
     project_id: Option<ProjectId>,
     copies: watch::Receiver<Vec<WorktreeCopy>>,
@@ -123,7 +123,7 @@ impl WorktreeCopiesUnderWay {
 
     /// Follows the copies under way in `project_id`, or in every project when it is `None`: the
     /// follower's first read answers them at once, and each later read waits for them to change.
-    pub(crate) fn follow(&self, project_id: Option<ProjectId>) -> WorktreeCopyFollower {
+    pub fn follow(&self, project_id: Option<ProjectId>) -> WorktreeCopyFollower {
         WorktreeCopyFollower {
             project_id,
             copies: self.state.published.subscribe(),
@@ -144,6 +144,13 @@ impl WorktreeCopyReport {
     }
 
     /// Ends the copy, whether it succeeded or failed, as dropping the report does.
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "read by the progress tests alone; dropping the report ends a copy"
+        )
+    )]
     pub(crate) fn end(self) {
         drop(self);
     }
@@ -161,7 +168,7 @@ impl Drop for WorktreeCopyReport {
 impl WorktreeCopyFollower {
     /// The copies under way in the followed project: at once on the first call, then whenever they
     /// differ from the last answer. `None` once the list it follows is gone.
-    pub(crate) async fn next(&mut self) -> Option<WorktreeCopyProgress> {
+    pub async fn next(&mut self) -> Option<WorktreeCopyProgress> {
         loop {
             let progress = progress_in(self.project_id.as_ref(), &self.copies.borrow_and_update());
             // A change to another project's copy leaves this one's list as it was.

@@ -38,6 +38,7 @@ use sidekicks_contracts::worktree::lifecycle::{RemovedWorktreeId, WorktreeId};
 use sidekicks_contracts::worktree::removed::{
     RemovedWorktree, WorktreeRemovedListRequest, WorktreeRemovedListResponse,
 };
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_std::keyed_lock::{KeyHold, KeyedLock};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::processor_bound::map_with_processor_bound;
@@ -121,6 +122,18 @@ pub enum RemovedWorktreeStoreError {
     /// The call under the kept copy's lock ended without an answer.
     #[error("the kept worktree's call ended without an answer")]
     Unanswered,
+}
+
+impl From<RemovedWorktreeStoreError> for HandlerError {
+    /// A refusal is answered with its code; every other failure is a fault.
+    fn from(error: RemovedWorktreeStoreError) -> Self {
+        match error {
+            RemovedWorktreeStoreError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (RemovedWorktreeStoreError::Failed(_)
+            | RemovedWorktreeStoreError::Interrupted(_)
+            | RemovedWorktreeStoreError::Unanswered) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 impl RemovedWorktreeStoreError {

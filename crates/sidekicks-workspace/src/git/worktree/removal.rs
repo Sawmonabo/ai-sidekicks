@@ -39,6 +39,7 @@ use sidekicks_contracts::worktree::lifecycle::{
     WorktreeRetireConflictDetails, WorktreeRetireIncompleteDetails, WorktreeRetireRequest,
     WorktreeRetireResponse, WorktreeState,
 };
+use sidekicks_ipc::registry::HandlerError;
 use sidekicks_platforms::DOES_WATCH_OUTLIVE_TREE_MOVE;
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::error_description::describe_error;
@@ -221,6 +222,23 @@ pub enum WorktreeRemovalError {
     /// The removal or the keeping aside ended without an answer.
     #[error("the removal ended without an answer")]
     Unanswered,
+}
+
+impl From<WorktreeRemovalError> for HandlerError {
+    /// A refusal is answered with its code; every other failure is a fault.
+    fn from(error: WorktreeRemovalError) -> Self {
+        match error {
+            WorktreeRemovalError::Refused(refusal) => Self::Refused(refusal.into()),
+            fault @ (WorktreeRemovalError::EndProcesses(_)
+            | WorktreeRemovalError::FileWatchStop { .. }
+            | WorktreeRemovalError::Folder(_)
+            | WorktreeRemovalError::Sweep(_)
+            | WorktreeRemovalError::RecordRemoval { .. }
+            | WorktreeRemovalError::Failed(_)
+            | WorktreeRemovalError::Interrupted(_)
+            | WorktreeRemovalError::Unanswered) => Self::Internal(Box::new(fault)),
+        }
+    }
 }
 
 impl From<WorktreeServiceError> for WorktreeRemovalError {

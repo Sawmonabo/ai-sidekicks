@@ -59,13 +59,15 @@ use crate::ipc::handlers::project::clone::register_project_clone_methods;
 use crate::ipc::handlers::project::register_project_methods;
 use crate::ipc::handlers::question::register_question_resolve;
 use crate::ipc::handlers::repo::branches::register_repo_branches;
-use crate::ipc::handlers::repo::working_folder::register_working_folder;
+use crate::ipc::handlers::repo::mount::register_repo_mounts;
 use crate::ipc::handlers::run::control::{RunControlServices, register_run_control};
 use crate::ipc::handlers::run::queue::{RunQueueMethods, register_run_queue};
 use crate::ipc::handlers::run::safety_holds::RunSafetyHolds;
 use crate::ipc::handlers::run::state::register_run_state_subscribe;
 use crate::ipc::handlers::session::changes::register_session_changes;
 use crate::ipc::handlers::session::controls::{SessionControlMethods, register_session_controls};
+use crate::ipc::handlers::session::convert::register_session_convert;
+use crate::ipc::handlers::session::create::register_session_create;
 use crate::ipc::handlers::session::draft_update::register_session_draft_update;
 use crate::ipc::handlers::session::event_subscribe::register_session_event_subscribe;
 use crate::ipc::handlers::session::group::register_session_groups;
@@ -76,8 +78,11 @@ use crate::ipc::handlers::session::restart::register_session_restart;
 use crate::ipc::handlers::session::review_note::register_session_review_notes;
 use crate::ipc::handlers::session::search::{SessionSearchMethods, register_session_search};
 use crate::ipc::handlers::session::tags::register_session_tags;
+use crate::ipc::handlers::session::working_folder::register_session_working_folder;
 use crate::ipc::handlers::terminal::{register_terminal_methods, register_terminal_write};
 use crate::ipc::handlers::transcript::register_transcript_reads;
+use crate::ipc::handlers::workspace::register_workspaces;
+use crate::ipc::handlers::worktree::register_worktrees;
 
 /// Every service the method tables take, each table's own inputs where its owner bundles them.
 pub(crate) struct MethodTableServices {
@@ -154,34 +159,27 @@ pub(crate) struct MethodTableServices {
     /// Lists the machine's folders for another device's folder chooser.
     pub(crate) machine_folders: Arc<FolderListService>,
     /// The repository mount methods' inputs.
-    #[expect(dead_code, reason = "the repository mount methods' registration")]
     pub(crate) repo_mounts: RepoMountMethods,
     /// The workspace lifecycle, which binds a session to a mount and lists its workspaces.
-    #[expect(dead_code, reason = "the workspace methods' registration")]
     pub(crate) workspaces: Arc<WorkspaceService>,
     /// Prepares a workspace's execution root.
-    #[expect(dead_code, reason = "the workspace methods' registration")]
     pub(crate) execution_roots: Arc<ExecutionRootService>,
     /// The worktree methods' inputs.
-    #[expect(dead_code, reason = "the worktree methods' registration")]
     pub(crate) worktree_methods: WorktreeMethods,
     /// Creates sessions.
-    #[expect(dead_code, reason = "the session create method's registration")]
     pub(crate) session_creation: Arc<SessionCreation>,
     /// Turns chats into projects.
-    #[expect(dead_code, reason = "the session convert methods' registration")]
     pub(crate) session_conversion: Arc<SessionConversion>,
     /// Moves a session to another tree of its repository.
-    #[expect(dead_code, reason = "the session working-folder methods' registration")]
     pub(crate) session_working_folders: Arc<SessionWorkingFolders>,
     /// The machine settings file, where a create keeps the last lead pick.
-    #[expect(dead_code, reason = "the session create method's registration")]
     pub(crate) machine_settings_file: Arc<MachineSettingsFile>,
 }
 
 /// Registers every method table on `builder`, each once, grouped by owner: the daemon's own, its
-/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects and
-/// the machine's folders. The handshake, the subscriptions' cancel and the artifact store's table
+/// data, the drivers, the approvals, the runs, the sessions, the repositories, the projects, the
+/// folders, workspaces and worktrees, the sessions' create and convert, and the machine's
+/// folders. The handshake, the subscriptions' cancel and the artifact store's table
 /// are registered by the start beside them. Fails when a method is registered twice.
 pub(crate) fn register_method_tables(
     builder: &mut MethodRegistryBuilder,
@@ -230,9 +228,22 @@ pub(crate) fn register_method_tables(
     register_terminal_write(builder, services.shells.input_lookup())?;
     register_terminal_methods(builder, services.shells)?;
     register_repo_branches(builder, services.branches)?;
-    register_working_folder(builder, services.working_folders)?;
+    register_session_working_folder(
+        builder,
+        services.session_working_folders,
+        services.working_folders,
+    )?;
     register_project_methods(builder, services.projects, services.project_list_feed)?;
     register_project_clone_methods(builder, services.clones)?;
+    register_repo_mounts(builder, services.repo_mounts)?;
+    register_workspaces(builder, services.workspaces, services.execution_roots)?;
+    register_worktrees(builder, services.worktree_methods)?;
+    register_session_create(
+        builder,
+        services.session_creation,
+        services.machine_settings_file,
+    )?;
+    register_session_convert(builder, services.session_conversion)?;
     register_machine_folders(builder, services.machine_folders)
 }
 

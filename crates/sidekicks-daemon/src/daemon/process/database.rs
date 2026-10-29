@@ -117,6 +117,7 @@ use sidekicks_workspace::git::worktree::creation::WORKTREE_CREATOR_STATEMENT_CAP
 use sidekicks_workspace::git::worktree::occupancy::MOUNT_OCCUPANCY_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::removed_store::REMOVED_WORKTREE_STORE_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::service::WORKTREE_SERVICE_STATEMENT_CAPACITY;
+use sidekicks_workspace::git::worktree::status::WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 use sidekicks_workspace::git::worktree::unfinished_discards::UNFINISHED_DISCARD_STATEMENT_CAPACITY;
 use sidekicks_workspace::project::records::PROJECT_RECORDS_STATEMENT_CAPACITY;
 use sidekicks_workspace::repo::mount::health::REPO_MOUNT_HEALTH_REPROBE_STATEMENT_CAPACITY;
@@ -215,7 +216,8 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + WORKFLOW_VERSIONS_STATEMENT_CAPACITY
     + WORKSPACE_SERVICE_STATEMENT_CAPACITY
     + WORKTREE_CREATOR_STATEMENT_CAPACITY
-    + WORKTREE_SERVICE_STATEMENT_CAPACITY;
+    + WORKTREE_SERVICE_STATEMENT_CAPACITY
+    + WORKTREE_STATUS_READER_STATEMENT_CAPACITY;
 
 /// How the writer's open fails, as [`DatabaseWriter::open`] reports the schema's opener.
 type WriterOpenFailure =

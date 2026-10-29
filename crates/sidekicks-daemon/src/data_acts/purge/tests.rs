@@ -60,6 +60,7 @@ use sidekicks_workspace::git::turn_snapshot::service::{
 };
 use sidekicks_workspace::git::worktree::test_rows::insert_worktree_rows;
 use sidekicks_workspace::managed::service::ManagedWorkspaceService;
+use sidekicks_workspace::managed::write_watcher::MissedWrites;
 use sidekicks_workspace::project::list_feed::ProjectListFeed;
 use sidekicks_workspace::project::records::ProjectRecords;
 use sidekicks_workspace::repo::mount::service::{
@@ -177,7 +178,7 @@ pub(crate) async fn test_purge(
         test_git_runner(),
         writes,
         list_feed.clone(),
-        SystemTime::now(),
+        MissedWrites::unkept(SystemTime::now()),
     ));
     let project_rules = Arc::new(ApprovalRules::new(
         Arc::clone(&reads),

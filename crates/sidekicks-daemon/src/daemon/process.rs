@@ -22,12 +22,12 @@ mod stored_data;
 pub(crate) mod supervision;
 #[cfg(test)]
 mod tests;
-mod workspace_services;
+pub(crate) mod workspace_services;
 mod worktree_sources;
 
 use std::error::Error;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use futures::FutureExt as _;
 use jiff::Timestamp;
@@ -94,7 +94,7 @@ use crate::daemon::process::providers::{
 };
 use crate::daemon::process::repo_services::{
     RepoAttachments, RepoServiceStart, RepoServices, build_repo_services, make_worktrees_folder,
-    managed_writes_watermark_path, start_repo_attachments, take_managed_writes_watermark,
+    managed_writes_watermark_path, read_managed_writes_watermark, start_repo_attachments,
 };
 use crate::daemon::process::session_services::{
     SessionAttachments, SessionServices, start_session_attachments,
@@ -420,11 +420,8 @@ impl DaemonProcess {
         let worktrees_folder = make_worktrees_folder(home_folder)
             .await
             .map_err(DaemonStartError::WorktreesFolder)?;
-        let missed_since = take_managed_writes_watermark(
-            &managed_writes_watermark_path(home_folder),
-            SystemTime::now(),
-        )
-        .await;
+        let missed_since =
+            read_managed_writes_watermark(&managed_writes_watermark_path(home_folder)).await;
         let list_feed = Arc::new(SessionListFeed::new(
             Arc::clone(&reads),
             &followers,

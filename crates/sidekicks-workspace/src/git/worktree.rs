@@ -24,7 +24,7 @@ pub mod kept_copy;
 pub mod naming;
 pub mod occupancy;
 pub mod path_holds;
-pub(crate) mod projector;
+pub mod projector;
 pub(crate) mod put_back;
 pub mod reads;
 pub mod removal;
