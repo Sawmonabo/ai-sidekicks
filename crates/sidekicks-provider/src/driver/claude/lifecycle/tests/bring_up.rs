@@ -217,7 +217,10 @@ async fn the_lead_check_reads_nothing_and_the_start_refuses_an_effort_its_model_
         panic!("an option the driver does not declare is refused");
     };
     assert_eq!(invalid.axis, ProviderAxis::Options);
-    assert!(fixture.starts.take_catalog_environments().is_empty());
+    assert_eq!(
+        fixture.starts.take_catalog_environments(),
+        Vec::<Vec<(String, String)>>::new()
+    );
     assert!(fixture.starts.take_started().is_empty());
 
     let channel = Arc::new(ScriptedChannel::default());
