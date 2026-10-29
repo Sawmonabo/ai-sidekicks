@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use rstest::rstest;
+use rusqlite::params;
 use serde_json::json;
 use sidekicks_approval::service::test_fixture::SETTLE_WAIT;
 use sidekicks_contracts::event::registry::SessionEventType;
@@ -22,14 +23,17 @@ use super::RecoveryActionError;
 use crate::session_write_refusal::refuse_call_naming_session;
 use crate::test_pass::PassFixture;
 
-// A pass leaves a session damaged mid-log beside a healthy one; `Continue from here` then skips
-// the damaged events through the head under the hold it took, settles the session's run, its
+// A pass leaves a session damaged mid-log beside a healthy one, a row of its run in the range
+// stored at a run version above the run's own; `Continue from here` then skips the damaged events
+// through the head under the hold it took, settles the session's run past that version, its
 // pending ask canceled under that hold, and opens it to writes, reads skip the range, and the
-// writer counts no live run. Killed by the continue's settle taking the session's append lock
-// again, and by the run-end gate's cancel doing so (`approvals/run_blocking.rs`, `hold` passed to
-// `cancel_pending_for_run` as `None`), either of which never ends the continue (the gate's
-// absence it cannot tell apart from the sweep that would cancel the ask later); and by the
-// count's cursor clause deleted (it reads 1 after the pass).
+// writer counts no live run. Killed by the skip's advance of the live runs' versions deleted (the
+// settle is then stored below the skipped row's version); by the continue's settle taking the
+// session's append lock again, and by the run-end gate's cancel doing so
+// (`approvals/run_blocking.rs`, `hold` passed to `cancel_pending_for_run` as `None`), either of
+// which never ends the continue (the gate's absence it cannot tell apart from the sweep that
+// would cancel the ask later); and by the count's cursor clause deleted (it reads 1 after the
+// pass).
 #[tokio::test]
 async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     let fixture = PassFixture::new().await;
@@ -41,6 +45,21 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
         .await;
     assert_eq!(*fixture.live_runs.borrow(), 0);
     assert_eq!(fixture.state("approval_requests", &ask), "pending");
+    let skipped_run_version: i64 = 5;
+    fixture
+        .store
+        .database
+        .reader()
+        .execute(
+            "UPDATE session_events SET run_id = ?1, run_version = ?2
+              WHERE session_id = ?3 AND sequence = 2",
+            params![
+                damaged_run.text().as_str(),
+                skipped_run_version,
+                damaged.text().as_str()
+            ],
+        )
+        .expect("the test files a skipped row under the run");
 
     tokio::time::timeout(
         SETTLE_WAIT,
@@ -61,6 +80,23 @@ async fn continuing_a_damaged_session_skips_its_damage_and_settles_its_runs() {
     assert_eq!(
         stored_run_state(&fixture.store.database, &damaged_run).0,
         "failed"
+    );
+    let settled_run_version: i64 = fixture
+        .store
+        .database
+        .reader()
+        .query_row(
+            "SELECT run_version FROM session_events WHERE run_id = ?1 AND type = ?2",
+            params![
+                damaged_run.text().as_str(),
+                SessionEventType::AgentRunFailed.as_str()
+            ],
+            |row| row.get(0),
+        )
+        .expect("the run's settle is stored");
+    assert!(
+        settled_run_version > skipped_run_version,
+        "{settled_run_version}"
     );
     assert_eq!(fixture.state("approval_requests", &ask), "canceled");
     assert_eq!(

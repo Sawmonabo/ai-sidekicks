@@ -4,16 +4,18 @@
 //! call that names no session until the pass ends; from then a session the pass listed refuses
 //! every call that names it until it is rebuilt and its runs settled, and every event until the
 //! pass comes to settle those runs. A damaged session, open at its last good point or unreadable,
-//! refuses its writes.
+//! refuses its writes. A run halted after the restart on a question for the person lists its
+//! session `blocked`, or under its damage, and refuses nothing.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Mutex, MutexGuard};
 
 use sidekicks_contracts::daemon::recovery::{
-    DaemonRecoverySession, DaemonRecoverySessionState, DaemonRecoveryState, DaemonRecoveryStatus,
-    DaemonWriteRefusedRecovery,
+    DaemonRecoveryHaltedRun, DaemonRecoverySession, DaemonRecoverySessionState,
+    DaemonRecoveryState, DaemonRecoveryStatus, DaemonWriteRefusedRecovery,
 };
 use sidekicks_contracts::run::control::RunFailureCategory;
+use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::recovery::{
@@ -82,6 +84,9 @@ struct TrackerState {
     // The sessions the pass has yet to rebuild and settle, kept apart from the damaged ones: after
     // a repair of the file that is every session, too many for each status read to carry.
     rebuilding_sessions: HashMap<SessionId, ListedSessionStage>,
+    // The runs that need the person, by session and run, each session holding at least one. Only
+    // the status read sees them; no refusal does.
+    halted_runs: BTreeMap<SessionId, BTreeMap<RunId, DaemonRecoveryHaltedRun>>,
 }
 
 impl Default for RecoveryStatusTracker {
@@ -100,6 +105,7 @@ impl RecoveryStatusTracker {
                 has_store_failed: false,
                 sessions: BTreeMap::new(),
                 rebuilding_sessions: HashMap::new(),
+                halted_runs: BTreeMap::new(),
             }),
         }
     }
@@ -148,11 +154,36 @@ impl RecoveryStatusTracker {
             .insert(*session_id, ListedSessionStage::Settling);
     }
 
-    /// Marks a session's projections current, or the session deleted, so it is no longer listed.
+    /// Marks a session's projections current, or the session deleted, so it is no longer listed,
+    /// its halted runs with it.
     pub fn mark_session_healthy(&self, session_id: &SessionId) {
         let mut state = self.lock();
         state.rebuilding_sessions.remove(session_id);
         state.sessions.remove(session_id);
+        state.halted_runs.remove(session_id);
+    }
+
+    /// Marks a run of the session that needs the person: a halt on a diverged resume, which
+    /// carries no `failure_category`, or a failed resume, which carries one. A run marked again
+    /// takes its newest mark.
+    pub fn mark_run_halted(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
+        self.lock()
+            .halted_runs
+            .entry(*session_id)
+            .or_default()
+            .insert(run.run_id, run);
+    }
+
+    /// Marks a run of the session as no longer needing the person; the session leaves the status
+    /// read with its last such run, unless its history is damaged.
+    pub fn mark_run_settled(&self, session_id: &SessionId, run_id: &RunId) {
+        let mut state = self.lock();
+        if let Some(runs) = state.halted_runs.get_mut(session_id) {
+            runs.remove(run_id);
+            if runs.is_empty() {
+                state.halted_runs.remove(session_id);
+            }
+        }
     }
 
     /// Marks a session whose history is damaged after `point`, which it opens at read-only.
@@ -241,17 +272,22 @@ impl RecoveryStatusTracker {
         }
     }
 
-    /// The `recovery` member of the status read: the overall state and every damaged session. The
-    /// sessions the pass has yet to rebuild are left out; the daemon reads rebuilding while it
-    /// runs.
+    /// The `recovery` member of the status read: the overall state and, once each in id order,
+    /// every damaged session and every session with a halted run. The sessions the pass has yet to
+    /// rebuild are left out; the daemon reads rebuilding while it runs.
     pub fn read(&self) -> DaemonRecoveryStatus {
         let state = self.lock();
+        let session_ids: BTreeSet<SessionId> = state
+            .sessions
+            .keys()
+            .chain(state.halted_runs.keys())
+            .copied()
+            .collect();
         DaemonRecoveryStatus {
             overall: state.overall(),
-            sessions: state
-                .sessions
-                .iter()
-                .map(|(session_id, session)| describe_session(*session_id, session))
+            sessions: session_ids
+                .into_iter()
+                .map(|session_id| state.describe_session(session_id))
                 .collect(),
         }
     }
@@ -288,13 +324,46 @@ impl TrackerState {
         } else {
             DaemonRecoveryState::Healthy
         };
-        // A damaged session, open at its last good point or unreadable, reads degraded.
+        // A damaged session, open at its last good point or unreadable, reads degraded; a halted
+        // run leaves the daemon as it reads.
         let sessions = if self.sessions.is_empty() {
             DaemonRecoveryState::Healthy
         } else {
             DaemonRecoveryState::Degraded
         };
         own.max(sessions)
+    }
+
+    // A damaged session keeps its state and carries its halted runs; a session with only halted
+    // runs reads blocked, each run carrying its own failure and condition.
+    fn describe_session(&self, session_id: SessionId) -> DaemonRecoverySession {
+        let halted_runs = self
+            .halted_runs
+            .get(&session_id)
+            .map(|runs| runs.values().cloned().collect());
+        let (state, point, failure_category) = match self.sessions.get(&session_id) {
+            Some(SessionRecovery::Degraded(point)) => (
+                DaemonRecoverySessionState::Degraded,
+                Some(point),
+                Some(RunFailureCategory::ProjectionFailure),
+            ),
+            Some(SessionRecovery::Damaged) => (
+                DaemonRecoverySessionState::Damaged,
+                None,
+                Some(RunFailureCategory::ProjectionFailure),
+            ),
+            None => (DaemonRecoverySessionState::Blocked, None, None),
+        };
+        DaemonRecoverySession {
+            session_id,
+            state,
+            last_applied_sequence: point.map(|point| point.last_sequence),
+            last_applied_at: point.map(|point| point.last_occurred_at.clone()),
+            damaged_from_sequence: point.map(|point| point.damaged_from_sequence),
+            failure_category,
+            recovery_condition: None,
+            halted_runs,
+        }
     }
 }
 
@@ -304,19 +373,5 @@ fn rebuilding(session_id: &SessionId) -> SessionWriteRefusal {
     })
 }
 
-fn describe_session(session_id: SessionId, session: &SessionRecovery) -> DaemonRecoverySession {
-    let (state, point) = match session {
-        SessionRecovery::Degraded(point) => (DaemonRecoverySessionState::Degraded, Some(point)),
-        SessionRecovery::Damaged => (DaemonRecoverySessionState::Damaged, None),
-    };
-    DaemonRecoverySession {
-        session_id,
-        state,
-        last_applied_sequence: point.map(|point| point.last_sequence),
-        last_applied_at: point.map(|point| point.last_occurred_at.clone()),
-        damaged_from_sequence: point.map(|point| point.damaged_from_sequence),
-        failure_category: Some(RunFailureCategory::ProjectionFailure),
-        recovery_condition: None,
-        halted_runs: None,
-    }
-}
+#[cfg(test)]
+mod tests;
