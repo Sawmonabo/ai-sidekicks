@@ -21,7 +21,7 @@ use crate::driver::codex::app_server_protocol::{
     AskForApproval, ListMcpServerStatusParams, McpServerStatusDetail, SandboxMode,
     ThreadStartParams,
 };
-use crate::driver::codex::lifecycle::naming::lockdown::MCP_SERVERS_KEY;
+use crate::driver::codex::event_normalizer::CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD;
 use crate::driver::codex::mcp::config::plugins::CodexPluginServer;
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexMcpRoot};
@@ -32,14 +32,14 @@ use crate::driver::codex::session::detached_conversation::{
     CodexDetachedFrame, CodexDetachedFrames,
 };
 use crate::driver::codex::session::errors::CodexError;
+use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::thread::view::{THREAD_START_METHOD, read_thread};
 use crate::driver::codex::tools::{
     normalize_codex_mcp_server_status_list, normalize_codex_mcp_server_status_notification,
 };
 use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
 use crate::driver::mcp_server::read::{
-    McpProbeReading, McpProbeStart, McpProbeTarget, McpServerDeclaration, McpServerPolicyEntry,
-    McpServersReadRequest,
+    McpProbeReading, McpProbeStart, McpProbeTarget, McpServerDeclaration, McpServersReadRequest,
 };
 use crate::driver::mcp_server::status::{
     McpServerReading, McpServerStatusEmission, McpServerStatusIngestResult,
@@ -47,9 +47,6 @@ use crate::driver::mcp_server::status::{
 
 #[cfg(test)]
 mod tests;
-
-/// The notice Codex sends as one of a conversation's servers starts, is ready or fails.
-const MCP_SERVER_STARTUP_METHOD: &str = "mcpServer/startupStatus/updated";
 
 /// The request that reads one server's status and tools in a conversation.
 const MCP_SERVER_STATUS_LIST_METHOD: &str = "mcpServerStatus/list";
@@ -86,7 +83,7 @@ pub(crate) struct CodexProbedServer {
 
 impl CodexProbedServer {
     fn server_name(&self) -> &McpServerName {
-        binding_server_name(&self.binding)
+        self.binding.server_name()
     }
 }
 
@@ -227,7 +224,7 @@ pub(crate) fn plan_codex_mcp_probe(
         };
         let Some(place_index) = place_index else {
             tracing::warn!(
-                server = %binding_server_name(&target.binding).as_str(),
+                server = %target.binding.server_name().as_str(),
                 "a codex probe target's root is not attached; it is not probed"
             );
             continue;
@@ -241,7 +238,7 @@ pub(crate) fn plan_codex_mcp_probe(
             McpProbeStart::DeclarationSent => {
                 let Some(plugin_server) = plugin_server else {
                     tracing::warn!(
-                        server = %binding_server_name(&target.binding).as_str(),
+                        server = %target.binding.server_name().as_str(),
                         "no installed codex plugin declares a probe target; it is not probed"
                     );
                     continue;
@@ -249,7 +246,7 @@ pub(crate) fn plan_codex_mcp_probe(
                 CodexProbedServerStart::Sent(plugin_server.compose_codex_entry())
             }
         };
-        let name = binding_server_name(&target.binding);
+        let name = target.binding.server_name();
         let declared = plugin_server
             .map(|server| &server.declaration.config)
             .or_else(|| find_declared_config(reading, &target.binding));
@@ -387,7 +384,7 @@ async fn wait_for_startups(
         else {
             break;
         };
-        if method != MCP_SERVER_STARTUP_METHOD {
+        if method != CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD {
             continue;
         }
         let Ok(notice) = serde_json::from_str::<Value>(params.get()) else {
@@ -494,7 +491,7 @@ fn find_declared_config<'reading>(
     reading: &'reading CodexMcpConfigReading,
     binding: &McpServerBindingRef,
 ) -> Option<&'reading McpServerConfigView> {
-    let name = binding_server_name(binding);
+    let name = binding.server_name();
     reading
         .declarations
         .iter()
@@ -526,8 +523,8 @@ fn read_startup_timeout(config: &McpServerConfigView) -> Option<Duration> {
     Duration::try_from_secs_f64((*startup_timeout_sec)?.get()).ok()
 }
 
-// Whether Codex's requirements keep `name` from starting: at a root, as that root's reading keeps
-// it out; at the home folder, as the allow list leaves its name off.
+// Whether Codex's requirements keep `name` from starting at `root`, or at the person's home folder
+// where `root` is `None`, as the reading keeps it out there.
 fn is_kept_out(
     reading: &CodexMcpConfigReading,
     root: Option<&CodexMcpRoot>,
@@ -539,23 +536,6 @@ fn is_kept_out(
             .iter()
             .find(|read| read.root == root.root)
             .is_some_and(|read| read.kept_out_server_names.contains(name)),
-        None => reading
-            .server_policy
-            .allowed
-            .as_ref()
-            .is_some_and(|allowed| {
-                !allowed.contains(&McpServerPolicyEntry::ServerName(name.clone()))
-            }),
-    }
-}
-
-fn binding_server_name(binding: &McpServerBindingRef) -> &McpServerName {
-    match binding {
-        McpServerBindingRef::User { server_name, .. }
-        | McpServerBindingRef::Project { server_name, .. }
-        | McpServerBindingRef::Local { server_name, .. }
-        | McpServerBindingRef::Plugin { server_name, .. }
-        | McpServerBindingRef::Connector { server_name, .. }
-        | McpServerBindingRef::Managed { server_name, .. } => server_name,
+        None => reading.home_kept_out_server_names.contains(name),
     }
 }

@@ -32,6 +32,9 @@ use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
 /// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
 /// route's own bound, so the route answers first.
+/// The config table of the MCP servers, by name.
+pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
+
 const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
 
 /// The largest helper count Codex accepts, sent where the person set no limit.
@@ -359,7 +362,7 @@ fn compose_thread_config(
         config.insert("agents".to_owned(), roles);
     }
     config.insert(
-        "mcp_servers".to_owned(),
+        MCP_SERVERS_KEY.to_owned(),
         Value::Object(compose_tool_servers(settings, route)),
     );
     config.insert(

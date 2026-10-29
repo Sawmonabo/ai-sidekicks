@@ -196,6 +196,13 @@ pub(crate) enum CodexError {
     /// on as it failed.
     #[error(transparent)]
     Driver(DriverError),
+    /// Codex's machine policy, its requirements file or the requirements a device-management
+    /// profile forces, cannot be read as Codex reads it, so Codex would refuse to start.
+    #[error("Codex's machine policy cannot be read: {detail}")]
+    MachinePolicyUnreadable {
+        /// Where the policy failed to read, and why.
+        detail: String,
+    },
     /// The driver's configuration lacks the shape the driver needs: a wiring defect.
     #[error("the Codex driver's {field} configuration is unusable: {detail}")]
     DriverConfig {
@@ -344,6 +351,12 @@ impl From<CodexError> for DriverError {
             CodexError::Transport { .. } => Self::from(provider_failure_refusal(
                 &DESCRIPTOR.provider_id(),
                 "The Codex service failed",
+                RefusalCode::ProviderUnavailable,
+                error,
+            )),
+            CodexError::MachinePolicyUnreadable { .. } => Self::from(provider_failure_refusal(
+                &DESCRIPTOR.provider_id(),
+                "Codex's machine policy cannot be read, so Codex would not start",
                 RefusalCode::ProviderUnavailable,
                 error,
             )),

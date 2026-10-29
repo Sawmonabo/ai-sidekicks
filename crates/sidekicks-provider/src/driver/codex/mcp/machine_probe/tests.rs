@@ -190,6 +190,8 @@ fn an_emulated_local_binding_is_probed_at_its_root_in_place_of_the_persons_entry
             .collect(),
         is_machine_managed: false,
         server_policy: McpServerPolicy::default(),
+        transports: Vec::new(),
+        home_kept_out_server_names: Vec::new(),
     };
 
     for probe in [

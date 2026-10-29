@@ -37,6 +37,53 @@ pub(crate) struct CodexServerDeclaration {
     pub(crate) tool_defaults: McpServerToolDefaults,
 }
 
+/// How an entry's server is started or reached as Codex compares it with its requirements: the
+/// program and its arguments, or the address exactly as the entry writes it, its query and any
+/// user name or password included. Its `Debug` prints neither, since the address may carry a
+/// credential.
+#[derive(Clone)]
+pub(crate) enum CodexServerTransport {
+    /// A program and its arguments.
+    Command {
+        /// The program.
+        command: String,
+        /// Its arguments.
+        args: Vec<String>,
+    },
+    /// An address, as written.
+    Url(String),
+}
+
+impl std::fmt::Debug for CodexServerTransport {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let kind = match self {
+            Self::Command { .. } => "Command",
+            Self::Url(_) => "Url",
+        };
+        formatter.debug_struct(kind).finish_non_exhaustive()
+    }
+}
+
+/// The transport `entry` declares as Codex compares it with its requirements; `None` for an entry
+/// that names none.
+pub(crate) fn read_codex_server_transport(entry: &Value) -> Option<CodexServerTransport> {
+    if let Some(command) = entry.get(COMMAND_MEMBER).and_then(Value::as_str) {
+        let args = entry
+            .get("args")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|argument| argument.as_str().map(str::to_owned))
+            .collect();
+        return Some(CodexServerTransport::Command {
+            command: command.to_owned(),
+            args,
+        });
+    }
+    let url = entry.get(URL_MEMBER)?.as_str()?;
+    Some(CodexServerTransport::Url(url.to_owned()))
+}
+
 /// Whether `entry` names how its server is reached, so it declares a server rather than overriding
 /// members of one declared in a lower layer.
 pub(crate) fn has_transport(entry: &Value) -> bool {

@@ -14,13 +14,13 @@ use sidekicks_platforms::PathRules;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::config_read::CodexConfigLayer;
 use crate::driver::codex::mcp::config::server_entry::{
-    has_transport, is_switched_off, read_codex_server_entry, read_switch, sets_other_members,
+    CodexServerTransport, has_transport, is_switched_off, read_codex_server_entry,
+    read_codex_server_transport, read_switch, sets_other_members,
 };
 use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexRootConfigRead};
+use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
-// The config table of MCP servers, by name.
-const MCP_SERVERS_KEY: &str = "mcp_servers";
 // The file a project's `.codex` folder holds its config in.
 const PROJECT_CONFIG_FILE_NAME: &str = "config.toml";
 
@@ -47,10 +47,12 @@ impl RankedLayer<'_> {
     }
 }
 
-// A declaration being gathered across the reads, and whether its view came from a read where no
-// project layer names its server, the view a server outside any project has.
+// A declaration being gathered across the reads, the transport its view declares, and whether its
+// view came from a read where no project layer names its server, the view a server outside any
+// project has.
 struct DeclarationDraft {
     declaration: McpServerDeclaration,
+    transport: Option<CodexServerTransport>,
     is_view_outside_projects: bool,
 }
 
@@ -143,6 +145,7 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
                             tool_defaults: declared.tool_defaults,
                             organization_managed: None,
                         },
+                        transport: read_codex_server_transport(view_entry),
                         is_view_outside_projects,
                     },
                 );
@@ -157,12 +160,23 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
             });
         }
     }
+    let mut transports = Vec::with_capacity(drafts.len());
+    let mut declarations = Vec::with_capacity(drafts.len());
+    for draft in drafts {
+        if let Some(transport) = draft.transport {
+            transports.push((draft.declaration.binding.clone(), transport));
+        }
+        declarations.push(draft.declaration);
+    }
     CodexMcpConfigReading {
-        declarations: drafts.into_iter().map(|draft| draft.declaration).collect(),
+        declarations,
+        transports,
         roots,
         is_machine_managed,
         // Codex's config layers carry no allow or deny list; its requirements file does.
         server_policy: McpServerPolicy::default(),
+        // The requirements' allow lists fill it once the read has every declaration.
+        home_kept_out_server_names: Vec::new(),
     }
 }
 
@@ -291,6 +305,7 @@ fn gather(drafts: &mut Vec<DeclarationDraft>, draft: DeclarationDraft) {
     if draft.is_view_outside_projects && !kept.is_view_outside_projects {
         kept.declaration.config = draft.declaration.config;
         kept.declaration.sign_in_client = draft.declaration.sign_in_client;
+        kept.transport = draft.transport;
         kept.is_view_outside_projects = true;
     }
 }

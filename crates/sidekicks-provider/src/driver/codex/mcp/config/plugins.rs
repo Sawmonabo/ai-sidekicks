@@ -14,7 +14,9 @@ use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::plugin::PluginToken;
 
 use crate::driver::codex::DESCRIPTOR;
-use crate::driver::codex::mcp::config::server_entry::{ENABLED_MEMBER, read_codex_server_entry};
+use crate::driver::codex::mcp::config::server_entry::{
+    CodexServerTransport, ENABLED_MEMBER, read_codex_server_entry, read_codex_server_transport,
+};
 use crate::driver::mcp_server::read::McpServerDeclaration;
 use crate::inbound_json::decode_inbound_json;
 
@@ -61,6 +63,11 @@ pub(crate) struct CodexPluginServer {
 }
 
 impl CodexPluginServer {
+    /// The transport its entry declares, as Codex compares it with its requirements.
+    pub(crate) fn read_transport(&self) -> Option<CodexServerTransport> {
+        read_codex_server_transport(&Value::Object(self.entry.clone()))
+    }
+
     /// The entry as Codex's config takes it, as Codex reads its own plugins' entries: the
     /// transport's `type` dropped, the sign-in client's members in Codex's spelling, a relative
     /// working folder made absolute in the plugin's folder, and the server switched on.
@@ -88,19 +95,9 @@ impl CodexPluginServer {
     }
 }
 
-/// The servers each plugin in `plugin_home` declares, read-only and bound to their plugin. A
-/// malformed server entry is skipped, and a plugin whose files cannot be read is logged and
-/// declares none.
-pub(crate) async fn read_plugin_servers(plugin_home: &Path) -> Vec<McpServerDeclaration> {
-    read_plugin_server_entries(plugin_home)
-        .await
-        .into_iter()
-        .map(|server| server.declaration)
-        .collect()
-}
-
-/// The servers each plugin in `plugin_home` declares, with the entries their files write, as
-/// [`read_plugin_servers`] reads them.
+/// The servers each plugin in `plugin_home` declares, read-only and bound to their plugin, with the
+/// entries their files write. A malformed server entry is skipped, and a plugin whose files cannot
+/// be read is logged and declares none.
 pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexPluginServer> {
     let cache = PLUGIN_CACHE_FOLDER
         .iter()

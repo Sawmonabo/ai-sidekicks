@@ -20,6 +20,7 @@ use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::time::Instant;
 
 use crate::driver::claude::mcp::config::read_claude_mcp_server_entry;
+use crate::driver::claude::mcp::precedence::claude_reported_server_name;
 use crate::driver::claude::session::errors::ClaudeSessionError;
 use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
@@ -210,7 +211,7 @@ fn batch_targets<'targets>(
     let mut batches: Vec<ProbeBatch<'targets>> = Vec::new();
     for target in targets {
         let root = target_root(&target.binding).or_else(|| first_root.clone());
-        let name = probe_server_name(&target.binding);
+        let name = claude_reported_server_name(&target.binding);
         match batches.iter_mut().find(|batch| {
             batch.root == root && batch.targets.iter().all(|(_target, sent)| *sent != name)
         }) {
@@ -240,23 +241,6 @@ fn target_root(binding: &McpServerBindingRef) -> Option<PlacedPath> {
         | McpServerBindingRef::Plugin { .. }
         | McpServerBindingRef::Connector { .. }
         | McpServerBindingRef::Managed { .. } => None,
-    }
-}
-
-// The name Claude Code reports a binding's server under: a plugin's as `plugin:<plugin>:<server>`,
-// every other by its own name.
-fn probe_server_name(binding: &McpServerBindingRef) -> String {
-    match binding {
-        McpServerBindingRef::Plugin {
-            scope_ref,
-            server_name,
-            ..
-        } => format!("plugin:{}:{}", scope_ref.as_str(), server_name.as_str()),
-        McpServerBindingRef::User { server_name, .. }
-        | McpServerBindingRef::Project { server_name, .. }
-        | McpServerBindingRef::Local { server_name, .. }
-        | McpServerBindingRef::Connector { server_name, .. }
-        | McpServerBindingRef::Managed { server_name, .. } => server_name.as_str().to_owned(),
     }
 }
 

@@ -7,11 +7,13 @@
 use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 
 use crate::driver::codex::config_read::{CodexConfigRead, read_codex_config};
 use crate::driver::codex::mcp::config::attribution::attribute_codex_mcp_servers;
-use crate::driver::codex::mcp::config::plugins::read_plugin_servers;
+use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
+use crate::driver::codex::mcp::config::server_entry::CodexServerTransport;
 use crate::driver::codex::mcp::requirements::read_codex_mcp_requirements;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
@@ -60,6 +62,11 @@ pub(crate) struct CodexMcpConfigReading {
     pub(crate) is_machine_managed: bool,
     /// The allow list of Codex's requirements, by server name; Codex keeps no deny list.
     pub(crate) server_policy: McpServerPolicy,
+    /// The transport each declaration's view declares, as Codex compares it with its requirements.
+    pub(crate) transports: Vec<(McpServerBindingRef, CodexServerTransport)>,
+    /// The names of the servers a session at the person's home folder, in no attached root, never
+    /// loads, since the requirements refuse them.
+    pub(crate) home_kept_out_server_names: Vec<McpServerName>,
 }
 
 /// One `config/read` reply and the root it was read at; `None` for the read at the person's home
@@ -79,6 +86,7 @@ pub(crate) struct CodexRootConfigRead {
 pub(crate) async fn read_codex_mcp_config(
     sources: &CodexMcpConfigSources<'_>,
 ) -> Result<CodexMcpConfigReading, CodexError> {
+    let requirements = read_codex_mcp_requirements(sources.managed_settings_folder).await?;
     let mut reading = sources
         .registry
         .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
@@ -92,7 +100,7 @@ pub(crate) async fn read_codex_mcp_config(
             .await
         })
         .await?;
-    if let Some(requirements) = read_codex_mcp_requirements(sources.managed_settings_folder).await {
+    if let Some(requirements) = requirements {
         requirements.apply(&mut reading);
     }
     Ok(reading)
@@ -120,8 +128,13 @@ async fn read_codex_mcp_config_over(
         });
     }
     let mut reading = attribute_codex_mcp_servers(&reads);
-    reading
-        .declarations
-        .extend(read_plugin_servers(plugin_home).await);
+    for server in read_plugin_server_entries(plugin_home).await {
+        if let Some(transport) = server.read_transport() {
+            reading
+                .transports
+                .push((server.declaration.binding.clone(), transport));
+        }
+        reading.declarations.push(server.declaration);
+    }
     Ok(reading)
 }

@@ -84,6 +84,7 @@ mod linux;
 mod machine_name;
 #[cfg(target_os = "macos")]
 mod macos;
+mod managed_preference;
 mod memory;
 mod own_root;
 mod path;
@@ -227,6 +228,8 @@ pub use macos::code_signature::DesktopClientRequirement;
 pub use macos::descriptor_path::read_descriptor_path;
 #[cfg(target_os = "macos")]
 pub use macos::input_wait::{may_wait_for_input, read_input_wait};
+#[cfg(target_os = "macos")]
+pub use macos::managed_preference::read_managed_preference;
 #[cfg(all(target_os = "macos", any(test, feature = "test-support")))]
 pub use macos::memory::process_footprint;
 #[cfg(target_os = "macos")]
@@ -256,6 +259,8 @@ pub use macos::{
 };
 #[cfg(target_os = "macos")]
 pub use macos::{wake_watch::WakeWatch, wall_clock_timer::WallClockTimer};
+#[cfg(not(target_os = "macos"))]
+pub use managed_preference::read_managed_preference;
 pub use memory::physical_memory;
 pub use own_root::OwnRootError;
 #[cfg(not(target_os = "macos"))]

@@ -2,10 +2,13 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
 use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
+use sidekicks_contracts::plugin::PluginToken;
 
-use super::read_codex_mcp_requirements;
+use super::{merge_requirements, parse_codex_mcp_requirements, read_codex_mcp_requirements};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::CodexMcpConfigReading;
+use crate::driver::codex::mcp::config::server_entry::CodexServerTransport;
+use crate::driver::codex::session::errors::CodexError;
 use crate::driver::mcp_server::read::{
     McpRootReading, McpServerDeclaration, McpServerPolicy, McpServerPolicyEntry,
     McpServerToolDefaults,
@@ -44,6 +47,76 @@ fn program(command: &str) -> McpServerConfigView {
     }
 }
 
+fn started(command: &str) -> CodexServerTransport {
+    CodexServerTransport::Command {
+        command: command.to_owned(),
+        args: vec!["serve".to_owned()],
+    }
+}
+
+fn reached(url: &str) -> CodexServerTransport {
+    CodexServerTransport::Url(url.to_owned())
+}
+
+fn attached_root() -> PlacedPath {
+    PlacedPath {
+        path: FilesystemPath::new(ROOT.to_owned()).expect("the root is a path"),
+        place: None,
+    }
+}
+
+fn root_reading(provider_loaded: Vec<McpServerBindingRef>) -> McpRootReading {
+    McpRootReading {
+        root: attached_root(),
+        kept_out_server_names: Vec::new(),
+        provider_loaded,
+    }
+}
+
+fn reading_of(
+    servers: Vec<(McpServerBindingRef, CodexServerTransport)>,
+    provider_loaded: Vec<McpServerBindingRef>,
+) -> CodexMcpConfigReading {
+    CodexMcpConfigReading {
+        declarations: servers
+            .iter()
+            .map(|(binding, transport)| {
+                let config = match transport {
+                    CodexServerTransport::Command { command, .. } => program(command),
+                    CodexServerTransport::Url(url) => address(url),
+                };
+                declared(binding.clone(), config)
+            })
+            .collect(),
+        roots: vec![root_reading(provider_loaded)],
+        is_machine_managed: false,
+        server_policy: McpServerPolicy::default(),
+        transports: servers,
+        home_kept_out_server_names: Vec::new(),
+    }
+}
+
+fn user(name: &str) -> McpServerBindingRef {
+    McpServerBindingRef::User {
+        provider: DESCRIPTOR.provider_id(),
+        server_name: server_name(name),
+    }
+}
+
+fn plugin(plugin: &str, name: &str) -> McpServerBindingRef {
+    McpServerBindingRef::Plugin {
+        provider: DESCRIPTOR.provider_id(),
+        scope_ref: PluginToken::new(plugin.to_owned()).expect("a plugin name"),
+        server_name: server_name(name),
+    }
+}
+
+fn parsed(text: &str) -> super::CodexMcpRequirements {
+    parse_codex_mcp_requirements(toml::from_str(text).expect("the requirements are TOML"))
+        .expect("the requirements are Codex's shape")
+        .expect("the requirements set an allow list")
+}
+
 fn address(url: &str) -> McpServerConfigView {
     McpServerConfigView::Http {
         url: url.to_owned(),
@@ -61,8 +134,9 @@ fn address(url: &str) -> McpServerConfigView {
 }
 
 // Killed by the policy left empty, by a server the list does not name left out of the root's
-// kept-out names, by a named server whose transport the entry does not match left in, and by a
-// project server of another root counted at this one.
+// kept-out names, by a named server whose transport the entry does not match left in, by a
+// project server of another root counted at this one, and by a kept-out server left in the
+// root's provider-loaded set.
 #[tokio::test]
 async fn the_allow_list_keeps_every_other_server_out_of_the_root() {
     let folder = tempfile::tempdir().expect("a scratch folder is made");
@@ -79,40 +153,26 @@ url = "https://mcp.example.com/v1"
 "#,
     )
     .expect("the requirements are written");
-    let provider = DESCRIPTOR.provider_id();
-    let root = PlacedPath {
-        path: FilesystemPath::new(ROOT.to_owned()).expect("the root is a path"),
-        place: None,
-    };
     let project_at = |path: &str, name: &str| McpServerBindingRef::Project {
-        provider: provider.clone(),
+        provider: DESCRIPTOR.provider_id(),
         scope_ref: FilesystemPath::new(path.to_owned()).expect("a path"),
         place: None,
         server_name: server_name(name),
     };
-    let user = |name: &str| McpServerBindingRef::User {
-        provider: provider.clone(),
-        server_name: server_name(name),
-    };
-    let mut reading = CodexMcpConfigReading {
-        declarations: vec![
-            declared(user("docs"), program("docs-mcp")),
-            declared(user("notes"), program("notes-mcp")),
-            declared(user("remote"), address("https://mcp.example.com/v2")),
-            declared(project_at(ROOT, "tracker"), program("tracker-mcp")),
-            declared(project_at("/work/other", "elsewhere"), program("x")),
+    let mut reading = reading_of(
+        vec![
+            (user("docs"), started("docs-mcp")),
+            (user("notes"), started("notes-mcp")),
+            (user("remote"), reached("https://mcp.example.com/v2")),
+            (project_at(ROOT, "tracker"), started("tracker-mcp")),
+            (project_at("/work/other", "elsewhere"), started("x")),
         ],
-        roots: vec![McpRootReading {
-            root,
-            kept_out_server_names: Vec::new(),
-            provider_loaded: Vec::new(),
-        }],
-        is_machine_managed: false,
-        server_policy: McpServerPolicy::default(),
-    };
+        vec![user("docs"), user("notes")],
+    );
 
     read_codex_mcp_requirements(Some(folder.path()))
         .await
+        .expect("the requirements are read")
         .expect("the file sets an allow list")
         .apply(&mut reading);
 
@@ -132,4 +192,119 @@ url = "https://mcp.example.com/v1"
             server_name("tracker")
         ]
     );
+    assert_eq!(reading.roots[0].provider_loaded, [user("docs")]);
+    assert_eq!(
+        reading.home_kept_out_server_names,
+        [server_name("notes"), server_name("remote")]
+    );
+}
+
+// A plugin's list, keyed `<plugin>@<marketplace>`, bounds that plugin's servers alone, a plugin
+// with no list keeps its servers, and an empty top-level list refuses every plugin's. Killed by
+// the plugin's key matched whole, by a plugin with no list refused, and by the empty top-level
+// list ignored for plugins.
+#[test]
+fn a_plugin_list_bounds_its_own_plugins_servers() {
+    let requirements = parsed(
+        r#"
+[plugins."tools@market".mcp_servers.search.identity]
+url = { match = "prefix", value = "https://search.example.com/" }
+"#,
+    );
+    let search = reached("https://search.example.com/v1");
+    assert!(requirements.allows(&plugin("tools", "search"), Some(&search)));
+    assert!(!requirements.allows(&plugin("tools", "other"), Some(&search)));
+    assert!(!requirements.allows(
+        &plugin("tools", "search"),
+        Some(&reached("https://elsewhere.example.com/"))
+    ));
+    assert!(requirements.allows(&plugin("helpers", "search"), Some(&search)));
+    assert!(requirements.allows(&user("anything"), Some(&started("anything"))));
+
+    let refusing = parsed(
+        r#"
+[mcp_servers]
+"#,
+    );
+    assert!(!refusing.allows(&plugin("helpers", "search"), Some(&search)));
+}
+
+// A remote server's address is matched as written, so an entry naming the address without its
+// query does not allow it. Killed by the address stripped before the match.
+#[test]
+fn a_remote_address_is_matched_as_written() {
+    let requirements = parsed(
+        r#"
+[mcp_servers.remote.identity]
+url = "https://mcp.example.com/v1"
+"#,
+    );
+    assert!(requirements.allows(
+        &user("remote"),
+        Some(&reached("https://mcp.example.com/v1"))
+    ));
+    assert!(!requirements.allows(
+        &user("remote"),
+        Some(&reached("https://mcp.example.com/v1?team=core"))
+    ));
+}
+
+// The device-management layer wins over the file key by key: a server only the file names stays
+// allowed and one both name takes the profile's identity. Killed by a layer replacing the whole
+// table and by the file winning.
+#[test]
+fn the_forced_requirements_win_over_the_file_key_by_key() {
+    let mut merged = toml::Table::new();
+    merge_requirements(
+        &mut merged,
+        toml::from_str(
+            r#"
+[mcp_servers.docs.identity]
+command = "docs-mcp"
+[mcp_servers.remote.identity]
+url = "https://old.example.com/"
+"#,
+        )
+        .expect("the file is TOML"),
+    );
+    merge_requirements(
+        &mut merged,
+        toml::from_str(
+            r#"
+[mcp_servers.remote.identity]
+url = "https://new.example.com/"
+"#,
+        )
+        .expect("the profile's requirements are TOML"),
+    );
+    let requirements = parse_codex_mcp_requirements(merged)
+        .expect("the merge is Codex's shape")
+        .expect("the merge sets an allow list");
+
+    assert!(requirements.allows(&user("docs"), Some(&started("docs-mcp"))));
+    assert!(requirements.allows(&user("remote"), Some(&reached("https://new.example.com/"))));
+    assert!(!requirements.allows(&user("remote"), Some(&reached("https://old.example.com/"))));
+}
+
+// Requirements Codex cannot read stop the read as they stop Codex: a file that is not TOML, an
+// entry of another shape and a pattern that does not compile. Killed by any of them read as no
+// requirements.
+#[tokio::test]
+async fn unreadable_requirements_fail_the_read() {
+    for text in [
+        "[mcp_servers.docs",
+        "[mcp_servers.docs]\nidentity = 3\n",
+        "[mcp_servers.docs.identity]\nurl = { match = \"regex\", expression = \"(\" }\n",
+    ] {
+        let folder = tempfile::tempdir().expect("a scratch folder is made");
+        std::fs::write(folder.path().join("requirements.toml"), text)
+            .expect("the requirements are written");
+
+        let read = read_codex_mcp_requirements(Some(folder.path())).await;
+
+        assert!(
+            matches!(read, Err(CodexError::MachinePolicyUnreadable { .. })),
+            "{text:?} is read as requirements"
+        );
+    }
 }

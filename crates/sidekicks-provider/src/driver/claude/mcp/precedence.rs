@@ -166,9 +166,30 @@ pub(crate) fn rank_claude_mcp_servers(
                     }
                 }
             }
+            let mut kept_out_server_names = root.kept_out_server_names.clone();
+            if has_managed_mcp_file {
+                // Claude Code loads no server of the person's own beside the organization's.
+                let declared = reading
+                    .user_servers
+                    .iter()
+                    .chain(&reading.plugin_servers)
+                    .chain(&root.local_servers)
+                    .chain(&root.project_servers);
+                for server in declared {
+                    let name = server.binding.server_name();
+                    if !kept_out_server_names.contains(name) {
+                        kept_out_server_names.push(name.clone());
+                    }
+                }
+            }
+            kept_out_server_names.retain(|name| {
+                !provider_loaded
+                    .iter()
+                    .any(|binding| binding.server_name() == name)
+            });
             McpRootReading {
                 root: root.root.clone(),
-                kept_out_server_names: root.kept_out_server_names.clone(),
+                kept_out_server_names,
                 provider_loaded,
             }
         })
@@ -208,11 +229,8 @@ pub(crate) fn find_superseded_claude_mcp_servers<'servers>(
         sources.user,
     ];
     for server in named.into_iter().flatten() {
-        let name = binding_server_name(&server.binding);
-        if kept
-            .iter()
-            .any(|above| binding_server_name(&above.binding) == name)
-        {
+        let name = server.binding.server_name();
+        if kept.iter().any(|above| above.binding.server_name() == name) {
             superseded.push(server);
         } else {
             kept.push(server);
@@ -239,40 +257,31 @@ fn is_enabled(server: &ClaudeMcpServer, sources: &ClaudeMcpRootSources<'_>) -> b
     let is_kept_out = matches!(server.binding, McpServerBindingRef::Project { .. })
         && sources
             .kept_out_server_names
-            .contains(binding_server_name(&server.binding));
+            .contains(server.binding.server_name());
     !is_kept_out && !is_switched_off(&server.binding, sources.switched_off_server_names)
 }
 
-// Whether Claude Code's per-project switch turns the server off: it records a plugin's server as
-// `plugin:<plugin>:<server>` and every other server by its name.
+// Whether Claude Code's per-project switch turns the server off, which records it by the name
+// Claude Code reports it under.
 fn is_switched_off(binding: &McpServerBindingRef, switched_off: &[McpServerName]) -> bool {
-    let plugin_server_name;
-    let name = match binding {
+    let name = claude_reported_server_name(binding);
+    switched_off.iter().any(|off| off.as_str() == name)
+}
+
+/// The name Claude Code reports a binding's server under and records it by: a plugin's as
+/// `plugin:<plugin>:<server>`, every other by its own name.
+pub(crate) fn claude_reported_server_name(binding: &McpServerBindingRef) -> String {
+    match binding {
         McpServerBindingRef::Plugin {
             scope_ref,
             server_name,
             ..
-        } => {
-            plugin_server_name = format!("plugin:{}:{}", scope_ref.as_str(), server_name.as_str());
-            plugin_server_name.as_str()
-        }
+        } => format!("plugin:{}:{}", scope_ref.as_str(), server_name.as_str()),
         McpServerBindingRef::User { server_name, .. }
         | McpServerBindingRef::Project { server_name, .. }
         | McpServerBindingRef::Local { server_name, .. }
         | McpServerBindingRef::Connector { server_name, .. }
-        | McpServerBindingRef::Managed { server_name, .. } => server_name.as_str(),
-    };
-    switched_off.iter().any(|off| off.as_str() == name)
-}
-
-fn binding_server_name(binding: &McpServerBindingRef) -> &McpServerName {
-    match binding {
-        McpServerBindingRef::User { server_name, .. }
-        | McpServerBindingRef::Project { server_name, .. }
-        | McpServerBindingRef::Local { server_name, .. }
-        | McpServerBindingRef::Plugin { server_name, .. }
-        | McpServerBindingRef::Connector { server_name, .. }
-        | McpServerBindingRef::Managed { server_name, .. } => server_name,
+        | McpServerBindingRef::Managed { server_name, .. } => server_name.as_str().to_owned(),
     }
 }
 
@@ -363,8 +372,9 @@ mod tests {
     }
 
     // Killed by ranking a scope above the organization, by matching a connector on its stripped
-    // address, which drops the query that keeps the second connector apart, and by not folding
-    // the address's case, default port and trailing slash.
+    // address, which drops the query that keeps the second connector apart, by not folding the
+    // address's case, default port and trailing slash, by the person's servers left loadable
+    // under a managed file, and by a name the organization's server loads kept out.
     #[test]
     fn the_organization_outranks_every_scope_and_a_connector_yields_only_at_its_folded_address() {
         let provider = DESCRIPTOR.provider_id();
@@ -435,7 +445,14 @@ mod tests {
             [at_root]
         );
         assert!(superseded_in(account_declarations, &connector("Docs team")).is_empty());
-        // Under a managed file Claude Code loads the organization's servers alone.
+        // Under a managed file Claude Code loads the organization's servers alone, so the
+        // person's own are kept out but the one the organization's loads under its name.
         assert_eq!(ranking.roots[0].provider_loaded, [organization]);
+        assert_eq!(
+            ranking.roots[0].kept_out_server_names,
+            [server_name("docs")]
+        );
+        let unmanaged = rank_claude_mcp_servers(&reading, &accounts, false);
+        assert!(unmanaged.roots[0].kept_out_server_names.is_empty());
     }
 }

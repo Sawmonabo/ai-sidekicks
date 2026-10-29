@@ -178,10 +178,12 @@ pub struct McpServerSignInClient {
 pub struct McpRootReading {
     /// The root, with the distribution it is in.
     pub root: PlacedPath,
-    /// The names of the project's servers kept out of its sessions.
+    /// The names of every server declared for this root, in any layer, that its sessions never
+    /// load; none of them is in `provider_loaded`.
     pub kept_out_server_names: Vec<McpServerName>,
     /// The bindings a session the provider starts at this root loads by its own config, with no
-    /// set sent by the daemon.
+    /// set sent by the daemon, in the provider's precedence order, highest layer first: a reader
+    /// takes the first binding of a name as the one loaded.
     pub provider_loaded: Vec<McpServerBindingRef>,
 }
 
