@@ -21,8 +21,8 @@ use super::{
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::driver::schema::schema_parts;
 
-// A registry over `database` with homes minted under `data_folder`, and the writer it shares.
-async fn open_registry(
+/// A registry over `database` with homes minted under `data_folder`, and the writer it shares.
+pub(crate) async fn open_registry(
     database: &TestDatabase,
     data_folder: &Path,
 ) -> (ProviderAccountRegistry, Arc<DatabaseWriter>) {
@@ -51,8 +51,11 @@ fn observation(state: ProviderAccountHealthState) -> HealthObservation {
     }
 }
 
-// Mints a `provider_id` account and admits it signed in.
-async fn register(registry: &ProviderAccountRegistry, provider_id: &str) -> RegisteredAccount {
+/// Mints a `provider_id` account and admits it signed in.
+pub(crate) async fn register(
+    registry: &ProviderAccountRegistry,
+    provider_id: &str,
+) -> RegisteredAccount {
     let minted = registry
         .mint(provider(provider_id))
         .expect("the account is minted");
