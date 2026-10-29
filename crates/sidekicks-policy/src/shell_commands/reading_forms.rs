@@ -4,7 +4,7 @@
 
 use tree_sitter::Node;
 
-use super::words::{WordBuilder, node_text};
+use super::words::{WordBuilder, WordText, node_text};
 use super::{continues_variable_name, starts_variable_name, visit_redirect_arguments};
 
 /// The verdict on a line's forms as the walk notes its nodes, with what one node tells the notes
