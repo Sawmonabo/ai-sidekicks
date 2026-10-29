@@ -43,7 +43,7 @@ const CODEX_HOME_SOCKET_NAME: &str = "app-server-control.sock";
 
 /// The folder under the daemon's data folder the capability read's service runs in as its home,
 /// made empty before each read and removed after it.
-pub(crate) const CODEX_CAPABILITY_READ_FOLDER: &str = "codex-capability-read";
+const CODEX_CAPABILITY_READ_FOLDER: &str = "codex-capability-read";
 
 /// Resolves which Codex home a session's account runs in, and the one home terminal reach runs on.
 pub(crate) trait CodexHomeResolver: Send + Sync {
