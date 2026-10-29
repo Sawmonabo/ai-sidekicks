@@ -71,6 +71,7 @@ use crate::port::running_command_publisher::{
 };
 use crate::port::session_inbox_address::SessionInboxAddresser;
 
+mod account;
 mod account_home_logs;
 mod app_server_protocol;
 mod attachments;
