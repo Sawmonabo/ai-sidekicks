@@ -339,7 +339,8 @@ mod recorded_events {
             tracing::subscriber::set_default(tracing_subscriber::registry().with(self.clone()))
         }
 
-        /// The counter of each diagnostic recorded, in order.
+        /// The counter of each diagnostic recorded, in order; only this crate's own tests read it.
+        #[cfg(test)]
         pub(crate) fn counters(&self) -> Vec<String> {
             self.fields_where(|_fields| true, "counter")
         }
