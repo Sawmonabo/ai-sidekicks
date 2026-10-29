@@ -8,24 +8,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use sidekicks_contracts::mcp::server::config::McpServerConfigView;
-use sidekicks_contracts::mcp::server::{
-    McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
-};
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 
-use crate::driver::codex::app_server_protocol::{
-    AskForApproval, ListMcpServerStatusParams, McpServerStatusDetail, SandboxMode,
-    ThreadStartParams,
-};
+use crate::driver::codex::app_server_protocol::{AskForApproval, SandboxMode, ThreadStartParams};
 use crate::driver::codex::event_normalizer::CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD;
 use crate::driver::codex::mcp::config::plugins::CodexPluginServer;
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexMcpRoot};
 use crate::driver::codex::mcp::requirements::server_name_at;
+use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
 use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::session::detached_conversation::{
@@ -34,10 +29,8 @@ use crate::driver::codex::session::detached_conversation::{
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::thread::settings::MCP_SERVERS_KEY;
 use crate::driver::codex::thread::view::{THREAD_START_METHOD, read_thread};
-use crate::driver::codex::tools::{
-    normalize_codex_mcp_server_status_list, normalize_codex_mcp_server_status_notification,
-};
-use crate::driver::codex::transport::connection::{CodexAppServerConnection, read_codex_object};
+use crate::driver::codex::tools::normalize_codex_mcp_server_status_notification;
+use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::mcp_server::read::{
     McpProbeReading, McpProbeStart, McpProbeTarget, McpServerDeclaration, McpServersReadRequest,
 };
@@ -47,9 +40,6 @@ use crate::driver::mcp_server::status::{
 
 #[cfg(test)]
 mod tests;
-
-/// The request that reads one server's status and tools in a conversation.
-const MCP_SERVER_STATUS_LIST_METHOD: &str = "mcpServerStatus/list";
 
 /// How long Codex gives a server to start where its entry names no `startup_timeout_sec`.
 const CODEX_DEFAULT_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -418,62 +408,31 @@ async fn read_server(
     startup: Option<McpServerStatusEmission>,
 ) -> Result<McpProbeReading, CodexError> {
     let name = server.server_name();
-    let reply = connection
-        .request(
-            MCP_SERVER_STATUS_LIST_METHOD,
-            &ListMcpServerStatusParams {
-                thread_id: Some(thread_id.to_owned()),
-                server_name: Some(name.as_str().to_owned()),
-                detail: Some(McpServerStatusDetail::ToolsAndAuthOnly),
-                ..ListMcpServerStatusParams::default()
-            },
-        )
-        .await?;
-    let rows = read_codex_object::<StatusListReply>(reply.get())
-        .map(|reply| reply.data)
-        .unwrap_or_default();
-    let listed = normalize_codex_mcp_server_status_list(&rows);
-    log_rejections(&listed);
-    let (reading, failure_text) = match startup {
-        Some(emission) => (emission.reading, emission.failure_text),
-        None => match listed
-            .emissions
-            .into_iter()
-            .find(|emission| emission.server_name == *name)
-        {
-            Some(emission) => (emission.reading, None),
-            None => {
-                tracing::warn!(
-                    server = %name.as_str(),
-                    "codex listed no status for a probed mcp server; its status is unknown"
-                );
-                (McpServerReading::Observed(McpServerStatus::Unknown), None)
-            }
-        },
-    };
-    let tool_names = rows
-        .as_array()
+    let listed = list_codex_mcp_server_statuses(connection, thread_id, Some(name.as_str()))
+        .await?
         .into_iter()
-        .flatten()
-        .filter(|row| row.get("name").and_then(Value::as_str) == Some(name.as_str()))
-        .filter_map(|row| row.get("tools").and_then(Value::as_object))
-        .flat_map(Map::values)
-        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
-        .filter_map(|tool_name| McpToolName::new(tool_name.to_owned()).ok())
-        .collect();
+        .find(|emission| emission.server_name == *name);
+    let tool_names = listed
+        .as_ref()
+        .and_then(|emission| emission.tool_names.clone())
+        .unwrap_or_default();
+    let (reading, failure_text) = match (startup, listed) {
+        (Some(emission), _listed) => (emission.reading, emission.failure_text),
+        (None, Some(emission)) => (emission.reading, None),
+        (None, None) => {
+            tracing::warn!(
+                server = %name.as_str(),
+                "codex listed no status for a probed mcp server; its status is unknown"
+            );
+            (McpServerReading::Observed(McpServerStatus::Unknown), None)
+        }
+    };
     Ok(McpProbeReading {
         binding: server.binding.clone(),
         reading,
         failure_text,
         tool_names,
     })
-}
-
-// `mcpServerStatus/list`'s reply: its rows.
-#[derive(Deserialize)]
-struct StatusListReply {
-    #[serde(default)]
-    data: Value,
 }
 
 fn log_rejections(result: &McpServerStatusIngestResult) {

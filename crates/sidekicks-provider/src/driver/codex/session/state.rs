@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::future::{BoxFuture, Shared};
+use sidekicks_contracts::mcp::server::McpServerName;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::provider::driver::capabilities::ExecutionPosture;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
@@ -205,6 +206,9 @@ pub(crate) struct CodexSessionRecord {
     /// reports go to; taken and ended once that leg's process ends, and ended when the record
     /// goes.
     pub(crate) on_mcp_server_status: Option<McpServerStatusProducer>,
+    /// The tool servers whose startup the conversation last reported as still starting, so the
+    /// leg lists its servers' tools once none is.
+    pub(crate) starting_mcp_server_names: HashSet<McpServerName>,
 }
 
 /// What an establishment knows of a session's conversation, from which its record starts with
@@ -282,6 +286,7 @@ impl CodexSessionRecord {
             turn_input_by_turn_id: HashMap::new(),
             delivery: CodexDeliveryMemory::new(),
             on_mcp_server_status: established.on_mcp_server_status,
+            starting_mcp_server_names: HashSet::new(),
         }
     }
 

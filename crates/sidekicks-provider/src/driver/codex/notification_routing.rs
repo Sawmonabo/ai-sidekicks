@@ -9,6 +9,7 @@ use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::context_window::ContextWindowSource;
+use sidekicks_contracts::mcp::server::McpServerStatus;
 use tokio::time::Instant;
 
 use crate::compaction_wait::PendingCompactionRegistry;
@@ -21,6 +22,7 @@ use crate::driver::codex::event_normalizer::{
     CODEX_THREAD_STARTED_METHOD, CODEX_THREAD_TOKEN_USAGE_METHOD, CODEX_TURN_COMPLETED_METHOD,
     classify_codex_frame_family_for_routing,
 };
+use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
 use crate::driver::codex::service::supervisor::routing::{
     read_codex_child_thread_announcement, read_codex_frame_thread_id,
 };
@@ -32,6 +34,7 @@ use crate::driver::codex::turn_evidence::CodexTurnStatus;
 use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
+use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusProducer};
 use crate::terminal_emission_gate::TerminalEmissionGate;
 use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, RoutableProviderFrame, ThreadFrameFamilyClass,
@@ -450,19 +453,32 @@ impl CodexSessionRouting {
 // Hands a tool server's startup on the session's own conversation to the status sink of the leg
 // it runs on, a row that breaks the reader's bound reported. A helper's conversation has no sink
 // of its own and one the session moved off is no longer its leg's, so their startups go nowhere.
-fn report_mcp_server_startup(record: &CodexSessionRecord, frame: &CodexRoutableFrame) {
+// Once a startup settles with no server of the conversation still starting, the leg lists its
+// servers with their tools, which a startup never names.
+fn report_mcp_server_startup(record: &mut CodexSessionRecord, frame: &CodexRoutableFrame) {
     if frame.method != CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD
         || frame.thread_id.as_deref() != Some(record.thread_id.as_str())
     {
         return;
     }
-    let Some(producer) = &record.on_mcp_server_status else {
+    let Some(producer) = record.on_mcp_server_status.clone() else {
         return;
     };
     // Params that are not JSON read as none, which the reader refuses as not an object.
     let notification: Value = serde_json::from_str(frame.params.get()).unwrap_or_default();
     let read = normalize_codex_mcp_server_status_notification(&notification);
+    let mut has_settled = false;
     for emission in read.emissions {
+        if emission.reading == McpServerReading::Observed(McpServerStatus::Starting) {
+            record
+                .starting_mcp_server_names
+                .insert(emission.server_name.clone());
+        } else {
+            record
+                .starting_mcp_server_names
+                .remove(&emission.server_name);
+            has_settled = true;
+        }
         producer.report_status(emission);
     }
     for rejection in read.rejections {
@@ -474,6 +490,42 @@ fn report_mcp_server_startup(record: &CodexSessionRecord, frame: &CodexRoutableF
             [],
         );
     }
+    if has_settled && record.starting_mcp_server_names.is_empty() {
+        list_settled_mcp_servers(record, producer);
+    }
+}
+
+// Lists the servers of the session's conversation with their tools on its service and hands each
+// to `producer`, off the session's task; a list that fails is logged, the leg keeping what its
+// startups reported.
+fn list_settled_mcp_servers(record: &CodexSessionRecord, producer: McpServerStatusProducer) {
+    let connection = match record.service.connection() {
+        Ok(connection) => connection,
+        Err(error) => {
+            tracing::debug!(
+                session_id = %record.session_id,
+                error = &error as &(dyn std::error::Error + 'static),
+                "codex's service is gone; the session's mcp servers' tools are not listed"
+            );
+            return;
+        }
+    };
+    let thread_id = record.thread_id.clone();
+    let session_id = record.session_id;
+    tokio::spawn(async move {
+        match list_codex_mcp_server_statuses(&connection, &thread_id, None).await {
+            Ok(emissions) => {
+                for emission in emissions {
+                    producer.report_status(emission);
+                }
+            }
+            Err(error) => tracing::debug!(
+                %session_id,
+                error = &error as &(dyn std::error::Error + 'static),
+                "codex's mcp server list failed; the session's servers keep their startups"
+            ),
+        }
+    });
 }
 
 /// The members of a usage frame the window reading takes.
@@ -564,6 +616,7 @@ fn report<const FIELDS: usize>(
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::time::Duration;
 
     use serde_json::json;
     use serde_json::value::RawValue;
@@ -575,7 +628,12 @@ mod tests {
 
     // A tool server's startup on `thread_id`, as the service sends it.
     fn startup(thread_id: &str, server_name: &str) -> CodexSessionInbound {
-        let params = json!({"threadId": thread_id, "name": server_name, "status": "ready"});
+        startup_in(thread_id, server_name, "ready")
+    }
+
+    // A tool server's startup in `status` on `thread_id`.
+    fn startup_in(thread_id: &str, server_name: &str, status: &str) -> CodexSessionInbound {
+        let params = json!({"threadId": thread_id, "name": server_name, "status": status});
         CodexSessionInbound::Frame {
             method: CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD.to_owned(),
             params: RawValue::from_string(params.to_string()).expect("the params are JSON"),
@@ -604,5 +662,79 @@ mod tests {
             .map(|emission| emission.server_name.as_str())
             .collect();
         assert_eq!(names, ["github"]);
+    }
+
+    // Once the last starting server settles, the leg lists the conversation's servers with their
+    // tools, every page, and hands each to its sink; while one still starts it asks nothing.
+    // Killed by listing on a startup that leaves a server starting, by the list's second page
+    // dropped, and by the listed tools dropped.
+    #[tokio::test(start_paused = true)]
+    async fn a_settled_startup_lists_the_legs_servers_with_their_tools() {
+        let mut session = TestCodexSession::start().await;
+        let sink = Arc::new(CountingStatusSink::default());
+        session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
+
+        session
+            .task
+            .handle(startup_in(TEST_THREAD, "github", "starting"))
+            .await;
+        session
+            .task
+            .handle(startup_in(TEST_THREAD, "docs", "starting"))
+            .await;
+        session.task.handle(startup(TEST_THREAD, "github")).await;
+        session.task.handle(startup(TEST_THREAD, "docs")).await;
+        let script = &mut session.scripted.script;
+        let first = script.next_sent().await;
+        assert_eq!(first["method"], "mcpServerStatus/list");
+        assert_eq!(
+            first["params"],
+            json!({"threadId": TEST_THREAD, "detail": "toolsAndAuthOnly"})
+        );
+        script.answer(
+            &first,
+            &json!({
+                "data": [{"name": "github", "runtimeStatus": "ready", "tools": {
+                    "search": {"name": "search"}
+                }}],
+                "nextCursor": "page-2"
+            }),
+        );
+        let second = script.next_sent().await;
+        assert_eq!(second["params"]["cursor"], "page-2");
+        script.answer(
+            &second,
+            &json!({"data": [{"name": "docs", "runtimeStatus": "ready", "tools": {
+                "read": {"name": "read"}
+            }}]}),
+        );
+        // The list's emissions arrive off the session's task, after the four startups.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while sink.reported().len() < 6 {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        })
+        .await
+        .expect("the listed servers reach the sink");
+
+        let listed: Vec<(String, Option<Vec<String>>)> = sink.reported()[4..]
+            .iter()
+            .map(|emission| {
+                (
+                    emission.server_name.as_str().to_owned(),
+                    emission
+                        .tool_names
+                        .as_ref()
+                        .map(|names| names.iter().map(|name| name.as_str().to_owned()).collect()),
+                )
+            })
+            .collect();
+        assert_eq!(
+            listed,
+            [
+                ("github".to_owned(), Some(vec!["search".to_owned()])),
+                ("docs".to_owned(), Some(vec!["read".to_owned()])),
+            ]
+        );
     }
 }

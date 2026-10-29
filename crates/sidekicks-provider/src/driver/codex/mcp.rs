@@ -5,6 +5,7 @@
 mod config;
 pub(super) mod machine_probe;
 mod requirements;
+pub(super) mod status_list;
 
 use std::path::{Path, PathBuf};
 
