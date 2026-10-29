@@ -335,37 +335,17 @@ mod dpop_key_text {
 mod tests {
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
 
     use futures::future::BoxFuture;
     use rmcp::transport::auth::{AuthError, CredentialStore as _, StoredCredentials};
     use secrecy::SecretString;
     use sidekicks_contracts::mcp::server::config::McpServerAddress;
-    use sidekicks_platforms::CredentialStore as PlatformCredentialStore;
-    use sidekicks_store::credential_store::items::{SecretItems, SecretItemsStart};
-    use sidekicks_store::credential_store::os::TestStoreAccess;
     use sidekicks_store::credential_store::service::KeychainService;
     use sidekicks_store::credential_store::{KeychainRefusal, SecretKeychain};
-    use tempfile::TempDir;
 
     use super::SignInCustody;
     use crate::sign_in::canonical_server_address;
-
-    /// The sign-ins' keychain service over the store's in-memory test keychain, with the in-memory
-    /// store under it and the data folder it keeps its place record in.
-    fn test_keychain() -> (TempDir, PlatformCredentialStore, Arc<dyn SecretKeychain>) {
-        let data_folder = tempfile::tempdir().expect("the test makes a data folder");
-        let credentials = PlatformCredentialStore::in_memory();
-        let items = SecretItems::new(SecretItemsStart {
-            data_folder: data_folder.path().to_path_buf(),
-            runs_while_logged_out: false,
-            access: TestStoreAccess::new(credentials.clone()) as _,
-            call_timeout: Duration::from_secs(5),
-        })
-        .expect("the system gives random bytes");
-        let keychain = Arc::new(items.keychain(KeychainService::McpSignIns));
-        (data_folder, credentials, keychain)
-    }
+    use crate::sign_in::test_keychain::test_keychain;
 
     fn server_address() -> McpServerAddress {
         McpServerAddress::new("https://docs.example.com/mcp").expect("a server address")

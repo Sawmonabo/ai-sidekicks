@@ -22,6 +22,7 @@ http.workspace = true
 hyper = { workspace = true, features = ["http1", "server"] }
 hyper-util = { workspace = true, features = ["service", "tokio"] }
 jwt-simple.workspace = true
+oauth2.workspace = true
 p256.workspace = true
 process-wrap.workspace = true
 reqwest.workspace = true
