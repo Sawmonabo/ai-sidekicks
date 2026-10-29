@@ -83,7 +83,7 @@ async fn a_helper_stopped_at_its_limit_has_its_next_turn_interrupted_at_its_star
         .await;
     delivery
         .dependencies
-        .limit_stopped_helpers
+        .stopped_helpers
         .stop(session.task.record.session_id, "stopped-helper");
     delivery
         .deliver_turn_started(

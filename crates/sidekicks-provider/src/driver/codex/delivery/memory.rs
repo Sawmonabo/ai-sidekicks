@@ -79,8 +79,8 @@ pub(crate) struct CodexStartedChildRun {
 /// A helper Codex started, as its child run, and the spawn call and binding it came from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct CodexChildRun {
-    /// The child run once started; `None` when its start was absorbed or refused, so no run owns
-    /// the helper's rows.
+    /// The child run once started, or refused and ended; `None` when its start was absorbed, so no
+    /// run owns the helper's rows.
     pub(crate) started: Option<CodexStartedChildRun>,
     /// The agent whose run the helper works for.
     pub(crate) agent_id: AgentId,

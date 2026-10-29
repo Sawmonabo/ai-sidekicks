@@ -45,7 +45,6 @@ use crate::driver::codex::run::control::{CodexRunControl, CodexRunControlDepende
 use crate::driver::codex::run::faster_model_retry::{
     CodexFasterModelRetries, CodexFasterModelRetryDependencies,
 };
-use crate::driver::codex::run::helper_token_limit::CodexLimitStoppedHelpers;
 use crate::driver::codex::run::routes::CodexRunRoutes;
 use crate::driver::codex::run::self_started_turns::{
     CodexSelfStartedTurnDependencies, open_codex_self_started_turn,
@@ -54,6 +53,7 @@ use crate::driver::codex::run::start::record::{
     CodexBindingAdoptions, CodexRunCallDependencies, CodexSessionDisposal,
 };
 use crate::driver::codex::run::start::{CodexRunStart, CodexRunStartDependencies};
+use crate::driver::codex::run::stopped_helpers::CodexStoppedHelpers;
 use crate::driver::codex::run::turn_end_waiters::{CodexRecordExit, CodexTurnEndWaiters};
 use crate::driver::codex::server_requests::{
     CodexAskKind, CodexInboundServerRequest, CodexServerRequestDecision,
@@ -177,7 +177,7 @@ impl TestCodexSession {
             reviewer_denials: Arc::new(PortRegistration::new("reviewer denial")),
             command_output: Arc::new(PortRegistration::new("command output")),
             pending_compactions: pending_compactions.clone(),
-            limit_stopped_helpers: Arc::new(CodexLimitStoppedHelpers::new(TaskTracker::new())),
+            stopped_helpers: Arc::new(CodexStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
         }));
         let session_id = new_session_id();

@@ -216,7 +216,7 @@ impl CodexDriver {
         drop(claim);
         parts.release.forget_session(&session_id).await;
         parts.adoptions.forget_session(session_id);
-        self.limit_stopped_helpers.forget_session(session_id);
+        self.stopped_helpers.forget_session(session_id);
         self.forget_relayed_commands(session_id).await;
         Ok(())
     }

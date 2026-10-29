@@ -26,9 +26,9 @@ use crate::run::delivery::{DeliveryBinding, InboundDelivery, InboundOutcome};
 pub(crate) enum ChildRunLookup {
     /// No helper of the session runs on it.
     NotAHelper,
-    /// A helper whose start was absorbed or refused, so no run owns its rows.
+    /// A helper whose start was absorbed, so no run owns its rows.
     Unstarted,
-    /// A helper's started child run.
+    /// A helper's child run, which owns its rows: started, or refused and ended, absorbing them.
     Started {
         /// The child run its rows go on.
         run: CodexRowRun,
@@ -245,8 +245,9 @@ impl CodexFrameDelivery {
     }
 
     // The child run and its `subagent.started` row, which names the child run the engine started
-    // first; the child's start once the run engine started it, `None` when it absorbed or refused
-    // it.
+    // first; the child's start once the run engine started or refused it, `None` when it absorbed
+    // it. A refused helper keeps its ended run, which absorbs its rows, and its running turn is
+    // interrupted, as each turn it starts after is.
     async fn deliver_child_start(
         &self,
         record: &mut CodexSessionRecord,
@@ -266,7 +267,22 @@ impl CodexFrameDelivery {
         };
         let child_run_id = match self.send(record, start, "thread/started").await {
             Some(InboundOutcome::ChildRunStarted { run_id }) => Some(run_id),
-            _ => None,
+            Some(InboundOutcome::ChildRunRefused { run_id }) => {
+                self.dependencies
+                    .stopped_helpers
+                    .stop_running(record, child_thread_id);
+                Some(run_id)
+            }
+            Some(
+                InboundOutcome::TurnOpened
+                | InboundOutcome::Transitioned { .. }
+                | InboundOutcome::Published
+                | InboundOutcome::AskAdmitted
+                | InboundOutcome::Appended { .. }
+                | InboundOutcome::AppendedStamped { .. }
+                | InboundOutcome::Absorbed { .. },
+            )
+            | None => None,
         };
         let started_row = InboundDelivery::SessionRow {
             binding: DeliveryBinding {
@@ -320,3 +336,6 @@ fn subagent_row(
         source_position: None,
     }
 }
+
+#[cfg(test)]
+mod tests;
