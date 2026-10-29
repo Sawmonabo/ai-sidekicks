@@ -747,9 +747,16 @@ mod tests {
             }
         };
 
-        // A first declare, an unchanged version and a stored row with no version record nothing.
+        // A first declare, an unchanged version, alone or with new capabilities, and a stored row
+        // with no version record nothing.
         declare("2.1.293").await;
         declare("2.1.293").await;
+        let mut new_capabilities = reading("2.1.293");
+        new_capabilities.tools.clear();
+        writer
+            .declare(&provider, &new_capabilities)
+            .await
+            .expect("the reading is declared");
         connection
             .execute_batch(
                 "UPDATE driver_contract_meta SET cli_version_raw = NULL, cli_version_semver = NULL",
