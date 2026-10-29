@@ -215,28 +215,36 @@ impl SignInService {
                     Arc::clone(&forward) as Arc<dyn RedirectCallbackOwner>,
                 )
             });
-        let service = Arc::clone(self);
+        // The task holds the service weakly, so a flow under way never keeps it alive.
+        let service = Arc::downgrade(self);
         tokio::spawn(async move {
             let stop = running.stop.clone();
             tokio::select! {
                 () = stop.cancelled() => {}
-                () = service.settle_flow(&running, flow, &outcome) => {}
+                () = async {
+                    let end = flow.await;
+                    if let Some(service) = service.upgrade() {
+                        service.settle_flow(&running, end, &outcome).await;
+                    }
+                } => {}
             }
             forward.park(receiver);
-            service.end_provider_flow(&running.canonical_address, Some(running.flow_id));
+            if let Some(service) = service.upgrade() {
+                service.end_provider_flow(&running.canonical_address, Some(running.flow_id));
+            }
         });
     }
 
-    // Settles the flow when it ends: keeps a completed flow's sign-in, appends the one completion
-    // event and publishes the outcome the browser is shown. A flow ended by its stop settles
-    // nothing.
+    // Settles the flow by how it ended: keeps a completed flow's sign-in, appends the one
+    // completion event and publishes the outcome the browser is shown. A flow ended by its stop
+    // settles nothing.
     async fn settle_flow(
         &self,
         running: &RunningFlow,
-        flow: AbortOnDropHandle<FlowEnd>,
+        end: Result<FlowEnd, tokio::task::JoinError>,
         outcome: &watch::Sender<Option<bool>>,
     ) {
-        let failure = match flow.await {
+        let failure = match end {
             Ok(Some(Ok(takeover))) => self.keep_takeover(running, takeover).await,
             Ok(Some(Err(error))) => {
                 tracing::warn!(
