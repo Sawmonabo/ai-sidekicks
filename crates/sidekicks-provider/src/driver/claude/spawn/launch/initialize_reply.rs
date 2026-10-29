@@ -43,6 +43,14 @@ struct ModelRow {
         deserialize_with = "read_lenient"
     )]
     supports_auto_mode: Option<bool>,
+    #[serde(flatten)]
+    effort: ClaudeModelEffort,
+}
+
+/// A model row's effort axis, as the `initialize` reply and the model catalog both read it: the
+/// two members are read leniently, and a level that is not text is skipped.
+#[derive(Deserialize)]
+pub(crate) struct ClaudeModelEffort {
     #[serde(rename = "supportsEffort", default, deserialize_with = "read_lenient")]
     supports_effort: Option<bool>,
     #[serde(
@@ -51,6 +59,16 @@ struct ModelRow {
         deserialize_with = "read_lenient"
     )]
     supported_effort_levels: Option<LenientList<String>>,
+}
+
+impl ClaudeModelEffort {
+    /// The levels the model takes, `None` when it has no effort axis: it says it takes no effort,
+    /// or lists no level.
+    pub(crate) fn into_levels(self) -> Option<Vec<String>> {
+        self.supported_effort_levels
+            .map(|levels| levels.0)
+            .filter(|levels| self.supports_effort != Some(false) && !levels.is_empty())
+    }
 }
 
 #[derive(Deserialize)]
@@ -87,16 +105,11 @@ pub(crate) fn read_claude_initialize_declaration(
             auto_mode_models.insert(value.clone());
             auto_mode_models.extend(resolved_model.clone());
         }
-        // A model that says it takes no effort, or lists no level, has no effort axis.
-        let effort_levels = row
-            .supported_effort_levels
-            .map(|levels| levels.0)
-            .filter(|levels| row.supports_effort != Some(false) && !levels.is_empty());
         models.push(ClaudeOfferedModel {
             value,
             resolved_model,
             display_name: non_empty(row.display_name),
-            effort_levels,
+            effort_levels: row.effort.into_levels(),
         });
     }
     ClaudeInitializeDeclaration {

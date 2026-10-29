@@ -93,8 +93,7 @@ pub struct CreateSessionParams {
     /// `mcp`); the driver hands each to the provider as an entry on the daemon's route.
     pub tool_servers: Option<Vec<SessionToolServer>>,
     /// A JSON Schema the final output must meet, for a provider that binds it per session (gated
-    /// on `structuredOutput`); one that binds it per turn reads
-    /// [`StartRunParams::output_schema`](super::contract::params_and_results::StartRunParams::output_schema).
+    /// on `structuredOutput`); one that binds it per turn reads `StartRunParams::output_schema`.
     pub output_schema: Option<Map<String, Value>>,
     /// The account the leg is admitted against, resolved by the daemon before the spawn. The spawn
     /// path pins the account's credential home, so the driver only carries it.

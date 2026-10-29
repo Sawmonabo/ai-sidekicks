@@ -10,7 +10,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
-use sidekicks_contracts::provider::driver::capabilities::find_provider_model_row;
 use sidekicks_contracts::provider::driver::output_speed::ProviderOutputSpeedState;
 use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
@@ -22,7 +21,7 @@ use sidekicks_std::port_registration::PortRegistration;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::SessionSpawnContextResolver;
 use crate::driver::codex::auth_status::classify_codex_resume_recovery_condition;
-use crate::driver::codex::capabilities::read_codex_service_model_catalog;
+use crate::driver::codex::capabilities::{find_codex_model_row, read_codex_service_model_catalog};
 use crate::driver::codex::commands::CodexProviderCommandCache;
 use crate::driver::codex::delivery::frames::CodexFrameDelivery;
 use crate::driver::codex::model_windows::read_codex_larger_window;
@@ -210,7 +209,7 @@ impl CodexSessionEstablishment {
                 let catalog = read_codex_service_model_catalog(&connection)
                     .await
                     .map_err(CodexError::Driver)?;
-                if let Some(row) = find_provider_model_row(&catalog, &settings.model, false) {
+                if let Some(row) = find_codex_model_row(&catalog, &settings.model) {
                     ProviderAxisInvalid::check_effort(
                         params.agent_id,
                         effort.as_str(),

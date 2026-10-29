@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
-use sidekicks_contracts::provider::driver::capabilities::ProviderModel;
+use sidekicks_contracts::provider::driver::capabilities::{ProviderModel, find_provider_model_row};
 use sidekicks_contracts::provider::driver::length_limits::PROVIDER_FAILURE_DETAIL_MAX_LEN;
 use sidekicks_contracts::provider::driver::methods::PROVIDER_WIRE_TOKEN_MAX_LEN;
 use sidekicks_contracts::provider::id::ProviderId;
@@ -427,6 +427,15 @@ pub(crate) async fn read_codex_service_model_catalog(
         &mut diagnostics,
     )
     .await
+}
+
+/// `model`'s row in a Codex catalog, `None` for a model it does not list. `model/list` lists each
+/// model once, on its default row, and its effort levels and tiers hold on either window.
+pub(crate) fn find_codex_model_row<'catalog>(
+    catalog: &'catalog [ProviderModel],
+    model: &str,
+) -> Option<&'catalog ProviderModel> {
+    find_provider_model_row(catalog, model, false)
 }
 
 #[cfg(test)]
