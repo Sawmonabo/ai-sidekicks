@@ -59,6 +59,7 @@ use crate::driver::contract::{DriverError, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
 use crate::driver::session_control::{
     CreateSessionParams, DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
+    answer_every_run_gone,
 };
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
@@ -335,6 +336,8 @@ impl CodexSessionEstablishment {
             resume_handle: NonEmptyText::new(forked.thread_id.clone())
                 .expect("a forked conversation's id is never empty"),
             spawned_version: to_binding_version_carriers(&version),
+            // The fork's copy of a turn reads interrupted, so the fork runs none of the runs'.
+            runs: answer_every_run_gone(&params.live_runs),
         };
         let (inbound, receiver) = codex_session_inbound(params.session_id);
         let record = CodexSessionRecord::new(CodexEstablishedConversation {
@@ -684,6 +687,8 @@ async fn prepare_adoption(
         resume_handle: NonEmptyText::new(record.thread_id.clone())
             .expect("a resumed conversation's id is never empty"),
         spawned_version: to_binding_version_carriers(&version),
+        // A resume in place is handed no runs to answer for: it resumes from the session's record.
+        runs: Vec::new(),
     })
 }
 

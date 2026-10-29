@@ -72,5 +72,6 @@ fn resume_params(session_id: SessionId) -> ResumeSessionParams {
         provider_account_id: test_provider_account_id(),
         on_mcp_server_status: None,
         kept_schedules: Vec::new(),
+        live_runs: Vec::new(),
     }
 }

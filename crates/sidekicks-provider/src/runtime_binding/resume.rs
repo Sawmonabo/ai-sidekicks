@@ -14,7 +14,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 
 use crate::driver::idle_sleep::KeptSchedule;
 use crate::driver::mcp_server_status::McpServerStatusProducer;
-use crate::driver::session_control::ResumeSessionParams;
+use crate::driver::session_control::{LiveRunResume, ResumeSessionParams};
 use crate::runtime_binding::store::RuntimeBinding;
 
 /// The function legs a resume injects fresh, apart from the stored legs, so leaving out the
@@ -40,8 +40,8 @@ pub struct RuntimeBindingNotResumable {
 
 /// Rebuilds a resumed leg's params from its stored binding, with the provider's recovery data on
 /// it, and the session's lead, model, recorded larger window, mode, permission level's posture,
-/// option values, row values and kept schedules, as they stand now, the resumed process to run
-/// under `binding_id`. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume
+/// option values, row values, kept schedules and live runs, as they stand now, the resumed process
+/// to run under `binding_id`. Fails with [`RuntimeBindingNotResumable`] when the binding has no resume
 /// handle.
 #[expect(
     clippy::too_many_arguments,
@@ -60,6 +60,7 @@ pub fn compose_resume_session_params(
     row_values: ProviderRowValues,
     function_legs: ResumeFunctionLegs,
     kept_schedules: Vec<KeptSchedule>,
+    live_runs: Vec<LiveRunResume>,
 ) -> Result<ResumeSessionParams, RuntimeBindingNotResumable> {
     let Some(resume_handle) = binding.resume_handle.clone() else {
         return Err(RuntimeBindingNotResumable {
@@ -90,5 +91,6 @@ pub fn compose_resume_session_params(
         provider_account_id: spawn_config.provider_account_id,
         on_mcp_server_status: function_legs.on_mcp_server_status,
         kept_schedules,
+        live_runs,
     })
 }

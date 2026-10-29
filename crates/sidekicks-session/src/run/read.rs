@@ -1,9 +1,11 @@
 //! Reads a run's current state and version from its `runs` row; the runs not yet ended across
-//! every session or in one, and those of one session with the agent each runs for; the ended runs
+//! every session or in one, those of one session with the agent each runs for, and those of one
+//! session as a resume names them to the provider, with their open turns; the ended runs
 //! that hold a turn with no end, across every session or in one; the provider subagents beneath
 //! one run that are live or hold a turn with no end; and the provider a run runs on, from its
 //! runtime binding or the binding of the parent whose provider process it runs in.
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params};
@@ -15,9 +17,12 @@ use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::run::queued::ChildRunProvenance;
 use sidekicks_contracts::run::state::RunState;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_provider::driver::session_control::{LiveRunResume, OpenTurnResume};
 use sidekicks_provider::runtime_binding::store::StoredBindingIdInvalid;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
@@ -125,6 +130,51 @@ static SELECT_LIVE_RUNS_SQL: LazyLock<SessionScopedSql> = LazyLock::new(|| {
     })
 });
 
+// A session's live runs in the order they were written, each with the provider's id of the helper
+// it is, from the newest helper start naming it as the helper's own run.
+static SELECT_LIVE_RUN_SUBAGENTS_SQL: LazyLock<String> = LazyLock::new(|| {
+    let started = SessionEventType::AgentSubagentStarted;
+    format!(
+        "SELECT runs.run_id,
+    (SELECT json_extract(started.payload, '$.subagentId')
+       FROM session_events AS started
+      WHERE started.session_id = runs.session_id
+        AND started.category = '{started_category}'
+        AND started.type = '{started}'
+        AND json_extract(started.payload, '$.childRunId') = runs.run_id
+      ORDER BY started.sequence DESC
+      LIMIT 1) AS subagent_id
+  FROM runs
+  WHERE runs.session_id = @session_id
+    AND runs.state NOT IN ({terminal_states})
+  ORDER BY runs.rowid",
+        started = started.as_str(),
+        started_category = started.category().as_str(),
+        terminal_states = *RUN_TERMINAL_STATES_SQL,
+    )
+});
+
+// Every started turn with no end of a session's live runs, under the provider's own turn id where
+// its start names one, in turn order within each run.
+static SELECT_LIVE_RUN_OPEN_TURNS_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "SELECT started.run_id, started.turn_number,
+    json_extract(started.payload, '$.providerTurnId')
+  FROM runs JOIN session_events AS started ON started.run_id = runs.run_id
+  WHERE runs.session_id = @session_id
+    AND runs.state NOT IN ({terminal_states})
+    AND started.session_id = @session_id
+    AND started.category = '{category}'
+    AND started.type = '{started}'
+    AND {no_end}
+  ORDER BY started.run_id, started.turn_number",
+        terminal_states = *RUN_TERMINAL_STATES_SQL,
+        category = EventCategory::RunLifecycle.as_str(),
+        started = SessionEventType::AgentTurnStarted.as_str(),
+        no_end = turn_holds_no_end_sql(),
+    )
+});
+
 // A run's agent is on its `agent.run.queued` row, by id or inside the agent it brought in. Its
 // newest touch is its newest readable `runLifecycle` event. Both read the run-and-type index on the
 // event log; the unary `+` drops the run id column's affinity, which would keep the index from
@@ -229,6 +279,53 @@ impl<'connection> RunStateReader<'connection> {
                 reached_by: optional_text_column(row, 5, closed_word)?,
             })
         })
+    }
+
+    /// Every run of `session_id` that has not ended, queued runs included, in the order they were
+    /// written, as a resume names them to the provider: each with its turns started with no end,
+    /// under the provider's own turn ids, and the provider's id of the helper it is.
+    pub fn list_live_run_resumes(
+        &self,
+        session_id: &SessionId,
+    ) -> rusqlite::Result<Vec<LiveRunResume>> {
+        let session_text = session_id.text();
+        let session = named_params! { "@session_id": session_text.as_str() };
+        let mut runs = self
+            .reader
+            .prepare_cached(&SELECT_LIVE_RUN_SUBAGENTS_SQL)?
+            .query_map(session, |row| {
+                Ok(LiveRunResume {
+                    run_id: text_column(row, 0, |text| RunId::new(&text))?,
+                    open_turns: Vec::new(),
+                    subagent_id: optional_text_column(row, 1, SubagentId::new)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let place_of: HashMap<RunId, usize> = runs
+            .iter()
+            .enumerate()
+            .map(|(place, run)| (run.run_id, place))
+            .collect();
+        let mut statement = self
+            .reader
+            .prepare_cached(&SELECT_LIVE_RUN_OPEN_TURNS_SQL)?;
+        let open_turns = statement.query_map(session, |row| {
+            Ok((
+                text_column(row, 0, |text| RunId::new(&text))?,
+                OpenTurnResume {
+                    turn_number: safe_int_column(row, 1)?,
+                    provider_turn_id: optional_text_column(row, 2, ProviderTurnId::new)?,
+                },
+            ))
+        })?;
+        for open_turn in open_turns {
+            let (run_id, turn) = open_turn?;
+            // A turn of a run that went live after the first statement read the runs is left out.
+            if let Some(place) = place_of.get(&run_id) {
+                runs[*place].open_turns.push(turn);
+            }
+        }
+        Ok(runs)
     }
 
     /// Every run of `session_id`, or of every session when it is `None`, that has ended while a

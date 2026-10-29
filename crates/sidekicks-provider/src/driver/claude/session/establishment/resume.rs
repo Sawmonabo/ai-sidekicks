@@ -29,7 +29,9 @@ use crate::driver::claude::session::ultracode::requested_claude_ultracode;
 use crate::driver::claude::spawn::arguments::ClaudeConversationStart;
 use crate::driver::contract::{SpawnedVersionBindingCarriers, bound_failure_detail};
 use crate::driver::error_causes::UNSPECIFIED_PROVIDER_FAILURE_DETAIL;
-use crate::driver::session_control::{DriverResumeResult, ResumeSessionParams};
+use crate::driver::session_control::{
+    DriverResumeResult, ResumeSessionParams, ResumedRunAnswer, answer_every_run_gone,
+};
 
 impl ClaudeSessionEstablishment {
     /// Resumes the conversation `params` names in a fresh process under the binding the caller
@@ -63,6 +65,8 @@ impl ClaudeSessionEstablishment {
     ) -> Result<ClaudeResumeAnswer, ClaudeEstablishmentError> {
         let session_id = params.session_id;
         let binding_id = params.binding_id.clone();
+        // A resumed Claude Code process runs no turn.
+        let runs = answer_every_run_gone(&params.live_runs);
         if params.larger_window.is_some() {
             return Err(claude_session_unavailable(
                 ClaudeSessionUnavailableReason::LargerWindowFigureUnsupported,
@@ -85,7 +89,7 @@ impl ClaudeSessionEstablishment {
                 }
                 ClaudeResumeSlot::CameUp(live) if runs_as_asked(&live, &params) => {
                     return Ok(ClaudeResumeAnswer {
-                        result: answer_came_up(&live, binding_id).await?,
+                        result: answer_came_up(&live, binding_id, runs).await?,
                         has_started_process: false,
                     });
                 }
@@ -145,7 +149,7 @@ impl ClaudeSessionEstablishment {
             })
             .await?;
         Ok(ClaudeResumeAnswer {
-            result: resumed(binding_id, session_position, resume_handle, started),
+            result: resumed(binding_id, session_position, resume_handle, started, runs),
             has_started_process: true,
         })
     }
@@ -195,10 +199,11 @@ fn runs_as_asked(live: &LiveClaudeSession, params: &ResumeSessionParams) -> bool
 }
 
 // The `Resumed` arm for the live process running the conversation asked for, on the binding its
-// resume answered; a create's process has none, so it is answered on `binding_id`.
+// resume answered, with `runs`; a create's process has none, so it is answered on `binding_id`.
 async fn answer_came_up(
     live: &LiveClaudeSession,
     binding_id: RuntimeBindingId,
+    runs: Vec<ResumedRunAnswer>,
 ) -> Result<DriverResumeResult, ClaudeEstablishmentError> {
     let resume_handle = live.provider_session_id.clone();
     let session_position =
@@ -213,15 +218,18 @@ async fn answer_came_up(
         session_position,
         resume_handle,
         live.spawned_version.clone(),
+        runs,
     ))
 }
 
-// The `Resumed` arm for a process running conversation `resume_handle`, on `binding_id`.
+// The `Resumed` arm for a process running conversation `resume_handle`, on `binding_id`, with
+// what it holds of each run the resume named.
 fn resumed(
     binding_id: RuntimeBindingId,
     session_position: SafeInt<0>,
     resume_handle: String,
     spawned_version: SpawnedVersionBindingCarriers,
+    runs: Vec<ResumedRunAnswer>,
 ) -> DriverResumeResult {
     DriverResumeResult::Resumed {
         binding_id,
@@ -229,6 +237,7 @@ fn resumed(
         resume_handle: NonEmptyText::new(resume_handle)
             .expect("a resumed conversation's id is never empty"),
         spawned_version,
+        runs,
     }
 }
 

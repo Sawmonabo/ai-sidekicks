@@ -27,7 +27,7 @@ use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::driver::contract::{DriverError, MockProviderDriver, SessionProcessState};
 use sidekicks_provider::driver::session_control::{
-    DriverResumeResult, ProviderSessionHandle, ResumeSessionParams,
+    DriverResumeResult, ProviderSessionHandle, ResumeSessionParams, answer_every_run_gone,
 };
 use sidekicks_provider::driver::test_registry::{new_run_id, registry_of_first_provider};
 use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
@@ -196,6 +196,7 @@ impl Opening {
                     .load(Ordering::SeqCst)
                     .then(|| params.binding_id.clone());
                 let store = Arc::clone(&store);
+                let runs = answer_every_run_gone(&params.live_runs);
                 async move {
                     if let Some(taken) = taken {
                         take_row(&store, taken, earlier_run_id).await;
@@ -206,6 +207,7 @@ impl Opening {
                         resume_handle: NonEmptyText::new("conversation-1".to_owned())
                             .expect("a resume handle"),
                         spawned_version: spawned_build("1.0.1", "/opt/provider/bin"),
+                        runs,
                     })
                 }
                 .boxed()

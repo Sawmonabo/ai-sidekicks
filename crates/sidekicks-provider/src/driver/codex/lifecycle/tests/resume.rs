@@ -73,6 +73,7 @@ fn resume_params(session_id: SessionId, binding: &RuntimeBinding) -> ResumeSessi
         ProviderRowValues::default(),
         ResumeFunctionLegs::default(),
         Vec::new(),
+        Vec::new(),
     )
     .expect("the binding resumes")
 }

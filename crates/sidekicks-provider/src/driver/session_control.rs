@@ -28,10 +28,12 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::provider::driver::runtime_binding::RuntimeBindingId;
 use sidekicks_contracts::provider::driver::tools::SessionCallbackTool;
 use sidekicks_contracts::run::id::RunId;
+use sidekicks_contracts::run::subagent::SubagentId;
 use sidekicks_contracts::session::controls::methods::{
     PermissionLevel, SessionMode, SideQuestionId,
 };
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::turn::ProviderTurnId;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
 use sidekicks_ipc::domain_error::DomainError;
@@ -150,6 +152,63 @@ pub struct ResumeSessionParams {
     /// The timed fires the idle sleep stored for the session, its wake-ups and session-only
     /// scheduled jobs, which a fresh process does not keep; the resumed process takes them back.
     pub kept_schedules: Vec<KeptSchedule>,
+    /// Every run of the session not yet ended, lead and children alike, which the driver answers
+    /// for in [`DriverResumeResult::Resumed`]'s `runs`.
+    pub live_runs: Vec<LiveRunResume>,
+}
+
+/// A run of a resumed session not yet ended, as its log names it to the provider: its open turns
+/// and, for a provider's helper, the helper's own id.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LiveRunResume {
+    /// The run.
+    pub run_id: RunId,
+    /// Its turns started with no end, in turn order.
+    pub open_turns: Vec<OpenTurnResume>,
+    /// The provider's own id of the helper the run is, as its `agent.subagent.started` recorded
+    /// it; `None` for a lead or any run no helper's start names.
+    pub subagent_id: Option<SubagentId>,
+}
+
+/// A turn of a live run started with no end.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenTurnResume {
+    /// The turn's number within its run.
+    pub turn_number: SafeInt<1>,
+    /// The provider's own id of the turn as its `agent.turn.started` recorded it; `None` where
+    /// the provider reported none.
+    pub provider_turn_id: Option<ProviderTurnId>,
+}
+
+/// What the provider holds of one run's turn after a resume.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProviderTurnAnswer {
+    /// The turn still runs in the provider's process, which delivers the rest of it.
+    StillRunning,
+    /// The provider ended the turn; its own end frame arrives through the ordinary dispatch.
+    EndedByProvider,
+    /// The provider holds no turn of the run.
+    Gone,
+}
+
+/// The provider's answer for one run a resume named.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResumedRunAnswer {
+    /// The run.
+    pub run_id: RunId,
+    /// What the provider holds of its turn.
+    pub turn: ProviderTurnAnswer,
+}
+
+/// The answer of a resume whose provider runs no turn of any of `live_runs`: every one gone.
+pub fn answer_every_run_gone(live_runs: &[LiveRunResume]) -> Vec<ResumedRunAnswer> {
+    live_runs
+        .iter()
+        .map(|run| ResumedRunAnswer {
+            run_id: run.run_id,
+            turn: ProviderTurnAnswer::Gone,
+        })
+        .collect()
 }
 
 /// Asks a driver to close one session.
@@ -418,6 +477,8 @@ pub enum DriverResumeResult {
         /// The relaunched build's version and path, from the one reading its spawn took; a
         /// relaunch resolves the command again, so the predecessor's build may not be this one.
         spawned_version: SpawnedVersionBindingCarriers,
+        /// What the provider holds of each run the resume's `live_runs` named.
+        runs: Vec<ResumedRunAnswer>,
     },
     /// The resume failed.
     Failed {
