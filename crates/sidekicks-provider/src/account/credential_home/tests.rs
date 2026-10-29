@@ -17,6 +17,7 @@ use super::{
     CredentialHomeCondition, classify_credential_home, create_credential_home,
     reset_credential_home,
 };
+use crate::account::home_lock::AccountHomeLock;
 use crate::account::registry::{
     AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
     ProviderAccountRegistry,
@@ -94,6 +95,7 @@ async fn a_reset_leaves_a_husked_home_that_reads_signed_out_and_keeps_its_folder
 
     let generation = reset_credential_home(
         &registry,
+        &AccountHomeLock::default(),
         &legs,
         account.account_id.clone(),
         folders.clone(),
