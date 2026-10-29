@@ -6,8 +6,8 @@ use std::sync::LazyLock;
 
 use rusqlite::types::Value;
 use sidekicks_contracts::attention::AttentionSeenSubject;
-use sidekicks_ipc::session_not_found::session_not_found;
-use sidekicks_ipc::workflow_run_not_found::workflow_run_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
+use sidekicks_ipc::not_found::workflow_run::workflow_run_not_found;
 use sidekicks_store::database::statement::WriteStatement;
 use sidekicks_store::database::writer::DatabaseWriter;
 

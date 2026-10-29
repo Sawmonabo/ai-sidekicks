@@ -14,10 +14,10 @@ use sidekicks_contracts::provider::driver::recovery::RecoveryCondition;
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::session::methods::{SessionRestart, SessionTargetRequest};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::{
     HandlerContext, HandlerError, MethodRegistryBuilder, RegistrationError,
 };
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_queue::provider_session::{ProviderSessionError, ProviderSessions};
 
 /// Registers `session.restart` over `provider_sessions`, which run each restart under the

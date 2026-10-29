@@ -31,7 +31,7 @@ use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_ipc::session_not_found::session_not_found;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_provider::driver::ProviderAccountReader;
 use sidekicks_provider::driver::ports::ProcessGoneListener;
 use sidekicks_provider::driver::registry::ProviderRegistry;

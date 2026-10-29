@@ -46,8 +46,8 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::count_bound;
 use sidekicks_contracts::wire::{False, True};
 use sidekicks_ipc::domain_error::DomainError;
+use sidekicks_ipc::not_found::session::session_not_found;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_ipc::session_not_found::session_not_found;
 use sidekicks_store::database::connection::read_pool::DatabaseReadError;
 use sidekicks_store::events::session::read::{
     SessionEventReads, SessionLogReadError, resolve_event_cursor,
