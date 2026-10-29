@@ -18,11 +18,10 @@ use sidekicks_contracts::wire::BoolLiteral;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
 use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
-use sidekicks_platforms::{RUNS_COMMAND_WRAPPER, Spawner};
+use sidekicks_platforms::RUNS_COMMAND_WRAPPER;
 use sidekicks_std::mutex_lock::lock;
+use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::process::test_repository::make_test_repository;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner};
-use tokio::runtime::Handle;
 
 use super::{resume_params, start_params};
 use crate::command::running_set::unbound_running_command_sets;
@@ -192,12 +191,7 @@ async fn a_queued_review_runs_claude_codes_review_as_the_queues_run(
 #[tokio::test]
 async fn a_staged_reviews_process_runs_in_its_levels_own_mode() {
     let fixture = ScriptedDriver::new();
-    let git = GitRunner::new(
-        Spawner::new(Handle::current()).expect("the spawner thread starts"),
-        None,
-        Arc::from([]),
-        GitLimits::DAEMON,
-    );
+    let git = test_git_runner();
     // The review's worktree is made from the session's working folder, so it is a repository.
     make_test_repository(&git, fixture.folder.path(), "work").await;
     fixture

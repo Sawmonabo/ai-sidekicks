@@ -21,13 +21,11 @@ use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::{PermissionLevel, SessionMode};
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::mint_uuid_v7;
-use sidekicks_platforms::Spawner;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::writer::test_file::TestDatabase;
-use sidekicks_workspace::git::process::{GitLimits, GitRunner};
+use sidekicks_workspace::git::process::test_git_runner;
 use sidekicks_workspace::git::worktree::staged_changes::StagedChangesWorktrees;
 use tempfile::TempDir;
-use tokio::runtime::Handle;
 use tokio::sync::SetOnce;
 
 use self::channel::ScriptedChannel;
@@ -73,10 +71,9 @@ use crate::runtime_binding::test_store::{spawned_build, test_provider_account_id
 
 /// Staged-change worktrees under a scratch folder of their own, on a spawner of their own.
 fn scripted_staged_changes() -> StagedChangesWorktrees {
-    let spawner = Spawner::new(Handle::current()).expect("the spawner thread starts");
     StagedChangesWorktrees::new(
         &std::env::temp_dir().join("sidekicks-scripted-worktrees"),
-        GitRunner::new(spawner, None, Arc::from([]), GitLimits::DAEMON),
+        test_git_runner(),
     )
 }
 
