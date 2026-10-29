@@ -90,6 +90,9 @@ CREATE TABLE provider_accounts (
   -- window_start_enabled is 0.
   wake_for_window_start_enabled INTEGER NOT NULL DEFAULT 0
                             CHECK(wake_for_window_start_enabled IN (0, 1)),
+  -- When the daemon last spent a turn that starts the account's closed windows; NULL before the
+  -- first. A window whose reset came before it was started by it, so a restart sends no second.
+  window_start_sent_at      TEXT,
   -- The one memory import: NULL until it runs, then imported with its count and time, or nothing
   -- to import with neither.
   memory_import_outcome     TEXT

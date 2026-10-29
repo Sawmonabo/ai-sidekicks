@@ -5,6 +5,7 @@
 use futures::future::BoxFuture;
 use futures::stream::BoxStream;
 use secrecy::SecretString;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
 use sidekicks_contracts::provider::account::record::{ProviderAccountId, ProviderAuthMode};
 use sidekicks_contracts::provider::account::sign_in::{
     PROVIDER_SIGN_IN_CODE_MAX_LEN, PROVIDER_SIGN_IN_USER_CODE_MAX_LEN,
@@ -12,6 +13,7 @@ use sidekicks_contracts::provider::account::sign_in::{
 };
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
+use sidekicks_contracts::wire::integer::SafeInt;
 use sidekicks_contracts::wire::text::FreeFormText;
 
 use crate::account::credential_home::CredentialHome;
@@ -181,4 +183,68 @@ pub trait ProviderObserveLegs: Send + Sync {
     /// Whether a turn's end on an account is followed by a read of it, since the provider's turns
     /// bring no full reading of their own.
     fn reads_at_turn_end(&self) -> bool;
+}
+
+/// What one smallest turn in an account's home spent, as the provider reported it: the model and
+/// the turn's own token counts, each absent where the provider reported none, never zero.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WindowTurnSpend {
+    /// The model the turn ran on, as the provider names it.
+    pub model_id: Option<FreeFormText<EVENT_FIELD_MAX_LEN>>,
+    /// The input tokens, with the cache's read and written tokens taken out.
+    pub input_tokens: Option<SafeInt<0>>,
+    /// The output tokens.
+    pub output_tokens: Option<SafeInt<0>>,
+    /// The input tokens read from the provider's cache.
+    pub cache_read_tokens: Option<SafeInt<0>>,
+    /// The input tokens written to the provider's cache.
+    pub cache_write_tokens: Option<SafeInt<0>>,
+    /// The reasoning tokens.
+    pub reasoning_tokens: Option<SafeInt<0>>,
+}
+
+/// What a window-start turn answered: the turn ran and spent, or the provider refused it before
+/// any spend.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum WindowTurnAnswer {
+    /// The turn ran, and this is what it spent.
+    Spent(WindowTurnSpend),
+    /// The provider refused the turn, which spent nothing.
+    Refused,
+}
+
+/// What a pasted token's limits read by a turn answered: the reading its turn carried, as the
+/// account plane stores it, and what the turn spent, `None` where it ran no turn.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TokenLimitsReading {
+    /// What the turn's answer said of the account's limits and sign-in.
+    pub observation: ProviderObservation,
+    /// What the turn spent.
+    pub spend: Option<WindowTurnSpend>,
+}
+
+/// A provider's smallest turns in an account's home, each in a throwaway process holding no
+/// session: the one that starts the account's closed usage windows, and the one that reads a
+/// pasted token's limits, which the token's own scope cannot read.
+pub trait ProviderWindowTurnLegs: Send + Sync {
+    /// Sends one short message to the provider's smallest model on `provider_account_id`'s
+    /// account, run in `folders` and no other home, and answers what the turn spent or the
+    /// provider's refusal. Has no bound of its own, the caller bounds it. Fails with the driver's
+    /// error when the turn could not start or no answer came.
+    fn start_window(
+        &self,
+        provider_account_id: ProviderAccountId,
+        folders: ProviderAccountFolders,
+    ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>>;
+
+    /// Reads the limits of `provider_account_id`'s pasted `token` by one such turn, run in
+    /// `folders` with the token handed to that one child on the provider's documented channel.
+    /// Has no bound of its own, the caller bounds it. Fails with the driver's error when the turn
+    /// could not start or no answer came.
+    fn read_token_limits<'call>(
+        &'call self,
+        provider_account_id: &'call ProviderAccountId,
+        folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<TokenLimitsReading, DriverError>>;
 }
