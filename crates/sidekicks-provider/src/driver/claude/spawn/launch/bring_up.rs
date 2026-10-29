@@ -15,6 +15,7 @@ use sidekicks_policy::ask_rule::ProviderAskRule;
 
 use crate::driver::claude::DESCRIPTOR;
 use crate::driver::claude::hooks::registration::compose_claude_initialize_request;
+use crate::driver::claude::mcp::organization::has_readable_managed_mcp_file;
 use crate::driver::claude::session::answered_commands::{
     ClaudeAttachedAdvisor, read_claude_attached_advisor,
 };
@@ -44,10 +45,6 @@ use crate::driver::session_control::SubagentPolicy;
 use crate::port::in_process_tool_servers::InProcessToolServers;
 use crate::spawned_version::ResolvedProviderExecutable;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
-
-/// The administrator's MCP file, whose presence makes Claude Code exit at startup when it is told
-/// to load only the servers it is given.
-const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
 
 /// What every process of one session is spawned from.
 pub(crate) struct ClaudeSessionSpawn<'a> {
@@ -133,7 +130,8 @@ pub(crate) async fn bring_up_claude_process(
         legs.output_style.as_deref(),
         legs.command_channel.as_deref(),
     )?;
-    let has_managed_mcp_file = has_readable_managed_mcp_file().await;
+    let has_managed_mcp_file =
+        has_readable_managed_mcp_file(DESCRIPTOR.managed_settings_folder().as_deref()).await;
     // A fork's predecessor keeps running on the session's channel until the fork is adopted, which
     // binds the channel then, so a fork that fails leaves it on the predecessor's process.
     let binds_command_channel =
@@ -237,18 +235,6 @@ fn read_settings_readback(reply: Option<&RawValue>) -> ClaudeSettingsReadback {
         attached_advisor: read_claude_attached_advisor(&reply),
         ultracode: read_claude_ultracode(&reply),
     }
-}
-
-// Whether Claude Code can read an administrator's MCP file in its managed folder. Only its
-// presence is checked, never its contents: a parse that disagreed with Claude Code's own would
-// fail toward the startup exit.
-async fn has_readable_managed_mcp_file() -> bool {
-    let Some(folder) = DESCRIPTOR.managed_settings_folder() else {
-        return false;
-    };
-    tokio::fs::File::open(folder.join(CLAUDE_MANAGED_MCP_FILE))
-        .await
-        .is_ok()
 }
 
 #[cfg(test)]

@@ -58,6 +58,7 @@ use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::run::self_started_turns::ClaudeSelfStartedTurns;
 use crate::driver::claude::run::settlement::ClaudeTurnSettlement;
 use crate::driver::claude::run::start::ClaudeRunStart;
+use crate::driver::claude::session::account_servers::ClaudeAccountServerReads;
 use crate::driver::claude::session::arrivals::task::ClaudeSessionTaskServices;
 use crate::driver::claude::session::context_reading::ClaudeContextReadings;
 use crate::driver::claude::session::controls::{ClaudeCommandListReader, ClaudeSessionControls};
@@ -88,6 +89,7 @@ use crate::spawn_environment::SessionEnvironment;
 pub(crate) struct ClaudeDriver {
     starts: Arc<dyn ClaudeProcessStarts>,
     figures: Arc<ClaudeHeldFigures>,
+    account_servers: Arc<ClaudeAccountServerReads>,
     /// The daemon's services every session's process is started from.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
     attachments: Arc<dyn AttachmentResolver>,
@@ -142,35 +144,40 @@ impl ClaudeDriver {
         starts: Arc<dyn ClaudeProcessStarts>,
     ) -> Self {
         let link_folder = program_link_folder(&services.data_folder);
+        let sources = Arc::new(ClaudeSpawnSources {
+            spawner: services.spawner.clone(),
+            runtime_bindings: Arc::clone(&services.runtime_bindings),
+            pool: Arc::clone(&services.pool),
+            execution_postures: Arc::clone(&services.execution_postures),
+            base_environment: Arc::clone(&services.base_environment),
+            reserved_names: Arc::clone(&services.reserved_names),
+            background_work: Arc::clone(&services.background_work),
+            data_folder: services.data_folder.clone(),
+            home_folder: services.home_folder.clone(),
+            processes: Arc::clone(&services.processes),
+            command_channels: Arc::new(ClaudeCommandChannels::new(
+                &services.data_folder,
+                ClaudeCommandPrograms {
+                    wrapper_program: command_wrapper_program_path(&link_folder),
+                    askpass_program: command_askpass_program_path(&link_folder),
+                },
+                Arc::clone(&services.caller_processes),
+                Arc::clone(&services.input_waits),
+                Arc::clone(&services.ports.command_output),
+            )),
+            ports: Arc::clone(&services.ports),
+        });
         Self {
             figures: Arc::new(ClaudeHeldFigures::new(
                 Arc::clone(&starts),
                 PathRules::NATIVE,
             )),
+            account_servers: Arc::new(ClaudeAccountServerReads::new(
+                Arc::clone(&starts),
+                Arc::clone(&sources),
+            )),
             starts,
-            sources: Arc::new(ClaudeSpawnSources {
-                spawner: services.spawner.clone(),
-                runtime_bindings: Arc::clone(&services.runtime_bindings),
-                pool: Arc::clone(&services.pool),
-                execution_postures: Arc::clone(&services.execution_postures),
-                base_environment: Arc::clone(&services.base_environment),
-                reserved_names: Arc::clone(&services.reserved_names),
-                background_work: Arc::clone(&services.background_work),
-                data_folder: services.data_folder.clone(),
-                home_folder: services.home_folder.clone(),
-                processes: Arc::clone(&services.processes),
-                command_channels: Arc::new(ClaudeCommandChannels::new(
-                    &services.data_folder,
-                    ClaudeCommandPrograms {
-                        wrapper_program: command_wrapper_program_path(&link_folder),
-                        askpass_program: command_askpass_program_path(&link_folder),
-                    },
-                    Arc::clone(&services.caller_processes),
-                    Arc::clone(&services.input_waits),
-                    Arc::clone(&services.ports.command_output),
-                )),
-                ports: Arc::clone(&services.ports),
-            }),
+            sources,
             attachments: Arc::clone(&services.attachments),
             staged_changes: services.staged_changes.clone(),
             pending_compactions: services.pending_compactions.clone(),
@@ -236,73 +243,6 @@ impl ClaudeDriver {
     async fn read_repository(&self, working_folder: &Path) -> Option<(RepositoryReading, bool)> {
         let repositories = self.sources.ports.repositories.port()?;
         read_claude_repository(&**repositories, working_folder).await
-    }
-
-    /// The environment a process starts with on `home`, with a session's environment rows where
-    /// given. Fails as the environment cannot be composed.
-    fn process_environment(
-        &self,
-        home: ClaudeProcessHome<'_>,
-        every_project_rows: &[EnvironmentRow],
-        project_rows: &[EnvironmentRow],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let sources = &self.sources;
-        let data_folder = sources.data_folder.to_string_lossy();
-        compose_claude_process_environment(
-            ClaudeProcessEnvironmentRequest {
-                session: SessionEnvironment {
-                    base: &sources.base_environment,
-                    every_project_rows,
-                    project_rows,
-                    reserved_names: &sources.reserved_names,
-                    rules: PathRules::NATIVE,
-                },
-                deny_env_vars: &[],
-                home,
-                data_folder: &data_folder,
-            },
-            &[],
-        )
-        .map_err(internal)
-    }
-
-    /// The environment a process on `provider_account_id`'s home starts with, its folders as
-    /// `folders` give them. Fails as the environment cannot be composed.
-    fn account_process_environment(
-        &self,
-        folders: &ProviderAccountFolders,
-        provider_account_id: &ProviderAccountId,
-        every_project_rows: &[EnvironmentRow],
-        project_rows: &[EnvironmentRow],
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = ClaudeAccountFolders::from(folders);
-        self.process_environment(
-            ClaudeProcessHome::Account {
-                folders: &folders,
-                provider_account_id,
-            },
-            every_project_rows,
-            project_rows,
-        )
-    }
-
-    /// The environment a process that keeps nothing starts with on `provider_account_id`'s home,
-    /// its folders read with no session. Fails `provider.account.notFound` or
-    /// `provider.account.credentialHome.unavailable` as the account's folders answer, and as they
-    /// cannot be read or the environment cannot be composed.
-    async fn account_environment(
-        &self,
-        provider_account_id: &ProviderAccountId,
-    ) -> Result<Vec<(String, String)>, DriverError> {
-        let folders = self
-            .sources
-            .ports
-            .provider_accounts
-            .require_port()
-            .map_err(internal)?
-            .resolve_account_folders(provider_account_id.clone())
-            .await?;
-        self.account_process_environment(&folders, provider_account_id, &[], &[])
     }
 
     // Every piece a session shares, wired over `engine` and its `dispatch`.
@@ -494,6 +434,7 @@ impl ClaudeDriver {
                 helpers,
                 task_services,
                 sources: Arc::clone(&self.sources),
+                account_servers: Arc::clone(&self.account_servers),
             }
         });
         let (restarts, run_start, run_controls, interventions, session_controls) =
@@ -509,6 +450,75 @@ impl ClaudeDriver {
             goals,
             reviewer,
         })
+    }
+}
+
+/// The environment every process the driver starts composes from the daemon's services.
+impl ClaudeSpawnSources {
+    /// The environment a process starts with on `home`, with a session's environment rows where
+    /// given. Fails as the environment cannot be composed.
+    pub(crate) fn process_environment(
+        &self,
+        home: ClaudeProcessHome<'_>,
+        every_project_rows: &[EnvironmentRow],
+        project_rows: &[EnvironmentRow],
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        let sources = self;
+        let data_folder = sources.data_folder.to_string_lossy();
+        compose_claude_process_environment(
+            ClaudeProcessEnvironmentRequest {
+                session: SessionEnvironment {
+                    base: &sources.base_environment,
+                    every_project_rows,
+                    project_rows,
+                    reserved_names: &sources.reserved_names,
+                    rules: PathRules::NATIVE,
+                },
+                deny_env_vars: &[],
+                home,
+                data_folder: &data_folder,
+            },
+            &[],
+        )
+        .map_err(internal)
+    }
+
+    /// The environment a process on `provider_account_id`'s home starts with, its folders as
+    /// `folders` give them. Fails as the environment cannot be composed.
+    pub(crate) fn account_process_environment(
+        &self,
+        folders: &ProviderAccountFolders,
+        provider_account_id: &ProviderAccountId,
+        every_project_rows: &[EnvironmentRow],
+        project_rows: &[EnvironmentRow],
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        let folders = ClaudeAccountFolders::from(folders);
+        self.process_environment(
+            ClaudeProcessHome::Account {
+                folders: &folders,
+                provider_account_id,
+            },
+            every_project_rows,
+            project_rows,
+        )
+    }
+
+    /// The environment a process that keeps nothing starts with on `provider_account_id`'s home,
+    /// its folders read with no session. Fails `provider.account.notFound` or
+    /// `provider.account.credentialHome.unavailable` as the account's folders answer, and as they
+    /// cannot be read or the environment cannot be composed.
+    pub(crate) async fn account_environment(
+        &self,
+        provider_account_id: &ProviderAccountId,
+    ) -> Result<Vec<(String, String)>, DriverError> {
+        let folders = self
+            .ports
+            .provider_accounts
+            .require_port()
+            .map_err(internal)?
+            .resolve_account_folders(provider_account_id.clone())
+            .await?;
+        self.account_process_environment(&folders, provider_account_id, &[], &[])
     }
 }
 

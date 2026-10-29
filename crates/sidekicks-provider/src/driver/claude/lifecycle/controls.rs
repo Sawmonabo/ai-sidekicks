@@ -102,6 +102,7 @@ impl ClaudeDriver {
         params: StartingLevelParams,
     ) -> Result<StartingLevel, DriverError> {
         let environment = self
+            .sources
             .account_environment(&params.provider_account_id)
             .await?;
         let (catalog, can_run_sandbox, repository) = tokio::join!(
@@ -281,7 +282,7 @@ impl ClaudeDriver {
                 (None, Some(ended)) => ended.spawn_environment,
                 (None, None) => {
                     let account = self.resting_account(params.session_id).await?;
-                    self.account_environment(&account).await?
+                    self.sources.account_environment(&account).await?
                 }
             };
             let config_folder = account_config_folder(&spawn_environment);
@@ -343,14 +344,18 @@ impl ClaudeDriver {
                     .resolve_spawn_context(session_id, provider_account_id.clone())
                     .await
                     .map_err(DriverError::Internal)?;
-                self.account_process_environment(
+                self.sources.account_process_environment(
                     &context.account_folders,
                     &provider_account_id,
                     &[],
                     &[],
                 )?
             }
-            None => self.account_environment(&provider_account_id).await?,
+            None => {
+                self.sources
+                    .account_environment(&provider_account_id)
+                    .await?
+            }
         };
         let reading = self.starts.read_model_catalog(environment.clone()).await?;
         resolve_claude_model_catalog(reading, &self.figures.current(), &environment)
@@ -361,8 +366,11 @@ impl ClaudeDriver {
         // The check only finds the sandbox's programs and starts no Claude Code, so the folder it
         // names is never made.
         let folder = self.capability_read_folder();
-        let environment =
-            self.process_environment(ClaudeProcessHome::Throwaway { folder: &folder }, &[], &[])?;
+        let environment = self.sources.process_environment(
+            ClaudeProcessHome::Throwaway { folder: &folder },
+            &[],
+            &[],
+        )?;
         let can_run_sandbox = read_claude_sandbox_support(
             &self.sources.spawner,
             &environment,
@@ -387,7 +395,7 @@ impl ClaudeDriver {
             .map_err(internal)?;
         tokio::fs::create_dir_all(&folder).await.map_err(internal)?;
         let read = async {
-            let environment = self.process_environment(
+            let environment = self.sources.process_environment(
                 ClaudeProcessHome::Throwaway { folder: &folder },
                 &[],
                 &[],
@@ -415,7 +423,10 @@ impl ClaudeDriver {
         &self,
         provider_account_id: ProviderAccountId,
     ) -> Result<DriverAuthProbeResult, DriverError> {
-        let environment = self.account_environment(&provider_account_id).await?;
+        let environment = self
+            .sources
+            .account_environment(&provider_account_id)
+            .await?;
         Ok(match self.starts.probe_sign_in(environment).await {
             Ok(detail) => build_auth_probe_result(DriverAuthProbeStatus::Authenticated, &detail),
             Err(error) => {
@@ -447,7 +458,10 @@ impl ClaudeDriver {
             DESCRIPTOR.provider_id(),
         )
         .await?;
-        let environment = self.account_environment(&provider_account_id).await?;
+        let environment = self
+            .sources
+            .account_environment(&provider_account_id)
+            .await?;
         let settings_file = account_config_folder(&environment).join(SETTINGS_FILE_NAME);
         let place = ClaudeSessionFolderReadRequest {
             spawn_environment: environment,

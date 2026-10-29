@@ -64,9 +64,12 @@ pub(crate) enum ClaudeControlRequest {
         thinking_display: ClaudeThinkingDisplay,
     },
     /// Installs the session's tool-server routes, replacing the set.
-    #[expect(
-        dead_code,
-        reason = "setting the session's tool servers at start and after each resume sends it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "setting the session's tool servers at start and after each resume sends it"
+        )
     )]
     McpSetServers {
         /// Each route by its server name.
@@ -346,9 +349,12 @@ pub(crate) struct ClaudeAgentDefinition {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub(crate) enum ClaudeToolServerEntry {
     /// Reached over HTTP at `url`.
-    #[expect(
-        dead_code,
-        reason = "setting the session's tool servers names an HTTP server with it"
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "setting the session's tool servers names an HTTP server with it"
+        )
     )]
     Http {
         /// The route's address.

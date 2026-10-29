@@ -1,6 +1,9 @@
-//! The `mcp_status` answer: each MCP server's name, status, error text, scope and tool names as
-//! a Claude Code process reports them, read with the server's configuration left unread and the
-//! error text's credentials scrubbed.
+//! The `mcp_status` answer: each MCP server's name, status, error text, scope, source,
+//! configuration and tool names as a Claude Code process reports them, the configuration read
+//! down to its transport, its stripped address and its program, and the error text's credentials
+//! scrubbed.
+
+use std::fmt;
 
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Deserializer};
@@ -8,11 +11,12 @@ use serde_json::value::RawValue;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_ipc::redaction::scrub_credentials;
 
+use crate::driver::mcp_server::address::{ServerAddressReading, read_server_address};
 use crate::lenient_json::{Lenient, LenientList, lenient_object, read_lenient};
 
 /// An `mcp_status` answer: one row per MCP server the process holds, under `mcpServers`. Each
 /// member is read leniently, and a row's `config`, which can carry headers, addresses with their
-/// credentials and sign-in settings, is never read.
+/// credentials and sign-in settings, keeps no header and no address whole.
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct ClaudeMcpStatusReply {
     /// The servers' rows; absent from an answer that carries no list.
@@ -32,8 +36,8 @@ impl ClaudeMcpStatusReply {
     }
 }
 
-/// One MCP server's row in an `mcp_status` answer: its name, status, error text, scope and tool
-/// names; every other member, `config` among them, is left unread.
+/// One MCP server's row in an `mcp_status` answer: its name, status, error text, scope, source,
+/// stripped configuration and tool names; every other member is left unread.
 #[derive(Debug, Deserialize)]
 pub(crate) struct ClaudeMcpServerStatusRow {
     /// The server's name as configured.
@@ -48,14 +52,14 @@ pub(crate) struct ClaudeMcpServerStatusRow {
     /// Where the server is configured (`user`, `project`, `local`, `claudeai`, `managed`, …), as
     /// sent.
     #[serde(default, deserialize_with = "read_lenient")]
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the account read of connector and organization servers reads it"
-        )
-    )]
     pub(crate) scope: Option<String>,
+    /// Where the server's definition came from, as sent: `sdk`, `plugin`, or its scope. Claude
+    /// Code keys trust on it rather than on the name; absent from a build that predates it.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) source: Option<String>,
+    /// The server's configuration, its address stripped and folded as it is read.
+    #[serde(default, deserialize_with = "read_lenient")]
+    pub(crate) config: Option<ClaudeMcpServerStatusConfig>,
     /// The server's tools, each by name; sent while it is connected.
     #[serde(default, deserialize_with = "read_lenient")]
     #[cfg_attr(
@@ -82,6 +86,55 @@ pub(crate) struct ClaudeMcpServerTool {
         )
     )]
     pub(crate) name: Option<String>,
+}
+
+/// A row's `config` as read: its transport word, a remote server's address stripped and folded, and
+/// a program's command and arguments. A connector's id and every header are left unread, the
+/// whole address is dropped once folded, and its `Debug` prints the transport alone.
+pub(crate) struct ClaudeMcpServerStatusConfig {
+    /// The `type` as sent (`stdio`, `http`, `sse`, `claudeai-proxy`, …); absent for a program.
+    pub(crate) transport: Option<String>,
+    /// A remote server's address, stripped, with its folded whole form held only in memory.
+    pub(crate) address: Option<ServerAddressReading>,
+    /// A program's command.
+    pub(crate) command: Option<String>,
+    /// A program's arguments.
+    pub(crate) args: Option<Vec<String>>,
+}
+
+impl fmt::Debug for ClaudeMcpServerStatusConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ClaudeMcpServerStatusConfig")
+            .field("transport", &self.transport)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Lenient for ClaudeMcpServerStatusConfig {
+    fn read<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Self>, D::Error> {
+        Ok(
+            ClaudeMcpServerStatusConfigMembers::read(deserializer)?.map(|members| Self {
+                transport: members.transport,
+                address: members.url.as_deref().map(read_server_address),
+                command: members.command,
+                args: members.args.map(|args| args.0),
+            }),
+        )
+    }
+}
+
+// The members of a row's `config` the read takes, the address whole only until it is folded.
+#[derive(Deserialize)]
+struct ClaudeMcpServerStatusConfigMembers {
+    #[serde(rename = "type", default, deserialize_with = "read_lenient")]
+    transport: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    url: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    command: Option<String>,
+    #[serde(default, deserialize_with = "read_lenient")]
+    args: Option<LenientList<String>>,
 }
 
 /// An MCP server's status as an `mcp_status` row sends it.
@@ -128,6 +181,7 @@ fn read_scrubbed_text<'de, D: Deserializer<'de>>(
 lenient_object!(
     ClaudeMcpStatusReply,
     ClaudeMcpServerStatusRow,
+    ClaudeMcpServerStatusConfigMembers,
     ClaudeMcpServerTool,
 );
 
@@ -138,9 +192,10 @@ mod tests {
     use super::{ClaudeMcpServerStatus, ClaudeMcpStatusReply};
 
     // Rows as a cloud worker sends them, `config` holding a header token and an address with
-    // userinfo and a query: only the five members are read, and the error is scrubbed.
+    // userinfo and a query: no credential, connector id or address is kept where `Debug` reaches,
+    // and the error is scrubbed.
     #[test]
-    fn an_mcp_status_row_keeps_no_config_and_scrubs_its_error() {
+    fn an_mcp_status_row_keeps_no_credential_and_scrubs_its_error() {
         let reply = RawValue::from_string(
             serde_json::json!({
                 "mcpServers": [

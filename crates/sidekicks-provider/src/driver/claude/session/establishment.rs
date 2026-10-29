@@ -53,6 +53,7 @@ use crate::driver::claude::inbox::listener::ClaudeSessionInboxes;
 use crate::driver::claude::run::prompts::ClaudeSentPrompts;
 use crate::driver::claude::run::routes::ClaudeRunRoutes;
 use crate::driver::claude::run::start::claude_session_unavailable;
+use crate::driver::claude::session::account_servers::ClaudeAccountServerReads;
 use crate::driver::claude::session::arrivals::task::{
     ClaudeSessionTask, ClaudeSessionTaskServices,
 };
@@ -248,6 +249,8 @@ pub(crate) struct ClaudeSessionEstablishment {
     pub(crate) task_services: Arc<ClaudeSessionTaskServices>,
     /// The daemon's services a spawn reads.
     pub(crate) sources: Arc<ClaudeSpawnSources>,
+    /// Each account's read of its connectors and organization servers.
+    pub(crate) account_servers: Arc<ClaudeAccountServerReads>,
 }
 
 // The callback tools a spawn binds: its own, rolled back should it fail, or a fork's, shared with
@@ -724,6 +727,8 @@ impl ClaudeSessionEstablishment {
             return Err(ClaudeEstablishmentError::Closed);
         }
         self.adopt(&live, stream, band, receiver, &started);
+        self.account_servers
+            .read_at_session_start(&live.admitted_provider_account_id);
         Ok(started.spawned_version)
     }
 

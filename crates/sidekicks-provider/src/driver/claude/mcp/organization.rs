@@ -1,0 +1,209 @@
+//! An organization's MCP servers for Claude Code: whether its administrator's MCP file is on this
+//! computer, and the servers a Claude Code process reports from it and from the managed settings'
+//! `managedMcpServers`, each served with its address's host only. The file's own entries are never
+//! read: the process reports each of them as an `enterprise` row, as Claude Code loads it.
+
+use std::path::Path;
+
+use serde::Deserialize;
+use serde_json::Value;
+use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use url::{Position, Url};
+
+use crate::driver::claude::DESCRIPTOR;
+use crate::driver::claude::mcp::config::{ClaudeMcpEndpoint, ClaudeMcpServer};
+use crate::driver::claude::session::transport::mcp_status::ClaudeMcpServerStatusRow;
+use crate::driver::mcp_server::address::{ServerAddressReading, read_server_address};
+
+/// The administrator's MCP file, whose presence makes Claude Code exit at startup when it is told
+/// to load only the servers it is given.
+const CLAUDE_MANAGED_MCP_FILE: &str = "managed-mcp.json";
+
+/// Whether Claude Code can read an administrator's MCP file in `managed_settings_folder`, the
+/// folder it reads its managed settings from; `false` where the system has none. Only the file's
+/// presence is checked, never its contents: a parse that disagreed with Claude Code's own would
+/// fail toward the startup exit.
+pub(crate) async fn has_readable_managed_mcp_file(managed_settings_folder: Option<&Path>) -> bool {
+    let Some(folder) = managed_settings_folder else {
+        return false;
+    };
+    tokio::fs::File::open(folder.join(CLAUDE_MANAGED_MCP_FILE))
+        .await
+        .is_ok()
+}
+
+/// The organization's servers among `rows`, an account's `mcp_status` rows, and in
+/// `effective_settings`, its `get_settings` reply's merged settings: each `managedMcpServers`
+/// entry, then each `managed` or `enterprise` row of a name not yet listed, so an entry Claude
+/// Code reports both ways is listed once, by the settings' whole address.
+pub(crate) fn read_claude_organization_servers(
+    rows: &[ClaudeMcpServerStatusRow],
+    effective_settings: Option<&Value>,
+) -> Vec<ClaudeMcpServer> {
+    let mut servers: Vec<ClaudeMcpServer> = Vec::new();
+    let managed_entries = effective_settings
+        .and_then(|settings| settings.get("managedMcpServers"))
+        .and_then(Value::as_object);
+    for (name, entry) in managed_entries.into_iter().flatten() {
+        let Ok(entry) = ClaudeManagedServerEntry::deserialize(entry) else {
+            continue;
+        };
+        let address = entry.url.as_deref().map(read_server_address);
+        if let Some(server) = managed_server(name, entry.transport.as_deref(), address, None) {
+            push_unlisted(&mut servers, server);
+        }
+    }
+    for row in rows {
+        let origin = row.source.as_deref().or(row.scope.as_deref());
+        if !matches!(origin, Some("managed" | "enterprise")) {
+            continue;
+        }
+        let (Some(name), Some(config)) = (row.name.as_deref(), row.config.as_ref()) else {
+            continue;
+        };
+        let program = config
+            .command
+            .clone()
+            .map(|command| (command, config.args.clone().unwrap_or_default()));
+        let address = config.address.as_ref().map(copy_address);
+        if let Some(server) = managed_server(name, config.transport.as_deref(), address, program) {
+            push_unlisted(&mut servers, server);
+        }
+    }
+    servers
+}
+
+/// The declaration of a remote server reached over `transport`, `http` or `sse`, at `url`, with
+/// the names of the query parameters stripped from it; `None` for any other transport.
+pub(crate) fn remote_server_view(
+    transport: &str,
+    url: String,
+    url_query_param_names: Option<Vec<String>>,
+) -> Option<McpServerConfigView> {
+    Some(match transport {
+        "http" => McpServerConfigView::Http {
+            url,
+            url_query_param_names,
+            header_names: None,
+            bearer_token_env_var: None,
+            env_http_headers: None,
+            oauth_scopes: None,
+            oauth_resource: None,
+            enabled: None,
+            required: None,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        },
+        "sse" => McpServerConfigView::Sse {
+            url,
+            url_query_param_names,
+            header_names: None,
+            bearer_token_env_var: None,
+            env_http_headers: None,
+            oauth_scopes: None,
+            oauth_resource: None,
+            enabled: None,
+            required: None,
+            startup_timeout_sec: None,
+            tool_timeout_sec: None,
+        },
+        _ => return None,
+    })
+}
+
+// An entry of `managedMcpServers`: its transport and address; its headers are left unread.
+#[derive(Deserialize)]
+struct ClaudeManagedServerEntry {
+    #[serde(rename = "type", default)]
+    transport: Option<String>,
+    #[serde(default)]
+    url: Option<String>,
+}
+
+// One organization server named `name`: a remote one served with its address's host alone, a
+// program with its command and arguments. `None` for a name that is no server name, or a
+// transport with no declaration form.
+fn managed_server(
+    name: &str,
+    transport: Option<&str>,
+    address: Option<ServerAddressReading>,
+    program: Option<(String, Vec<String>)>,
+) -> Option<ClaudeMcpServer> {
+    let server_name = McpServerName::new(name.to_owned()).ok()?;
+    let (config, endpoint) = match (transport, address, program) {
+        (Some(transport @ ("http" | "sse")), Some(address), _) => (
+            remote_server_view(transport, address_host(&address.stripped_url), None)?,
+            address.identity.map(ClaudeMcpEndpoint::Address),
+        ),
+        (None | Some("stdio"), _, Some((command, args))) => (
+            McpServerConfigView::Stdio {
+                command: command.clone(),
+                args: Some(args.clone()),
+                env_var_names: None,
+                enabled: None,
+                required: None,
+                startup_timeout_sec: None,
+                tool_timeout_sec: None,
+            },
+            Some(ClaudeMcpEndpoint::Command { command, args }),
+        ),
+        _ => return None,
+    };
+    Some(ClaudeMcpServer {
+        binding: McpServerBindingRef::Managed {
+            provider: DESCRIPTOR.provider_id(),
+            server_name,
+        },
+        config,
+        endpoint,
+    })
+}
+
+// The host of a stripped address, with its port where it names one; empty where the address does
+// not parse, as one holding a `${VAR}` host does.
+fn address_host(stripped_url: &str) -> String {
+    Url::parse(stripped_url)
+        .ok()
+        .filter(Url::has_host)
+        .map(|url| url[Position::BeforeHost..Position::AfterPort].to_owned())
+        .unwrap_or_default()
+}
+
+// A row's address, copied so the server built from it owns it.
+fn copy_address(address: &ServerAddressReading) -> ServerAddressReading {
+    ServerAddressReading {
+        stripped_url: address.stripped_url.clone(),
+        query_param_names: address.query_param_names.clone(),
+        identity: address.identity.clone(),
+    }
+}
+
+fn push_unlisted(servers: &mut Vec<ClaudeMcpServer>, server: ClaudeMcpServer) {
+    if !servers
+        .iter()
+        .any(|listed| listed.binding == server.binding)
+    {
+        servers.push(server);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CLAUDE_MANAGED_MCP_FILE, has_readable_managed_mcp_file};
+
+    // The check reads the folder it is handed: a test folder with the file and one without.
+    // Killed by a check that reads a fixed path, which finds the file in neither.
+    #[tokio::test]
+    async fn the_managed_mcp_file_is_found_at_the_folder_handed_in() {
+        let with_file = tempfile::tempdir().expect("a test folder");
+        let without_file = tempfile::tempdir().expect("a test folder");
+        tokio::fs::write(with_file.path().join(CLAUDE_MANAGED_MCP_FILE), "{}")
+            .await
+            .expect("the file is written");
+
+        assert!(has_readable_managed_mcp_file(Some(with_file.path())).await);
+        assert!(!has_readable_managed_mcp_file(Some(without_file.path())).await);
+        assert!(!has_readable_managed_mcp_file(None).await);
+    }
+}
