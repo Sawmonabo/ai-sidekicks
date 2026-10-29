@@ -1,24 +1,31 @@
 //! Whether a shell line only reads: the daemon's own verdict on a command a provider ran, which
-//! takes no provider's word for it. A line passes only when every program it runs is on a short
-//! closed list of reading programs and every option it gives one is on that program's own closed
-//! set, none of which writes a file or runs another program.
+//! takes no provider's word for it. The verdict is an allow list: a line passes only when every
+//! form it holds is one a reading line may hold, every program it runs is on a short closed list of
+//! reading programs, and every option it gives one is on that program's own closed set, none of
+//! which writes a file or runs another program; any other line does not.
+
+use std::borrow::Cow;
 
 use crate::destructive_git::read_git_subcommand;
 use crate::shell_commands::{
     ShellCommand, ShellLineReader, ShellWord, WordText, is_option, unwrap_shell_command_line,
 };
 
-/// Whether `line`, a provider's command line, only reads: it reads whole on `reader` after any
-/// `<shell> -lc '…'` wrapper is taken off, holds at most 10,000 characters, writes no file through
-/// a redirect, sets no shell variable, runs no `git` beside a `cd`, and runs only listed programs,
-/// through listed wrappers, each named without a folder and given no word of its own that only the
-/// run decides, with listed options.
+/// Whether `line`, a provider's command line, only reads: it holds at most 10,000 characters and,
+/// after any `<shell> -lc '…'` wrapper is taken off, reads whole on `reader` as the shell reads it,
+/// holds only forms a reading line may hold, runs no `git` beside a `cd`, and runs only listed
+/// programs, through listed wrappers, each named without a folder and given only decided words
+/// where its options could write or run something, with listed options.
 pub fn is_read_only_command(reader: &mut ShellLineReader, line: &str) -> bool {
     if line.chars().nth(MAX_LINE_CHARACTERS).is_some() {
         return false;
     }
-    let reading = reader.read(&unwrap_shell_command_line(line));
-    if !reading.is_whole() || reading.has_file_writing_redirect() || reading.can_set_variable() {
+    let unwrapped = unwrap_shell_command_line(line);
+    let Some(line) = line_as_the_shell_reads(&unwrapped) else {
+        return false;
+    };
+    let reading = reader.read(&line);
+    if !reading.is_whole() || !reading.holds_only_reading_forms() {
         return false;
     }
     let runs = |name: &str| reading.commands().any(|command| command.program().is(name));
@@ -32,10 +39,113 @@ pub fn is_read_only_command(reader: &mut ShellLineReader, line: &str) -> bool {
 // Past this many characters a line is not read for a verdict at all.
 const MAX_LINE_CHARACTERS: usize = 10_000;
 
-// The programs that run the command after them whose own options neither write nor run anything.
-// The reading keeps a wrapper's name alone, so one with such an option (`env -C`, `time -o`,
-// `nohup`, `sudo`, `xargs`) is never listed.
-const READING_WRAPPERS: &[&str] = &["command", "nice", "timeout"];
+// The line with each line continuation joined as the shell joins it, or `None` when the parser
+// would part words where the shell does not: a control character or a blank other than space, tab
+// and newline, which the parser reads as a separator; a backslash before a tab, or before a space
+// that starts a word, which the parser drops between words; and a continuation in a line that
+// quotes, expands or opens a here-document, where only a full read could place it.
+fn line_as_the_shell_reads(line: &str) -> Option<Cow<'_, str>> {
+    if line.chars().any(|character| {
+        (character.is_control() && !matches!(character, '\t' | '\n'))
+            || (character.is_whitespace() && !matches!(character, ' ' | '\t' | '\n'))
+    }) {
+        return None;
+    }
+    let joined = join_line_continuations(line)?;
+    let bytes = joined.as_bytes();
+    let parts_words = bytes.windows(2).enumerate().any(|(at, pair)| match pair {
+        [b'\\', b'\t'] => true,
+        [b'\\', b' '] => at
+            .checked_sub(1)
+            .and_then(|before| bytes.get(before))
+            .is_none_or(|&before| WORD_BREAKING_BYTES.contains(&before)),
+        _ => false,
+    });
+    (!parts_words).then_some(joined)
+}
+
+// The bytes after which a word token cannot go on: the parser's special characters and blanks.
+const WORD_BREAKING_BYTES: &[u8] = b"'\"<>{}[]()`$|&;\\ \t\n";
+
+// The line with each unquoted backslash-newline removed, or `None` when the line holds one beside
+// a quote, an expansion, a comment or a redirect, whose reading decides whether it is quoted.
+fn join_line_continuations(line: &str) -> Option<Cow<'_, str>> {
+    let bytes = line.as_bytes();
+    let mut continuations = Vec::new();
+    let mut position = 0;
+    while position < bytes.len() {
+        if bytes[position] == b'\\' {
+            if bytes.get(position + 1) == Some(&b'\n') {
+                continuations.push(position);
+            }
+            position += 2;
+        } else {
+            position += 1;
+        }
+    }
+    if continuations.is_empty() {
+        return Some(Cow::Borrowed(line));
+    }
+    if line.contains(['\'', '"', '`', '$', '#', '<']) {
+        return None;
+    }
+    let mut joined = String::with_capacity(line.len());
+    let mut kept_from = 0;
+    for continuation in continuations {
+        joined.push_str(&line[kept_from..continuation]);
+        kept_from = continuation + 2;
+    }
+    joined.push_str(&line[kept_from..]);
+    Some(Cow::Owned(joined))
+}
+
+// The programs that run the command after them whose own options neither write nor run anything,
+// each with its closed set of options and the count of operands it takes before the command.
+struct ReadingWrapper {
+    name: &'static str,
+    options: GetoptOptions,
+    operand_count: usize,
+}
+
+const READING_WRAPPERS: &[ReadingWrapper] = &[
+    ReadingWrapper {
+        name: "command",
+        options: GetoptOptions {
+            flags: "p",
+            letters_with_value: "",
+            letters_with_attached_value: "",
+            long: &[],
+            long_with_value: &[],
+            takes_count: false,
+        },
+        operand_count: 0,
+    },
+    ReadingWrapper {
+        name: "nice",
+        options: GetoptOptions {
+            flags: "",
+            letters_with_value: "n",
+            letters_with_attached_value: "",
+            long: &[],
+            long_with_value: &[&["--adjustment"]],
+            takes_count: true,
+        },
+        operand_count: 0,
+    },
+    // The duration comes before the command.
+    ReadingWrapper {
+        name: "timeout",
+        options: GetoptOptions {
+            flags: "v",
+            letters_with_value: "sk",
+            letters_with_attached_value: "",
+            long: &[&["--preserve-status", "--foreground", "--verbose"]],
+            long_with_value: &[&["--signal", "--kill-after"]],
+            takes_count: false,
+        },
+        operand_count: 1,
+    },
+];
 
 // How a listed program's option words are read.
 enum ProgramOptions {
@@ -546,20 +656,16 @@ const GIT_READING_SUBCOMMANDS: &[(&str, GetoptOptions)] = &[
 ];
 
 // Whether one simple command only reads: each wrapper and its program listed and named without a
-// folder, since only the system program of a listed name reads, no wrapper given a word of its own
-// that bash can split into another option or program, and every option word on the program's
-// closed set.
+// folder, since only the system program of a listed name reads, each wrapper given only decided
+// words from its own closed set, and every option word on the program's closed set.
 fn is_reading_command(command: ShellCommand<'_>) -> bool {
-    if command.is_named_by_path() || command.has_undecided_wrapper_word() {
-        return false;
-    }
-    if !command
-        .wrappers()
-        .all(|wrapper| READING_WRAPPERS.iter().any(|name| wrapper.is(name)))
+    let program = command.program();
+    if command.is_named_by_path()
+        || !program.is_decided()
+        || !runs_through_reading_wrappers(command)
     {
         return false;
     }
-    let program = command.program();
     if program.is("git") {
         return is_reading_git(command);
     }
@@ -577,6 +683,49 @@ fn is_reading_command(command: ShellCommand<'_>) -> bool {
         ProgramOptions::Getopt(options) => takes_only_listed_options(options, &mut words),
         ProgramOptions::Primaries(primaries) => takes_only_listed_primaries(primaries, &mut words),
     }
+}
+
+// Whether the words before the program are reading wrappers, each followed by its listed options
+// and its operands, every word decided, since bash splits a word only the run decides into any
+// option or program.
+fn runs_through_reading_wrappers(command: ShellCommand<'_>) -> bool {
+    if !command.wrapper_words().all(ShellWord::is_decided) {
+        return false;
+    }
+    let mut words = command.wrapper_words().peekable();
+    while let Some(name) = words.next() {
+        let Some(wrapper) = READING_WRAPPERS
+            .iter()
+            .find(|wrapper| name.is(wrapper.name))
+        else {
+            return false;
+        };
+        while let Some(word) = words.next_if(|word| word.starts_with("-") && !word.is("-")) {
+            if word.is("--") {
+                break;
+            }
+            let option = if word.starts_with("--") {
+                read_long_option(&wrapper.options, word)
+            } else {
+                read_short_cluster(&wrapper.options, word)
+            };
+            match option {
+                OptionWord::Unlisted => return false,
+                OptionWord::Whole => {}
+                OptionWord::TakesNextWord => {
+                    if words.next().is_none() {
+                        return false;
+                    }
+                }
+            }
+        }
+        for _ in 0..wrapper.operand_count {
+            if words.next().is_none() {
+                return false;
+            }
+        }
+    }
+    true
 }
 
 // Whether every word that starts with `-`, a primary's values aside, is a listed primary.
