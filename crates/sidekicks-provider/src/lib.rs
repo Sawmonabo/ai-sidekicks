@@ -4,6 +4,7 @@
 //! std, store, ipc, workspace and policy and is taken by mcp, shell, session, approval, queue,
 //! artifact, recovery and the program.
 
+pub mod account;
 pub mod account_homes;
 pub mod background_work;
 pub mod callback_tools;
