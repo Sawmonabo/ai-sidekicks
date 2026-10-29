@@ -6,13 +6,15 @@ use std::collections::VecDeque;
 use super::words::{ShellWord, Word, WordBuilder, WordText};
 
 /// How a program that runs the command after it reads its own words first: its options that take
-/// the next word as their value, those that split their value into the command's words, and the
-/// plain words it takes before the command.
+/// the next word as their value, those that split their value into the command's words, the
+/// plain words it takes before the command, and the option letters with which it only describes
+/// the command, running nothing.
 #[derive(Clone, Copy)]
 pub(super) struct CommandWrapper {
     options_with_value: &'static [&'static str],
     split_string_options: &'static [&'static str],
     leading_operands: usize,
+    describing_letters: &'static str,
 }
 
 impl CommandWrapper {
@@ -21,7 +23,29 @@ impl CommandWrapper {
             options_with_value,
             split_string_options: &[],
             leading_operands: 0,
+            describing_letters: "",
         }
+    }
+
+    /// Whether the options at the front of `pending` hold a letter with which the wrapper only
+    /// describes the command, as `command -v` does, so it runs nothing.
+    pub(super) fn only_describes(
+        self,
+        builder: &WordBuilder<'_>,
+        pending: &VecDeque<Word>,
+    ) -> bool {
+        if self.describing_letters.is_empty() {
+            return false;
+        }
+        pending
+            .iter()
+            .map(|&word| builder.view(word))
+            .take_while(|word| word.starts_with("-") && !word.is("-") && !word.is("--"))
+            .any(|word| {
+                word.chars()
+                    .skip(1)
+                    .any(|letter| self.describing_letters.contains(letter))
+            })
     }
 }
 
@@ -36,7 +60,14 @@ const COMMAND_WRAPPERS: &[(&str, CommandWrapper)] = &[
         },
     ),
     ("exec", CommandWrapper::new(&["-a"])),
-    ("command", CommandWrapper::new(&[])),
+    (
+        "command",
+        CommandWrapper {
+            // `command -v` and `-V` print how the shell finds the command.
+            describing_letters: "vV",
+            ..CommandWrapper::new(&[])
+        },
+    ),
     ("nohup", CommandWrapper::new(&[])),
     (
         "time",

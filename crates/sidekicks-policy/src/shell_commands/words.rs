@@ -1,8 +1,8 @@
 //! A shell word as the shell passes it to a program, held as pieces of the line it was read from
-//! and of its reading's one decoded buffer: quotes removed, backslash escapes undone, ANSI-C strings
-//! decoded, and every expansion, substitution and word the shell expands into file names or
-//! alternatives kept as its source text in the line. A word is
-//! never copied out of its pieces, and each query on it costs the pieces it reads.
+//! and of its reading's one decoded buffer: quotes removed, backslash escapes undone, ANSI-C
+//! strings decoded, and every expansion, substitution and word the shell expands into file names
+//! or alternatives kept as its source text in the line. A word is never copied out of its pieces,
+//! and each query on it costs the pieces it reads.
 
 use std::fmt;
 use std::sync::{Arc, OnceLock};
@@ -503,8 +503,8 @@ impl<'s> WordBuilder<'s> {
         let range = node.byte_range();
         let text = node_text(node, self.line);
         match node.kind() {
-            // A pattern at the start can expand into any file name, one that reads as an option too;
-            // one later in the word keeps the word's start.
+            // A pattern at the start can expand into any file name, one that reads as an option
+            // too; one later in the word keeps the word's start.
             "word" if text.starts_with(['*', '?', '[', '{']) => {
                 self.push_line(range, PieceKind::Expansion);
             }

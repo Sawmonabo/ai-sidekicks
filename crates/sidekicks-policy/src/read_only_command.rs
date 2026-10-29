@@ -41,8 +41,9 @@ enum ProgramOptions {
     // Short letters, alone or in a cluster, and long options, alone or with `=<value>`; `--` ends
     // them.
     Getopt(GetoptOptions),
-    // `find`'s primaries, each a whole word; `--` ends nothing.
-    Primaries(&'static [&'static str]),
+    // `find`'s primaries, each a whole word with the count of value words after it; `--` ends
+    // nothing.
+    Primaries(&'static [(&'static str, usize)]),
 }
 
 // A program's closed set of getopt-style options.
@@ -136,6 +137,9 @@ const RG_LONG: &[&str] = &[
     "--max-filesize",
     "--unrestricted",
     "--text",
+    "--no-messages",
+    "--no-ignore-vcs",
+    "--ignore-file",
 ];
 
 const GREP_LONG: &[&str] = &[
@@ -275,7 +279,7 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
     },
     ReadingProgram {
         name: "rg",
-        options: getopt("iSsFwxvnNlcoqHIL.u0", "egtTABCmMdjrf", &[RG_LONG], false),
+        options: getopt("iSsFwxvnNlcoqHIL.u0UP", "egtTABCmMdjrf", &[RG_LONG], false),
         takes_undecided_words: false,
     },
     ReadingProgram {
@@ -292,38 +296,38 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
     ReadingProgram {
         name: "find",
         options: ProgramOptions::Primaries(&[
-            "-H",
-            "-L",
-            "-P",
-            "-name",
-            "-iname",
-            "-path",
-            "-ipath",
-            "-regex",
-            "-iregex",
-            "-type",
-            "-maxdepth",
-            "-mindepth",
-            "-depth",
-            "-newer",
-            "-mtime",
-            "-mmin",
-            "-size",
-            "-empty",
-            "-user",
-            "-group",
-            "-perm",
-            "-links",
-            "-follow",
-            "-print",
-            "-print0",
-            "-ls",
-            "-prune",
-            "-not",
-            "-and",
-            "-or",
-            "-a",
-            "-o",
+            ("-H", 0),
+            ("-L", 0),
+            ("-P", 0),
+            ("-name", 1),
+            ("-iname", 1),
+            ("-path", 1),
+            ("-ipath", 1),
+            ("-regex", 1),
+            ("-iregex", 1),
+            ("-type", 1),
+            ("-maxdepth", 1),
+            ("-mindepth", 1),
+            ("-depth", 0),
+            ("-newer", 1),
+            ("-mtime", 1),
+            ("-mmin", 1),
+            ("-size", 1),
+            ("-empty", 0),
+            ("-user", 1),
+            ("-group", 1),
+            ("-perm", 1),
+            ("-links", 1),
+            ("-follow", 0),
+            ("-print", 0),
+            ("-print0", 0),
+            ("-ls", 0),
+            ("-prune", 0),
+            ("-not", 0),
+            ("-and", 0),
+            ("-or", 0),
+            ("-a", 0),
+            ("-o", 0),
         ]),
         takes_undecided_words: false,
     },
@@ -345,6 +349,13 @@ const READING_PROGRAMS: &[ReadingProgram] = &[
     ReadingProgram {
         name: "which",
         options: getopt("as", "", &[], false),
+        takes_undecided_words: true,
+    },
+    // `command` with `-v` or `-V`, which prints how the shell finds a name; any other `command`
+    // is read as the wrapper of the command it runs.
+    ReadingProgram {
+        name: "command",
+        options: getopt("pvV", "", &[], false),
         takes_undecided_words: true,
     },
 ];
@@ -506,10 +517,27 @@ fn is_reading_command(command: ShellCommand<'_>) -> bool {
     }
     match &listed.options {
         ProgramOptions::Getopt(options) => takes_only_listed_options(options, &mut words),
-        ProgramOptions::Primaries(primaries) => words
-            .filter(|word| word.starts_with("-"))
-            .all(|word| primaries.iter().any(|primary| word.is(primary))),
+        ProgramOptions::Primaries(primaries) => takes_only_listed_primaries(primaries, &mut words),
     }
+}
+
+// Whether every word that starts with `-`, a primary's values aside, is a listed primary.
+fn takes_only_listed_primaries<'r>(
+    primaries: &[(&str, usize)],
+    words: &mut impl Iterator<Item = ShellWord<'r>>,
+) -> bool {
+    while let Some(word) = words.next() {
+        if !word.starts_with("-") {
+            continue;
+        }
+        let Some(&(_, value_count)) = primaries.iter().find(|(primary, _)| word.is(primary)) else {
+            return false;
+        };
+        for _ in 0..value_count {
+            words.next();
+        }
+    }
+    true
 }
 
 // A `git` command that only reads: every word decided, git's own options listed, and a reading
