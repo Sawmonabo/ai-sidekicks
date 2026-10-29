@@ -27,24 +27,25 @@ interface AttentionItem {
   // The MOMENT this entry speaks for — the session or run and the episode it is in, or on a
   // `providerBuild` entry the provider and its build, minted by the projection and never composed
   // by a client: `run:<runId>`, `workflowRun:<workflowRunId>`, `plan:<planId>`,
-  // `session:<sessionId>`, for a Notify step `notify:` and 32 hex digits of the BLAKE3 hash of
-  // its run, node and execution index, and for a `providerBuild` entry `providerBuild:` and 32 hex
+  // `session:<sessionId>`, for a Notify step `notify:` and 32 hex digits of the BLAKE3 hash of its
+  // run, node and execution index, and for a `providerBuild` entry `providerBuild:` and 32 hex
   // digits of the BLAKE3 hash of the provider and the build; each of the last two is also that
-  // entry's `id`. Every form fits the 64
-  // bytes a banner's tag and a push's collapse id hold. Every operating-system notification carries it, so a subject that moves from
-  // waiting to finished while nobody is looking REPLACES its banner in place instead of standing a
-  // second one beside it: the waiting entry and the finished one that follows it share this id. It
-  // is deliberately not `id` and deliberately not the state — an id per entry would post a second
-  // banner for the same subject, and an id carrying the state would defeat the replacement it
-  // exists to make possible. The notifications list groups by it too, one line per moment. The main
-  // process posts from this projection and from nothing else: a `pending` entry only while no
-  // console window is focused (a workflow's Notify step posts either way), and it withdraws the
-  // banner when the entry resolves, when its session or run is deleted, or when the daemon stops
-  // keeping its entry (seen, more than a day old and with no web-address message waiting), a Notify
-  // step's never — so answering on another device clears it here. A `providerBuild` line leaves
-  // when the provider's next build takes its place, at once, and a line for a build installed also
-  // a day after it was recorded; a line for a build only available never leaves on a timer. With the app not running, the daemon starts the
-  // app's own program with no window to post the banner, and that process exits.
+  // entry's `id`. Every form fits the 64 bytes a banner's tag and a push's collapse id hold. Every
+  // operating-system notification carries it, so a subject that moves from waiting to finished
+  // while nobody is looking REPLACES its banner in place instead of standing a second one beside
+  // it: the waiting entry and the finished one that follows it share this id. It is deliberately
+  // not `id` and deliberately not the state — an id per entry would post a second banner for the
+  // same subject, and an id carrying the state would defeat the replacement it exists to make
+  // possible. The notifications list groups by it too, one line per moment. The main process posts
+  // from this projection and from nothing else: a `pending` entry only while no console window is
+  // focused (a workflow's Notify step posts either way), and it withdraws the banner when the entry
+  // resolves, when its session or run is deleted, or when the daemon stops keeping its entry (seen,
+  // more than a day old and with no web-address message waiting), a Notify step's never — so
+  // answering on another device clears it here. A `providerBuild` line leaves when the provider's
+  // next build takes its place, at once, and a line for a build installed also a day after it was
+  // recorded; a line for a build only available never leaves on a timer. With the app not running,
+  // the daemon starts the app's own program with no window to post the banner, and that process
+  // exits.
   momentId: string;
   sessionId?: SessionId; // absent exactly on a `providerBuild` entry, which belongs to no session
   runId?: RunId; // present on a run-scoped entry; absent on the session-scoped aggregate
@@ -89,12 +90,12 @@ interface AttentionItem {
   // posts only a `pending` entry. The daemon writes `withheld` when it decides the entry for a kind
   // this machine's settings switch off, for the master switch off, or for a muted session's
   // `Finished` or `Failed`, and starts no windowless app for it, and `pending` otherwise; a
-  // `providerBuild` entry is always `withheld`, written by no decision; the main process settles a `pending` entry once through
-  // `attention.banner.settle`, so a banner is never posted twice. The daemon itself writes
-  // `withdrawn` over a `pending` or `posted` entry when its moment resolves, and over a `Finished`
-  // or `Failed` one on `session.muted`; when the entry is deleted with its session or run, or
-  // retired once seen and more than a day old, the main process withdraws its banner. A Notify
-  // step's is never withdrawn.
+  // `providerBuild` entry is always `withheld`, written by no decision; the main process settles a
+  // `pending` entry once through `attention.banner.settle`, so a banner is never posted twice. The
+  // daemon itself writes `withdrawn` over a `pending` or `posted` entry when its moment resolves,
+  // and over a `Finished` or `Failed` one on `session.muted`; when the entry is deleted with its
+  // session or run, or retired once seen and more than a day old, the main process withdraws its
+  // banner. A Notify step's is never withdrawn.
   bannerState?: "pending" | "posted" | "withheld" | "withdrawn";
   // Where the entry's message to the person's web address stands, and how many sends it took; both
   // present exactly when the entry is sent to a web address.
