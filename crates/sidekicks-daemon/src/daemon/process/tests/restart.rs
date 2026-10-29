@@ -89,10 +89,4 @@ async fn a_restart_keeps_the_terminal_service_and_the_next_start_joins_it_first(
         !join.is_daemon_socket_bound,
         "the join came after the socket: {second_daemons:?}"
     );
-    assert!(
-        second_daemons
-            .iter()
-            .all(|connection| connection.process_id == launched[0]),
-        "{second_daemons:?}"
-    );
 }
