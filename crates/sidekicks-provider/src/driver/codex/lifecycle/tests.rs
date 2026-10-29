@@ -276,7 +276,7 @@ pub(super) fn listen_on_codex_folder(folder: &Path) {
     let listener = bind_socket_listener(&socket).expect("the test service listens");
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, None));
+            tokio::spawn(answer_as_codex_service(stream, None, None));
         }
     });
 }

@@ -2,9 +2,9 @@
 //! `requirements.toml` and, on macOS, the requirements a device-management profile forces, merged
 //! key by key with the profile's winning as Codex merges them: the top-level `[mcp_servers]` table,
 //! where present, lets Codex start a server only when the table names it and its transport matches
-//! the entry's identity, and a plugin's `[plugins."<plugin>@<marketplace>".mcp_servers]` table does
-//! the same for that plugin's servers. Codex's `config/read` never carries them, so the driver reads
-//! them itself, and like Codex refuses to go on when they cannot be read.
+//! the entry's identity, and a plugin's `[plugins."<plugin>@<marketplace>".mcp_servers]` table
+//! does the same for that plugin's servers. Codex's `config/read` never carries them, so the
+//! driver reads them itself, and like Codex refuses to go on when they cannot be read.
 
 use std::collections::BTreeMap;
 use std::io;
@@ -41,49 +41,52 @@ pub(crate) struct CodexMcpRequirements {
 }
 
 impl CodexMcpRequirements {
-    /// Whether Codex starts the server `name` declared by `binding` with `transport`: a plugin's
-    /// server where an empty top-level list does not refuse every plugin's and its plugin's list,
-    /// where it sets one, names it with a matching identity; every other server where the
-    /// top-level list, where it is set, does. A remote server's address is matched as written.
+    /// Whether Codex starts the server declared by `binding` with `transport`: a plugin's server,
+    /// its plugin keyed `plugin_key` (`<plugin>@<marketplace>`), where an empty top-level list does
+    /// not refuse every plugin's and the list under exactly that key, where it sets one, names it
+    /// with a matching identity; every other server where the top-level list, where it is set,
+    /// does. A remote server's address is matched as written.
     pub(crate) fn allows(
         &self,
         binding: &McpServerBindingRef,
         transport: Option<&CodexServerTransport>,
+        plugin_key: Option<&str>,
     ) -> bool {
         let name = binding.server_name().as_str();
-        let list = match binding {
-            McpServerBindingRef::Plugin { scope_ref, .. } => {
+        match binding {
+            McpServerBindingRef::Plugin { .. } => {
                 if self.servers.as_ref().is_some_and(BTreeMap::is_empty) {
                     return false;
                 }
-                // A plugin's key is `<plugin>@<marketplace>`; the binding names the plugin alone.
-                let plugin = scope_ref.as_str();
-                let mut lists = self.plugin_servers.iter().filter(|(key, _list)| {
-                    key.rsplit_once('@')
-                        .is_some_and(|(plugin_name, _marketplace)| plugin_name == plugin)
-                });
-                match lists.next() {
-                    Some((_key, list)) => list,
-                    None => return true,
-                }
+                plugin_key
+                    .and_then(|key| self.plugin_servers.get(key))
+                    .is_none_or(|list| is_listed(list, name, transport))
             }
             McpServerBindingRef::User { .. }
             | McpServerBindingRef::Project { .. }
             | McpServerBindingRef::Local { .. }
             | McpServerBindingRef::Connector { .. }
-            | McpServerBindingRef::Managed { .. } => match &self.servers {
-                Some(list) => list,
-                None => return true,
-            },
-        };
-        list.get(name)
-            .zip(transport)
-            .is_some_and(|(identity, transport)| identity.matches(transport))
+            | McpServerBindingRef::Managed { .. } => self.allows_config_entry(name, transport),
+        }
+    }
+
+    /// Whether Codex starts a server its config's own `[mcp_servers]` table declares as `name`
+    /// with `transport`, which the top-level list alone judges, as it judges the entry the probe
+    /// sends for a plugin's server.
+    pub(crate) fn allows_config_entry(
+        &self,
+        name: &str,
+        transport: Option<&CodexServerTransport>,
+    ) -> bool {
+        self.servers
+            .as_ref()
+            .is_none_or(|list| is_listed(list, name, transport))
     }
 
     /// Fills `reading` with the allow lists: its policy names each server the top-level list
     /// allows, each root and the person's home folder keep out every server declared for them that
-    /// the lists refuse, and no root's provider-loaded set keeps a kept-out name.
+    /// the lists refuse, no root's provider-loaded set keeps a kept-out name, and each plugin's
+    /// server that Codex refuses as the probe sends it is named.
     pub(crate) fn apply(&self, reading: &mut CodexMcpConfigReading) {
         if let Some(servers) = &self.servers {
             let allowed = servers
@@ -104,6 +107,19 @@ impl CodexMcpRequirements {
                 .retain(|binding| !kept_out.contains(binding.server_name()));
             root.kept_out_server_names = kept_out;
         }
+        let refused_when_sent: Vec<McpServerBindingRef> = reading
+            .declarations
+            .iter()
+            .map(|declaration| &declaration.binding)
+            .filter(|binding| matches!(binding, McpServerBindingRef::Plugin { .. }))
+            .filter(|binding| {
+                let transport = reading.transport_of(binding);
+                !self.allows(binding, transport, reading.plugin_key_of(binding))
+                    || !self.allows_config_entry(binding.server_name().as_str(), transport)
+            })
+            .cloned()
+            .collect();
+        reading.refused_when_sent = refused_when_sent;
     }
 
     // The names of the servers declared for a session at `root`, or at the person's home folder
@@ -118,12 +134,14 @@ impl CodexMcpRequirements {
             let Some(name) = server_name_at(&declaration.binding, root) else {
                 continue;
             };
-            let transport = reading
-                .transports
-                .iter()
-                .find(|(binding, _transport)| *binding == declaration.binding)
-                .map(|(_binding, transport)| transport);
-            if !kept_out.contains(name) && !self.allows(&declaration.binding, transport) {
+            let binding = &declaration.binding;
+            if !kept_out.contains(name)
+                && !self.allows(
+                    binding,
+                    reading.transport_of(binding),
+                    reading.plugin_key_of(binding),
+                )
+            {
                 kept_out.push(name.clone());
             }
         }
@@ -133,10 +151,10 @@ impl CodexMcpRequirements {
 
 /// Reads Codex's requirements from `requirements.toml` in `managed_settings_folder` and from the
 /// requirements a device-management profile forces, the profile's winning key by key; `None`
-/// where neither sets an allow list of servers. A file that is absent or not the daemon's to read
-/// declares none. Fails with [`CodexError::MachinePolicyUnreadable`] where the file cannot
-/// otherwise be read, where the profile's value is not base64 of UTF-8 text, and where either is
-/// not requirements of the shape Codex reads, since Codex refuses to start on any of them.
+/// where neither sets an allow list of servers. An absent file declares none. Fails with
+/// [`CodexError::MachinePolicyUnreadable`] where the file cannot otherwise be read, where the
+/// profile's value is not base64 of UTF-8 text, and where either is not requirements of the shape
+/// Codex reads, since Codex refuses to start on any of them.
 pub(crate) async fn read_codex_mcp_requirements(
     managed_settings_folder: Option<&Path>,
 ) -> Result<Option<CodexMcpRequirements>, CodexError> {
@@ -145,11 +163,7 @@ pub(crate) async fn read_codex_mcp_requirements(
         let path = folder.join(REQUIREMENTS_FILE_NAME);
         match tokio::fs::read_to_string(&path).await {
             Ok(text) => layers.push((path.display().to_string(), text)),
-            Err(failure)
-                if matches!(
-                    failure.kind(),
-                    io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied
-                ) => {}
+            Err(failure) if failure.kind() == io::ErrorKind::NotFound => {}
             Err(failure) => {
                 return Err(unreadable(
                     &path.display().to_string(),
@@ -224,6 +238,17 @@ fn parse_codex_mcp_requirements(
         servers,
         plugin_servers,
     }))
+}
+
+// Whether `list` names `name` with an identity `transport` matches.
+fn is_listed(
+    list: &BTreeMap<String, ServerIdentity>,
+    name: &str,
+    transport: Option<&CodexServerTransport>,
+) -> bool {
+    list.get(name)
+        .zip(transport)
+        .is_some_and(|(identity, transport)| identity.matches(transport))
 }
 
 fn compile_list(
@@ -394,8 +419,10 @@ impl ValueMatcher {
         Ok(match entry {
             ValueMatcherEntry::Exact { value } => Self::Exact(value),
             ValueMatcherEntry::Prefix { value } => Self::Prefix(value),
+            // Codex checks the pattern alone and anchored as it loads the file.
             ValueMatcherEntry::Regex { expression } => Self::Pattern(
-                Regex::new(&format!(r"\A(?:{expression})\z"))
+                Regex::new(&expression)
+                    .and_then(|_bare| Regex::new(&format!(r"\A(?:{expression})\z")))
                     .map_err(|failure| format!("pattern `{expression}`: {failure}"))?,
             ),
         })

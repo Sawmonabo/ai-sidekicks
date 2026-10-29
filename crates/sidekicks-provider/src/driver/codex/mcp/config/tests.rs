@@ -14,7 +14,7 @@ use sidekicks_contracts::plugin::PluginToken;
 use sidekicks_contracts::wire::number::PositiveNumber;
 use sidekicks_contracts::wire::record::Record;
 
-use super::{CodexMcpConfigReading, CodexMcpRoot, read_codex_mcp_config_over};
+use super::{CodexLoadedServer, CodexMcpConfigReading, CodexMcpRoot, read_codex_mcp_config};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::session::detached_conversation::CodexDetachedFrames;
 use crate::driver::codex::transport::connection::CodexConnectionHandlers;
@@ -68,7 +68,7 @@ async fn read_scripted(
         }
     };
     let (reading, ()) = tokio::join!(
-        read_codex_mcp_config_over(&connection, Path::new(HOME), plugin_home, roots),
+        read_codex_mcp_config(&connection, Path::new(HOME), plugin_home, roots),
         answering
     );
     reading.expect("the scripted reads answer")
@@ -272,8 +272,10 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
 }
 
 // Killed by merging the two `docs` declarations by name, by reading the project's no-transport
-// `tuned` entry as a binding, by a superseded user server naming no file, and by listing the
-// person's own servers among what an account session loads.
+// `tuned` entry as a binding, by a superseded user server naming no file, by listing the person's
+// own servers among what an account session loads, by the person's `docs` shown in the project's
+// merged view, which another binding's declaration took over, and by a name's loaded binding or
+// switch read from another layer than the highest that declares it.
 #[tokio::test]
 async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it() {
     let reply = json!({
@@ -304,10 +306,12 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
         McpServerConfigView::Http { .. }
     ));
     assert_eq!(project_docs.superseded_in, [] as [McpOverrideOrigin; 0]);
-    assert_eq!(
-        declaration(&reading, &user("docs")).superseded_in,
-        vec![project_file.clone()]
-    );
+    let user_docs = declaration(&reading, &user("docs"));
+    assert_eq!(user_docs.superseded_in, vec![project_file.clone()]);
+    assert!(matches!(
+        &user_docs.config,
+        McpServerConfigView::Stdio { command, .. } if command == "docs-server"
+    ));
     let user_tuned = declaration(&reading, &user("tuned"));
     assert_eq!(user_tuned.superseded_in, vec![project_file]);
     assert_eq!(user_tuned.disabled_in, [] as [McpOverrideOrigin; 0]);
@@ -332,6 +336,52 @@ async fn each_layer_binds_its_own_declaration_and_a_higher_entry_supersedes_it()
         [] as [McpServerName; 0]
     );
     assert!(!reading.is_machine_managed);
+    let loaded_at_root = |binding: McpServerBindingRef, is_switched_on: bool| CodexLoadedServer {
+        root: Some(placed(ROOT)),
+        binding,
+        is_switched_on,
+    };
+    assert_eq!(
+        reading.loaded_servers,
+        [
+            loaded_at_root(project("docs"), true),
+            loaded_at_root(user("tuned"), true)
+        ]
+    );
+}
+
+// A manifest's MCP path that leaves the plugin's folder by a rooted part is refused, as Codex
+// refuses it, and the plugin's own default file read in its place. Killed by joining the rooted
+// part, which reads the file outside the folder.
+#[tokio::test]
+async fn a_plugin_manifest_path_that_leaves_its_folder_is_not_read() {
+    let plugin_home = tempfile::tempdir().expect("a scratch folder is made");
+    let outside = tempfile::tempdir().expect("a scratch folder is made");
+    let outside_file = outside.path().join("servers.json");
+    std::fs::write(
+        &outside_file,
+        json!({"mcpServers": {"outside": {"command": "outside-server"}}}).to_string(),
+    )
+    .expect("the outside file is written");
+    let folder = plugin_home.path().join("plugins/cache/market/tools/1.0.0");
+    std::fs::create_dir_all(folder.join(".codex-plugin")).expect("the plugin folder is made");
+    std::fs::write(
+        folder.join(".codex-plugin/plugin.json"),
+        json!({"name": "tools", "mcpServers": format!(".//{}", outside_file.display())})
+            .to_string(),
+    )
+    .expect("the manifest is written");
+    let reply = json!({"config": {}, "origins": {}, "layers": [user_layer(&json!({}))]});
+
+    let reading = read_scripted(&[attached_root()], plugin_home.path(), &[reply]).await;
+
+    assert!(
+        !reading
+            .declarations
+            .iter()
+            .any(|declared| declared.binding == plugin_binding("tools", "outside")),
+        "the file outside the plugin's folder was read"
+    );
 }
 
 // Killed by listing an MDM server as the person's own, by leaving it out, and by an override in the

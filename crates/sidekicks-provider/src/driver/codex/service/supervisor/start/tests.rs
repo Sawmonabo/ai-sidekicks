@@ -234,7 +234,7 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     };
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream, None));
+            tokio::spawn(answer_as_codex_service(stream, None, None));
         }
     });
 

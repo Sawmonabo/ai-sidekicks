@@ -13,23 +13,26 @@ use sidekicks_store::data_folder::plugin_home;
 
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
-use crate::driver::codex::mcp::config::{
-    CodexMcpConfigSources, CodexMcpRoot, read_codex_mcp_config,
-};
+use crate::driver::codex::mcp::config::{CodexMcpRoot, read_codex_mcp_config};
 use crate::driver::codex::mcp::machine_probe::{
     codex_probe_targets, plan_codex_mcp_probe, probe_codex_mcp_servers,
 };
+use crate::driver::codex::mcp::requirements::read_codex_mcp_requirements;
 use crate::driver::codex::service::registry::CodexServiceRegistry;
+use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::session::errors::CodexError;
-use crate::driver::mcp_server::read::{McpServersReadRequest, ProviderMcpServersReading};
+use crate::driver::mcp_server::read::{
+    McpProbeScope, McpServersReadRequest, ProviderMcpServersReading,
+};
 
 /// What Codex's MCP servers are on this computer for `request`: the declarations, roots and allow
 /// list the config read finds on `registry`'s service on the person's own Codex folder, `home`
 /// being the person's home folder, and what the machine probe read of each binding the request's
 /// probe scope names, its emulated `local` bindings among them, which runs only when it names
-/// one. Codex brings no account's servers and keeps nothing between reads, so a refresh reads as
-/// any read does. Fails as the config read fails, or as the probe's service cannot be started or
-/// a probe request fails.
+/// one. A read that may probe runs the config read and the probe on one probe's service. Codex
+/// brings no account's servers and keeps nothing between reads, so a refresh reads as any read
+/// does. Fails as the requirements or the config read fail, or as the service cannot be started
+/// or a probe request fails.
 pub(crate) async fn read_codex_mcp_servers(
     registry: &CodexServiceRegistry,
     home: &Path,
@@ -45,28 +48,32 @@ pub(crate) async fn read_codex_mcp_servers(
             folder: PathBuf::from(root.path.as_str()),
         })
         .collect();
-    let sources = CodexMcpConfigSources {
-        registry,
-        home,
-        plugin_home: &plugin_home,
-        roots: &roots,
-        managed_settings_folder: managed_settings_folder.as_deref(),
+    let requirements = read_codex_mcp_requirements(managed_settings_folder.as_deref()).await?;
+    let purpose = match request.probe {
+        McpProbeScope::None => PersonalFolderRead::Config,
+        McpProbeScope::EveryBinding | McpProbeScope::Bindings(_) => PersonalFolderRead::Probe,
     };
-    let reading = read_codex_mcp_config(&sources).await?;
-    let probe_targets = codex_probe_targets(&reading.declarations, request);
-    let probe_readings = if probe_targets.is_empty() {
-        Vec::new()
-    } else {
-        let plugin_servers = read_plugin_server_entries(sources.plugin_home).await;
-        let sites = plan_codex_mcp_probe(
-            &probe_targets,
-            &reading,
-            sources.roots,
-            sources.home,
-            &plugin_servers,
-        );
-        probe_codex_mcp_servers(sources.registry, &sites).await?
-    };
+    let plugin_home = plugin_home.as_path();
+    let roots = roots.as_slice();
+    let requirements = requirements.as_ref();
+    let (reading, probe_readings) = registry
+        .read_on_personal_folder(purpose, |service| async move {
+            let connection = service.connection()?;
+            let mut reading = read_codex_mcp_config(&connection, home, plugin_home, roots).await?;
+            if let Some(requirements) = requirements {
+                requirements.apply(&mut reading);
+            }
+            let probe_targets = codex_probe_targets(&reading.declarations, request);
+            if probe_targets.is_empty() {
+                return Ok((reading, Vec::new()));
+            }
+            let plugin_servers = read_plugin_server_entries(plugin_home).await;
+            let sites =
+                plan_codex_mcp_probe(&probe_targets, &reading, roots, home, &plugin_servers);
+            let probe_readings = probe_codex_mcp_servers(&service, &sites).await?;
+            Ok((reading, probe_readings))
+        })
+        .await?;
     Ok(ProviderMcpServersReading {
         declarations: reading.declarations,
         roots: reading.roots,

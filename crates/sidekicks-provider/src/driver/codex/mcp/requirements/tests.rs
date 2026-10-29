@@ -92,7 +92,11 @@ fn reading_of(
         is_machine_managed: false,
         server_policy: McpServerPolicy::default(),
         transports: servers,
+        plugin_keys: Vec::new(),
         home_kept_out_server_names: Vec::new(),
+        refused_when_sent: Vec::new(),
+        loaded_servers: Vec::new(),
+        person_plugin_keys: Vec::new(),
     }
 }
 
@@ -202,10 +206,10 @@ url = "https://mcp.example.com/v1"
     );
 }
 
-// A plugin's list, keyed `<plugin>@<marketplace>`, bounds that plugin's servers alone, a plugin
-// with no list keeps its servers, and an empty top-level list refuses every plugin's. Killed by
-// the plugin's key matched whole, by a plugin with no list refused, and by the empty top-level
-// list ignored for plugins.
+// A plugin's list bounds the servers of the plugin keyed exactly `<plugin>@<marketplace>` alone,
+// not a plugin of that name from another marketplace; a plugin with no list keeps its servers,
+// and an empty top-level list refuses every plugin's. Killed by the key matched by the plugin's
+// name, by a plugin with no list refused, and by the empty top-level list ignored for plugins.
 #[test]
 fn a_plugin_list_bounds_its_own_plugins_servers() {
     let requirements = parsed(
@@ -215,21 +219,74 @@ url = { match = "prefix", value = "https://search.example.com/" }
 "#,
     );
     let search = reached("https://search.example.com/v1");
-    assert!(requirements.allows(&plugin("tools", "search"), Some(&search)));
-    assert!(!requirements.allows(&plugin("tools", "other"), Some(&search)));
-    assert!(!requirements.allows(
+    let elsewhere = reached("https://elsewhere.example.com/");
+    let tools = Some("tools@market");
+    assert!(requirements.allows(&plugin("tools", "search"), Some(&search), tools));
+    assert!(!requirements.allows(&plugin("tools", "other"), Some(&search), tools));
+    assert!(!requirements.allows(&plugin("tools", "search"), Some(&elsewhere), tools));
+    assert!(requirements.allows(
         &plugin("tools", "search"),
-        Some(&reached("https://elsewhere.example.com/"))
+        Some(&elsewhere),
+        Some("tools@acme")
     ));
-    assert!(requirements.allows(&plugin("helpers", "search"), Some(&search)));
-    assert!(requirements.allows(&user("anything"), Some(&started("anything"))));
+    assert!(requirements.allows(
+        &plugin("helpers", "search"),
+        Some(&search),
+        Some("helpers@market")
+    ));
+    assert!(requirements.allows(&user("anything"), Some(&started("anything")), None));
 
     let refusing = parsed(
         r"
 [mcp_servers]
 ",
     );
-    assert!(!refusing.allows(&plugin("helpers", "search"), Some(&search)));
+    assert!(!refusing.allows(
+        &plugin("helpers", "search"),
+        Some(&search),
+        Some("helpers@market")
+    ));
+}
+
+// A plugin's server the probe sends as a config entry is refused where the top-level list does
+// not name it, though its plugin has no list of its own, and where its plugin's list refuses it;
+// one both allow is sent. Killed by judging the sent entry by the plugin's list alone, and by
+// dropping the plugin's list from the judgment.
+#[test]
+fn a_sent_plugin_server_is_judged_by_the_top_level_list_too() {
+    let requirements = parsed(
+        r#"
+[mcp_servers.search.identity]
+url = "https://search.example.com/v1"
+
+[plugins."tools@market".mcp_servers.search.identity]
+url = "https://other.example.com/"
+"#,
+    );
+    let search = reached("https://search.example.com/v1");
+    let mut reading = reading_of(
+        vec![
+            (plugin("tools", "search"), search.clone()),
+            (plugin("helpers", "search"), search.clone()),
+            (
+                plugin("helpers", "lookup"),
+                reached("https://lookup.example.com/"),
+            ),
+        ],
+        Vec::new(),
+    );
+    reading.plugin_keys = vec![
+        (plugin("tools", "search"), "tools@market".to_owned()),
+        (plugin("helpers", "search"), "helpers@market".to_owned()),
+        (plugin("helpers", "lookup"), "helpers@market".to_owned()),
+    ];
+
+    requirements.apply(&mut reading);
+
+    assert_eq!(
+        reading.refused_when_sent,
+        [plugin("tools", "search"), plugin("helpers", "lookup")]
+    );
 }
 
 // A remote server's address is matched as written, so an entry naming the address without its
@@ -244,11 +301,13 @@ url = "https://mcp.example.com/v1"
     );
     assert!(requirements.allows(
         &user("remote"),
-        Some(&reached("https://mcp.example.com/v1"))
+        Some(&reached("https://mcp.example.com/v1")),
+        None
     ));
     assert!(!requirements.allows(
         &user("remote"),
-        Some(&reached("https://mcp.example.com/v1?team=core"))
+        Some(&reached("https://mcp.example.com/v1?team=core")),
+        None
     ));
 }
 
@@ -284,20 +343,30 @@ url = "https://new.example.com/"
         .expect("the merge is Codex's shape")
         .expect("the merge sets an allow list");
 
-    assert!(requirements.allows(&user("docs"), Some(&started("docs-mcp"))));
-    assert!(requirements.allows(&user("remote"), Some(&reached("https://new.example.com/"))));
-    assert!(!requirements.allows(&user("remote"), Some(&reached("https://old.example.com/"))));
+    assert!(requirements.allows(&user("docs"), Some(&started("docs-mcp")), None));
+    assert!(requirements.allows(
+        &user("remote"),
+        Some(&reached("https://new.example.com/")),
+        None
+    ));
+    assert!(!requirements.allows(
+        &user("remote"),
+        Some(&reached("https://old.example.com/")),
+        None
+    ));
 }
 
-// Requirements Codex cannot read stop the read as they stop Codex: a file that is not TOML, an
-// entry of another shape and a pattern that does not compile. Killed by any of them read as no
-// requirements.
+// Requirements Codex cannot read stop the read as they stop Codex, which checks each pattern as it
+// loads the file: a file that is not TOML, an entry of another shape, a pattern that does not
+// compile, and one that compiles only inside the anchors. Killed by any of them read as no
+// requirements, and by the pattern checked only in its anchored form.
 #[tokio::test]
 async fn unreadable_requirements_fail_the_read() {
     for text in [
         "[mcp_servers.docs",
         "[mcp_servers.docs]\nidentity = 3\n",
         "[mcp_servers.docs.identity]\nurl = { match = \"regex\", expression = \"(\" }\n",
+        "[mcp_servers.docs.identity]\nurl = { match = \"regex\", expression = \"a)|(b\" }\n",
     ] {
         let folder = tempfile::tempdir().expect("a scratch folder is made");
         std::fs::write(folder.path().join("requirements.toml"), text)

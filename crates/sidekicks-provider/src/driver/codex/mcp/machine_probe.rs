@@ -1,8 +1,8 @@
 //! The machine probe: Codex starts the servers the daemon asks after in a throwaway conversation
-//! at each root, one root at a time, and reports how each started and which tools it lists. The
-//! conversation is ephemeral and lives on a connection of its own, so it unloads, and its servers
-//! stop, once that connection drops; it runs on the person's own Codex folder, on a service whose
-//! unload delay the daemon sets.
+//! at each place one is loaded, one place at a time, and reports how each started and which tools
+//! it lists. The conversation is ephemeral and lives on a connection of its own, so it unloads,
+//! and its servers stop, once that connection drops; it runs on the person's own Codex folder, on a
+//! service whose unload delay the daemon sets.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -16,13 +16,13 @@ use tokio::time::Instant;
 
 use crate::driver::codex::app_server_protocol::{AskForApproval, SandboxMode, ThreadStartParams};
 use crate::driver::codex::event_normalizer::CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD;
+use crate::driver::codex::mcp::config::attribution::{PLUGINS_DEFAULT_KEY, PLUGINS_KEY};
 use crate::driver::codex::mcp::config::plugins::CodexPluginServer;
 use crate::driver::codex::mcp::config::server_entry::ENABLED_MEMBER;
 use crate::driver::codex::mcp::config::{CodexMcpConfigReading, CodexMcpRoot};
 use crate::driver::codex::mcp::requirements::server_name_at;
 use crate::driver::codex::mcp::status_list::list_codex_mcp_server_statuses;
-use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
+use crate::driver::codex::service::supervisor::CodexService;
 use crate::driver::codex::session::detached_conversation::{
     CodexDetachedFrame, CodexDetachedFrames,
 };
@@ -50,13 +50,16 @@ const STARTUP_CEILING_MARGIN: Duration = Duration::from_secs(5);
 
 /// The servers one throwaway conversation starts, and the folder it starts in.
 pub(crate) struct CodexMcpProbeSite {
-    /// The folder: an attached root's, or the person's home folder when none is attached.
+    /// The folder: an attached root's, or the person's home folder.
     pub(crate) folder: PathBuf,
     /// The servers the probe reads.
     pub(crate) servers: Vec<CodexProbedServer>,
     /// The servers the person's config declares there that the probe does not read, switched off
     /// so they do not start.
     pub(crate) switched_off_names: Vec<McpServerName>,
+    /// The person's own plugins the config names, switched off with every other plugin so their
+    /// servers do not start.
+    pub(crate) switched_off_plugin_keys: Vec<String>,
 }
 
 /// One server the probe reads. It derives no `Debug`, since a sent entry holds credential values.
@@ -67,14 +70,9 @@ pub(crate) struct CodexProbedServer {
     pub(crate) start: CodexProbedServerStart,
     /// How long Codex gives it to start.
     pub(crate) startup_timeout: Duration,
-    /// Whether Codex's requirements keep it from starting, so no startup notice is waited for.
+    /// Whether Codex's requirements keep it from starting, so no startup notice is waited for and
+    /// an entry the probe would send is not sent.
     pub(crate) is_kept_out: bool,
-}
-
-impl CodexProbedServer {
-    fn server_name(&self) -> &McpServerName {
-        self.binding.server_name()
-    }
 }
 
 /// How the probe's conversation is told to start one server.
@@ -181,10 +179,12 @@ pub(crate) fn codex_probe_targets(
     targets
 }
 
-/// The conversations the probe of `targets` starts: one per attached root holding a target, or
-/// one at `home` when no root is attached. A project's or a root's own binding is probed at its
-/// root, every other at the first. A target at a root that is not attached, or a plugin's server
-/// no installed plugin declares, is logged and not probed.
+/// The conversations the probe of `targets` starts, each at a place one is loaded: a project's or
+/// a root's own binding at its root; any other at the first attached root that loads it, else at
+/// the person's home folder, where no attached root re-declares its name; a plugin's server, sent
+/// whole, at the first place. Each starts as that place's own merge has it: switched on by name
+/// where the merge there switches it off. A target no place loads, at a root that is not attached,
+/// or a plugin's server no installed plugin declares, is logged and not probed.
 pub(crate) fn plan_codex_mcp_probe(
     targets: &[McpProbeTarget],
     reading: &CodexMcpConfigReading,
@@ -192,7 +192,7 @@ pub(crate) fn plan_codex_mcp_probe(
     home: &Path,
     plugin_servers: &[CodexPluginServer],
 ) -> Vec<CodexMcpProbeSite> {
-    let places: Vec<(PathBuf, Option<&CodexMcpRoot>)> = if roots.is_empty() {
+    let mut places: Vec<(PathBuf, Option<&CodexMcpRoot>)> = if roots.is_empty() {
         vec![(home.to_path_buf(), None)]
     } else {
         roots
@@ -203,33 +203,25 @@ pub(crate) fn plan_codex_mcp_probe(
     let mut servers_by_place: Vec<Vec<CodexProbedServer>> =
         places.iter().map(|_| Vec::new()).collect();
     for target in targets {
-        let place_index = match &target.binding {
-            McpServerBindingRef::Project {
-                scope_ref, place, ..
-            }
-            | McpServerBindingRef::Local {
-                scope_ref, place, ..
-            } => places.iter().position(|(_, root)| {
-                root.is_some_and(|root| root.root.path == *scope_ref && root.root.place == *place)
-            }),
-            McpServerBindingRef::User { .. }
-            | McpServerBindingRef::Plugin { .. }
-            | McpServerBindingRef::Connector { .. }
-            | McpServerBindingRef::Managed { .. } => Some(0),
-        };
-        let Some(place_index) = place_index else {
-            tracing::warn!(
-                server = %target.binding.server_name().as_str(),
-                "a codex probe target's root is not attached; it is not probed"
-            );
+        let Some(place_index) = find_probe_place(target, reading, home, &mut places) else {
             continue;
         };
+        servers_by_place.resize_with(places.len(), Vec::new);
         let plugin_server = plugin_servers
             .iter()
             .find(|server| server.declaration.binding == target.binding);
+        let root = places[place_index].1;
         let start = match target.start {
-            McpProbeStart::LoadedByProvider => CodexProbedServerStart::LoadedByProvider,
-            McpProbeStart::SwitchedOnByName => CodexProbedServerStart::SwitchedOnByName,
+            McpProbeStart::LoadedByProvider | McpProbeStart::SwitchedOnByName => {
+                match find_loaded_switch(reading, root, &target.binding) {
+                    Some(true) => CodexProbedServerStart::LoadedByProvider,
+                    Some(false) => CodexProbedServerStart::SwitchedOnByName,
+                    None if target.start == McpProbeStart::SwitchedOnByName => {
+                        CodexProbedServerStart::SwitchedOnByName
+                    }
+                    None => CodexProbedServerStart::LoadedByProvider,
+                }
+            }
             McpProbeStart::DeclarationSent => {
                 let Some(plugin_server) = plugin_server else {
                     tracing::warn!(
@@ -241,18 +233,23 @@ pub(crate) fn plan_codex_mcp_probe(
                 CodexProbedServerStart::Sent(plugin_server.compose_codex_entry())
             }
         };
-        let name = target.binding.server_name();
+        let is_kept_out = match start {
+            // Codex judges a sent entry as its config's own, by the top-level list.
+            CodexProbedServerStart::Sent(_) => reading.refused_when_sent.contains(&target.binding),
+            CodexProbedServerStart::LoadedByProvider | CodexProbedServerStart::SwitchedOnByName => {
+                is_kept_out(reading, root, target.binding.server_name())
+            }
+        };
         let declared = plugin_server
             .map(|server| &server.declaration.config)
             .or_else(|| find_declared_config(reading, &target.binding));
-        let root = places[place_index].1;
         servers_by_place[place_index].push(CodexProbedServer {
             binding: target.binding.clone(),
             start,
             startup_timeout: declared
                 .and_then(read_startup_timeout)
                 .unwrap_or(CODEX_DEFAULT_STARTUP_TIMEOUT),
-            is_kept_out: is_kept_out(reading, root, name),
+            is_kept_out,
         });
     }
     places
@@ -269,7 +266,9 @@ pub(crate) fn plan_codex_mcp_probe(
                 else {
                     continue;
                 };
-                let is_probed = servers.iter().any(|server| server.server_name() == name);
+                let is_probed = servers
+                    .iter()
+                    .any(|server| server.binding.server_name() == name);
                 if !is_probed && !switched_off_names.contains(name) {
                     switched_off_names.push(name.clone());
                 }
@@ -278,32 +277,77 @@ pub(crate) fn plan_codex_mcp_probe(
                 folder,
                 servers,
                 switched_off_names,
+                switched_off_plugin_keys: reading.person_plugin_keys.clone(),
             }
         })
         .collect()
 }
 
-/// Probes each of `sites` in turn on the person's own Codex folder, each in a throwaway
-/// conversation on a connection of its own, dropped once its servers are read. Fails as the
-/// service there cannot be started or reached, or as Codex refuses a conversation or a read.
+// The index in `places` of the place `target` is probed at, the person's home folder added where
+// it is the one place left; `None`, logged, where no place loads it.
+fn find_probe_place<'roots>(
+    target: &McpProbeTarget,
+    reading: &CodexMcpConfigReading,
+    home: &Path,
+    places: &mut Vec<(PathBuf, Option<&'roots CodexMcpRoot>)>,
+) -> Option<usize> {
+    let binding = &target.binding;
+    let found = match binding {
+        McpServerBindingRef::Project {
+            scope_ref, place, ..
+        }
+        | McpServerBindingRef::Local {
+            scope_ref, place, ..
+        } => places.iter().position(|(_, root)| {
+            root.is_some_and(|root| root.root.path == *scope_ref && root.root.place == *place)
+        }),
+        McpServerBindingRef::Plugin { .. } | McpServerBindingRef::Connector { .. } => Some(0),
+        McpServerBindingRef::User { .. } | McpServerBindingRef::Managed { .. } => places
+            .iter()
+            .position(|(_, root)| {
+                let root = root.map(|root| &root.root);
+                reading
+                    .loaded_servers
+                    .iter()
+                    .any(|loaded| loaded.root.as_ref() == root && loaded.binding == *binding)
+            })
+            .or_else(|| {
+                // An administrator's declaration of the name loads over the person's everywhere.
+                let is_taken_by_administrator = reading.loaded_servers.iter().any(|loaded| {
+                    loaded.binding != *binding
+                        && loaded.binding.server_name() == binding.server_name()
+                        && matches!(loaded.binding, McpServerBindingRef::Managed { .. })
+                });
+                let has_home = places.iter().any(|(_, root)| root.is_none());
+                (!is_taken_by_administrator && !has_home).then(|| {
+                    places.push((home.to_path_buf(), None));
+                    places.len() - 1
+                })
+            }),
+    };
+    if found.is_none() {
+        tracing::warn!(
+            server = %binding.server_name().as_str(),
+            "no attached root or home folder loads a codex probe target; it is not probed"
+        );
+    }
+    found
+}
+
+/// Probes each of `sites` in turn on `service`, a probe's service on the person's own Codex
+/// folder, each in a throwaway conversation on a connection of its own, dropped once its servers
+/// are read. Fails as the service cannot be reached, or as Codex refuses a conversation or a read.
 pub(crate) async fn probe_codex_mcp_servers(
-    registry: &CodexServiceRegistry,
+    service: &CodexService,
     sites: &[CodexMcpProbeSite],
 ) -> Result<Vec<McpProbeReading>, CodexError> {
-    if sites.is_empty() {
-        return Ok(Vec::new());
+    let mut readings = Vec::new();
+    for site in sites {
+        let (events, frames) = CodexDetachedFrames::new();
+        let connection = service.open_detached_connection(events).await?;
+        readings.extend(probe_site(connection, frames, site).await?);
     }
-    registry
-        .read_on_personal_folder(PersonalFolderRead::Probe, |service| async move {
-            let mut readings = Vec::new();
-            for site in sites {
-                let (events, frames) = CodexDetachedFrames::new();
-                let connection = service.open_detached_connection(events).await?;
-                readings.extend(probe_site(connection, frames, site).await?);
-            }
-            Ok(readings)
-        })
-        .await
+    Ok(readings)
 }
 
 // Starts `site`'s conversation over `connection`, waits for its servers to start, reads each, and
@@ -330,15 +374,16 @@ async fn probe_site(
     let mut started = wait_for_startups(&mut frames, &thread_id, site).await;
     let mut readings = Vec::with_capacity(site.servers.len());
     for server in &site.servers {
-        let startup = started.remove(server.server_name().as_str());
+        let startup = started.remove(server.binding.server_name().as_str());
         readings.push(read_server(&connection, &thread_id, server, startup).await?);
     }
     Ok(readings)
 }
 
-// The conversation's config: every server it does not read switched off, and each it reads
-// switched on by name or sent whole. One object under the server table, since a name may hold a
-// dot.
+// The conversation's config: every server it does not read switched off, each it reads switched
+// on by name or sent whole, an entry the requirements refuse never sent, and every plugin of the
+// person's own switched off, by its key and by the default the rest take. One object under each
+// table, since a name may hold a dot.
 fn compose_probe_overrides(site: &CodexMcpProbeSite) -> Map<String, Value> {
     let mut servers: Map<String, Value> = site
         .switched_off_names
@@ -349,11 +394,19 @@ fn compose_probe_overrides(site: &CodexMcpProbeSite) -> Map<String, Value> {
         let entry = match &server.start {
             CodexProbedServerStart::LoadedByProvider => continue,
             CodexProbedServerStart::SwitchedOnByName => json!({ ENABLED_MEMBER: true }),
+            CodexProbedServerStart::Sent(_) if server.is_kept_out => continue,
             CodexProbedServerStart::Sent(entry) => Value::Object(entry.clone()),
         };
-        servers.insert(server.server_name().as_str().to_owned(), entry);
+        servers.insert(server.binding.server_name().as_str().to_owned(), entry);
     }
-    Map::from_iter([(MCP_SERVERS_KEY.to_owned(), Value::Object(servers))])
+    let plugins: Map<String, Value> = std::iter::once(PLUGINS_DEFAULT_KEY)
+        .chain(site.switched_off_plugin_keys.iter().map(String::as_str))
+        .map(|key| (key.to_owned(), json!({ ENABLED_MEMBER: false })))
+        .collect();
+    Map::from_iter([
+        (MCP_SERVERS_KEY.to_owned(), Value::Object(servers)),
+        (PLUGINS_KEY.to_owned(), Value::Object(plugins)),
+    ])
 }
 
 // The startup notice each server `site` waits for gave on `thread_id` once it settled, by name:
@@ -367,7 +420,7 @@ async fn wait_for_startups(
     let waited = site.servers.iter().filter(|server| !server.is_kept_out);
     let mut pending: Vec<&str> = waited
         .clone()
-        .map(|server| server.server_name().as_str())
+        .map(|server| server.binding.server_name().as_str())
         .collect();
     let mut settled = HashMap::new();
     let Some(longest) = waited.map(|server| server.startup_timeout).max() else {
@@ -404,15 +457,24 @@ async fn wait_for_startups(
     settled
 }
 
-// `server`'s reading: its startup notice's where it settled, else its status list's, with the
-// tools the list names. Fails as the list request fails.
+// `server`'s reading: switched off, with nothing asked, for an entry the requirements refuse and
+// the probe did not send; else its startup notice's where it settled, else its status list's,
+// with the tools the list names. Fails as the list request fails.
 async fn read_server(
     connection: &CodexAppServerConnection,
     thread_id: &str,
     server: &CodexProbedServer,
     startup: Option<McpServerStatusEmission>,
 ) -> Result<McpProbeReading, CodexError> {
-    let name = server.server_name();
+    if server.is_kept_out && matches!(server.start, CodexProbedServerStart::Sent(_)) {
+        return Ok(McpProbeReading {
+            binding: server.binding.clone(),
+            reading: McpServerReading::SwitchedOff,
+            failure_text: None,
+            tool_names: Vec::new(),
+        });
+    }
+    let name = server.binding.server_name();
     let listed = list_codex_mcp_server_statuses(connection, thread_id, Some(name.as_str()))
         .await?
         .into_iter()
@@ -447,6 +509,21 @@ fn log_rejections(result: &McpServerStatusIngestResult) {
             "a codex mcp server status from the probe was refused"
         );
     }
+}
+
+// Whether the merge at `root`, or at the person's home folder where `root` is `None`, switches
+// `binding` on, where that place's read found it loaded there.
+fn find_loaded_switch(
+    reading: &CodexMcpConfigReading,
+    root: Option<&CodexMcpRoot>,
+    binding: &McpServerBindingRef,
+) -> Option<bool> {
+    let root = root.map(|root| &root.root);
+    reading
+        .loaded_servers
+        .iter()
+        .find(|loaded| loaded.root.as_ref() == root && loaded.binding == *binding)
+        .map(|loaded| loaded.is_switched_on)
 }
 
 // The declaration `binding` reads its config from: its own, or for a root's own binding the
