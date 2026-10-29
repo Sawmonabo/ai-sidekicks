@@ -1,7 +1,8 @@
 //! A run's execution posture from its request to its `agent.run.running` stamp, the posture each
 //! level runs at, and the one curated credential deny list every provider process is handed. The
 //! posture is checked and its writable roots resolved before the provider starts the run; a posture
-//! that fails a check refuses the run and is never rewritten into one that passes.
+//! that fails a check refuses the run and is never rewritten into one that passes. A session whose
+//! level moves carries its live runs, and every run its gate passes after, to the moved posture.
 
 use std::collections::HashMap;
 use std::io;
@@ -13,6 +14,7 @@ use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::provider::driver::capabilities::{CredentialPolicyRef, ExecutionPosture};
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::controls::methods::PermissionLevel;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::list::BoundedVec;
 use sidekicks_std::file::real_location::resolve_real_path;
 use sidekicks_std::mutex_lock::lock;
@@ -94,7 +96,7 @@ pub(crate) struct ResolvedCredentialPolicy {
 
 /// Why a posture was refused; the run it belongs to is refused, never started on a rewrite.
 #[derive(Debug, thiserror::Error)]
-pub(crate) enum ExecutionPostureRejection {
+pub enum ExecutionPostureRejection {
     /// The posture names a credential list other than the daemon's curated one.
     #[error(
         "the posture names credential policy '{credential_policy_ref}', which is not the daemon's \
@@ -139,12 +141,28 @@ pub(crate) enum CredentialPolicyResolveError {
 }
 
 /// Checks and resolves every run's posture as a run setup gate, keeps the resolved posture for the
-/// run's `agent.run.running` stamp until the run ends, and resolves the curated credential list.
+/// run's `agent.run.running` stamp until the run ends, follows a session's level move onto its
+/// runs, and resolves the curated credential list.
 pub struct ExecutionPostureService {
     // The curated list's entries, each path expanded against the home folder.
     deny_entries: [CredentialDenyPath; 3],
+    // The runs' and the moved sessions' postures, under one lock so a move and a gate's insert
+    // never interleave.
+    postures: Mutex<ResolvedPostures>,
+}
+
+// Whole entries only, so a panic elsewhere leaves nothing half written.
+#[derive(Default)]
+struct ResolvedPostures {
     // One entry per run past its gate and not yet ended.
-    resolved_by_run: Mutex<HashMap<RunId, ExecutionPosture>>,
+    by_run: HashMap<RunId, LiveRunPosture>,
+    // One entry per session whose level moved while it was open, until the session is forgotten.
+    moved_by_session: HashMap<SessionId, ExecutionPosture>,
+}
+
+struct LiveRunPosture {
+    session_id: SessionId,
+    posture: ExecutionPosture,
 }
 
 impl ExecutionPostureService {
@@ -167,7 +185,7 @@ impl ExecutionPostureService {
                     kind: CredentialDenyPathKind::File,
                 },
             ],
-            resolved_by_run: Mutex::new(HashMap::new()),
+            postures: Mutex::default(),
         }
     }
 
@@ -192,27 +210,62 @@ impl ExecutionPostureService {
     /// run; the run engine hands it to the driver and stamps it on `agent.run.running`, and a start
     /// that finds `None` ends its run `failed`.
     pub fn resolved_posture_for(&self, run_id: &RunId) -> Option<ExecutionPosture> {
-        self.resolved_postures().get(run_id).cloned()
+        self.postures()
+            .by_run
+            .get(run_id)
+            .map(|live| live.posture.clone())
     }
 
-    // The map holds whole entries only, so a panic elsewhere leaves nothing half written.
-    fn resolved_postures(&self) -> MutexGuard<'_, HashMap<RunId, ExecutionPosture>> {
-        lock(&self.resolved_by_run)
+    /// Moves `session_id` to `resolved`, a posture [`resolve_posture`] already resolved: every live
+    /// run of the session runs at it from now, and so does every run of the session whose gate
+    /// passes before [`Self::forget_session`], whatever posture that run was requested at.
+    pub fn move_session(&self, session_id: &SessionId, resolved: ExecutionPosture) {
+        let mut postures = self.postures();
+        for live in postures.by_run.values_mut() {
+            if live.session_id == *session_id {
+                live.posture = resolved.clone();
+            }
+        }
+        postures.moved_by_session.insert(*session_id, resolved);
+    }
+
+    /// Drops the session's moved posture once the session is no longer open, or its next process
+    /// opens at the stored level; its later runs run at the posture they were requested at.
+    pub fn forget_session(&self, session_id: &SessionId) {
+        self.postures().moved_by_session.remove(session_id);
+    }
+
+    fn postures(&self) -> MutexGuard<'_, ResolvedPostures> {
+        lock(&self.postures)
     }
 }
 
 impl RunSetupGate for ExecutionPostureService {
-    /// Resolves the posture the run was requested with and keeps it for `resolved_posture_for`; a
-    /// rejection fails the gate, which ends the run `failed` before its provider starts it.
+    /// Resolves the posture the run was requested with and keeps it for `resolved_posture_for`, or
+    /// keeps its session's moved posture instead where the session's level moved; a rejection fails
+    /// the gate, which ends the run `failed` before its provider starts it.
     fn assert_run_ready<'a>(
         &'a self,
         context: &'a RunSetupContext,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
         Box::pin(async move {
-            let posture = resolve_posture(&context.execution_posture)
+            let requested = resolve_posture(&context.execution_posture)
                 .await
                 .map_err(|rejection| RunSetupGateError::Failed(Box::new(rejection)))?;
-            self.resolved_postures().insert(context.run_id, posture);
+            // Read under the insert's lock, so a move that landed while the roots resolved wins.
+            let mut postures = self.postures();
+            let posture = postures
+                .moved_by_session
+                .get(&context.session_id)
+                .cloned()
+                .unwrap_or(requested);
+            postures.by_run.insert(
+                context.run_id,
+                LiveRunPosture {
+                    session_id: context.session_id,
+                    posture,
+                },
+            );
             Ok(())
         })
     }
@@ -223,15 +276,16 @@ impl RunSetupGate for ExecutionPostureService {
         context: &'a RunTerminalContext,
         _hold: Option<&'a SessionAppendHold>,
     ) -> BoxFuture<'a, Result<(), RunSetupGateError>> {
-        self.resolved_postures().remove(&context.run_id);
+        self.postures().by_run.remove(&context.run_id);
         Box::pin(std::future::ready(Ok(())))
     }
 }
 
-// The posture with every writable root resolved to its canonical path; a reference to any list
-// but the curated one, or a root that is relative or does not resolve, is refused. A read-only or
-// YOLO posture carries no roots by its type.
-async fn resolve_posture(
+/// The posture with every writable root resolved to its canonical path, as a run's gate and a
+/// session's level move resolve it; a reference to any list but the curated one, or a root that is
+/// relative or does not resolve, is refused. A read-only or YOLO posture carries no roots by its
+/// type.
+pub async fn resolve_posture(
     posture: &ExecutionPosture,
 ) -> Result<ExecutionPosture, ExecutionPostureRejection> {
     require_curated_policy_ref(posture.credential_policy_ref().as_str())?;
@@ -329,6 +383,10 @@ async fn canonical_deny_path(
 
 #[cfg(test)]
 mod tests {
+    use std::pin::pin;
+
+    use sidekicks_contracts::run::state::RunState;
+    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_platforms::real_path;
 
     use super::*;
@@ -443,5 +501,126 @@ mod tests {
                 ExecutionPostureRejection::UnknownCredentialPolicy { .. }
             )
         ));
+    }
+
+    fn session_id() -> SessionId {
+        SessionId::try_from(mint_uuid_v7()).expect("a minted UUID is a session id")
+    }
+
+    fn run_context(session_id: SessionId, execution_posture: ExecutionPosture) -> RunSetupContext {
+        RunSetupContext {
+            run_id: RunId::try_from(mint_uuid_v7()).expect("a minted UUID is a run id"),
+            session_id,
+            queue_item: None,
+            workspace_id: None,
+            execution_posture,
+        }
+    }
+
+    fn ended(context: &RunSetupContext) -> RunTerminalContext {
+        RunTerminalContext {
+            run_id: context.run_id,
+            session_id: context.session_id,
+            terminal_state: RunState::Completed,
+            run_version: 1,
+        }
+    }
+
+    async fn pass_gate(service: &ExecutionPostureService, context: &RunSetupContext) {
+        service
+            .assert_run_ready(context)
+            .await
+            .expect("the run's posture resolves");
+    }
+
+    fn readonly() -> ExecutionPosture {
+        compose_execution_posture(
+            PermissionLevel::Readonly,
+            FilesystemPath::new("/unused".to_owned()).expect("a valid path"),
+        )
+    }
+
+    // A session's level move, resolved as the move resolves it, onto a real Sandboxed root.
+    async fn moved_sandboxed(git_folder: &Path) -> ExecutionPosture {
+        resolve_posture(&compose_execution_posture(
+            PermissionLevel::Sandboxed,
+            filesystem_path(git_folder),
+        ))
+        .await
+        .expect("the Sandboxed root resolves")
+    }
+
+    #[tokio::test]
+    async fn a_run_read_before_its_session_moved_runs_at_the_moved_posture() {
+        let home = tempfile::tempdir().expect("a scratch home");
+        let service = ExecutionPostureService::new(home.path(), home.path().join("daemon.token"));
+        let session = session_id();
+        let sandboxed = moved_sandboxed(home.path()).await;
+        let yolo = compose_execution_posture(PermissionLevel::Yolo, filesystem_path(home.path()));
+
+        let live = run_context(session, readonly());
+        pass_gate(&service, &live).await;
+        service.move_session(&session, sandboxed.clone());
+        assert_eq!(service.resolved_posture_for(&live.run_id), Some(sandboxed));
+
+        // Admitted at the old level, its gate after the move.
+        let after = run_context(session, readonly());
+        pass_gate(&service, &after).await;
+
+        // Its gate resolving a root on another thread while the session moves again.
+        let across = run_context(
+            session,
+            ask_posture(CURATED_CREDENTIAL_POLICY_REF, filesystem_path(home.path())),
+        );
+        let mut gate = pin!(service.assert_run_ready(&across));
+        assert!(
+            futures::poll!(gate.as_mut()).is_pending(),
+            "the root resolves on another thread, so the gate waits"
+        );
+        service.move_session(&session, yolo.clone());
+        gate.await.expect("the run's posture resolves");
+
+        for run in [&live, &after, &across] {
+            assert_eq!(
+                service.resolved_posture_for(&run.run_id),
+                Some(yolo.clone())
+            );
+        }
+
+        // The session's runs all end; the session is still open at the moved level.
+        for run in [&live, &after, &across] {
+            service
+                .on_run_terminal(&ended(run), None)
+                .await
+                .expect("the run's posture is released");
+        }
+        let next = run_context(session, readonly());
+        pass_gate(&service, &next).await;
+        assert_eq!(service.resolved_posture_for(&next.run_id), Some(yolo));
+
+        service.forget_session(&session);
+        let reopened = run_context(session, readonly());
+        pass_gate(&service, &reopened).await;
+        assert_eq!(
+            service.resolved_posture_for(&reopened.run_id),
+            Some(readonly())
+        );
+    }
+
+    #[tokio::test]
+    async fn a_run_of_another_session_keeps_its_own_posture() {
+        let home = tempfile::tempdir().expect("a scratch home");
+        let service = ExecutionPostureService::new(home.path(), home.path().join("daemon.token"));
+        let (moved, other) = (session_id(), session_id());
+
+        let live = run_context(other, readonly());
+        pass_gate(&service, &live).await;
+        service.move_session(&moved, moved_sandboxed(home.path()).await);
+        let after = run_context(other, readonly());
+        pass_gate(&service, &after).await;
+
+        for run in [&live, &after] {
+            assert_eq!(service.resolved_posture_for(&run.run_id), Some(readonly()));
+        }
     }
 }
