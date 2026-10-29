@@ -29,6 +29,7 @@ use sidekicks_std::port_registration::PortRegistration;
 
 use crate::command::running_set::RunningCommandSets;
 use crate::compaction_wait::PendingCompactionRegistry;
+use crate::driver::ProviderAccountReader;
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::delivery::rows::{CodexRowDelivery, CodexRowRun};
 use crate::driver::codex::delivery::turn_readings::deliver_codex_plan_update;
@@ -93,6 +94,8 @@ pub(crate) struct CodexFrameDeliveryDependencies {
     pub(crate) limit_stopped_helpers: Arc<CodexLimitStoppedHelpers>,
     /// What the rest of the driver does for a frame.
     pub(crate) effects: Arc<dyn CodexFrameEffects>,
+    /// The accounts, whose credential generation a spent allowance is filed under.
+    pub(crate) provider_accounts: Arc<PortRegistration<Arc<dyn ProviderAccountReader>>>,
 }
 
 /// One of the person's messages Codex took into a turn, by the id it was sent under.

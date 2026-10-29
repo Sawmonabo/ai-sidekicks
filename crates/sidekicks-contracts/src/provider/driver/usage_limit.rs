@@ -1,12 +1,14 @@
 //! The usage-limit signal and the spent-retries signal a driver hands over with a turn's end, which
 //! a failed run's cause carries. A driver sends a usage-limit signal only when a structured event
 //! its provider sends says the allowance is spent; prose, an exit code or a bare HTTP status never
-//! count, and an unrecognized shape sends nothing.
+//! count, and an unrecognized shape sends nothing. A usage-limit signal names the account and
+//! credential generation it was reached on, which its consumers key on.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use strum::VariantArray;
 
+use crate::provider::account::record::{CredentialGeneration, ProviderAccountId};
 use crate::typescript::{Definition, TypeScriptModule, ts_constants};
 use crate::wire::instant::WireInstant;
 
@@ -36,14 +38,22 @@ pub struct ProviderUsageLimitResetBoundary {
     pub resets_at: WireInstant,
 }
 
-/// A recognized usage-limit refusal. A missing boundary means no reset instant was seen, so no
-/// resume is scheduled; it does not mean the provider publishes none.
+/// A recognized usage-limit refusal, on the account and credential generation of the conversation
+/// that met it. A missing boundary means no reset instant was seen, so no resume is scheduled; it
+/// does not mean the provider publishes none.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, garde::Validate)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ProviderUsageLimitSignal {
     /// Why the provider refused.
     #[garde(skip)]
     pub cause: ProviderUsageLimitCause,
+    /// The account whose allowance is spent: the one the conversation ran on.
+    #[garde(skip)]
+    pub provider_account_id: ProviderAccountId,
+    /// The account's credential generation when the limit was met, so a signal from before a
+    /// sign-in again reads as stale.
+    #[garde(skip)]
+    pub credential_generation: CredentialGeneration,
     /// When the spent window resets, where the provider named it.
     #[serde(
         default,

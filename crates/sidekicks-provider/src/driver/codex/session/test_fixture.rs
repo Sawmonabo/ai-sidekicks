@@ -179,6 +179,7 @@ impl TestCodexSession {
             pending_compactions: pending_compactions.clone(),
             limit_stopped_helpers: Arc::new(CodexLimitStoppedHelpers::new(TaskTracker::new())),
             effects: Arc::new(NoEffects),
+            provider_accounts: Arc::new(PortRegistration::new("provider accounts")),
         }));
         let session_id = new_session_id();
         let lead_agent_id =

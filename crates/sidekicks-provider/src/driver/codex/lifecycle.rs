@@ -309,6 +309,7 @@ impl CodexDriver {
             pending_compactions: self.pending_compactions.clone(),
             limit_stopped_helpers: Arc::clone(&self.limit_stopped_helpers),
             effects,
+            provider_accounts: Arc::clone(&ports.provider_accounts),
         }));
         let hand_off = Arc::new(CodexAskHandOff::new(CodexAskHandOffDependencies {
             delivery: Arc::clone(&delivery),
