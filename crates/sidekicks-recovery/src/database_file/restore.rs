@@ -7,19 +7,24 @@
 //! all before it replaces anything. It then replaces the store, its log, its shared memory and its
 //! search index removed, brings each place the mirror keeps level with its copy, and records
 //! `daemon.backup.restored` in the restored store through the one writer before any service opens
-//! it. A restore that fails names its step and leaves what it had not reached as it was.
+//! it. A restore that fails names its step and leaves what it had not reached as it was. The mode
+//! answers the command line with one JSON object on its standard output.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io::{self, Read as _};
+use std::io::{self, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use sidekicks_contracts::daemon::backup::{BACKUP_DATABASE_FILE_NAME, DaemonBackupRestoredPayload};
+use sidekicks_contracts::daemon::mode_outcome::DaemonModeOutcome;
 use sidekicks_contracts::event::envelope::{DAEMON_SCOPE_SENTINEL_SESSION_ID, EventOccurredAt};
 use sidekicks_contracts::event::session::SessionEvent;
+use sidekicks_contracts::jsonrpc::refusal::RefusalCode;
 use sidekicks_contracts::release_manifest::ReleaseVersion;
+use sidekicks_contracts::wire::AnyValue;
 use sidekicks_platforms::{create_private_folder, flush_folder, remove_tree, rename_replacing};
 use sidekicks_std::error_description::describe_error;
 use sidekicks_std::missing_entry::MissingEntry as _;
@@ -29,7 +34,7 @@ use sidekicks_store::backup_mirror::{
     probe_time_precision,
 };
 use sidekicks_store::data_folder::data_folder;
-use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError};
+use sidekicks_store::data_folder::lock::{DataFolderLock, DataFolderLockError, HeldDataFolder};
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::connection::writer_open::{
     DAEMON_DATABASE_FILE_NAME, SEARCH_INDEX_FOLDER_NAME, open_database,
@@ -83,7 +88,10 @@ pub(crate) enum RestoreError {
         source: io::Error,
     },
     /// The data folder is held, by a running service among others.
-    #[error("the service's data folder could not be taken; stop the service first")]
+    #[error(transparent)]
+    Held(HeldDataFolder),
+    /// The data folder's lock file could not be locked, or the process id not recorded beside it.
+    #[error("the service's data folder could not be taken")]
     Lock(#[source] DataFolderLockError),
     /// The backup's manifest is missing or does not read.
     #[error("{} holds no backup whose manifest reads", backup.display())]
@@ -155,24 +163,60 @@ pub(crate) enum RestoreError {
 }
 
 /// Runs the `database restore` mode on the argument after the mode's own, the backup's folder,
-/// with `schema` the daemon's and `service_version` this build's. Exits 0 once the restore is
-/// recorded, 1 with its step on standard error when it fails.
+/// with `schema` the daemon's and `service_version` this build's. Writes its outcome on standard
+/// output and exits 0 once the restore is recorded; exits 1 with `daemon.dataFolder.held` while
+/// the data folder is held, an internal error naming the failed step otherwise, or, when the
+/// outcome cannot be written, that failure on standard error.
 pub fn run_database_restore(
     arguments: &[OsString],
     schema: &DatabaseSchema,
     service_version: &ReleaseVersion,
 ) -> ExitCode {
-    let [backup_folder] = arguments else {
-        write_error_line("the restore is started with the backup's folder");
-        return ExitCode::FAILURE;
-    };
-    match restore_from_home(Path::new(backup_folder), schema, service_version) {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(failure) => {
-            write_error_line(&format!("the restore failed: {}", describe_error(&failure)));
-            ExitCode::FAILURE
+    let outcome = match arguments {
+        [backup_folder] => {
+            match restore_from_home(Path::new(backup_folder), schema, service_version) {
+                Ok(()) => DaemonModeOutcome::Result(()),
+                Err(RestoreError::Held(held)) => held_refusal(&held),
+                Err(failure) => DaemonModeOutcome::failed(format!(
+                    "the restore failed: {}",
+                    describe_error(&failure)
+                )),
+            }
         }
+        _ => {
+            DaemonModeOutcome::failed("the restore is started with the backup's folder".to_owned())
+        }
+    };
+    let exit_code = match outcome {
+        DaemonModeOutcome::Result(()) => ExitCode::SUCCESS,
+        DaemonModeOutcome::Error(_) => ExitCode::FAILURE,
+    };
+    if let Err(failure) = write_outcome(&outcome) {
+        write_error_line(&format!(
+            "the restore's outcome could not be written: {}",
+            describe_error(&failure)
+        ));
+        return ExitCode::FAILURE;
     }
+    exit_code
+}
+
+// The refusal a held data folder answers, naming the holder's process id when its record read.
+fn held_refusal(held: &HeldDataFolder) -> DaemonModeOutcome<()> {
+    let fields: BTreeMap<String, AnyValue> = held
+        .process_id
+        .map(|process_id| ("processId".to_owned(), AnyValue(process_id.into())))
+        .into_iter()
+        .collect();
+    DaemonModeOutcome::refused(RefusalCode::DaemonDataFolderHeld, held.to_string(), fields)
+}
+
+// Writes `outcome` as one line of JSON on standard output.
+fn write_outcome(outcome: &DaemonModeOutcome<()>) -> io::Result<()> {
+    let mut standard_output = io::stdout().lock();
+    serde_json::to_writer(&mut standard_output, outcome)?;
+    writeln!(standard_output)?;
+    standard_output.flush()
 }
 
 // The mode's own start: the home folder, handed to the restore with the daemon's schema and this
@@ -197,7 +241,7 @@ fn restore_from_home(
 
 /// Restores the backup in `backup_folder` into the service of the home folder `home`, as the
 /// mode's doc says, `schema` the daemon's and `service_version` this build's. Fails with the step
-/// that failed; before anything is replaced with [`RestoreError::Lock`] while a service holds the
+/// that failed; before anything is replaced with [`RestoreError::Held`] while a service holds the
 /// data folder, [`RestoreError::OtherBuild`] naming both schemas and both service versions, and
 /// [`RestoreError::Place`] for a kept place that cannot be written.
 pub(crate) async fn restore_backup(
@@ -213,7 +257,12 @@ pub(crate) async fn restore_backup(
             path: locked_folder.clone(),
             source,
         })?;
-        DataFolderLock::take(&locked_folder).map_err(RestoreError::Lock)
+        DataFolderLock::take(&locked_folder).map_err(|failure| match failure {
+            DataFolderLockError::Held(held) => RestoreError::Held(held),
+            DataFolderLockError::Lock { .. } | DataFolderLockError::RecordProcessId { .. } => {
+                RestoreError::Lock(failure)
+            }
+        })
     })
     .await
     .map_err(|failure| RestoreError::Runtime(io::Error::other(failure)))??;
@@ -547,7 +596,7 @@ mod tests {
         fs::write(index.join("segment"), b"rows of the store before").expect("written");
         let held = DataFolderLock::take(&data_folder).expect("the test holds the data folder");
         let refused = restore_backup(&home, &this_build, &schema, &service_version).await;
-        assert!(matches!(refused, Err(RestoreError::Lock(_))));
+        assert!(matches!(refused, Err(RestoreError::Held(_))));
         drop(held);
         fs::write(home.join("blocked"), b"a file where a folder goes").expect("written");
         write_mirror_list(
