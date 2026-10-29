@@ -10,6 +10,7 @@ mod commands;
 mod confirmation;
 mod connected_command;
 mod exit_codes;
+mod local_time;
 mod program;
 
 use std::io;

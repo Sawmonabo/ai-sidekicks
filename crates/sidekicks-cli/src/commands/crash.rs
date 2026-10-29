@@ -5,18 +5,14 @@
 
 use std::io::Write;
 
-use anyhow::Context as _;
 use clap::Subcommand;
-use icu_locale_core::preferences::extensions::unicode::keywords::HourCycle;
-use jiff::Zoned;
-use jiff::tz::TimeZone;
 use sidekicks_contracts::daemon::status::{CrashReport, DaemonCrashReportList};
 use sidekicks_contracts::method_descriptor::EmptyPayload;
-use sidekicks_platforms::system_hour_cycle;
 
 use crate::command_context::CommandContext;
 use crate::connected_command::run_connected;
 use crate::exit_codes::ExitCode;
+use crate::local_time::LocalClock;
 
 /// The `crash` commands.
 #[derive(Debug, Subcommand)]
@@ -39,8 +35,7 @@ pub(crate) fn run_crash_command<Output: Write, ErrorOutput: Write>(
 fn list_crash_reports<Output: Write, ErrorOutput: Write>(
     context: &mut CommandContext<Output, ErrorOutput>,
 ) -> anyhow::Result<ExitCode> {
-    let time_zone = TimeZone::try_system().context("could not read this computer's time zone")?;
-    let hour_cycle = system_hour_cycle().context("could not read how this computer shows times")?;
+    let clock = LocalClock::read()?;
     let response = run_connected(async |connection, cancel| {
         Ok(connection
             .client()
@@ -51,7 +46,7 @@ fn list_crash_reports<Output: Write, ErrorOutput: Write>(
     let text = response
         .reports
         .iter()
-        .map(|report| describe_crash_report(report, &time_zone, hour_cycle))
+        .map(|report| describe_crash_report(report, &clock))
         .collect::<Vec<_>>()
         .join("\n");
     context.stdout.write_all(text.as_bytes())?;
@@ -59,16 +54,9 @@ fn list_crash_reports<Output: Write, ErrorOutput: Write>(
     Ok(ExitCode::Success)
 }
 
-/// `report`'s lines, each ended by a newline, its time in `time_zone` and `hour_cycle`.
-fn describe_crash_report(
-    report: &CrashReport,
-    time_zone: &TimeZone,
-    hour_cycle: HourCycle,
-) -> String {
-    let crashed_at = report.crashed_at.timestamp().map_or_else(
-        || report.crashed_at.as_str().to_owned(),
-        |instant| clock_time(&instant.to_zoned(time_zone.clone()), hour_cycle),
-    );
+/// `report`'s lines, each ended by a newline, its time on the person's `clock`.
+fn describe_crash_report(report: &CrashReport, clock: &LocalClock) -> String {
+    let crashed_at = clock.date_and_time(&report.crashed_at);
     let mut lines = vec![
         format!("{crashed_at}  {}", report.process_type.as_str()),
         format!(
@@ -93,20 +81,4 @@ fn describe_crash_report(
             .map(|frame| format!("  {}+{:#x}", frame.module.as_str(), frame.offset.get())),
     );
     lines.into_iter().map(|line| line + "\n").collect()
-}
-
-/// `zoned` as its date and its time of day on the person's clock: `14:05` on a 24-hour clock,
-/// `2:05 PM` on a 12-hour one, `0:05 PM` on the one that counts from 0 to 11.
-fn clock_time(zoned: &Zoned, hour_cycle: HourCycle) -> String {
-    let (date, hour, minute) = (zoned.date(), zoned.hour(), zoned.minute());
-    if hour_cycle == HourCycle::H23 || hour_cycle == HourCycle::Clock24 {
-        return format!("{date} {hour:02}:{minute:02}");
-    }
-    let period = if hour < 12 { "AM" } else { "PM" };
-    let shown_hour = if hour_cycle == HourCycle::H11 {
-        hour % 12
-    } else {
-        (hour + 11) % 12 + 1
-    };
-    format!("{date} {shown_hour}:{minute:02} {period}")
 }

@@ -22,6 +22,7 @@ use sidekicks_platforms::{LocaleCategory, end_as_ctrl_c, system_locale};
 
 use crate::command_context::CommandContext;
 use crate::commands::crash::{CrashCommand, run_crash_command};
+use crate::commands::daemon::{DaemonCommand, run_daemon_command};
 use crate::exit_codes::{ExitCode, ProcessEnding, exit_code_for_failure};
 
 /// The program's arguments; each command joins [`Command`].
@@ -44,6 +45,9 @@ enum Command {
     /// Read the crash reports this computer keeps.
     #[command(subcommand)]
     Crash(CrashCommand),
+    /// Read and drive the background service.
+    #[command(subcommand)]
+    Daemon(DaemonCommand),
 }
 
 /// Runs the program over `args` (the program's name first) and answers how the process ends. Help
@@ -78,6 +82,7 @@ fn run_command<Output: Write, ErrorOutput: Write>(
 ) -> anyhow::Result<ExitCode> {
     match command {
         Command::Crash(command) => run_crash_command(&command, context),
+        Command::Daemon(command) => run_daemon_command(&command, context),
     }
 }
 

@@ -31,11 +31,14 @@ anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 fast_qr.workspace = true
+garde.workspace = true
 icu_decimal.workspace = true
 icu_locale_core.workspace = true
 jiff.workspace = true
 rpassword.workspace = true
 secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 sidekicks-client.workspace = true
 sidekicks-contracts.workspace = true
 sidekicks-platforms.workspace = true
@@ -44,8 +47,8 @@ tokio.workspace = true
 tokio-util.workspace = true
 
 [dev-dependencies]
+insta.workspace = true
 rstest.workspace = true
-serde_json.workspace = true
 
 [lints]
 workspace = true

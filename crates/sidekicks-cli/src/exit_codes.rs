@@ -1,6 +1,6 @@
-//! The exit codes the command line returns, BSD `sysexits.h` codes plus the status a shell reports
-//! for a program a closed pipe ended, how a run ends, and the one mapping from a run's failure to
-//! its ending.
+//! The exit codes the command line returns, BSD `sysexits.h` codes plus the code for a negative
+//! state a command read and the status a shell reports for a program a closed pipe ended, how a run
+//! ends, and the one mapping from a run's failure to its ending.
 
 use std::io;
 
@@ -15,6 +15,9 @@ use crate::confirmation::ConfirmationUnavailableError;
 pub(crate) enum ExitCode {
     /// The command did what it was asked.
     Success,
+    /// The command read a negative state and reported it: the background service serves with a
+    /// fault. Not a `sysexits.h` code, since nothing failed.
+    Unhealthy,
     /// `EX_USAGE`: the command was invoked or called incorrectly.
     Usage,
     /// `EX_DATAERR`: the input data was malformed.
@@ -42,6 +45,7 @@ impl ExitCode {
     pub(crate) const fn code(self) -> u8 {
         match self {
             Self::Success => 0,
+            Self::Unhealthy => 1,
             Self::Usage => 64,
             Self::DataError => 65,
             Self::NoInput => 66,
