@@ -5,11 +5,13 @@
 //! and ended, a tool server's startup on the session's own conversation reported to its status
 //! sink, and every frame the router keeps handed to the frame delivery.
 
+use std::collections::{HashMap, HashSet};
+
 use serde::Deserialize;
 use serde_json::value::RawValue;
 use serde_json::{Map, Value};
 use sidekicks_contracts::context_window::ContextWindowSource;
-use sidekicks_contracts::mcp::server::McpServerStatus;
+use sidekicks_contracts::mcp::server::{McpServerName, McpServerStatus};
 use tokio::time::Instant;
 
 use crate::compaction_wait::PendingCompactionRegistry;
@@ -35,6 +37,25 @@ use crate::driver::diagnostics::{
     DriverDiagnosticKind, DriverDiagnosticRecord, emit_driver_diagnostic,
 };
 use crate::driver::mcp_server::status::{McpServerReading, McpServerStatusProducer};
+
+/// What the tool servers' startups on a session's conversation said: the round that is starting,
+/// armed by its first `starting` and listed once every server it saw start has settled, and each
+/// server's newest startup reading, which a list leaves as it is.
+#[derive(Default)]
+pub(crate) struct CodexMcpServerStartups {
+    // The servers of the open round still starting; `None` between rounds.
+    round: Option<HashSet<McpServerName>>,
+    // Each server's newest startup reading and its text.
+    readings: HashMap<McpServerName, (McpServerReading, Option<String>)>,
+}
+
+impl CodexMcpServerStartups {
+    /// Whether no startup was heard since the conversation was bound.
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.round.is_none() && self.readings.is_empty()
+    }
+}
 use crate::terminal_emission_gate::TerminalEmissionGate;
 use crate::thread_frame_router::{
     ChildRegistrationResult, ChildSpendAttribution, RoutableProviderFrame, ThreadFrameFamilyClass,
@@ -158,6 +179,8 @@ impl CodexSessionRouting {
     ) -> CodexRoutedFrames {
         self.accountant
             .establish_thread(thread_id.clone(), establishment);
+        // A new or resumed conversation reports its servers' startups afresh.
+        record.mcp_server_startups = CodexMcpServerStartups::default();
         let released = self.router.register_session_thread(thread_id);
         let mut routed = CodexRoutedFrames::default();
         for frame in released {
@@ -277,7 +300,7 @@ impl CodexSessionRouting {
             }
         }
         let frame = CodexRoutableFrame::read(method, params);
-        report_mcp_server_startup(record, &frame);
+        report_mcp_server_startup(record, &frame).await;
         self.route_frame(delivery, record, &frame, &mut routed)
             .await;
         routed
@@ -453,9 +476,9 @@ impl CodexSessionRouting {
 // Hands a tool server's startup on the session's own conversation to the status sink of the leg
 // it runs on, a row that breaks the reader's bound reported. A helper's conversation has no sink
 // of its own and one the session moved off is no longer its leg's, so their startups go nowhere.
-// Once a startup settles with no server of the conversation still starting, the leg lists its
-// servers with their tools, which a startup never names.
-fn report_mcp_server_startup(record: &mut CodexSessionRecord, frame: &CodexRoutableFrame) {
+// Once the last server of a startup round settles, the leg lists its servers with their tools,
+// which a startup never names, on the session's task, so no list lands after a later startup.
+async fn report_mcp_server_startup(record: &mut CodexSessionRecord, frame: &CodexRoutableFrame) {
     if frame.method != CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD
         || frame.thread_id.as_deref() != Some(record.thread_id.as_str())
     {
@@ -467,18 +490,24 @@ fn report_mcp_server_startup(record: &mut CodexSessionRecord, frame: &CodexRouta
     // Params that are not JSON read as none, which the reader refuses as not an object.
     let notification: Value = serde_json::from_str(frame.params.get()).unwrap_or_default();
     let read = normalize_codex_mcp_server_status_notification(&notification);
-    let mut has_settled = false;
+    let startups = &mut record.mcp_server_startups;
+    let mut has_round_settled = false;
     for emission in read.emissions {
+        let name = &emission.server_name;
         if emission.reading == McpServerReading::Observed(McpServerStatus::Starting) {
-            record
-                .starting_mcp_server_names
-                .insert(emission.server_name.clone());
-        } else {
-            record
-                .starting_mcp_server_names
-                .remove(&emission.server_name);
-            has_settled = true;
+            startups
+                .round
+                .get_or_insert_with(HashSet::new)
+                .insert(name.clone());
+        } else if let Some(round) = &mut startups.round
+            && round.remove(name)
+        {
+            has_round_settled = round.is_empty();
         }
+        startups.readings.insert(
+            name.clone(),
+            (emission.reading, emission.failure_text.clone()),
+        );
         producer.report_status(emission);
     }
     for rejection in read.rejections {
@@ -490,42 +519,41 @@ fn report_mcp_server_startup(record: &mut CodexSessionRecord, frame: &CodexRouta
             [],
         );
     }
-    if has_settled && record.starting_mcp_server_names.is_empty() {
-        list_settled_mcp_servers(record, producer);
+    if has_round_settled && record.mcp_server_startups.round.take().is_some() {
+        list_settled_mcp_servers(record, &producer).await;
     }
 }
 
 // Lists the servers of the session's conversation with their tools on its service and hands each
-// to `producer`, off the session's task; a list that fails is logged, the leg keeping what its
-// startups reported.
-fn list_settled_mcp_servers(record: &CodexSessionRecord, producer: McpServerStatusProducer) {
-    let connection = match record.service.connection() {
-        Ok(connection) => connection,
-        Err(error) => {
-            tracing::debug!(
-                session_id = %record.session_id,
-                error = &error as &(dyn std::error::Error + 'static),
-                "codex's service is gone; the session's mcp servers' tools are not listed"
-            );
-            return;
+// to `producer` with the status and text its newest startup reported, so the list adds only the
+// tools; a list that fails is logged, the leg keeping what its startups reported.
+async fn list_settled_mcp_servers(record: &CodexSessionRecord, producer: &McpServerStatusProducer) {
+    let listed = match record.service.connection() {
+        Ok(connection) => {
+            list_codex_mcp_server_statuses(&connection, &record.thread_id, None).await
         }
+        Err(error) => Err(error),
     };
-    let thread_id = record.thread_id.clone();
-    let session_id = record.session_id;
-    tokio::spawn(async move {
-        match list_codex_mcp_server_statuses(&connection, &thread_id, None).await {
-            Ok(emissions) => {
-                for emission in emissions {
-                    producer.report_status(emission);
+    match listed {
+        Ok(emissions) => {
+            for mut emission in emissions {
+                if let Some((reading, failure_text)) = record
+                    .mcp_server_startups
+                    .readings
+                    .get(&emission.server_name)
+                {
+                    emission.reading = *reading;
+                    emission.failure_text.clone_from(failure_text);
                 }
+                producer.report_status(emission);
             }
-            Err(error) => tracing::debug!(
-                %session_id,
-                error = &error as &(dyn std::error::Error + 'static),
-                "codex's mcp server list failed; the session's servers keep their startups"
-            ),
         }
-    });
+        Err(error) => tracing::warn!(
+            session_id = %record.session_id,
+            error = &error as &(dyn std::error::Error + 'static),
+            "codex's mcp server list failed; the session's servers keep their startups, no tools"
+        ),
+    }
 }
 
 /// The members of a usage frame the window reading takes.
@@ -619,26 +647,13 @@ mod tests {
     use std::time::Duration;
 
     use serde_json::json;
-    use serde_json::value::RawValue;
+    use sidekicks_contracts::mcp::server::McpServerStatus;
 
-    use crate::driver::codex::event_normalizer::CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD;
-    use crate::driver::codex::session::inbound::CodexSessionInbound;
-    use crate::driver::codex::session::test_fixture::status_sink::CountingStatusSink;
+    use crate::driver::codex::session::test_fixture::status_sink::{
+        CountingStatusSink, mcp_server_startup,
+    };
     use crate::driver::codex::session::test_fixture::{TEST_THREAD, TestCodexSession};
-
-    // A tool server's startup on `thread_id`, as the service sends it.
-    fn startup(thread_id: &str, server_name: &str) -> CodexSessionInbound {
-        startup_in(thread_id, server_name, "ready")
-    }
-
-    // A tool server's startup in `status` on `thread_id`.
-    fn startup_in(thread_id: &str, server_name: &str, status: &str) -> CodexSessionInbound {
-        let params = json!({"threadId": thread_id, "name": server_name, "status": status});
-        CodexSessionInbound::Frame {
-            method: CODEX_MCP_SERVER_STARTUP_STATUS_UPDATED_METHOD.to_owned(),
-            params: RawValue::from_string(params.to_string()).expect("the params are JSON"),
-        }
-    }
+    use crate::driver::mcp_server::status::McpServerReading;
 
     // The other conversation is one the session moved off while a command of it runs, which the
     // router still routes as the session's own. Killed by reporting a startup by its method alone,
@@ -653,8 +668,14 @@ mod tests {
             .routing
             .hold_thread("thread-left".to_owned(), true);
 
-        session.task.handle(startup("thread-left", "left")).await;
-        session.task.handle(startup(TEST_THREAD, "github")).await;
+        session
+            .task
+            .handle(mcp_server_startup("thread-left", "left", "ready", None))
+            .await;
+        session
+            .task
+            .handle(mcp_server_startup(TEST_THREAD, "github", "ready", None))
+            .await;
 
         let reported = sink.reported();
         let names: Vec<&str> = reported
@@ -664,64 +685,68 @@ mod tests {
         assert_eq!(names, ["github"]);
     }
 
-    // Once the last starting server settles, the leg lists the conversation's servers with their
-    // tools, every page, and hands each to its sink; while one still starts it asks nothing.
-    // Killed by listing on a startup that leaves a server starting, by the list's second page
-    // dropped, and by the listed tools dropped.
+    // One startup round lists once, after its last server settles, every page, each server with
+    // its tools and with its startup's status and text, so a failed server keeps its reason; a
+    // settle outside the round lists nothing. Killed by listing while a server of the round still
+    // starts, by the list's second page dropped, by the listed tools dropped, by the list's status
+    // or its empty text replacing the startup's, and by listing again on a settle outside the
+    // round.
     #[tokio::test(start_paused = true)]
-    async fn a_settled_startup_lists_the_legs_servers_with_their_tools() {
+    async fn a_startup_round_lists_its_servers_once_keeping_each_startups_status() {
         let mut session = TestCodexSession::start().await;
         let sink = Arc::new(CountingStatusSink::default());
         session.task.record.on_mcp_server_status = Some(Arc::clone(&sink) as _);
 
-        session
-            .task
-            .handle(startup_in(TEST_THREAD, "github", "starting"))
-            .await;
-        session
-            .task
-            .handle(startup_in(TEST_THREAD, "docs", "starting"))
-            .await;
-        session.task.handle(startup(TEST_THREAD, "github")).await;
-        session.task.handle(startup(TEST_THREAD, "docs")).await;
+        for inbound in [
+            mcp_server_startup(TEST_THREAD, "github", "starting", None),
+            mcp_server_startup(TEST_THREAD, "docs", "starting", None),
+            mcp_server_startup(TEST_THREAD, "github", "ready", None),
+        ] {
+            session.task.handle(inbound).await;
+        }
         let script = &mut session.scripted.script;
-        let first = script.next_sent().await;
-        assert_eq!(first["method"], "mcpServerStatus/list");
-        assert_eq!(
-            first["params"],
-            json!({"threadId": TEST_THREAD, "detail": "toolsAndAuthOnly"})
+        let answer = async {
+            let first = script.next_sent().await;
+            assert_eq!(first["method"], "mcpServerStatus/list");
+            assert_eq!(
+                first["params"],
+                json!({"threadId": TEST_THREAD, "detail": "toolsAndAuthOnly"})
+            );
+            script.answer(
+                &first,
+                &json!({
+                    "data": [{"name": "github", "runtimeStatus": "connected", "tools": {
+                        "search": {"name": "search"}
+                    }}],
+                    "nextCursor": "page-2"
+                }),
+            );
+            let second = script.next_sent().await;
+            assert_eq!(second["params"]["cursor"], "page-2");
+            script.answer(
+                &second,
+                &json!({"data": [{"name": "docs", "runtimeStatus": "failed", "tools": {
+                    "read": {"name": "read"}
+                }}]}),
+            );
+        };
+        tokio::join!(
+            session.task.handle(mcp_server_startup(
+                TEST_THREAD,
+                "docs",
+                "failed",
+                Some("handshake timed out")
+            )),
+            answer
         );
-        script.answer(
-            &first,
-            &json!({
-                "data": [{"name": "github", "runtimeStatus": "ready", "tools": {
-                    "search": {"name": "search"}
-                }}],
-                "nextCursor": "page-2"
-            }),
-        );
-        let second = script.next_sent().await;
-        assert_eq!(second["params"]["cursor"], "page-2");
-        script.answer(
-            &second,
-            &json!({"data": [{"name": "docs", "runtimeStatus": "ready", "tools": {
-                "read": {"name": "read"}
-            }}]}),
-        );
-        // The list's emissions arrive off the session's task, after the four startups.
-        tokio::time::timeout(Duration::from_secs(5), async {
-            while sink.reported().len() < 6 {
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
-        })
-        .await
-        .expect("the listed servers reach the sink");
 
-        let listed: Vec<(String, Option<Vec<String>>)> = sink.reported()[4..]
+        let listed: Vec<_> = sink.reported()[4..]
             .iter()
             .map(|emission| {
                 (
                     emission.server_name.as_str().to_owned(),
+                    emission.reading,
+                    emission.failure_text.clone(),
                     emission
                         .tool_names
                         .as_ref()
@@ -732,9 +757,31 @@ mod tests {
         assert_eq!(
             listed,
             [
-                ("github".to_owned(), Some(vec!["search".to_owned()])),
-                ("docs".to_owned(), Some(vec!["read".to_owned()])),
+                (
+                    "github".to_owned(),
+                    McpServerReading::Observed(McpServerStatus::Connected),
+                    None,
+                    Some(vec!["search".to_owned()])
+                ),
+                (
+                    "docs".to_owned(),
+                    McpServerReading::Observed(McpServerStatus::Failed),
+                    Some("handshake timed out".to_owned()),
+                    Some(vec!["read".to_owned()])
+                ),
             ]
+        );
+
+        session
+            .task
+            .handle(mcp_server_startup(TEST_THREAD, "reused", "ready", None))
+            .await;
+        let script = &mut session.scripted.script;
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), script.next_sent())
+                .await
+                .is_err(),
+            "a settle outside the round listed again"
         );
     }
 }

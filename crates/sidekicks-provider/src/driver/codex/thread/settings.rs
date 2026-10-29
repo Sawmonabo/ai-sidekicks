@@ -30,11 +30,11 @@ use crate::driver::session_control::{SessionToolServer, SubagentPolicy};
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::tool_server_name::DAEMON_TOOL_SERVER_NAME;
 
-/// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
-/// route's own bound, so the route answers first.
 /// The config table of the MCP servers, by name.
 pub(crate) const MCP_SERVERS_KEY: &str = "mcp_servers";
 
+/// Seconds Codex waits on one call to the daemon's tool server: Codex's own default, above the
+/// route's own bound, so the route answers first.
 const CODEX_DAEMON_TOOL_TIMEOUT_SECONDS: u64 = 300;
 
 /// The largest helper count Codex accepts, sent where the person set no limit.

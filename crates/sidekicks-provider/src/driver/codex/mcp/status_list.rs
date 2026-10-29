@@ -18,7 +18,8 @@ const MAX_LIST_PAGES: usize = 64;
 
 /// Each server Codex lists for the conversation `thread_id` on `connection`, or `server_name`
 /// alone where given, with its status and tools, every page read; a row the reader refuses is
-/// logged and skipped. Fails as a request fails.
+/// logged and skipped. Fails as a request fails, and with `CodexError::Transport` for a page
+/// that cannot be read.
 pub(crate) async fn list_codex_mcp_server_statuses(
     connection: &CodexAppServerConnection,
     thread_id: &str,
@@ -39,7 +40,14 @@ pub(crate) async fn list_codex_mcp_server_statuses(
                 },
             )
             .await?;
-        let page = read_codex_object::<StatusListPage>(reply.get()).unwrap_or_default();
+        let page = read_codex_object::<StatusListPage>(reply.get()).ok_or_else(|| {
+            CodexError::Transport {
+                detail: format!(
+                    "Codex's \"{MCP_SERVER_STATUS_LIST_METHOD}\" reply could not be read."
+                ),
+                cause: None,
+            }
+        })?;
         let listed = normalize_codex_mcp_server_status_list(&page.data);
         for rejection in &listed.rejections {
             tracing::warn!(reason = %rejection.reason, "a codex mcp server status was refused");
@@ -58,7 +66,7 @@ pub(crate) async fn list_codex_mcp_server_statuses(
 }
 
 // One page of the list's reply: its rows and the cursor of the next page, where there is one.
-#[derive(Default, Deserialize)]
+#[derive(Deserialize)]
 struct StatusListPage {
     #[serde(default)]
     data: Value,

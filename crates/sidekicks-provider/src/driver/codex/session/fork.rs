@@ -47,7 +47,7 @@ use crate::left_conversations::LeftConversation;
 use crate::port::reviewer_denial::ReviewerDenialPort;
 use crate::port::tool_server_route::ToolServerRoute;
 use crate::runtime_binding::resume::ResumeFunctionLegs;
-use crate::runtime_binding::store::RuntimeBindingRebind;
+use crate::runtime_binding::store::{RuntimeBindingRebind, mint_runtime_binding_id};
 use crate::runtime_binding::writer::RuntimeBindingWriter;
 
 const THREAD_FORK_METHOD: &str = "thread/fork";
@@ -349,8 +349,9 @@ fn record_fork_source(record: &CodexSessionRecord) -> CodexForkSource<'_> {
 // the service bound to it, the left conversation's helpers released, and that conversation let go
 // once no command of it runs. The message-to-turn map is dropped, since a fork's turns carry ids
 // of their own; an undo rebuilds it from the fork's history. A fork onto another binding ends the
-// leg of the binding it leaves and takes the new binding's legs, opened before the binding's write.
-// A failed opening or binding write lets the fork go, the record unchanged.
+// leg the record holds and takes legs of its own, opened before the binding's write under a
+// binding minted for them, so they never share the pair of a leg that is still open. A failed
+// opening or binding write lets the fork go, the record unchanged.
 async fn move_record_to_fork(
     task: &mut CodexSessionTask<'_>,
     dependencies: &CodexForkDependencies,
@@ -360,17 +361,16 @@ async fn move_record_to_fork(
     let pre_fork_thread_id = task.record.thread_id.clone();
     let service = Arc::clone(&task.record.service);
     let is_rebound = binding_id != task.record.binding_id;
-    let legs = match binding_id.as_ref().filter(|_new| is_rebound) {
-        Some(new_binding) => {
-            match open_fork_legs(task.record.session_id, new_binding, dependencies).await {
-                Ok(legs) => Some(legs),
-                Err(error) => {
-                    let_go_codex_thread(&service, &forked.thread_id).await;
-                    return Err(error);
-                }
+    let legs = if is_rebound && binding_id.is_some() {
+        match open_fork_legs(task.record.session_id, dependencies).await {
+            Ok(legs) => Some(legs),
+            Err(error) => {
+                let_go_codex_thread(&service, &forked.thread_id).await;
+                return Err(error);
             }
         }
-        None => None,
+    } else {
+        None
     };
     record_fork_in_binding(
         task.record,
@@ -427,18 +427,17 @@ async fn move_record_to_fork(
     Ok(routed)
 }
 
-// The legs of `binding_id`, the binding a fork moves `session_id` to, from the session directory.
-// Fails as the directory is not registered or cannot answer them.
+// The legs the session directory answers for a fork of `session_id` under a binding minted for
+// them. Fails as the directory is not registered or cannot answer them.
 async fn open_fork_legs(
     session_id: SessionId,
-    binding_id: &RuntimeBindingId,
     dependencies: &CodexForkDependencies,
 ) -> Result<ResumeFunctionLegs, CodexError> {
     let session_relaunched = &dependencies.session_relaunched;
     let opened = match session_relaunched.require_port() {
         Ok(listener) => {
             listener
-                .open_relaunch_legs(session_id, binding_id.clone())
+                .open_relaunch_legs(session_id, mint_runtime_binding_id())
                 .await
         }
         Err(unregistered) => Err(unregistered.into()),

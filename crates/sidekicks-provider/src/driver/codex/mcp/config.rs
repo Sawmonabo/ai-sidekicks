@@ -1,8 +1,8 @@
 //! The read of the person's own Codex MCP config: one `config/read` per attached root on the
-//! person's own Codex folder, each server's view taken from Codex's own merge and its bindings from
-//! the layers that declare it, plus the servers of the plugins in the daemon's plugin home, bounded
-//! by the allow list in Codex's requirements. Every credential-bearing value is dropped at the
-//! read: a declaration keeps names only.
+//! person's own Codex folder, each server's view taken from Codex's own merge, or from its own
+//! layer where another binding takes its place, and its bindings from the layers that declare it,
+//! plus the servers of the plugins in the daemon's plugin home. Every credential-bearing value is
+//! dropped at the read: a declaration keeps names only.
 
 use std::path::{Path, PathBuf};
 
@@ -16,14 +16,11 @@ use crate::driver::codex::mcp::config::attribution::{
 };
 use crate::driver::codex::mcp::config::plugins::read_plugin_server_entries;
 use crate::driver::codex::mcp::config::server_entry::CodexServerTransport;
-use crate::driver::codex::mcp::requirements::read_codex_mcp_requirements;
-use crate::driver::codex::service::registry::CodexServiceRegistry;
-use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::session::errors::CodexError;
 use crate::driver::codex::transport::connection::CodexAppServerConnection;
 use crate::driver::mcp_server::read::{McpRootReading, McpServerDeclaration, McpServerPolicy};
 
-mod attribution;
+pub(super) mod attribution;
 pub(super) mod plugins;
 pub(super) mod server_entry;
 #[cfg(test)]
@@ -36,21 +33,6 @@ pub(crate) struct CodexMcpRoot {
     pub(crate) root: PlacedPath,
     /// The folder the root's `config/read` is asked for.
     pub(crate) folder: PathBuf,
-}
-
-/// Where the read finds the person's Codex config and the plugins beside it.
-pub(crate) struct CodexMcpConfigSources<'sources> {
-    /// The registry whose service on the person's own Codex folder answers the reads.
-    pub(crate) registry: &'sources CodexServiceRegistry,
-    /// The person's own home folder, read when no root is attached.
-    pub(crate) home: &'sources Path,
-    /// The daemon's plugin home for Codex, laid out as Codex lays out its own home's plugins.
-    pub(crate) plugin_home: &'sources Path,
-    /// The attached project roots.
-    pub(crate) roots: &'sources [CodexMcpRoot],
-    /// The folder Codex reads its administrator-managed requirements from; `None` where the
-    /// system has none.
-    pub(crate) managed_settings_folder: Option<&'sources Path>,
 }
 
 /// The person's Codex MCP config as the read found it.
@@ -66,9 +48,53 @@ pub(crate) struct CodexMcpConfigReading {
     pub(crate) server_policy: McpServerPolicy,
     /// The transport each declaration's view declares, as Codex compares it with its requirements.
     pub(crate) transports: Vec<(McpServerBindingRef, CodexServerTransport)>,
+    /// The key Codex's config names each plugin's server's plugin by, `<plugin>@<marketplace>`.
+    pub(crate) plugin_keys: Vec<(McpServerBindingRef, String)>,
     /// The names of the servers a session at the person's home folder, in no attached root, never
     /// loads, since the requirements refuse them.
     pub(crate) home_kept_out_server_names: Vec<McpServerName>,
+    /// The plugins' servers Codex's requirements refuse when the probe sends them as entries of
+    /// its own config: those their plugin's list or the top-level list refuses.
+    pub(crate) refused_when_sent: Vec<McpServerBindingRef>,
+    /// The binding each read's place loads under each name its config declares, and whether
+    /// Codex's merge there switches it on.
+    pub(crate) loaded_servers: Vec<CodexLoadedServer>,
+    /// The keys of the plugins the person's config names, `<plugin>@<marketplace>`, each a plugin
+    /// of the person's own Codex folder.
+    pub(crate) person_plugin_keys: Vec<String>,
+}
+
+impl CodexMcpConfigReading {
+    /// The transport `binding`'s view declares; `None` where it declares none Codex compares.
+    pub(crate) fn transport_of(
+        &self,
+        binding: &McpServerBindingRef,
+    ) -> Option<&CodexServerTransport> {
+        self.transports
+            .iter()
+            .find(|(declared, _transport)| declared == binding)
+            .map(|(_binding, transport)| transport)
+    }
+
+    /// The key of the plugin `binding` is a server of; `None` for any other binding.
+    pub(crate) fn plugin_key_of(&self, binding: &McpServerBindingRef) -> Option<&str> {
+        self.plugin_keys
+            .iter()
+            .find(|(declared, _key)| declared == binding)
+            .map(|(_binding, key)| key.as_str())
+    }
+}
+
+/// The binding one place's config loads under one name: an attached root's, or the person's home
+/// folder's where no root is attached.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct CodexLoadedServer {
+    /// The root; `None` for the person's home folder.
+    pub(crate) root: Option<PlacedPath>,
+    /// The binding of the highest layer there that declares the name with a transport.
+    pub(crate) binding: McpServerBindingRef,
+    /// Whether Codex's merged entry there leaves the server switched on.
+    pub(crate) is_switched_on: bool,
 }
 
 /// One `config/read` reply and the root it was read at; `None` for the read at the person's home
@@ -80,37 +106,11 @@ pub(crate) struct CodexRootConfigRead {
     pub(crate) read: CodexConfigRead<Map<String, Value>>,
 }
 
-/// Reads the person's Codex MCP config from `sources`: Codex's config at each attached root, or at
-/// the person's home folder when none is attached, on the person's own Codex folder, and the
-/// plugins' servers, each root keeping out what the requirements' allow list does not allow. Fails
-/// as the service there cannot be reached or a read fails; a plugin whose files cannot be read is
-/// logged and skipped.
+/// Reads the person's Codex MCP config over `connection`, a service on the person's own Codex
+/// folder: one `config/read` with its layers at each of `roots`, or once at `home` when none is
+/// attached, then the servers of the plugins in `plugin_home`, the daemon's plugin home. Fails as a
+/// read fails; a plugin whose files cannot be read is logged and skipped.
 pub(crate) async fn read_codex_mcp_config(
-    sources: &CodexMcpConfigSources<'_>,
-) -> Result<CodexMcpConfigReading, CodexError> {
-    let requirements = read_codex_mcp_requirements(sources.managed_settings_folder).await?;
-    let mut reading = sources
-        .registry
-        .read_on_personal_folder(PersonalFolderRead::Config, |service| async move {
-            let connection = service.connection()?;
-            read_codex_mcp_config_over(
-                &connection,
-                sources.home,
-                sources.plugin_home,
-                sources.roots,
-            )
-            .await
-        })
-        .await?;
-    if let Some(requirements) = requirements {
-        requirements.apply(&mut reading);
-    }
-    Ok(reading)
-}
-
-// The read over `connection`: one `config/read` with its layers at each of `roots`, or once at
-// `home` when none is attached, then the plugins in `plugin_home`. Fails as a read fails.
-async fn read_codex_mcp_config_over(
     connection: &CodexAppServerConnection,
     home: &Path,
     plugin_home: &Path,
@@ -141,6 +141,9 @@ async fn read_codex_mcp_config_over(
                 .transports
                 .push((server.declaration.binding.clone(), transport));
         }
+        reading
+            .plugin_keys
+            .push((server.declaration.binding.clone(), server.plugin_key));
         reading.declarations.push(server.declaration);
     }
     Ok(reading)

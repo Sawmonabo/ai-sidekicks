@@ -462,12 +462,14 @@ pub(crate) const PROBE_TOOL_NAME: &str = "lookup";
 /// the daemon starts a terminal service with, as trusted, and no loaded conversation; a config
 /// write is refused, so a start that writes trust fails. A machine probe is answered too: its
 /// ephemeral start opens [`PROBE_THREAD_ID`], each server its config switches on or sends reports
-/// ready, and each listed server is connected with [`PROBE_TOOL_NAME`]. Each request is appended,
-/// one to a line, to `record` where one is named.
+/// ready, and each listed server is connected with [`PROBE_TOOL_NAME`]. A config read is answered
+/// with `config_read_reply` where one is given. Each request is appended, one to a line, to
+/// `record` where one is named.
 #[cfg(test)]
 pub(crate) async fn answer_as_codex_service(
     stream: impl AsyncRead + AsyncWrite + Unpin,
     record: Option<PathBuf>,
+    config_read_reply: Option<Value>,
 ) {
     let hooks = match read_terminal_service_hooks(TEST_DISPATCHES_HOOK_MODE)
         .expect("the daemon's hooks read")
@@ -516,6 +518,9 @@ pub(crate) async fn answer_as_codex_service(
                 "resources": [],
                 "resourceTemplates": [],
             }], "nextCursor": null}}),
+            Some("config/read") if config_read_reply.is_some() => {
+                json!({"id": id, "result": config_read_reply})
+            }
             Some("config/value/write") => json!({"id": id,
                 "error": {"code": -32603, "message": "the test service writes no config"}}),
             Some("initialize") => json!({"id": id,

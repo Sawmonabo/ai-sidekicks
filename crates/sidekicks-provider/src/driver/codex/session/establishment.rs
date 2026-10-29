@@ -434,10 +434,10 @@ impl CodexSessionEstablishment {
     /// service crashed or its connection came back, or once it left the old service for a new
     /// build. The resume carries the settings the record holds now, under `binding_id`, which the
     /// caller minted and opened, the resumed conversation reporting on `function_legs`' status
-    /// sink, and the conversation's turns come back with the result, so a
-    /// caller can end the ones that ended unseen. A resume refused while another runtime still
-    /// writes the conversation is tried again each time `writer_left` answers `true`. Every
-    /// failure answers `Failed`, reported.
+    /// sink, and the conversation's turns come back with the result, so a caller can end the ones
+    /// that ended unseen. A resume refused while another runtime still writes the conversation is
+    /// tried again each time `writer_left` answers `true`. Every failure answers `Failed`,
+    /// reported.
     pub(crate) async fn resume_in_place<WriterLeft>(
         &self,
         task: &mut CodexSessionTask<'_>,
@@ -492,9 +492,9 @@ impl CodexSessionEstablishment {
     // Moves the record onto the resumed conversation: its service, binding, status sink, turns,
     // tier and effort, its mode sent again, and its routing band rebound on the sum already
     // metered; the binding it retires lets go of its held presses and ends its leg's status, once,
-    // where its process's end has not. The record changes only once every step that
-    // can fail is done; a failure releases the conversation's registration on `service` when the
-    // resume made it.
+    // where its process's end has not. The record changes only once every step that can fail is
+    // done; a failure releases the conversation's registration on `service` when the resume made
+    // it.
     async fn adopt_resumed_thread(
         &self,
         task: &mut CodexSessionTask<'_>,

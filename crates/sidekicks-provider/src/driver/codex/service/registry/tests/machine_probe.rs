@@ -5,20 +5,26 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use sidekicks_contracts::free_form_string::FilesystemPath;
 use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName, McpServerStatus};
+use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{CAN_BIND_A_SOCKET_LISTENER, CAN_LINK_A_SOCKET, short_socket_folder};
 
-use super::stand_in::{CRASH_WAIT, REQUEST_RECORD_NAME, stand_in_services, this_daemon};
+use super::stand_in::{
+    CONFIG_READ_REPLY_NAME, CRASH_WAIT, REQUEST_RECORD_NAME, stand_in_services, this_daemon,
+};
 use crate::driver::codex::DESCRIPTOR;
 use crate::driver::codex::mcp::machine_probe::{
     CodexMcpProbeSite, CodexProbedServer, CodexProbedServerStart, probe_codex_mcp_servers,
 };
+use crate::driver::codex::mcp::read_codex_mcp_servers;
 use crate::driver::codex::service::home::{CodexHomeKind, CodexServiceHome};
+use crate::driver::codex::service::registry::personal_folder_read::PersonalFolderRead;
 use crate::driver::codex::service::registry::{CodexServiceRegistry, OneHome};
 use crate::driver::codex::service::supervisor::test_service::{
     PROBE_THREAD_ID, PROBE_TOOL_NAME, TestCodexProgram, UnheardEvents,
     test_codex_service_dependencies,
 };
+use crate::driver::mcp_server::read::{McpProbeScope, McpServersReadRequest};
 use crate::driver::mcp_server::status::McpServerReading;
 
 /// The root's emulated server, a person's entry the probe switches on by name.
@@ -45,11 +51,14 @@ fn recorded(record: &Path, method: &str) -> Vec<Value> {
         .collect()
 }
 
-// Killed by a list without `serverName` (every server of the conversation started again), by a
-// conversation that is not ephemeral or does not switch the root's own server on by name, by more
-// than one conversation per root, and by a probe service never retired once the read settled.
+// A probing read on a folder with no service of its own: the config read and the probe share one
+// transient service, which reads each probed server once at the root that loads it. Killed by the
+// config read and the probe each starting a service, by a list without `serverName` (every server
+// of the conversation started again), by a conversation that is not ephemeral or does not switch
+// the root's emulated server on by name, by more than one conversation per root, and by a probe
+// service never retired once the read settled.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_probe_reads_each_server_once_and_retires_its_own_service() {
+async fn a_probing_read_runs_on_one_service_and_reads_each_server_once() {
     if !CAN_LINK_A_SOCKET || !CAN_BIND_A_SOCKET_LISTENER {
         return;
     }
@@ -57,14 +66,42 @@ async fn the_probe_reads_each_server_once_and_retires_its_own_service() {
     let record = folder.path().join("requests");
     let root = folder.path().join("app");
     std::fs::create_dir_all(&root).expect("the root is made");
+    let local_entry = json!({"command": "docs-mcp", "enabled": false, "startup_timeout_sec": 1});
+    let project_entry = json!({"command": "tracker-mcp", "startup_timeout_sec": 1});
+    let project_folder = format!("{}/.codex", root.display());
+    let user_file = folder.path().join("home/config.toml");
+    let config_read_reply = json!({
+        "config": {"mcp_servers": {LOCAL_SERVER: local_entry, PROJECT_SERVER: project_entry}},
+        "origins": {},
+        "layers": [
+            {
+                "name": {"type": "project", "dotCodexFolder": project_folder},
+                "version": "1",
+                "config": {"mcp_servers": {PROJECT_SERVER: project_entry}},
+            },
+            {
+                "name": {"type": "user", "file": user_file, "profile": null},
+                "version": "1",
+                "config": {"mcp_servers": {LOCAL_SERVER: local_entry}},
+            },
+        ],
+    });
     let services = stand_in_services(folder.path(), |mut program| {
-        program
-            .environment
-            .push((REQUEST_RECORD_NAME.to_owned(), record.display().to_string()));
+        program.environment.extend([
+            (REQUEST_RECORD_NAME.to_owned(), record.display().to_string()),
+            (
+                CONFIG_READ_REPLY_NAME.to_owned(),
+                config_read_reply.to_string(),
+            ),
+        ]);
         Arc::new(program)
     });
     let registry = this_daemon(&services);
     let provider = DESCRIPTOR.provider_id();
+    let attached = PlacedPath {
+        path: root_path(&root),
+        place: None,
+    };
     let local = McpServerBindingRef::Local {
         provider: provider.clone(),
         scope_ref: root_path(&root),
@@ -77,29 +114,27 @@ async fn the_probe_reads_each_server_once_and_retires_its_own_service() {
         place: None,
         server_name: server_name(PROJECT_SERVER),
     };
-    let site = CodexMcpProbeSite {
-        folder: root.clone(),
-        servers: vec![
-            CodexProbedServer {
-                binding: local.clone(),
-                start: CodexProbedServerStart::SwitchedOnByName,
-                startup_timeout: Duration::from_secs(1),
-                is_kept_out: false,
-            },
-            CodexProbedServer {
-                binding: project.clone(),
-                start: CodexProbedServerStart::LoadedByProvider,
-                startup_timeout: Duration::from_secs(1),
-                is_kept_out: false,
-            },
-        ],
-        switched_off_names: Vec::new(),
+    let request = McpServersReadRequest {
+        attached_roots: vec![attached],
+        provider_account_ids: Vec::new(),
+        is_refresh: true,
+        probe: McpProbeScope::EveryBinding,
+        emulated_local_bindings: vec![local.clone()],
     };
 
-    let readings = probe_codex_mcp_servers(&registry, std::slice::from_ref(&site))
+    let reading = read_codex_mcp_servers(&registry, folder.path(), &request)
         .await
-        .expect("the probe reads");
+        .expect("the read probes");
 
+    let processes = std::fs::read_dir(&services.home.codex_home)
+        .expect("the home lists")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().to_string_lossy().starts_with("real-"))
+        .count();
+    assert_eq!(
+        processes, 1,
+        "one service serves the config read and the probe"
+    );
     let [started] = recorded(&record, "thread/start")
         .try_into()
         .expect("one conversation per root");
@@ -116,12 +151,14 @@ async fn the_probe_reads_each_server_once_and_retires_its_own_service() {
         .iter()
         .map(|request| &request["params"]["serverName"])
         .collect();
-    assert_eq!(listed, [LOCAL_SERVER, PROJECT_SERVER], "{lists:?}");
+    // The project's layer ranks above the person's, so its server is read first.
+    assert_eq!(listed, [PROJECT_SERVER, LOCAL_SERVER], "{lists:?}");
     for request in &lists {
         assert_eq!(request["params"]["threadId"], PROBE_THREAD_ID, "{request}");
         assert_eq!(request["params"]["detail"], "toolsAndAuthOnly", "{request}");
     }
-    let [local_reading, project_reading] = readings.as_slice() else {
+    let readings = &reading.probe_readings;
+    let [project_reading, local_reading] = readings.as_slice() else {
         panic!("one reading per probed server");
     };
     assert_eq!(local_reading.binding, local);
@@ -130,7 +167,7 @@ async fn the_probe_reads_each_server_once_and_retires_its_own_service() {
         McpServerReading::Observed(McpServerStatus::Connected)
     );
     assert_eq!(project_reading.binding, project);
-    for reading in &readings {
+    for reading in readings {
         let tools: Vec<&str> = reading
             .tool_names
             .iter()
@@ -204,9 +241,13 @@ async fn a_live_probe_starts_a_switched_off_server_in_an_ephemeral_conversation(
             is_kept_out: false,
         }],
         switched_off_names: Vec::new(),
+        switched_off_plugin_keys: Vec::new(),
     };
 
-    let readings = probe_codex_mcp_servers(&registry, std::slice::from_ref(&site))
+    let readings = registry
+        .read_on_personal_folder(PersonalFolderRead::Probe, |service| async move {
+            probe_codex_mcp_servers(&service, std::slice::from_ref(&site)).await
+        })
         .await
         .expect("the probe reads");
 

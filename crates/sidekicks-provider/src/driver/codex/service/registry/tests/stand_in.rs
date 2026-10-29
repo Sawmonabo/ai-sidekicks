@@ -46,6 +46,9 @@ pub(super) const HANG_UP_IGNORED_NAME: &str = "SIDEKICKS_TEST_HANG_UP_IGNORED";
 /// sets it.
 pub(super) const REQUEST_RECORD_NAME: &str = "SIDEKICKS_TEST_REQUEST_RECORD";
 
+/// The reply the stand-in answers a config read with, as JSON text; only a test's program sets it.
+pub(super) const CONFIG_READ_REPLY_NAME: &str = "SIDEKICKS_TEST_CONFIG_READ_REPLY";
+
 /// The Codex home the stand-in serves, as Codex reads it.
 const CODEX_HOME_NAME: &str = "CODEX_HOME";
 
@@ -71,8 +74,15 @@ async fn an_app_server_stand_in() {
     let listener = bind_socket_listener(&real_socket).expect("the real socket listens");
     replace_socket_link(&link, &real_socket).expect("the link names the real socket");
     let record = std::env::var_os(REQUEST_RECORD_NAME).map(PathBuf::from);
+    let config_read_reply = std::env::var(CONFIG_READ_REPLY_NAME)
+        .ok()
+        .map(|reply| serde_json::from_str(&reply).expect("the config read's reply is JSON"));
     while let Ok(stream) = listener.accept().await {
-        tokio::spawn(answer_as_codex_service(stream, record.clone()));
+        tokio::spawn(answer_as_codex_service(
+            stream,
+            record.clone(),
+            config_read_reply.clone(),
+        ));
     }
 }
 

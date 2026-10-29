@@ -6,7 +6,7 @@
 use std::cmp::Ordering;
 use std::error::Error;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use semver::Version;
 use serde::Deserialize;
@@ -55,9 +55,9 @@ const OAUTH_MEMBER_SPELLINGS: [(&str, &str); 4] = [
 // The member of a stdio server's entry naming the folder it runs in.
 const WORKING_FOLDER_MEMBER: &str = "cwd";
 
-/// One server a plugin in the daemon's plugin home declares: its redacted declaration, and its entry
-/// as the plugin's file writes it, credential values included, for the probe that sends it. It
-/// derives no `Debug`, so nothing prints a value.
+/// One server a plugin in the daemon's plugin home declares: its redacted declaration, and its
+/// entry as the plugin's file writes it, credential values included, for the probe that sends it.
+/// It derives no `Debug`, so nothing prints a value.
 pub(crate) struct CodexPluginServer {
     /// The declaration, bound to its plugin and read-only.
     pub(crate) declaration: McpServerDeclaration,
@@ -267,13 +267,19 @@ fn read_server_map(file: Value) -> Option<Map<String, Value>> {
 }
 
 // The file a manifest's `./`-relative path names in `plugin_root`; `None` for a path Codex
-// refuses: one without the prefix, one naming the folder itself, or one climbing out of it.
+// refuses: one without the prefix, one naming the folder itself, or one that leaves it, by
+// climbing out or by a rooted or absolute part.
 fn resolve_manifest_path(plugin_root: &Path, path: &str) -> Option<PathBuf> {
     let relative = path.strip_prefix(MANIFEST_PATH_PREFIX)?;
-    if relative.is_empty() || relative.split(['/', '\\']).any(|part| part == "..") {
+    let stays_inside = Path::new(relative)
+        .components()
+        .all(|part| matches!(part, Component::Normal(_) | Component::CurDir));
+    if relative.is_empty() || !stays_inside || relative.split(['/', '\\']).any(|part| part == "..")
+    {
         return None;
     }
-    Some(plugin_root.join(relative))
+    let file = plugin_root.join(relative);
+    file.starts_with(plugin_root).then_some(file)
 }
 
 // The JSON in `path`; `None` where there is no such file.

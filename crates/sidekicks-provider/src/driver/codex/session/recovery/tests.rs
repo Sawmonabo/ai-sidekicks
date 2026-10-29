@@ -741,8 +741,12 @@ async fn an_account_service_s_build_move_its_new_build_refuses_lets_the_record_g
         Box::pin(async {
             let (session, _folder, steps, recovery) = account_build_move_session().await;
 
-            let (moved, task) =
-                move_account_service_build(session, &recovery, refuse_resumes).await;
+            let (moved, task) = Box::pin(move_account_service_build(
+                session,
+                &recovery,
+                refuse_resumes,
+            ))
+            .await;
 
             moved.expect("the build move ends");
             assert_eq!(task.let_go_exits, [CodexRecordExit::SessionContinues]);
