@@ -164,7 +164,7 @@ async fn a_declaration_reads_names_only_and_no_value_reaches_debug() {
                 tool_timeout_sec: None,
             },
             &McpServerConfigView::Http {
-                url: "https://mcp.example.com/mcp".to_owned(),
+                url: "https://Mcp.Example.com/mcp".to_owned(),
                 url_query_param_names: Some(vec!["api_key".to_owned(), "team".to_owned()]),
                 header_names: Some(vec!["Authorization".to_owned(), "X-Api-Key".to_owned()]),
                 bearer_token_env_var: None,
