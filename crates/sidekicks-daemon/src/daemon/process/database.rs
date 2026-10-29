@@ -47,6 +47,7 @@ use sidekicks_recovery::restart_settle::RESTART_SETTLE_STATEMENT_CAPACITY;
 use sidekicks_recovery::session_write_refusal::refuse_session_event;
 use sidekicks_recovery::startup::STARTUP_RECOVERY_STATEMENT_CAPACITY;
 use sidekicks_recovery::status::RecoveryStatusTracker;
+use sidekicks_session::attention::projection::attention_projection_statements;
 use sidekicks_session::auto_title::SESSION_AUTO_TITLE_STATEMENT_CAPACITY;
 use sidekicks_session::changes::SESSION_CHANGES_STATEMENT_CAPACITY;
 use sidekicks_session::conversation_purge::CONVERSATION_PURGE_STATEMENT_CAPACITY;
@@ -624,12 +625,14 @@ async fn open_writer(
 }
 
 // The statements the projections kept in each event's own write take for `envelope`: the session's
-// directory row first, which the others' rows refer to, then the questions' queued answers.
+// directory row first, which the others' rows refer to, then the questions' queued answers, then
+// the attention entries.
 fn session_projection_statements(
     envelope: &UnsequencedEventEnvelope,
 ) -> Result<Vec<WriteStatement>, ProjectionError> {
     let mut statements = directory_statements_for(&DirectoryEvent::from(envelope))?;
     statements.extend(question_projection_statements(envelope));
+    statements.extend(attention_projection_statements(envelope)?);
     Ok(statements)
 }
 
