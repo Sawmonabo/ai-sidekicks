@@ -59,7 +59,7 @@ pub(crate) struct MachineSettingsFile {
     /// Every listener's outlet and in-process reader's channel.
     listeners: Mutex<Listeners>,
     /// Whether a rewrite of the defaults failed with no write succeeding since.
-    defaults_write_failures: FailureEpisode,
+    defaults_write_failure_episode: FailureEpisode,
 }
 
 #[derive(Default)]
@@ -85,7 +85,7 @@ impl MachineSettingsFile {
             file_path,
             repair: tokio::sync::Mutex::new(None),
             listeners: Mutex::default(),
-            defaults_write_failures: FailureEpisode::default(),
+            defaults_write_failure_episode: FailureEpisode::default(),
         }
     }
 
@@ -198,7 +198,7 @@ impl MachineSettingsFile {
         let Err(error) = self.write(defaults).await else {
             return DefaultsWrite::Written;
         };
-        let is_first = self.defaults_write_failures.is_first_failure();
+        let is_first = self.defaults_write_failure_episode.is_first_failure();
         let error = &error as &(dyn Error + 'static);
         if is_first {
             tracing::warn!(
@@ -240,7 +240,7 @@ impl MachineSettingsFile {
             serde_json::to_vec_pretty(settings).expect("the settings serialize as JSON");
         contents.push(b'\n');
         write_file_atomically(&self.file_path, contents, SETTINGS_FILE_MODE).await?;
-        self.defaults_write_failures.mark_succeeded();
+        self.defaults_write_failure_episode.mark_succeeded();
         Ok(())
     }
 
