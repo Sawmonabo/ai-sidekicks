@@ -5,7 +5,7 @@
 
 use std::error::Error;
 use std::fs;
-use std::sync::{Arc, Mutex, Weak};
+use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -124,13 +124,24 @@ impl SessionProjectionFold for PinnedEvents {
 // stand.
 struct SkippedRunVersions;
 
+// The skip's type as the runs projection subscribes to it, so the fixture folds a skip only while
+// the runs projection does.
+static SKIPPED_RUN_VERSION_TYPES: LazyLock<Vec<SessionEventType>> = LazyLock::new(|| {
+    RunsProjection
+        .event_types()
+        .iter()
+        .copied()
+        .filter(|event_type| *event_type == DAMAGED_EVENTS_SKIPPED_TYPE)
+        .collect()
+});
+
 impl SessionProjection for SkippedRunVersions {
     fn name(&self) -> &'static str {
         "skipped run versions"
     }
 
     fn event_types(&self) -> &[SessionEventType] {
-        &[DAMAGED_EVENTS_SKIPPED_TYPE]
+        &SKIPPED_RUN_VERSION_TYPES
     }
 
     fn clear_statements(&self, _session_id: &SessionId) -> Vec<WriteStatement> {
