@@ -1,17 +1,22 @@
 //! The sign-in to an MCP server reached at an address: what it keeps, the credentials in the
 //! keychain and which client each server admitted, both under the server's canonical address, the
 //! filtered HTTP its OAuth calls go through, which client each sign-in goes through, the launch
-//! and the life of each server's one open attempt, and the authorizer that presents and renews its
-//! token on each request.
+//! and the life of each server's one open attempt, the browser's return and the code's redemption,
+//! the one completion event each settled sign-in appends, and the authorizer that presents and
+//! renews its token on each request.
 
 pub(crate) mod admitted_client;
 pub(crate) mod authorizer;
+pub(crate) mod completion_event;
 pub(crate) mod credential_store;
 pub(crate) mod oauth_http_client;
+pub(crate) mod redemption;
 pub mod registration;
 pub(crate) mod service;
 #[cfg(test)]
 mod test_keychain;
+#[cfg(test)]
+mod test_service;
 
 use sidekicks_contracts::mcp::server::config::McpServerAddress;
 
