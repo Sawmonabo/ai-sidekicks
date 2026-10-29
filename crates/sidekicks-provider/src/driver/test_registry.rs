@@ -1,9 +1,9 @@
 //! The driver registry other areas' tests build on: the shared services every driver's build
 //! takes, the table's first providers answered by stand-in drivers, a run bound to the first one,
 //! the session inbox addresser the table's own drivers answer, an accounts reader answering one
-//! current account, and the table with Codex's driver over a scripted service; the run, session
-//! and message ids the drivers' tests mint, and the run
-//! queue's intake as a driver tells it.
+//! current account, the table with Codex's driver over a scripted service, and a terminal service a
+//! former daemon kept; the run, session and message ids the drivers' tests mint, and the run queue's
+//! intake as a driver tells it.
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -46,7 +46,10 @@ use crate::command::waiting_checks::SystemInputWaitReader;
 use crate::command_search::ProviderCommandSearch;
 use crate::compaction_wait::PendingCompactionRegistry;
 use crate::driver::attachments::{AttachmentResolver, ProviderAttachment};
-pub use crate::driver::codex::{ScriptedCodexService, start_scripted_codex_service};
+pub use crate::driver::codex::{
+    CodexServiceStandIn, KeptTerminalService, ScriptedCodexService, keep_terminal_service,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+};
 use crate::driver::contract::ProviderDriver;
 use crate::driver::ports::DriverPorts;
 #[cfg(test)]

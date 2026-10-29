@@ -147,7 +147,7 @@ async fn a_joined_service_checks_it_is_free_once_the_daemon_holds_no_session_on_
     let dependencies = test_codex_service_dependencies(
         folder.path(),
         Arc::new(TestCodexProgram {
-            program: write_failing_codex(folder.path()),
+            program: write_failing_codex(folder.path(), None),
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),

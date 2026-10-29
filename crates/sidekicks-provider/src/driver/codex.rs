@@ -110,7 +110,10 @@ mod vendored_schema;
 mod version;
 
 #[cfg(any(test, feature = "test-support"))]
-pub use service::supervisor::test_service::{ScriptedCodexService, start_scripted_codex_service};
+pub use service::supervisor::test_service::{
+    CodexServiceStandIn, KeptTerminalService, ScriptedCodexService, keep_terminal_service,
+    serve_as_codex_service_stand_in, stand_in_codex_service, start_scripted_codex_service,
+};
 
 /// Codex's fixed facts.
 pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {

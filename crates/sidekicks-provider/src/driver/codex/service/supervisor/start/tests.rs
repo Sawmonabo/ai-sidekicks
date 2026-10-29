@@ -95,7 +95,7 @@ async fn start_terminal_service_on(
     let dependencies = test_codex_service_dependencies(
         folder,
         Arc::new(TestCodexProgram {
-            program: write_failing_codex(folder),
+            program: write_failing_codex(folder, None),
             environment: Vec::new(),
         }),
         Arc::new(UnheardEvents),
@@ -233,7 +233,7 @@ async fn a_start_on_a_free_listener_no_pid_file_names_joins_it() {
     };
     tokio::spawn(async move {
         while let Ok(stream) = listener.accept().await {
-            tokio::spawn(answer_as_codex_service(stream));
+            tokio::spawn(answer_as_codex_service(stream, |_method| {}));
         }
     });
 
