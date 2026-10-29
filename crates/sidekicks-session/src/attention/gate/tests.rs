@@ -6,6 +6,7 @@ use rusqlite::params;
 use sidekicks_contracts::attention::{AttentionBannerState, AttentionTrigger};
 use sidekicks_contracts::machine::settings::{MachineSettings, NotificationSettings};
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, test_session_id};
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
 use sidekicks_workspace::machine_settings::MachineSettingsReader;
@@ -214,4 +215,59 @@ async fn a_failed_settings_read_withholds_every_channel() {
             None
         )
     );
+}
+
+// A mute that commits after the decision read the session unmuted still withholds the end's banner
+// and its web-address message, while the session's wait keeps its pending banner. Killed by the
+// write's mute guard dropped.
+#[tokio::test]
+async fn a_mute_after_the_decision_read_withholds_the_end_it_decided() {
+    let harness = Harness::new().await;
+    let session_id = test_session_id();
+    insert_session_row(
+        &harness.database.reader(),
+        session_id.text().as_str(),
+        None,
+        None,
+    );
+    let mut settings = MachineSettings::default().notifications;
+    settings.web_address.enabled = true;
+    harness.insert_entry("waiting", session_id, AttentionTrigger::PendingApproval);
+    harness.insert_entry("finished", session_id, AttentionTrigger::RunCompleted);
+    let decisions = [
+        decided(
+            "waiting",
+            session_id,
+            Some(&settings),
+            AttentionTrigger::PendingApproval,
+            None,
+        ),
+        decided(
+            "finished",
+            session_id,
+            Some(&settings),
+            AttentionTrigger::RunCompleted,
+            None,
+        ),
+    ];
+    harness
+        .database
+        .reader()
+        .execute(
+            "UPDATE sessions SET muted_at = ?1 WHERE id = ?2",
+            params![MUTED_AT, session_id.to_string()],
+        )
+        .expect("the test mutes the session");
+
+    write_decisions(&harness.writer, &decisions)
+        .await
+        .expect("the decisions are written");
+
+    let pending = <&'static str>::from(AttentionBannerState::Pending).to_owned();
+    let withheld = <&'static str>::from(AttentionBannerState::Withheld).to_owned();
+    assert_eq!(
+        harness.delivery_of("waiting"),
+        (Some(pending), Some("pending".to_owned()))
+    );
+    assert_eq!(harness.delivery_of("finished"), (Some(withheld), None));
 }

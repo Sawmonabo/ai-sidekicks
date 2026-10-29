@@ -23,16 +23,34 @@ use crate::attention::projection::BUMP_ALWAYS_SQL;
 
 // Inserts an entry's decision, or decides again a banner handed back undecided, which touches only
 // the banner and its merge so the web address stays decided once. An entry deleted since it was
-// read gets no row.
-const WRITE_DECISION_SQL: &str = "INSERT INTO attention_deliveries
+// read gets no row. A session muted since the decision read its mute withholds its end's banner
+// and web-address message here, in the write itself, since the mute's own write found no row to
+// withdraw.
+static WRITE_DECISION_SQL: LazyLock<String> = LazyLock::new(|| {
+    format!(
+        "INSERT INTO attention_deliveries
   (entry_id, banner_state, merged_into, web_address_state, web_address_attempt_count,
    muted_at_decision)
-  SELECT @entry_id, @banner_state, @merged_into, @web_address_state, @web_address_attempt_count,
-         @muted_at_decision
-   WHERE EXISTS (SELECT 1 FROM attention_entries WHERE id = @entry_id)
+  SELECT entry.id,
+         CASE WHEN {muted_end} THEN '{withheld}' ELSE @banner_state END,
+         @merged_into,
+         CASE WHEN {muted_end} THEN NULL ELSE @web_address_state END,
+         CASE WHEN {muted_end} THEN NULL ELSE @web_address_attempt_count END,
+         COALESCE(@muted_at_decision, session_row.muted_at)
+    FROM attention_entries AS entry
+    LEFT JOIN sessions AS session_row ON session_row.id = entry.session_id
+   WHERE entry.id = @entry_id
   ON CONFLICT (entry_id) DO UPDATE
     SET banner_state = excluded.banner_state, merged_into = excluded.merged_into
-    WHERE attention_deliveries.banner_state IS NULL";
+    WHERE attention_deliveries.banner_state IS NULL",
+        muted_end = format!(
+            "session_row.muted_at IS NOT NULL AND entry.trigger IN ('{completed}', '{failed}')",
+            completed = <&'static str>::from(AttentionTrigger::RunCompleted),
+            failed = <&'static str>::from(AttentionTrigger::RunFailed),
+        ),
+        withheld = <&'static str>::from(AttentionBannerState::Withheld),
+    )
+});
 
 static PENDING_WEB_ADDRESS_STATE: LazyLock<&'static str> =
     LazyLock::new(|| <&'static str>::from(AttentionWebAddressState::Pending));
@@ -156,7 +174,7 @@ fn decision_statement(decided: &DeliveryDecision) -> WriteStatement {
         (Value::Null, Value::Null)
     };
     statement(
-        WRITE_DECISION_SQL,
+        &WRITE_DECISION_SQL,
         vec![
             text_binding("@entry_id", &decided.entry_id),
             text_binding(

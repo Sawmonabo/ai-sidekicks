@@ -1,6 +1,6 @@
 //! The event log a test of the attention entries appends to: every append carries the attention
-//! statements in its write, as the daemon's does, over a fresh database holding the runs' and the
-//! attention tables.
+//! statements in its write, and every commit raises the attention change counts, as the daemon's
+//! do, over a fresh database holding the runs' and the attention tables.
 
 use std::sync::Arc;
 
@@ -21,8 +21,11 @@ use sidekicks_store::events::session::appender::{
 use sidekicks_store::events::session::followers::SessionEventFollowers;
 use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 
+use crate::attention::changes::{AttentionChanges, attention_changes_after_commits};
 use crate::attention::projection::attention_projection_statements;
+use crate::attention::read::ATTENTION_STATEMENT_CAPACITY;
 use crate::attention::schema::schema_parts;
+use crate::attention::service::ATTENTION_SERVICE_STATEMENT_CAPACITY;
 use crate::run::engine::test_fixture::insert_running_run;
 
 /// A log whose appends carry the attention statements, over a fresh database, and the one session
@@ -32,7 +35,11 @@ pub struct AttentionTestLog {
     pub database: TestDatabase,
     /// The writer every append goes through, which a test's own writes share.
     pub writer: Arc<DatabaseWriter>,
-    /// The session every append is of.
+    /// The read pool over the test's database.
+    pub pool: Arc<DatabaseReadPool>,
+    /// The change counts the writer raises after each commit.
+    pub changes: AttentionChanges,
+    /// The session every append is of unless the test names another.
     pub session_id: SessionId,
     appender: SessionEventAppender,
 }
@@ -41,17 +48,27 @@ impl AttentionTestLog {
     /// The log over a fresh database.
     pub async fn new() -> Self {
         let database = TestDatabase::new(schema_parts());
+        let (after_commit, changes) = attention_changes_after_commits();
         let writer = Arc::new(
-            DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
-                .await
-                .expect("the writer opens its database"),
+            DatabaseWriter::open(
+                database.opener(),
+                DatabaseWriterOptions {
+                    after_commits: vec![after_commit],
+                    ..DatabaseWriterOptions::default()
+                },
+            )
+            .await
+            .expect("the writer opens its database"),
         );
+        let pool = Arc::new(DatabaseReadPool::new(
+            database.path(),
+            EVENT_LOG_STATEMENT_CAPACITY
+                + ATTENTION_STATEMENT_CAPACITY
+                + ATTENTION_SERVICE_STATEMENT_CAPACITY,
+        ));
         let event_log = Arc::new(EventLogService::new(EventLogServiceDependencies {
             writer: Arc::clone(&writer),
-            pool: Arc::new(DatabaseReadPool::new(
-                database.path(),
-                EVENT_LOG_STATEMENT_CAPACITY,
-            )),
+            pool: Arc::clone(&pool),
             followers: Arc::new(SessionEventFollowers::default()),
             projection_statements: Some(Box::new(attention_projection_statements)),
             refuse_session_write: None,
@@ -60,6 +77,8 @@ impl AttentionTestLog {
         Self {
             database,
             writer,
+            pool,
+            changes,
             session_id: test_session_id(),
             appender: SessionEventAppender::new(event_log, SESSION_EVENT_VERSION.clone()),
         }
@@ -67,10 +86,20 @@ impl AttentionTestLog {
 
     /// Appends `event`, a session event's `type` and `payload` as JSON, with `linkage`.
     pub async fn append_with(&self, event: Value, linkage: SessionEventLinkage) {
+        self.append_to(self.session_id, event, linkage).await;
+    }
+
+    /// Appends `event` to the log of `session_id`, with `linkage`.
+    pub async fn append_to(
+        &self,
+        session_id: SessionId,
+        event: Value,
+        linkage: SessionEventLinkage,
+    ) {
         let event: SessionEvent = serde_json::from_value(event).expect("the test event reads");
         self.appender
             .append(
-                SessionEventDraft::of_session(self.session_id, &event)
+                SessionEventDraft::of_session(session_id, &event)
                     .expect("the test event passes its checks"),
                 linkage,
             )

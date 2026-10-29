@@ -2,16 +2,13 @@
 //!
 //! An entry is raised, resolved or deleted by the event that announced the change, read from the
 //! event's own payload, so a limit's stop and a person's stop part ways; one session-level item is
-//! chosen from the run-level items under it. A pending banner with no app of this machine listening
-//! starts the app with no window.
+//! chosen from the run-level items under it. Each entry's banner and web-address message are
+//! decided once, after a half-second merge per subject, and a pending banner with no app of this
+//! machine listening starts the app with no window.
 
 pub(crate) mod aggregate;
 pub mod banner_launcher;
 pub mod changes;
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "the attention service's decision task")
-)]
 pub(crate) mod gate;
 pub(crate) mod moment;
 pub mod projection;
@@ -20,5 +17,6 @@ pub mod rebuild;
 pub mod retention;
 pub mod schema;
 pub mod seen;
+pub mod service;
 #[cfg(any(test, feature = "test-support"))]
 pub mod test_log;
