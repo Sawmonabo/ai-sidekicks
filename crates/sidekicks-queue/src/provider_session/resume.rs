@@ -4,6 +4,7 @@
 //! driver runs, and recorded as the session's opening, so the next message opens nothing again.
 
 use std::error::Error;
+use std::sync::Arc;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -15,7 +16,9 @@ use sidekicks_provider::driver::capabilities::DriverCapabilityFlag;
 use sidekicks_provider::driver::idle_sleep::SessionSleepState;
 use sidekicks_provider::driver::session_control::{DriverResumeResult, ResumeSessionParams};
 use sidekicks_provider::left_conversations::LeftConversation;
-use sidekicks_provider::runtime_binding::resume::compose_resume_session_params;
+use sidekicks_provider::runtime_binding::resume::{
+    ResumeFunctionLegs, compose_resume_session_params,
+};
 use sidekicks_provider::runtime_binding::store::{
     RuntimeBinding, RuntimeBindingRelaunch, mint_runtime_binding_id,
 };
@@ -29,15 +32,21 @@ use crate::provider_session::{
     OpenedSession, ProviderSessionError, ProviderSessions, close_unrecorded, posture_of,
 };
 
-/// A session's resume composed from its stored leg: the params its driver resumes it with, and
-/// the posture and git folder the resumed process runs at.
+/// A session's resume composed from its stored leg: the params its driver resumes it with, with no
+/// function legs, the posture and git folder the resumed process runs at, and the legs a caller
+/// that starts the process under its own binding opens for it.
 pub struct ComposedResume {
-    /// The params the session's driver resumes it with.
+    /// The params the session's driver resumes it with; they carry no function legs, so composing
+    /// them opens no status leg, and a driver that asks the session directory for its legs, or a
+    /// side question's copy, which runs under no binding of the session's, holds none.
     pub params: ResumeSessionParams,
     // The posture of the level the session stands at.
     execution_posture: ExecutionPosture,
     // The git folder each level's posture is built on.
     git_folder: FilesystemPath,
+    // Opens the function legs of a binding: called only by a relaunch that hands them to the
+    // driver, since each call opens a status leg.
+    function_legs_for: Arc<dyn Fn(&RuntimeBindingId) -> ResumeFunctionLegs + Send + Sync>,
 }
 
 // Which of the driver's verbs brings a session's conversation back in a fresh process: the resume
@@ -52,7 +61,7 @@ impl ProviderSessions {
     /// The resume of `session_id`'s conversation from its stored `leg` under `binding_id`,
     /// composed from the session's lead as it stands now on the account the leg ran on, at the
     /// level it stands at, in the mode it was last moved to and with the timed fires the idle
-    /// sleep stored for it, its callbacks bound to `binding_id`. Fails as the composition, the
+    /// sleep stored for it, under `binding_id`, with no function legs. Fails as the composition, the
     /// posture or the read of the mode or the timed fires fails, and with
     /// [`ProviderSessionError::NotResumable`] for a leg with no conversation.
     pub async fn compose_resume(
@@ -87,13 +96,14 @@ impl ProviderSessions {
             execution_posture.clone(),
             opening.create_params.options,
             opening.create_params.row_values,
-            (opening.function_legs_for)(&binding_id),
+            ResumeFunctionLegs::default(),
             kept_schedules,
         )?;
         Ok(ComposedResume {
             params,
             execution_posture,
             git_folder: opening.git_folder,
+            function_legs_for: opening.function_legs_for,
         })
     }
 
@@ -144,12 +154,14 @@ impl ProviderSessions {
     ) -> Result<OpenedSession, ProviderSessionError> {
         let minted_id = mint_runtime_binding_id();
         let ComposedResume {
-            params,
+            mut params,
             execution_posture,
             git_folder,
+            function_legs_for,
         } = self
             .compose_resume(session_id, &leg, minted_id.clone())
             .await?;
+        params.on_mcp_server_status = function_legs_for(&minted_id).on_mcp_server_status;
         let driver = self.deps.providers.lookup(&leg.provider_name)?;
         self.deps
             .binding_cursors
