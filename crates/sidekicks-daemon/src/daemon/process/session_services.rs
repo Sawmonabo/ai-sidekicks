@@ -421,6 +421,9 @@ pub(crate) fn build_session_services(
     engine
         .set_interrupt_queue(Arc::downgrade(&queue) as Weak<_>)
         .expect("a new engine holds no run queue yet");
+    engine
+        .set_session_postures(Arc::downgrade(&provider_sessions) as Weak<_>)
+        .expect("a new engine holds no posture source yet");
     let interventions = Arc::new(InterventionService::new(InterventionServiceDeps {
         pool: Arc::clone(&reads),
         event_log: Arc::clone(&event_log),
