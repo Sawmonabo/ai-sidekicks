@@ -113,12 +113,6 @@ pub enum AttentionReadError {
         /// The run.
         workflow_run_id: String,
     },
-    /// The record of each provider's builds lists a build of a provider no driver describes.
-    #[error("the record lists a build of {provider}, which no driver describes")]
-    UndescribedProvider {
-        /// The provider.
-        provider: String,
-    },
     /// A version the record lists for a provider is one the wire cannot carry.
     #[error("the recorded {member} of {provider} cannot be sent")]
     UnreadableProviderBuild {
@@ -142,7 +136,6 @@ impl From<AttentionReadError> for HandlerError {
             | AttentionReadError::Pool(_)
             | AttentionReadError::IncompleteNotifyEntry { .. }
             | AttentionReadError::UnnamedWorkflowRun { .. }
-            | AttentionReadError::UndescribedProvider { .. }
             | AttentionReadError::UnreadableProviderBuild { .. }) => {
                 Self::Internal(Box::new(fault))
             }
@@ -153,9 +146,8 @@ impl From<AttentionReadError> for HandlerError {
 /// The projection `request` asks for, read on `reader` in one snapshot: with no session, every
 /// stored entry and then every provider build the record lists; a session alone, its entries and
 /// its aggregate; a session's `session` scope, the aggregate alone; its `run` scope, that run's
-/// entries. Fails with
-/// [`AttentionReadError::Refused`] (`session.notFound`) for a named session this daemon holds
-/// no row for.
+/// entries. Fails with [`AttentionReadError::Refused`] (`session.notFound`) for a named session
+/// this daemon holds no row for.
 pub fn read_attention_projection(
     reader: &Connection,
     request: &AttentionSubscribeRequest,

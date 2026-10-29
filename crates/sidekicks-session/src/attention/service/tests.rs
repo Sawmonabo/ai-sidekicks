@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
@@ -29,7 +30,10 @@ use tokio::sync::watch;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 
-use super::{AttentionService, AttentionServiceDependencies, DecisionTask, MERGE_WINDOW};
+use super::{
+    AttentionService, AttentionServiceDependencies, DecisionTask, MERGE_WINDOW,
+    PROVIDER_BUILD_RETIREMENT_JOB,
+};
 use crate::attention::banner_launcher::counting_starter::CountingStarter;
 use crate::attention::banner_launcher::{BannerLauncher, WindowlessAppStarter};
 use crate::attention::projection::notify_entry_statements;
@@ -59,6 +63,7 @@ struct Fixture {
     service: Arc<AttentionService>,
     settings: Arc<TestSettings>,
     starter: Arc<CountingStarter>,
+    scheduler: Arc<Scheduler>,
 }
 
 impl Fixture {
@@ -69,6 +74,11 @@ impl Fixture {
         let settings = Arc::new(TestSettings(Mutex::new(settings)));
         // A started app never exits, so no timer runs behind a start.
         let starter = Arc::new(CountingStarter::never_exiting());
+        let scheduler = Arc::new(Scheduler::start(
+            Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
+            None,
+            watch::channel(0).1,
+        ));
         let service = Arc::new(AttentionService::new(AttentionServiceDependencies {
             writer: Arc::clone(&log.writer),
             pool: Arc::clone(&log.pool),
@@ -79,17 +89,14 @@ impl Fixture {
                 Arc::clone(&starter) as Arc<dyn WindowlessAppStarter>
             )),
             machine_device_id: device(MACHINE_DEVICE),
-            scheduler: Arc::new(Scheduler::start(
-                Arc::new(WallClockTimer::new().expect("the wall-clock timer is made")),
-                None,
-                watch::channel(0).1,
-            )),
+            scheduler: Arc::clone(&scheduler),
         }));
         Self {
             log,
             service,
             settings,
             starter,
+            scheduler,
         }
     }
 
@@ -487,17 +494,55 @@ fn insert_build(
         .expect("the test records a build");
 }
 
+/// Waits until the service holds the provider build retirement armed for `instant`.
+async fn wait_until_armed_at(service: &AttentionService, instant: SystemTime) {
+    timeout(WAIT, async {
+        while lock(&service.armed_retirement)
+            .as_ref()
+            .map(|armed| armed.instant)
+            != Some(instant)
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("the retirement is armed for its instant");
+}
+
 // A build moved to that was recorded a day ago leaves the list when the wall clock's timer fires
-// for it, with no decision batch and no start; one recorded within the day stays. The task's pass,
-// which a recorded build's bump wakes, arms the timer. Killed by the retirement never armed, and by
-// the pass arming nothing.
+// for it, with no decision batch, once its recording is told; one moved to within the day and one
+// only available, recorded before both, stay, and the one retirement left waiting is the next
+// one's. Killed by a recorded build arming nothing, by the moved-to filter dropped from the next
+// retirement, and by the retirement it replaces left uncanceled.
 #[tokio::test]
 async fn a_day_old_build_moved_to_retires_when_its_timer_fires_with_no_batch() {
     let fixture = Fixture::new().await;
     let log = &fixture.log;
-    let mut task = fixture.task();
-    Fixture::pass(&mut task).await;
-    let now = Timestamp::now();
+    let stop = CancellationToken::new();
+    let decisions = fixture
+        .service
+        .start(stop.clone())
+        .await
+        .expect("the service starts");
+    // Whole milliseconds, as the record stores an instant.
+    let now = Timestamp::from_millisecond(Timestamp::now().as_millisecond())
+        .expect("the clock's instant is a timestamp");
+    let within_day = now - SignedDuration::from_hours(23);
+    insert_build(log, "codex", "0.164.0", Some("0.163.0"), within_day);
+    log.changes.raise_recorded_builds();
+    let next_retirement = SystemTime::from(
+        within_day + SignedDuration::from_hours(24) + SignedDuration::from_millis(1),
+    );
+    wait_until_armed_at(&fixture.service, next_retirement).await;
+    let mut count = fixture.service.follow(None);
+
+    insert_build(
+        log,
+        "claude",
+        "2.1.295",
+        None,
+        now - SignedDuration::from_hours(26),
+    );
     insert_build(
         log,
         "claude",
@@ -505,16 +550,7 @@ async fn a_day_old_build_moved_to_retires_when_its_timer_fires_with_no_batch() {
         Some("2.1.293"),
         now - SignedDuration::from_hours(25),
     );
-    insert_build(
-        log,
-        "codex",
-        "0.164.0",
-        Some("0.163.0"),
-        now - SignedDuration::from_hours(23),
-    );
-    let mut count = fixture.service.follow(None);
-
-    Fixture::pass(&mut task).await;
+    log.changes.raise_recorded_builds();
     timeout(WAIT, async {
         while machine_version(log).is_none() {
             count.changed().await.expect("the counts stay followed");
@@ -523,5 +559,18 @@ async fn a_day_old_build_moved_to_retires_when_its_timer_fires_with_no_batch() {
     .await
     .expect("the timer retires the day-old build");
 
-    assert_eq!(listed_builds(log), ["updated · 0.163.0 → 0.164.0"]);
+    assert_eq!(
+        listed_builds(log),
+        ["updated · 0.163.0 → 0.164.0", "2.1.295 available"]
+    );
+    wait_until_armed_at(&fixture.service, next_retirement).await;
+    assert_eq!(
+        fixture.scheduler.waiting_job_names(),
+        [PROVIDER_BUILD_RETIREMENT_JOB],
+        "the retirement replaced was canceled"
+    );
+    stop.cancel();
+    decisions
+        .await
+        .expect("the decision task ends with the stop");
 }

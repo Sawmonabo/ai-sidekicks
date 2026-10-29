@@ -33,8 +33,7 @@ use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
 use strum::VariantArray;
 
 use crate::build_record::{
-    RecordChangeStatements, RecordedArrival, RecordedProviderBuild, record_statements,
-    recorded_arrival,
+    BuildRecordReaders, RecordedArrival, RecordedProviderBuild, record_statements, recorded_arrival,
 };
 use crate::driver::ProviderDescriptor;
 use crate::driver::capabilities::{
@@ -174,8 +173,8 @@ pub enum DriverCapabilitiesWriterError {
 pub struct DriverCapabilitiesWriter {
     reads: Arc<DatabaseReadPool>,
     writer: Arc<DatabaseWriter>,
-    // The statements that tell the record's readers a build was recorded.
-    record_change: Arc<RecordChangeStatements>,
+    // The record's readers, told of each build recorded.
+    record_readers: Arc<dyn BuildRecordReaders>,
     // One provider's declares take turns, each committing before the next reads.
     declares: KeyedLock<ProviderId>,
 }
@@ -197,16 +196,17 @@ struct CapabilitySnapshot {
 
 impl DriverCapabilitiesWriter {
     /// A writer reading through `reads` and writing through `writer`, which carries
-    /// `record_change`'s statements in each write that records a provider's new build.
+    /// `record_readers`' statements in each write that records a provider's new build and tells
+    /// them once that write committed.
     pub fn new(
         reads: Arc<DatabaseReadPool>,
         writer: Arc<DatabaseWriter>,
-        record_change: Arc<RecordChangeStatements>,
+        record_readers: Arc<dyn BuildRecordReaders>,
     ) -> Self {
         Self {
             reads,
             writer,
-            record_change,
+            record_readers,
             declares: KeyedLock::new(),
         }
     }
@@ -274,6 +274,7 @@ impl DriverCapabilitiesWriter {
             .as_ref()
             .is_none_or(|stored| stored.cli_version.as_ref() != Some(declared_cli_version));
         let refreshed_at = WireInstant::now();
+        let is_build_recorded = moved_from_version.is_some();
         let build_record = moved_from_version.map_or_else(Vec::new, |from_version| {
             record_statements(
                 &RecordedProviderBuild {
@@ -282,7 +283,7 @@ impl DriverCapabilitiesWriter {
                     from_version: Some(from_version),
                     recorded_at: refreshed_at.clone(),
                 },
-                &*self.record_change,
+                self.record_readers.change_statements(),
             )
         });
 
@@ -313,6 +314,9 @@ impl DriverCapabilitiesWriter {
                 }
             }
         };
+        if is_build_recorded {
+            self.record_readers.build_recorded();
+        }
         Ok(DeclaredCapabilities {
             snapshot_change,
             is_cli_version_refreshed,
@@ -520,11 +524,11 @@ fn refresh_cli_version_statement(
 }
 
 /// A writer over `database`, opening its database writer and telling a recorded build's readers
-/// through `record_change`, for tests that declare a reading.
+/// through `record_readers`, for tests that declare a reading.
 #[cfg(test)]
 pub(crate) async fn test_capabilities_writer(
     database: &sidekicks_store::database::writer::test_file::TestDatabase,
-    record_change: Arc<RecordChangeStatements>,
+    record_readers: Arc<dyn BuildRecordReaders>,
 ) -> DriverCapabilitiesWriter {
     let writer = DatabaseWriter::open(
         database.opener(),
@@ -536,13 +540,27 @@ pub(crate) async fn test_capabilities_writer(
         database.path(),
         DRIVER_CAPABILITIES_WRITER_STATEMENT_CAPACITY,
     );
-    DriverCapabilitiesWriter::new(Arc::new(reads), Arc::new(writer), record_change)
+    DriverCapabilitiesWriter::new(Arc::new(reads), Arc::new(writer), record_readers)
+}
+
+/// No reader of the record, for tests that record no build or read none.
+#[cfg(test)]
+pub(crate) struct NoRecordReaders;
+
+#[cfg(test)]
+impl BuildRecordReaders for NoRecordReaders {
+    fn change_statements(&self) -> Vec<WriteStatement> {
+        Vec::new()
+    }
+
+    fn build_recorded(&self) {}
 }
 
 #[cfg(test)]
 mod tests {
     use std::borrow::Cow;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use rusqlite::Connection;
     use sidekicks_contracts::provider::driver::tools::{IdempotencyClass, ProviderToolMetadata};
@@ -554,9 +572,10 @@ mod tests {
     use sidekicks_store::database::writer::test_file::TestDatabase;
 
     use super::{
-        CapabilitySnapshotChange, DriverCapabilitiesWriterError, test_capabilities_writer,
+        CapabilitySnapshotChange, DriverCapabilitiesWriterError, NoRecordReaders,
+        test_capabilities_writer,
     };
-    use crate::build_record::{RecordChangeStatements, RecordedProviderBuild, record_statements};
+    use crate::build_record::{BuildRecordReaders, RecordedProviderBuild, record_statements};
     use crate::driver::PROVIDERS;
     use crate::driver::capabilities::{
         DriverCapabilities, DriverCapabilityFlag, DriverCapabilityFlags,
@@ -610,7 +629,7 @@ mod tests {
     #[tokio::test]
     async fn a_same_reading_writes_no_capability_row_and_a_new_build_rewrites_only_its_version() {
         let database = TestDatabase::new(schema_parts());
-        let writer = test_capabilities_writer(&database, Arc::new(Vec::new)).await;
+        let writer = test_capabilities_writer(&database, Arc::new(NoRecordReaders)).await;
         let provider = provider();
         let first = writer
             .declare(&provider, &reading("2.0.0"))
@@ -658,7 +677,7 @@ mod tests {
     #[tokio::test]
     async fn a_stored_flag_set_missing_a_flag_fails_the_rebuild() {
         let database = TestDatabase::new(schema_parts());
-        let writer = test_capabilities_writer(&database, Arc::new(Vec::new)).await;
+        let writer = test_capabilities_writer(&database, Arc::new(NoRecordReaders)).await;
         let provider = provider();
         writer
             .declare(&provider, &reading("2.0.0"))
@@ -687,8 +706,32 @@ mod tests {
     // A record row: its build, the build it moved from and whether it is retired.
     type BuildRow = (String, Option<String>, bool);
 
-    // The record's rows and how many times its readers were told of a change.
-    fn record_and_changes(connection: &Connection) -> (Vec<BuildRow>, i64) {
+    // Marks each write to the record with a row, and counts the builds it is told were recorded.
+    #[derive(Default)]
+    struct MarkingReaders {
+        recorded: AtomicUsize,
+    }
+
+    impl BuildRecordReaders for MarkingReaders {
+        fn change_statements(&self) -> Vec<WriteStatement> {
+            vec![WriteStatement {
+                sql: Cow::Borrowed("INSERT INTO record_changes (marked) VALUES (1)"),
+                bindings: StatementBindings::None,
+                expected_row_count: Some(1),
+            }]
+        }
+
+        fn build_recorded(&self) {
+            self.recorded.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    // The record's rows and how many writes marked a change, each of which told the readers once
+    // it committed.
+    fn record_and_changes(
+        connection: &Connection,
+        readers: &MarkingReaders,
+    ) -> (Vec<BuildRow>, i64) {
         let rows = connection
             .prepare("SELECT version, from_version, retired_at IS NOT NULL FROM provider_builds")
             .expect("the test's read prepares")
@@ -699,6 +742,11 @@ mod tests {
         let changes = connection
             .query_row("SELECT count(*) FROM record_changes", [], |row| row.get(0))
             .expect("the markers count");
+        assert_eq!(
+            i64::try_from(readers.recorded.load(Ordering::SeqCst)).expect("a small count"),
+            changes,
+            "the readers are told of each recorded build once its write committed"
+        );
         (rows, changes)
     }
 
@@ -726,14 +774,12 @@ mod tests {
             "record_changes",
             "CREATE TABLE record_changes (marked INTEGER NOT NULL) STRICT;",
         )));
-        let record_change: Arc<RecordChangeStatements> = Arc::new(|| {
-            vec![WriteStatement {
-                sql: Cow::Borrowed("INSERT INTO record_changes (marked) VALUES (1)"),
-                bindings: StatementBindings::None,
-                expected_row_count: Some(1),
-            }]
-        });
-        let writer = test_capabilities_writer(&database, record_change).await;
+        let readers = Arc::new(MarkingReaders::default());
+        let writer = test_capabilities_writer(
+            &database,
+            Arc::clone(&readers) as Arc<dyn BuildRecordReaders>,
+        )
+        .await;
         let provider = provider();
         let connection = database.reader();
         let declare = |version: &'static str| {
@@ -763,11 +809,11 @@ mod tests {
             )
             .expect("the test takes the stored version off");
         declare("2.1.293").await;
-        assert_eq!(record_and_changes(&connection), (vec![], 0));
+        assert_eq!(record_and_changes(&connection, &readers), (vec![], 0));
 
         declare("2.1.294").await;
         assert_eq!(
-            record_and_changes(&connection),
+            record_and_changes(&connection, &readers),
             (vec![installed("2.1.294", "2.1.293", false)], 1)
         );
 
@@ -776,7 +822,7 @@ mod tests {
         store_version(&connection, "2.1.293");
         declare("2.1.294").await;
         assert_eq!(
-            record_and_changes(&connection),
+            record_and_changes(&connection, &readers),
             (vec![installed("2.1.294", "2.1.293", false)], 1)
         );
         connection
@@ -787,7 +833,7 @@ mod tests {
         store_version(&connection, "2.1.293");
         declare("2.1.294").await;
         assert_eq!(
-            record_and_changes(&connection),
+            record_and_changes(&connection, &readers),
             (vec![installed("2.1.294", "2.1.293", true)], 1)
         );
 
@@ -802,7 +848,7 @@ mod tests {
             .expect("the test records an available build");
         declare("2.1.295").await;
         assert_eq!(
-            record_and_changes(&connection),
+            record_and_changes(&connection, &readers),
             (vec![installed("2.1.295", "2.1.294", false)], 2)
         );
 
@@ -814,7 +860,7 @@ mod tests {
                 from_version: None,
                 recorded_at: WireInstant::now(),
             },
-            &Vec::new,
+            Vec::new(),
         );
         for statement in available {
             let StatementBindings::Named(values) = &statement.bindings else {
@@ -825,7 +871,7 @@ mod tests {
                 .expect("the record's statement runs");
         }
         assert_eq!(
-            record_and_changes(&connection).0,
+            record_and_changes(&connection, &readers).0,
             [installed("2.1.295", "2.1.294", false)]
         );
     }

@@ -53,7 +53,7 @@ ts_constants! {
 }
 
 /// The provider version as its command printed it.
-pub(crate) type ProviderVersion = FreeFormText<PROVIDER_VERSION_MAX_LEN>;
+pub type ProviderVersion = FreeFormText<PROVIDER_VERSION_MAX_LEN>;
 /// A protected-path pattern or a standing rule's text.
 type RuleText = FreeFormText<PROVIDER_RULE_TEXT_MAX_LEN>;
 /// A whole percent.

@@ -5,10 +5,10 @@ use sidekicks_contracts::attention::{
     AttentionItem, AttentionSubscribeRequest, AttentionSubscribeScope, InformationalSeverity,
 };
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::provider::settings::PROVIDER_VERSION_MAX_LEN;
+use sidekicks_contracts::provider::settings::ProviderVersion;
 use sidekicks_contracts::web_address::HttpsAddress;
 use sidekicks_contracts::wire::instant::WireInstant;
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
+use sidekicks_contracts::wire::text::NonEmptyText;
 use sidekicks_provider::build_record::{RecordedProviderBuild, record_statements};
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 
@@ -28,14 +28,14 @@ fn text(text: &str) -> NonEmptyText {
     NonEmptyText::new(text.to_owned()).expect("a test text")
 }
 
-fn version(text: &str) -> FreeFormText<PROVIDER_VERSION_MAX_LEN> {
-    FreeFormText::new(text.to_owned()).expect("a test version")
+fn version(text: &str) -> ProviderVersion {
+    ProviderVersion::new(text.to_owned()).expect("a test version")
 }
 
 /// Records `build` through the record's own write, carrying the projection's bump.
 async fn record(log: &AttentionTestLog, build: RecordedProviderBuild) {
     log.writer
-        .write(record_statements(&build, &record_change_statements))
+        .write(record_statements(&build, record_change_statements()))
         .await
         .expect("the build is recorded");
 }

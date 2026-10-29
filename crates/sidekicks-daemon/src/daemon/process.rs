@@ -372,6 +372,7 @@ impl DaemonProcess {
         let status = Arc::clone(&database.status);
         let damage = DispatchDamageWatch(Arc::clone(&database.damage));
         let live_runs = database.live_runs.clone();
+        let attention_changes = database.attention_changes.clone();
         let idle_memory = Arc::clone(self.idle_memory.insert(Arc::new(IdleMemoryCollect::start(
             live_runs.clone(),
             self.work_stop.clone(),
@@ -477,6 +478,7 @@ impl DaemonProcess {
                 base_environment: Arc::clone(&base_environment),
                 shell_lines: Arc::clone(&shell_lines),
                 caller_processes: Arc::clone(&caller_process_reader),
+                build_record_readers: Arc::new(attention_changes),
             },
         );
         let backups = Backups::new(BackupDeps {

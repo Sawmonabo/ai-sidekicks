@@ -12,8 +12,8 @@
 //! merged.
 //!
 //! A provider build's line moved to retires on its day: the service keeps the earliest due
-//! retirement armed on the wall clock's timer, which fires across sleep, and arms it again after
-//! each wake of the task, which a recorded build's bump causes, and after each advance.
+//! retirement armed on the wall clock's timer, which fires across sleep, and arms it again at the
+//! start, after each advance and whenever a build is recorded, never on another attention change.
 
 use std::collections::HashMap;
 use std::error::Error;
@@ -52,7 +52,8 @@ use tokio_util::sync::CancellationToken;
 use crate::attention::banner_launcher::{BannerLauncher, LocalSubscriptionHold};
 use crate::attention::changes::AttentionChanges;
 use crate::attention::gate::{
-    Decision, DeliveryDecision, decide, read_notification_settings, write_decisions,
+    Decision, DeliveryDecision, decide, decided_sessions, read_notification_settings,
+    write_decisions,
 };
 use crate::attention::moment::AttentionSubject;
 use crate::attention::projection::{
@@ -312,13 +313,18 @@ impl AttentionService {
         self: &Arc<Self>,
         stop: CancellationToken,
     ) -> Result<JoinHandle<()>, AttentionServiceError> {
+        // Followed before the advance arms, so a build recorded after its read arms again.
+        let recorded_builds = self.changes.follow_recorded_builds();
         let sessions = self.read_sessions_with_entries().await?;
         self.sweep_after_stop(&sessions).await?;
         self.advance_retention(sessions, Timestamp::now()).await?;
         let count = self.changes.follow(None);
         Ok(tokio::spawn(run_decisions(
             DecisionTask::new(Arc::clone(self)),
-            count,
+            DecisionWakes {
+                count,
+                recorded_builds,
+            },
             stop,
         )))
     }
@@ -456,7 +462,8 @@ impl AttentionService {
 
     // Decides `notify` each on its own and every entry of each closed window as one merge, in one
     // write; then asks for the app's start when a banner went pending, and advances the decided
-    // sessions' retention and the provider builds'.
+    // sessions' retention and the provider builds', logging a failed advance, which the next
+    // advance makes up, since the decisions were kept.
     async fn decide_batch(
         self: &Arc<Self>,
         notify: Vec<UndecidedEntry>,
@@ -480,13 +487,16 @@ impl AttentionService {
         {
             self.launcher.request_start();
         }
-        let mut sessions: Vec<SessionId> = Vec::new();
-        for decided in &decisions {
-            if !sessions.contains(&decided.session_id) {
-                sessions.push(decided.session_id);
-            }
+        if let Err(error) = self
+            .advance_retention(decided_sessions(&decisions), Timestamp::now())
+            .await
+        {
+            tracing::warn!(
+                error = &error as &(dyn Error + 'static),
+                "the attention entries were decided, but their retention was not advanced; the \
+                 next advance moves it"
+            );
         }
-        self.advance_retention(sessions, Timestamp::now()).await?;
         Ok(())
     }
 
@@ -514,33 +524,43 @@ impl AttentionService {
         if !statements.is_empty() {
             self.writer.write(statements).await?;
         }
-        self.arm_provider_build_retirement().await
+        self.arm_provider_build_retirement().await;
+        Ok(())
     }
 
     // Arms the retirement of the next provider build line due on the wall clock's timer, in place
-    // of the one armed; a fired retirement advances for its own instant and arms the next. A
-    // retirement the scheduler refuses is written to the log, and the line then leaves at the next
-    // advance. Boxed, since the fired retirement's advance awaits it in turn.
-    fn arm_provider_build_retirement(
-        self: &Arc<Self>,
-    ) -> BoxFuture<'_, Result<(), AttentionServiceError>> {
+    // of the one armed. A fired retirement takes its own slot first, then advances for its instant,
+    // which arms the next; an instant the scheduler refuses, at once or later, leaves the slot
+    // empty, so the next recorded build, advance or start arms again. A failed read is logged and
+    // keeps the slot as it was. Boxed, since the fired retirement's advance awaits it in turn.
+    fn arm_provider_build_retirement(self: &Arc<Self>) -> BoxFuture<'_, ()> {
         async move {
-            let next = self
+            let next = match self
                 .pool
                 .read(ReadLength::Short, |connection| {
                     Ok::<_, AttentionServiceError>(next_provider_build_retirement(connection)?)
                 })
-                .await?
-                .map(SystemTime::from);
+                .await
+            {
+                Ok(next) => next.map(SystemTime::from),
+                Err(error) => {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "the next provider build's retirement was not read; the next recorded \
+                         build, advance or start arms it"
+                    );
+                    return;
+                }
+            };
             let mut armed = lock(&self.armed_retirement);
             if armed.as_ref().map(|armed| armed.instant) == next {
-                return Ok(());
+                return;
             }
             if let Some(previous) = armed.take() {
                 previous.job.cancel();
             }
             let Some(instant) = next else {
-                return Ok(());
+                return;
             };
             let retiring = Arc::downgrade(self);
             let scheduled = self.scheduler.schedule_at(
@@ -553,6 +573,7 @@ impl AttentionService {
                         let Some(service) = retiring.upgrade() else {
                             return Ok(());
                         };
+                        service.disarm_provider_build_retirement(instant);
                         service
                             .advance_retention(Vec::new(), Timestamp::try_from(instant)?)
                             .await?;
@@ -562,15 +583,37 @@ impl AttentionService {
                 },
             );
             match scheduled {
-                Ok(job) => *armed = Some(ArmedRetirement { instant, job }),
+                Ok(mut job) => {
+                    let refusal = job.refusal();
+                    *armed = Some(ArmedRetirement { instant, job });
+                    drop(armed);
+                    let refused = Arc::downgrade(self);
+                    // Settles once the job runs, is canceled or is refused; the scheduler logs a
+                    // refusal.
+                    tokio::spawn(async move {
+                        if refusal.await.is_some()
+                            && let Some(service) = refused.upgrade()
+                        {
+                            service.disarm_provider_build_retirement(instant);
+                        }
+                    });
+                }
                 Err(error) => tracing::warn!(
                     error = &error as &(dyn Error + 'static),
-                    "a provider build's retirement could not be armed"
+                    "a provider build's retirement could not be armed; the next recorded build, \
+                     advance or start arms it"
                 ),
             }
-            Ok(())
         }
         .boxed()
+    }
+
+    // Empties the retirement slot while it still holds the retirement armed for `instant`.
+    fn disarm_provider_build_retirement(&self, instant: SystemTime) {
+        let mut armed = lock(&self.armed_retirement);
+        if armed.as_ref().is_some_and(|armed| armed.instant == instant) {
+            *armed = None;
+        }
     }
 
     async fn read_undecided(&self) -> Result<Vec<UndecidedEntry>, AttentionServiceError> {
@@ -668,10 +711,8 @@ impl DecisionTask {
     }
 
     /// Reads the undecided entries, opens a window for each subject that has none, decides the
-    /// Notify entries and every subject whose window has closed, or with none to decide arms the
-    /// next provider build's retirement, since a recorded build wakes the task; and answers when
-    /// the next open window closes. A failed decision keeps the closed windows, closing again a
-    /// window later.
+    /// Notify entries and every subject whose window has closed, and answers when the next open
+    /// window closes. A failed decision keeps the closed windows, closing again a window later.
     async fn pass(&mut self) -> Result<Option<Instant>, AttentionServiceError> {
         let undecided = self.service.read_undecided().await?;
         let now = Instant::now();
@@ -705,32 +746,39 @@ impl DecisionTask {
             for subject in &closed_subjects {
                 self.windows.remove(subject);
             }
-        } else {
-            self.service.arm_provider_build_retirement().await?;
         }
         Ok(self.windows.values().min().copied())
     }
 }
 
+/// What wakes the decision task besides its windows.
+struct DecisionWakes {
+    // The machine's change count, which moves with every attention write.
+    count: watch::Receiver<u64>,
+    // The builds recorded, after which the next provider build's retirement is armed again.
+    recorded_builds: watch::Receiver<u64>,
+}
+
 // Passes over the undecided entries at once, then whenever the machine's count moves or a window
-// closes, until `stop`; a failed pass is logged and the next wake reads again.
-async fn run_decisions(
-    mut task: DecisionTask,
-    mut count: tokio::sync::watch::Receiver<u64>,
-    stop: CancellationToken,
-) {
+// closes, and arms the next provider build's retirement whenever a build is recorded, until
+// `stop`; a failed pass is logged and the next wake reads again.
+async fn run_decisions(mut task: DecisionTask, mut wakes: DecisionWakes, stop: CancellationToken) {
+    let mut next_close = None;
+    let mut is_pass_due = true;
     loop {
-        let next_close = match task.pass().await {
-            Ok(next_close) => next_close,
-            Err(error) => {
-                tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "the attention entries were not decided; the next change or window reads them \
-                     again"
-                );
-                task.windows.values().min().copied()
-            }
-        };
+        if is_pass_due {
+            next_close = match task.pass().await {
+                Ok(next_close) => next_close,
+                Err(error) => {
+                    tracing::warn!(
+                        error = &error as &(dyn Error + 'static),
+                        "the attention entries were not decided; the next change or window reads \
+                         them again"
+                    );
+                    task.windows.values().min().copied()
+                }
+            };
+        }
         let window_closes = async {
             match next_close {
                 Some(closes_at) => tokio::time::sleep_until(closes_at).await,
@@ -739,12 +787,20 @@ async fn run_decisions(
         };
         tokio::select! {
             () = stop.cancelled() => return,
-            changed = count.changed() => {
+            changed = wakes.count.changed() => {
                 if changed.is_err() {
                     return;
                 }
+                is_pass_due = true;
             }
-            () = window_closes => {}
+            changed = wakes.recorded_builds.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+                is_pass_due = false;
+                task.service.arm_provider_build_retirement().await;
+            }
+            () = window_closes => is_pass_due = true,
         }
     }
 }

@@ -13,7 +13,7 @@ pub mod changes;
 pub(crate) mod gate;
 pub(crate) mod moment;
 pub mod projection;
-pub mod provider_build;
+pub(crate) mod provider_build;
 pub mod read;
 pub mod rebuild;
 pub mod retention;

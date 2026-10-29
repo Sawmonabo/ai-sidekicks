@@ -3,6 +3,10 @@
 //! scope may read differently. Every attention write bumps the machine's row with the session's, so
 //! a commit that left the machine's row alone changed no session's and costs one lookup. No copy of
 //! the projection is held: each count holds only the version it last saw.
+//!
+//! Beside the counts, a watch of the builds recorded in the record of each provider's builds,
+//! raised once each such write committed, which the provider build retirement's timer follows, so
+//! no other attention change reads the record.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -26,6 +30,7 @@ pub fn attention_changes_after_commits() -> (CommitRead, AttentionChanges) {
         counts: Arc::new(ChangeCounts {
             machine: watch::Sender::new(0),
             sessions: Mutex::new(HashMap::new()),
+            recorded_builds: watch::Sender::new(0),
         }),
     };
     let counts = Arc::clone(&changes.counts);
@@ -58,6 +63,19 @@ impl AttentionChanges {
             .or_insert_with(|| watch::Sender::new(0))
             .subscribe()
     }
+
+    /// The count of the builds recorded in the record of each provider's builds, raised once each
+    /// recording write committed.
+    pub(crate) fn follow_recorded_builds(&self) -> watch::Receiver<u64> {
+        self.counts.recorded_builds.subscribe()
+    }
+
+    /// Raises the count of recorded builds, once a write that recorded one committed.
+    pub(crate) fn raise_recorded_builds(&self) {
+        self.counts
+            .recorded_builds
+            .send_modify(|count| *count = count.wrapping_add(1));
+    }
 }
 
 /// Each count holds the version of its `attention_versions` row it last saw.
@@ -65,6 +83,8 @@ struct ChangeCounts {
     machine: watch::Sender<u64>,
     // Only sessions someone followed at the last `follow` or raise have an entry.
     sessions: Mutex<HashMap<SessionId, watch::Sender<u64>>>,
+    // Raised by the record's port, never by a commit read.
+    recorded_builds: watch::Sender<u64>,
 }
 
 impl ChangeCounts {

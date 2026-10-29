@@ -56,9 +56,16 @@ const RETIRE_BUILDS_SQL: &str = "
      SET retired_at = @retired_at
    WHERE retired_at IS NULL AND from_version IS NOT NULL AND recorded_at < @before";
 
-/// The statements that tell the record's readers it changed, carried in the record's own write;
-/// the daemon supplies them, since the readers live above this crate.
-pub type RecordChangeStatements = dyn Fn() -> Vec<WriteStatement> + Send + Sync;
+/// The record's readers, which live above this crate, so the daemon supplies them: told of each
+/// write to the record by statements carried in that write, and of a recorded build once its write
+/// committed.
+pub trait BuildRecordReaders: Send + Sync {
+    /// The statements each write to the record carries, so its readers read it again.
+    fn change_statements(&self) -> Vec<WriteStatement>;
+
+    /// Told once a write that recorded a build committed.
+    fn build_recorded(&self);
+}
 
 /// One build of a provider in the record.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -104,14 +111,14 @@ pub fn recorded_arrival(
         })
 }
 
-/// The write that records `build`: `change`'s statements, the removal of the provider's other
-/// builds and the build's row. A caller writes it only after [`recorded_arrival`] answers that the
-/// build is new, or available and now installed, so a repeat tells no reader of a change.
+/// The write that records `build`: `change_statements`, the removal of the provider's other builds
+/// and the build's row. A caller writes it only after [`recorded_arrival`] answers that the build
+/// is new, or available and now installed, so a repeat tells no reader of a change.
 pub fn record_statements(
     build: &RecordedProviderBuild,
-    change: &RecordChangeStatements,
+    change_statements: Vec<WriteStatement>,
 ) -> Vec<WriteStatement> {
-    let mut statements = change();
+    let mut statements = change_statements;
     statements.push(WriteStatement {
         sql: Cow::Borrowed(DELETE_EARLIER_BUILDS_SQL),
         bindings: StatementBindings::Named(vec![

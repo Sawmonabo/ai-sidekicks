@@ -1,6 +1,8 @@
 //! A provider's new build in the attention projection: one entry per build the record of each
-//! provider's builds lists, composed when the whole projection is read and stored nowhere else. It
-//! belongs to no session, never counts and is never decided, so no channel carries it.
+//! provider's builds lists of a provider a driver describes, composed when the whole projection is
+//! read and stored nowhere else. It belongs to no session, never counts and is never decided, so no
+//! channel carries it. The projection is the record's reader: each write to the record bumps the
+//! machine's change count, and each recorded build raises the watch the retirement's timer follows.
 
 use rusqlite::Connection;
 use sidekicks_contracts::attention::provider_build::{
@@ -8,19 +10,17 @@ use sidekicks_contracts::attention::provider_build::{
 };
 use sidekicks_contracts::attention::{AttentionId, InformationalSeverity};
 use sidekicks_contracts::provider::id::ProviderId;
-use sidekicks_contracts::provider::settings::PROVIDER_VERSION_MAX_LEN;
+use sidekicks_contracts::provider::settings::ProviderVersion;
 use sidekicks_contracts::web_address::HttpsAddress;
-use sidekicks_contracts::wire::text::{FreeFormText, NonEmptyText};
-use sidekicks_provider::build_record::{RecordedProviderBuild, listed_builds};
-use sidekicks_provider::driver::descriptor_of;
+use sidekicks_contracts::wire::text::NonEmptyText;
+use sidekicks_provider::build_record::{BuildRecordReaders, RecordedProviderBuild, listed_builds};
+use sidekicks_provider::driver::{ProviderDescriptor, descriptor_of};
 use sidekicks_store::database::statement::WriteStatement;
 
+use crate::attention::changes::AttentionChanges;
 use crate::attention::moment::hashed_moment_id;
 use crate::attention::projection::{MACHINE_VERSION_BUMP_SQL, statement};
 use crate::attention::read::AttentionReadError;
-
-/// A printed version as the wire carries it.
-type ProviderVersion = FreeFormText<PROVIDER_VERSION_MAX_LEN>;
 
 /// The moment id of `provider`'s build `version`, which is also its entry's id: `providerBuild:`
 /// and 32 hex digits of the BLAKE3 hash of the two. A provider id holds no `|`, so no two pairs
@@ -32,30 +32,40 @@ pub(crate) fn provider_build_moment_id(provider: &ProviderId, version: &str) -> 
 /// The statements a write to the record of each provider's builds carries so the projection's
 /// followers read it again: the bump of the machine's change count alone, since no session's
 /// projection lists a build.
-pub fn record_change_statements() -> Vec<WriteStatement> {
+pub(crate) fn record_change_statements() -> Vec<WriteStatement> {
     vec![statement(&MACHINE_VERSION_BUMP_SQL, Vec::new())]
 }
 
-/// One entry per build the record lists, the newest recorded first, each named by its driver's
-/// descriptor. Fails when the read fails, when a listed provider has no driver, or when a listed
-/// version is one the wire cannot carry.
+impl BuildRecordReaders for AttentionChanges {
+    fn change_statements(&self) -> Vec<WriteStatement> {
+        record_change_statements()
+    }
+
+    fn build_recorded(&self) {
+        self.raise_recorded_builds();
+    }
+}
+
+/// One entry per build the record lists of a provider a driver describes, the newest recorded
+/// first, each named by its driver's descriptor; a build of a provider no driver describes is left
+/// out, and to the retention. Fails when the read fails, or when a listed version is one the wire
+/// cannot carry.
 pub(crate) fn provider_build_items(
     reader: &Connection,
 ) -> Result<Vec<AttentionProviderBuildItem>, AttentionReadError> {
     listed_builds(reader)?
         .into_iter()
-        .map(provider_build_item)
+        .filter_map(|build| {
+            let descriptor = descriptor_of(build.provider.as_str())?;
+            Some(provider_build_item(build, descriptor))
+        })
         .collect()
 }
 
 fn provider_build_item(
     build: RecordedProviderBuild,
+    descriptor: &ProviderDescriptor,
 ) -> Result<AttentionProviderBuildItem, AttentionReadError> {
-    let descriptor = descriptor_of(build.provider.as_str()).ok_or_else(|| {
-        AttentionReadError::UndescribedProvider {
-            provider: build.provider.as_str().to_owned(),
-        }
-    })?;
     let unreadable = |member| {
         let provider = build.provider.as_str().to_owned();
         move |source| AttentionReadError::UnreadableProviderBuild {
