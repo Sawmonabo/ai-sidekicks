@@ -46,9 +46,10 @@ struct RecordedPutBack {
 
 impl RemovedWorktreeStore {
     /// Puts a kept worktree back, as this module describes, answering once the tree is recorded.
-    /// Refuses `projectNotAttached`, `repositoryMissing` and `keptTreeMissing`, keeping the copy;
-    /// fails with `worktree.removed.notFound` when no listed copy has the id, or what is left of a
-    /// copy put back is not listed, and otherwise with the failure, every step undone.
+    /// Answers the result's refusal `projectNotAttached`, `repositoryMissing` or `keptTreeMissing`,
+    /// keeping the copy; fails with `worktree.removed.notFound` when no listed copy has the id, or
+    /// what is left of a copy put back is not listed, and otherwise with the failure, every step
+    /// undone.
     pub async fn restore(
         self: &Arc<Self>,
         removed_worktree_id: RemovedWorktreeId,
