@@ -21,7 +21,7 @@ use sidekicks_store::events::session::appender::{
     SessionEventAppender, SessionEventDraft, SessionEventEmitError, SessionEventLinkage,
 };
 
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// Why a settled sign-in failed, each in the daemon's own words.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

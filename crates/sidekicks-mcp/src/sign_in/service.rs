@@ -31,7 +31,7 @@ use sidekicks_store::events::session::appender::SessionEventAppender;
 use tokio::sync::watch;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 use crate::errors::McpRefusal;
 use crate::oauth::dpop_proof::DpopKey;
 use crate::oauth::pushed_authorization::{AuthorizationRequestEndpoints, PushedAuthorizationError};
