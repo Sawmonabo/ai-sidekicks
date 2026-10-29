@@ -218,8 +218,9 @@ pub async fn send_signed(
     }
 }
 
-// The whole of `response`, its body read to the end within the bound.
-async fn read_response(
+/// The whole of `response`, its body read to the end within 1 MiB. Fails as the body's read or
+/// its bound fails.
+pub(crate) async fn read_response(
     response: reqwest::Response,
 ) -> Result<AuthorizationServerResponse, DpopSendError> {
     let status = response.status();
