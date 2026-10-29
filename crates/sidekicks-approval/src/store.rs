@@ -235,7 +235,8 @@ static REWRITE_REQUEST_SQL: LazyLock<String> = LazyLock::new(|| {
     session_id = excluded.session_id, run_id = excluded.run_id,
     requested_by = excluded.requested_by, category = excluded.category, scope = excluded.scope,
     resource_descriptor = excluded.resource_descriptor, ask_id = excluded.ask_id,
-    tool_call_id = excluded.tool_call_id, state = excluded.state, created_at = excluded.created_at, updated_at = excluded.updated_at",
+    tool_call_id = excluded.tool_call_id, state = excluded.state,
+    created_at = excluded.created_at, updated_at = excluded.updated_at",
         *INSERT_REQUEST_SQL
     )
 });
