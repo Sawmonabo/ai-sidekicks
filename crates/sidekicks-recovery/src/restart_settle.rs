@@ -1,11 +1,14 @@
 //! What a restart left in one session, settled in an order no later step undoes: the faster-model
 //! retries still pending, before the run ends that would expire an accepted one; the runs still
-//! live, failed as no provider session came back; the open turns of runs that had already ended,
+//! live past their queue re-armed from the log before a resume of the session's conversation; the
+//! runs still live that no resume took, failed as no provider session came back, or with the
+//! provider's own words where it refused the resume; the open turns of runs that had already ended,
 //! before their unresolved interventions, whose expiry would drop the limit a turn ends with; then
 //! the asks, the choices and the held plans those ended runs left open. Every read is of the one
 //! session and taken after its rebuild; every write is guarded on the rows it read. The recovery
 //! pass settles each session it finds so, and `Continue from here` settles a damaged one.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use rusqlite::Connection;
@@ -20,7 +23,7 @@ use sidekicks_session::run::engine::{RunEngine, RunEngineError};
 use sidekicks_session::run::provider_choice::run_end::{
     read_ended_runs_with_open_choices, settle_open_choices_of_ended_run,
 };
-use sidekicks_session::run::read::{RunStateReader, SessionRun};
+use sidekicks_session::run::read::{LiveRun, RunStateReader, SessionRun};
 use sidekicks_session::run::state_change::refused_statement_index;
 use sidekicks_std::settle_all::SettleFailures;
 use sidekicks_store::database::connection::read_pool::{
@@ -39,8 +42,8 @@ pub(crate) const RESTART_FAILURE_DETAIL: &str =
 /// The statements the settle's own reads run: the one-session listings of its live runs, its
 /// pending retries, and its ended runs with an open turn, with a pending ask and with an open
 /// choice, and an ended run's choice settle (its row, the newest request of each dialog and whether
-/// it was settled since).
-pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 8;
+/// it was settled since), and the row of a run a resume took that has ended since.
+pub const RESTART_SETTLE_STATEMENT_CAPACITY: usize = 9;
 
 /// What the restart settle reads and writes through.
 pub struct RestartSettleDeps {
@@ -61,15 +64,56 @@ pub struct RestartSettle {
     deps: RestartSettleDeps,
 }
 
-/// The runs a settle ended, by the state it ended them in.
+/// The runs a settle found live, by what became of them: left live by a resume, or ended in the
+/// state the settle or the resume's finalize ended them in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct RestartTally {
+    /// The runs a resume took that are still live.
+    pub(crate) resumed: u64,
     /// The runs ended `failed`.
     pub(crate) failed: u64,
-    /// The runs ended `interrupted`: under a pending interrupt, or at a step or spend limit.
+    /// The runs ended `interrupted`: under a pending interrupt, at a step or spend limit, or with
+    /// their turn gone at a resume.
     pub(crate) interrupted: u64,
     /// The runs ended `stopped` at a token limit their log still owed.
     pub(crate) stopped: u64,
+}
+
+impl RestartTally {
+    /// Adds `other`'s counts to these.
+    pub(crate) fn add(&mut self, other: Self) {
+        self.resumed += other.resumed;
+        self.failed += other.failed;
+        self.interrupted += other.interrupted;
+        self.stopped += other.stopped;
+    }
+
+    // Counts a run that ended in `state`; a run still live or completed is counted nowhere.
+    fn count_end(&mut self, state: RunState) {
+        match state {
+            RunState::Failed => self.failed += 1,
+            RunState::Interrupted => self.interrupted += 1,
+            RunState::Stopped => self.stopped += 1,
+            // A run the settle left, as it read it or as it moved since.
+            RunState::Queued
+            | RunState::Starting
+            | RunState::Running
+            | RunState::WaitingForApproval
+            | RunState::WaitingForInput
+            | RunState::Pausing
+            | RunState::Paused
+            | RunState::Completed => {}
+        }
+    }
+}
+
+/// What a settle of a session's live runs did: its tally, and the runs it ended `failed`.
+#[derive(Debug, Default)]
+pub(crate) struct LiveSettlement {
+    /// The runs counted by what became of them.
+    pub(crate) tally: RestartTally,
+    /// The runs the settle itself ended `failed`, in the order it read them.
+    pub(crate) failed_run_ids: Vec<RunId>,
 }
 
 /// Why a restart settle stopped short; what it wrote before is kept, and a later settle takes up
@@ -109,46 +153,89 @@ impl RestartSettle {
         Self { deps }
     }
 
-    /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live as
-    /// [`RunEngine::settle_run_after_restart`] decides, writing under `hold` where the caller holds
-    /// the session's appends and reading `stop`, where the caller has one, before each step;
-    /// answers the runs it ended. Fails at the first read or write that fails, or with `Stopped`.
+    /// Settles `session_id`'s pending faster-model retries, then re-arms each run of it still live
+    /// past its queue from the log, as the engine held it before the restart, so a resume of the
+    /// session's conversation finds them armed; answers those runs, none where nothing of the
+    /// session was in progress. Reads `stop` before each step. Fails at the first read or write
+    /// that fails, or with `Stopped`.
+    pub(crate) async fn rearm_live(
+        &self,
+        session_id: SessionId,
+        stop: &CancellationToken,
+    ) -> Result<Vec<LiveRun>, RestartSettleError> {
+        check_stop(Some(stop))?;
+        self.settle_pending_retries(session_id, None).await?;
+        check_stop(Some(stop))?;
+        let in_progress: Vec<LiveRun> = self
+            .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
+            .await?
+            .into_iter()
+            .filter(|live_run| live_run.run.state != RunState::Queued)
+            .collect();
+        for live_run in &in_progress {
+            check_stop(Some(stop))?;
+            self.deps.run_engine.rearm_after_restart(live_run).await?;
+        }
+        Ok(in_progress)
+    }
+
+    /// Settles `session_id`'s pending faster-model retries, then ends each run of it still live
+    /// that `resumed` does not name as [`RunEngine::settle_run_after_restart`] decides, a `failed`
+    /// end carrying `failure_detail`, writing under `hold` where the caller holds the session's
+    /// appends and reading `stop`, where the caller has one, before each step. A run `resumed`
+    /// names is counted resumed while it is live, and by its end where the resume's finalize ended
+    /// it. Fails at the first read or write that fails, or with `Stopped`.
     pub(crate) async fn settle_live(
         &self,
         session_id: SessionId,
+        resumed: &BTreeSet<RunId>,
+        failure_detail: &str,
         hold: Option<&SessionAppendHold>,
         stop: Option<&CancellationToken>,
-    ) -> Result<RestartTally, RestartSettleError> {
+    ) -> Result<LiveSettlement, RestartSettleError> {
         check_stop(stop)?;
         self.settle_pending_retries(session_id, hold).await?;
         check_stop(stop)?;
         let live_runs = self
             .read(move |reader| RunStateReader::new(reader).list_live_runs(Some(&session_id)))
             .await?;
-        let mut tally = RestartTally::default();
+        let mut settlement = LiveSettlement::default();
         for live_run in &live_runs {
+            if resumed.contains(&live_run.run_id) {
+                settlement.tally.resumed += 1;
+                continue;
+            }
             check_stop(stop)?;
             let settled = self
                 .deps
                 .run_engine
-                .settle_run_after_restart(live_run, RESTART_FAILURE_DETAIL, hold)
+                .settle_run_after_restart(live_run, failure_detail, hold)
                 .await?;
-            match settled.state {
-                RunState::Failed => tally.failed += 1,
-                RunState::Interrupted => tally.interrupted += 1,
-                RunState::Stopped => tally.stopped += 1,
-                // A run the settle left, as it read it or as it moved since.
-                RunState::Queued
-                | RunState::Starting
-                | RunState::Running
-                | RunState::WaitingForApproval
-                | RunState::WaitingForInput
-                | RunState::Pausing
-                | RunState::Paused
-                | RunState::Completed => {}
+            if settled.state == RunState::Failed {
+                settlement.failed_run_ids.push(live_run.run_id);
+            }
+            settlement.tally.count_end(settled.state);
+        }
+        let ended_at_resume: Vec<RunId> = resumed
+            .iter()
+            .filter(|run_id| !live_runs.iter().any(|live_run| live_run.run_id == **run_id))
+            .copied()
+            .collect();
+        if !ended_at_resume.is_empty() {
+            let ended = self
+                .read(move |reader| {
+                    let runs = RunStateReader::new(reader);
+                    ended_at_resume
+                        .iter()
+                        .map(|run_id| runs.read_run(run_id))
+                        .collect::<rusqlite::Result<Vec<_>>>()
+                })
+                .await?;
+            for run in ended.into_iter().flatten() {
+                settlement.tally.count_end(run.state);
             }
         }
-        Ok(tally)
+        Ok(settlement)
     }
 
     /// Settles what `session_id`'s runs that had ended left open: their open turns, then their

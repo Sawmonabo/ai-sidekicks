@@ -32,6 +32,7 @@ use sidekicks_provider::driver::capabilities::writer::DRIVER_CAPABILITIES_WRITER
 use sidekicks_provider::driver::daemon_stop::DaemonStopIntent;
 use sidekicks_provider::runtime_binding::store::RUNTIME_BINDING_STORE_STATEMENT_CAPACITY;
 use sidekicks_queue::provider_session::PROVIDER_SESSIONS_STATEMENT_CAPACITY;
+use sidekicks_queue::service::RUN_QUEUE_STATEMENT_CAPACITY;
 use sidekicks_recovery::damaged_history::DAMAGED_HISTORY_STATEMENT_CAPACITY;
 use sidekicks_recovery::database_file::check::{DatabaseFileCheck, DatabaseFileCheckAnswer};
 use sidekicks_recovery::database_file::copy::DatabaseFileCopier;
@@ -98,7 +99,7 @@ use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies, ProjectionError,
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
-use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
 use sidekicks_store::machine::registry::MACHINE_REGISTRY_STATEMENT_CAPACITY;
 use sidekicks_workflow::definitions::drafts::WORKFLOW_DRAFT_STORE_STATEMENT_CAPACITY;
@@ -181,6 +182,7 @@ pub(crate) const READ_POOL_STATEMENT_CAPACITY: usize = APPROVAL_METHODS_STATEMEN
     + RUN_BINDING_CURSORS_STATEMENT_CAPACITY
     + RUN_ENGINE_STATEMENT_CAPACITY
     + RUN_PAUSE_STATEMENT_CAPACITY
+    + RUN_QUEUE_STATEMENT_CAPACITY
     + RUNTIME_BINDING_STORE_STATEMENT_CAPACITY
     + SESSION_AUTO_TITLE_STATEMENT_CAPACITY
     + SESSION_CHANGES_STATEMENT_CAPACITY
@@ -336,6 +338,9 @@ pub(crate) struct DatabaseFile {
     pub(crate) truncation: Arc<WriteAheadLogTruncation>,
     /// Where each damaged session's log stops being readable, as the recovery status says.
     pub(crate) read_damaged_from_sequence: Arc<DamagedFromSequenceReader>,
+    // Clears a session's failed resumes from the recovery status once its next run starts;
+    // detached first at the close.
+    run_starts: FollowerAttachment,
     check: CheckFollower,
     // Ends the writer once damage is found; aborted with the file.
     damage_follower: AbortOnDropHandle<()>,
@@ -469,6 +474,9 @@ pub(crate) async fn open_database_file(
         Arc::clone(&writer),
     )));
     let followers = Arc::new(SessionEventFollowers::default());
+    // Attached before the recovery pass marks any failed resume, so no run start after it is
+    // missed.
+    let run_starts = status.follow_run_starts(&followers);
     let read_damaged_from_sequence: Arc<DamagedFromSequenceReader> = Arc::new({
         let status = Arc::clone(&status);
         move |session_id| status.read_damaged_from_sequence(session_id)
@@ -495,22 +503,23 @@ pub(crate) async fn open_database_file(
         live_runs,
         truncation,
         read_damaged_from_sequence,
+        run_starts,
         check,
         damage_follower,
         is_vouched,
     })
 }
 
-/// Closes the database file once the work that reads and writes it has ended: the check first, then
-/// the damage found recorded, its writer ended if nothing has ended it yet, then the log's
-/// truncation stopped; then the read pool before the writer, so the writer is the last to close the
-/// file and folds the write-ahead log into it, except an ended writer, which is joined first and
-/// skips that checkpoint, so a damaged file's log stays for the repair; damage the drain meets is
-/// recorded after the writer's close. The check, the truncation and the writer's drain all end
-/// within `remaining`, counted from the call; a check or truncation still running then is a
-/// failure, and the close goes on without it. The clean stop is recorded only for a file vouched
-/// for, with no damage found, no write left unfinished, no failure here and `is_stop_failed` false.
-/// Answers each step's failure, every step having run.
+/// Closes the database file once the work that reads and writes it has ended: the recovery status's
+/// follow of run starts detached, the check first, then the damage found recorded, its writer ended
+/// if nothing has ended it yet, then the log's truncation stopped; then the read pool before the
+/// writer, so the writer is the last to close the file and folds the write-ahead log into it,
+/// except an ended writer, which is joined first and skips that checkpoint, so a damaged file's log
+/// stays for the repair; damage the drain meets is recorded after the writer's close. The check,
+/// the truncation and the writer's drain all end within `remaining`, counted from the call; a check
+/// or truncation still running then is a failure, and the close goes on without it. The clean stop
+/// is recorded only for a file vouched for, with no damage found, no write left unfinished, no
+/// failure here and `is_stop_failed` false. Answers each step's failure, every step having run.
 pub(crate) async fn close_database_file(
     file: DatabaseFile,
     remaining: Duration,
@@ -524,11 +533,13 @@ pub(crate) async fn close_database_file(
         damage,
         status,
         truncation,
+        run_starts,
         check,
         damage_follower,
         is_vouched,
         ..
     } = file;
+    drop(run_starts);
     let left = || remaining.saturating_sub(closing_started.elapsed());
     let mut failures = Vec::new();
     // The check's connection closes first, so the writer is the last to close the file. Writes

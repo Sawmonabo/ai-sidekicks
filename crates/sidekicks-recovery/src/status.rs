@@ -6,15 +6,16 @@
 //! pass comes to settle those runs. A damaged session, open at its last good point or unreadable,
 //! refuses its writes. A run halted after the restart on a question for the person lists its
 //! session `blocked`, or under its damage, and refuses nothing; the read forgets a halt once its
-//! run has ended.
+//! run has ended, and a failed resume once the session's next run starts.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::{Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use sidekicks_contracts::daemon::recovery::{
     DaemonRecoveryHaltedRun, DaemonRecoverySession, DaemonRecoverySessionState,
     DaemonRecoveryState, DaemonRecoveryStatus, DaemonWriteRefusedRecovery,
 };
+use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::run::control::RunFailureCategory;
 use sidekicks_contracts::run::id::RunId;
 use sidekicks_contracts::session::event_cursor::START_OF_LOG_POSITION;
@@ -29,6 +30,7 @@ use sidekicks_std::mutex_lock::lock;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
+use sidekicks_store::events::session::followers::{FollowerAttachment, SessionEventFollowers};
 
 /// The statements the status read runs: the read of a halted run's stored state.
 pub const RECOVERY_STATUS_STATEMENT_CAPACITY: usize = 1;
@@ -190,10 +192,6 @@ impl RecoveryStatusTracker {
     /// Marks a run of the session that needs the person: a halt on a diverged resume, which
     /// carries no `failure_category`, or a failed resume, which carries one. A run marked again
     /// takes its newest mark.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the restart pass marks a refused resume")
-    )]
     pub(crate) fn mark_run_halted(&self, session_id: &SessionId, run: DaemonRecoveryHaltedRun) {
         self.lock()
             .halted_runs
@@ -206,6 +204,39 @@ impl RecoveryStatusTracker {
     /// read with its last such run, unless its history is damaged.
     pub fn mark_run_settled(&self, session_id: &SessionId, run_id: &RunId) {
         self.lock().forget_halted_run(session_id, run_id);
+    }
+
+    /// Follows `followers` so that each run's start, `agent.run.starting`, marks every failed
+    /// resume of its session settled; a halt on a diverged resume waits for the person's answer.
+    /// Dropping the returned attachment detaches it.
+    pub fn follow_run_starts(
+        self: &Arc<Self>,
+        followers: &Arc<SessionEventFollowers>,
+    ) -> FollowerAttachment {
+        let tracker = Arc::clone(self);
+        // Runs on the writer's pump; the marks change under one short lock.
+        followers.follow_all(move |event| {
+            if event.envelope.event_type() == SessionEventType::AgentRunStarting {
+                tracker.settle_failed_resumes(&event.envelope.session_id());
+            }
+            Ok(())
+        })
+    }
+
+    // Marks each run of the session whose resume failed settled.
+    fn settle_failed_resumes(&self, session_id: &SessionId) {
+        let failed: Vec<RunId> = self
+            .lock()
+            .halted_runs
+            .get(session_id)
+            .into_iter()
+            .flat_map(BTreeMap::values)
+            .filter(|run| run.failure_category.is_some())
+            .map(|run| run.run_id)
+            .collect();
+        for run_id in failed {
+            self.mark_run_settled(session_id, &run_id);
+        }
     }
 
     /// Marks a session whose history is damaged after `point`, which it opens at read-only.

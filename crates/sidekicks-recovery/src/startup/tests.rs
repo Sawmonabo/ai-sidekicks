@@ -1,4 +1,7 @@
-//! The recovery pass over the pass fixture.
+//! The recovery pass over the pass fixture; the resume of a session's conversation is in
+//! `resume`.
+
+mod resume;
 
 use std::fs;
 use std::path::{Path, PathBuf};

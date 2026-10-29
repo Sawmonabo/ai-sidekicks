@@ -489,6 +489,7 @@ pub(crate) async fn register_method_inputs(
         projection_rebuild,
         damaged_history: Arc::clone(&stored.damaged_history),
         restart_settle,
+        provider_sessions: Arc::clone(&session.provider_sessions),
         status: Arc::clone(&database.status),
         damage: Arc::clone(&database.damage),
         database_path: database.database_path.clone(),
