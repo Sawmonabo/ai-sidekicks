@@ -5,6 +5,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -64,8 +65,11 @@ pub(crate) enum ClaudeShortProcessArrival {
     Exit,
 }
 
-/// Hands each arrival of a short process to the one reading it.
-pub(super) struct ForwardedArrivals(mpsc::UnboundedSender<ClaudeShortProcessArrival>);
+/// Hands each arrival of a short process to the one reading it, until that reader is gone.
+pub(super) struct ForwardedArrivals {
+    sender: mpsc::UnboundedSender<ClaudeShortProcessArrival>,
+    is_reader_gone: AtomicBool,
+}
 
 impl ForwardedArrivals {
     /// A listener forwarding to the receiver it comes with.
@@ -74,12 +78,23 @@ impl ForwardedArrivals {
         mpsc::UnboundedReceiver<ClaudeShortProcessArrival>,
     ) {
         let (sender, arrivals) = mpsc::unbounded_channel();
-        (Arc::new(Self(sender)), arrivals)
+        let forwarded = Self {
+            sender,
+            is_reader_gone: AtomicBool::new(false),
+        };
+        (Arc::new(forwarded), arrivals)
     }
 
+    // Hands `arrival` on; once the reader is gone, says so once and drops every later arrival.
     fn forward(&self, arrival: ClaudeShortProcessArrival) {
-        if self.0.send(arrival).is_err() {
-            tracing::debug!("a short Claude Code process wrote after its reads ended");
+        if self.is_reader_gone.load(Ordering::Relaxed) {
+            return;
+        }
+        if self.sender.send(arrival).is_err() && !self.is_reader_gone.swap(true, Ordering::Relaxed)
+        {
+            tracing::debug!(
+                "a short Claude Code process wrote after its reads ended; its later output is dropped"
+            );
         }
     }
 }

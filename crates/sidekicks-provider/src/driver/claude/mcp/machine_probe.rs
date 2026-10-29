@@ -1,15 +1,18 @@
 //! The machine probe of Claude Code's MCP servers, for bindings no live session reads: one process
 //! that keeps nothing per attached root in turn, under `--strict-mcp-config` unless an
 //! administrator's MCP file is deployed, sent the probed servers with `mcp_set_servers`, each
-//! declaration re-read from the person's config and dropped once sent, then asked `mcp_status`
+//! declaration re-read from the person's config, its variables filled as Claude Code fills them on
+//! load, and dropped once sent, then asked `mcp_status`
 //! until every server is past `pending` or the ceiling passes, and closed. No turn is sent.
 //! Budget: one such process of about 140 to 150 MB at a time, run only when a refresh asks for a
 //! probe, each closed once its servers settle or its ceiling passes; nothing polls between probes.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 use std::time::Duration;
 
+use regex::{Captures, Regex};
 use serde::Deserialize;
 use serde_json::Value;
 use sidekicks_contracts::mcp::server::{
@@ -142,7 +145,10 @@ pub(crate) async fn probe_claude_mcp_servers(
                 let Some(entry) = entry else {
                     continue;
                 };
-                servers.insert(name.clone(), entry);
+                servers.insert(
+                    name.clone(),
+                    expand_entry_variables(entry, &sources.environment),
+                );
             }
             asked.push((target, name));
         }
@@ -282,6 +288,62 @@ fn compose_tool_server_entry(entry: Value) -> Option<ClaudeToolServerEntry> {
         }),
         Some(_) => None,
     }
+}
+
+// `entry` with each `${VAR}` and `${VAR:-default}` in its program, arguments, environment, address
+// and headers filled from `environment`, as Claude Code fills a server's entry when it loads it;
+// a variable with no value and no default is left as written.
+fn expand_entry_variables(
+    entry: ClaudeToolServerEntry,
+    environment: &[(String, String)],
+) -> ClaudeToolServerEntry {
+    let expand = |value: String| expand_variables(&value, environment);
+    let expand_values = |values: BTreeMap<String, String>| {
+        values
+            .into_iter()
+            .map(|(name, value)| (name, expand(value)))
+            .collect()
+    };
+    match entry {
+        ClaudeToolServerEntry::Stdio { command, args, env } => ClaudeToolServerEntry::Stdio {
+            command: expand(command),
+            args: args.into_iter().map(expand).collect(),
+            env: expand_values(env),
+        },
+        ClaudeToolServerEntry::Http { url, headers } => ClaudeToolServerEntry::Http {
+            url: expand(url),
+            headers: expand_values(headers),
+        },
+        ClaudeToolServerEntry::Sse { url, headers } => ClaudeToolServerEntry::Sse {
+            url: expand(url),
+            headers: expand_values(headers),
+        },
+        sdk @ ClaudeToolServerEntry::Sdk { .. } => sdk,
+    }
+}
+
+// `value` with each `${VAR}` filled from `environment`'s last setting of `VAR`, and each
+// `${VAR:-default}` with `default` where `VAR` is unset or empty.
+fn expand_variables(value: &str, environment: &[(String, String)]) -> String {
+    static VARIABLE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+            .expect("the variable pattern compiles")
+    });
+    VARIABLE
+        .replace_all(value, |captures: &Captures<'_>| {
+            let set = environment
+                .iter()
+                .rev()
+                .find(|(name, _value)| *name == captures[1])
+                .map(|(_name, value)| value.as_str())
+                .filter(|value| !value.is_empty());
+            match (set, captures.get(2)) {
+                (Some(set), _default) => set.to_owned(),
+                (None, Some(default)) => default.as_str().to_owned(),
+                (None, None) => captures[0].to_owned(),
+            }
+        })
+        .into_owned()
 }
 
 // Sends `servers` on `channel` and reads what becomes of each of `names`: a server the set's reply
@@ -577,6 +639,71 @@ mod tests {
         }
     }
 
+    // The sent entry carries each `${VAR}` filled from the probe's environment and each
+    // `${VAR:-default}` filled with its default where the variable is unset or empty, and leaves
+    // a variable with neither as written. Killed by the entry sent unexpanded, by a default taken
+    // over a set value, and by an unset variable sent empty.
+    #[tokio::test]
+    async fn a_sent_entry_carries_its_variables_filled() {
+        let home = home_declaring(&json!({
+            "tracker": {
+                "type": "http",
+                "url": "https://${TRACKER_HOST}/mcp",
+                "headers": {
+                    "Authorization": "Bearer ${TRACKER_TOKEN}",
+                    "X-Region": "${TRACKER_REGION:-eu}",
+                    "X-Team": "${TRACKER_TEAM:-core}",
+                    "X-Unset": "${TRACKER_UNSET}"
+                }
+            }
+        }));
+        let starts = ScriptedStarts::default();
+        let channel = Arc::new(ScriptedChannel::default());
+        channel.answer(
+            "mcp_set_servers",
+            ScriptedAnswer::Reply(json!({"added": ["tracker"], "removed": [], "errors": {}})),
+        );
+        channel.answer(
+            "mcp_status",
+            ScriptedAnswer::Reply(
+                json!({"mcpServers": [{"name": "tracker", "status": "connected"}]}),
+            ),
+        );
+        starts.script_mcp_probe(Arc::clone(&channel));
+        let environment = [
+            ("TRACKER_HOST", "mcp.example.com"),
+            ("TRACKER_TOKEN", "variable-token"),
+            ("TRACKER_TEAM", "platform"),
+            ("TRACKER_REGION", ""),
+        ]
+        .map(|(name, value)| (name.to_owned(), value.to_owned()))
+        .to_vec();
+
+        probe(
+            &starts,
+            home.path(),
+            environment,
+            false,
+            &[user_target("tracker")],
+        )
+        .await
+        .expect("the probe reads");
+
+        assert_eq!(
+            channel.control_requests()[0]["servers"]["tracker"],
+            json!({
+                "type": "http",
+                "url": "https://mcp.example.com/mcp",
+                "headers": {
+                    "Authorization": "Bearer variable-token",
+                    "X-Region": "eu",
+                    "X-Team": "platform",
+                    "X-Unset": "${TRACKER_UNSET}"
+                }
+            })
+        );
+    }
+
     // A server still `pending` when the ceiling passes reads `starting`, the ceiling being Claude
     // Code's startup timeout (`MCP_TIMEOUT`, 30 s unset) plus 5 s, with `mcp_status` asked once a
     // second until then. Killed by waiting past the ceiling and by a fixed ceiling.
@@ -631,8 +758,9 @@ mod tests {
     }
 
     // A real Claude Code, its home signed in, probed for a reachable MCP server and one nothing
-    // listens at, each declared as a `user` server in a scratch config: the reachable one reads
-    // connected with its tools, the other failed, both before the ceiling.
+    // listens at, each declared as a `user` server in a scratch config, the reachable one with
+    // headers naming a set variable and a defaulted one: the reachable one reads connected with
+    // its tools, the other failed, both before the ceiling.
     #[tokio::test]
     #[ignore = "needs an installed Claude Code, a signed-in home and a reachable MCP server"]
     async fn a_real_claude_code_probe_reads_a_sent_server_connected_with_its_tools() {
@@ -644,8 +772,16 @@ mod tests {
             .expect("SIDEKICKS_TEST_CLAUDE_HOME names a signed-in Claude Code home");
         let server_url = std::env::var("SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER")
             .expect("SIDEKICKS_TEST_CLAUDE_ORGANIZATION_SERVER names a reachable MCP server");
+        // Headers naming variables, which the sent entry carries filled.
         let home = home_declaring(&json!({
-            "reachable": { "type": "http", "url": server_url },
+            "reachable": {
+                "type": "http",
+                "url": server_url,
+                "headers": {
+                    "X-Probe-Run": "${SIDEKICKS_PROBE_RUN}",
+                    "X-Probe-Region": "${SIDEKICKS_PROBE_REGION:-eu}"
+                }
+            },
             "unreachable": { "type": "http", "url": "http://127.0.0.1:9/mcp" }
         }));
         let spawner = Spawner::new(Handle::current()).expect("a spawner");
@@ -663,6 +799,7 @@ mod tests {
             .filter(|(name, _value)| name != "CLAUDE_CONFIG_DIR" && name != "PATH")
             .collect();
         environment.push(("CLAUDE_CONFIG_DIR".to_owned(), claude_home));
+        environment.push(("SIDEKICKS_PROBE_RUN".to_owned(), "real-process".to_owned()));
         environment.push((
             "PATH".to_owned(),
             program_folder.to_string_lossy().into_owned(),
