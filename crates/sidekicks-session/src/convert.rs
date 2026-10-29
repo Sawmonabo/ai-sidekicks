@@ -109,7 +109,7 @@ static SELECT_STOPPED_CONVERSIONS_SQL: LazyLock<String> = LazyLock::new(|| {
 });
 
 const SELECT_FILES_DEALT_WITH_SQL: &str =
-    "SELECT path FROM session_convert_files WHERE session_id = @session_id";
+    "SELECT path_key FROM session_convert_files WHERE session_id = @session_id";
 
 static SELECT_FILE_COUNTS_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
@@ -635,14 +635,14 @@ impl SessionConversion {
     async fn read_files_dealt_with(
         &self,
         session_id: SessionId,
-    ) -> Result<HashSet<String>, SessionConversionError> {
+    ) -> Result<HashSet<Vec<u8>>, SessionConversionError> {
         self.reads
             .read(ReadLength::Short, move |connection| {
                 Ok(connection
                     .prepare_cached(SELECT_FILES_DEALT_WITH_SQL)?
                     .query_map(
                         named_params! { "@session_id": session_id.text().as_str() },
-                        |row| row.get::<_, String>(0),
+                        |row| row.get::<_, Vec<u8>>(0),
                     )?
                     .collect::<rusqlite::Result<HashSet<_>>>()?)
             })

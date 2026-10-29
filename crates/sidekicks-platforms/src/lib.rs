@@ -335,7 +335,7 @@ pub use posix::null_device::NULL_DEVICE_PATH;
 #[cfg(all(unix, any(test, feature = "test-support")))]
 pub use posix::os_text::non_unicode_name;
 #[cfg(unix)]
-pub use posix::os_text::os_text_bytes;
+pub use posix::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(unix)]
 pub use posix::private_folder::{
     create_missing_private_folders, create_new_private_folder, create_private_folder,
@@ -542,7 +542,7 @@ pub use windows::null_device::NULL_DEVICE_PATH;
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::os_text::non_unicode_name;
 #[cfg(target_os = "windows")]
-pub use windows::os_text::os_text_bytes;
+pub use windows::os_text::{os_text_bytes, os_text_stable_bytes};
 #[cfg(all(target_os = "windows", any(test, feature = "test-support")))]
 pub use windows::pinned_process::this_process;
 #[cfg(target_os = "windows")]

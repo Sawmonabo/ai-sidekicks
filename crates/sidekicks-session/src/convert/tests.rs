@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,8 +15,7 @@ use sidekicks_contracts::session::convert::{
 use sidekicks_contracts::session::id::SessionId;
 use sidekicks_contracts::wire::id::ClientUuid;
 use sidekicks_contracts::wire::integer::SafeInt;
-use sidekicks_ipc::registry::HandlerError;
-use sidekicks_platforms::real_path;
+use sidekicks_platforms::{os_text_stable_bytes, real_path};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::test_registry::test_driver_services;
 use sidekicks_store::events::session::appender::SessionEventAppender;
@@ -208,17 +208,35 @@ impl Fixture {
             .expect("the repository is a working tree");
         self.roots
             .rows
-            .execute_batch(&format!(
+            .execute(
                 "INSERT INTO session_convert_requests (client_idempotency_key, session_id, \
-                 repo_mount_id, working_tree) VALUES ('{FIRST_KEY}', '{SESSION_ID}', \
-                 '{MOUNT_ID}', '{}');
-                 INSERT INTO session_convert_files (session_id, path, outcome) \
-                 VALUES ('{SESSION_ID}', 'a.txt', 'copied');",
-                working_tree.to_string_lossy()
-            ))
+                 repo_mount_id, working_tree) VALUES (?1, ?2, ?3, ?4)",
+                params![
+                    FIRST_KEY,
+                    SESSION_ID,
+                    MOUNT_ID,
+                    working_tree.to_string_lossy()
+                ],
+            )
             .expect("the stopped conversion is stored");
+        record_file(&self.roots.rows, "a.txt", "copied");
         write(&self.roots.repository.join("a.txt"), "chat a");
     }
+}
+
+// Records `path`'s outcome as the copy does, keyed by the path's stable bytes.
+fn record_file(rows: &rusqlite::Connection, path: &str, outcome: &str) {
+    rows.execute(
+        "INSERT INTO session_convert_files (session_id, path_key, path, outcome) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            SESSION_ID,
+            os_text_stable_bytes(OsStr::new(path)).as_ref(),
+            path,
+            outcome
+        ],
+    )
+    .expect("a file's outcome is stored");
 }
 
 fn session_id() -> SessionId {
@@ -444,15 +462,7 @@ async fn every_skipped_file_is_read_back_once_in_path_order_over_pages_cut_at_th
         .collect();
     for (index, path) in paths.iter().enumerate() {
         let outcome = if index % 3 == 0 { "copied" } else { "link" };
-        fixture
-            .roots
-            .rows
-            .execute(
-                "INSERT INTO session_convert_files (session_id, path, outcome) \
-                 VALUES (?1, ?2, ?3)",
-                params![SESSION_ID, path, outcome],
-            )
-            .expect("a file's outcome is stored");
+        record_file(&fixture.roots.rows, path, outcome);
     }
     let expected: Vec<_> = paths
         .iter()

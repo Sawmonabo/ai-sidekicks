@@ -135,15 +135,18 @@ CREATE TABLE session_convert_requests (
 ) STRICT;
 
 -- Each workspace file a conversion has dealt with, recorded as its copy lands: copied, or not
--- copied with the reason. A resumed conversion skips every path here and counts from these rows;
--- the files not copied are read a page at a time by session.conversion.skippedFile.list.
+-- copied with the reason. A file is keyed by its path's stable bytes, the system's own form of each
+-- name, and shown by its path as text, a name that is not Unicode written lossily. A resumed
+-- conversion skips every key here and counts from these rows; the files not copied are read a page
+-- at a time by session.conversion.skippedFile.list, in key order.
 CREATE TABLE session_convert_files (
   session_id  TEXT NOT NULL,
+  path_key    BLOB NOT NULL,
   path        TEXT NOT NULL,
   outcome     TEXT NOT NULL
     CHECK (outcome IN ('copied', 'repositoryHasFile', 'repositoryPathNotAFolder', 'link',
       'specialFile')),
-  PRIMARY KEY (session_id, path)
+  PRIMARY KEY (session_id, path_key)
 ) STRICT, WITHOUT ROWID;
 ```
 

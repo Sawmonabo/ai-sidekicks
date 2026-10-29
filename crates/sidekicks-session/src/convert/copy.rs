@@ -5,6 +5,7 @@
 //! workspace is named and left, and a folder of the repository that is a link or a file takes
 //! nothing. Each file's outcome is recorded as it lands, while the copy goes on.
 
+use std::borrow::Cow;
 use std::collections::{BTreeSet, HashSet};
 use std::ffi::OsStr;
 use std::fs::{self, Permissions};
@@ -12,11 +13,12 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use rusqlite::types::Value;
 use sidekicks_contracts::session::convert::SessionConvertSkipReason;
 use sidekicks_contracts::session::id::SessionId;
-use sidekicks_platforms::{RegularFileOpen, create_new_file, open_regular_file};
+use sidekicks_platforms::{
+    RegularFileOpen, create_new_file, open_regular_file, os_text_stable_bytes,
+};
 use sidekicks_std::cleanup_failures::CleanupFailures;
 use sidekicks_std::file::publish_without_replacing::{PublishOutcome, publish_without_replacing};
 use sidekicks_std::missing_entry::is_gone;
@@ -42,8 +44,8 @@ const COPY_MODE: u32 = 0o600;
 // writer's batches full, and the most landed copies a crash can leave unrecorded.
 const RECORDS_IN_FLIGHT_MAX: usize = 100;
 
-const RECORD_FILE_SQL: &str = "INSERT INTO session_convert_files (session_id, path, outcome)
-  VALUES (@session_id, @path, @outcome)";
+const RECORD_FILE_SQL: &str = "INSERT INTO session_convert_files
+  (session_id, path_key, path, outcome) VALUES (@session_id, @path_key, @path, @outcome)";
 
 const COPYING: &str = "copying a chat's file into the repository";
 
@@ -57,11 +59,13 @@ pub(super) struct ConversionFolders {
     pub(super) working_tree: PathBuf,
 }
 
-/// One of the workspace's files: its path under the workspace, and that path as its record keys it,
-/// `/`-separated, each name that is not Unicode written as base64url of its bytes.
+/// One of the workspace's files: its path under the workspace, that path as its record keys it
+/// (each name's stable bytes, joined by the stable bytes of `/`, which no name holds), and as it
+/// is shown, `/`-separated with a name that is not Unicode written lossily.
 struct WorkspaceEntry {
     relative: PathBuf,
-    key: String,
+    key: Vec<u8>,
+    shown: String,
 }
 
 /// What one workspace entry came to: copied, left out for a reason, or gone since the listing.
@@ -90,7 +94,7 @@ enum WrittenCopy {
 /// is answered.
 pub(super) async fn copy_workspace_files(
     folders: &ConversionFolders,
-    dealt_with: &HashSet<String>,
+    dealt_with: &HashSet<Vec<u8>>,
     writer: &Arc<DatabaseWriter>,
 ) -> Result<(), SessionConversionError> {
     let pending = list_pending_entries(folders, dealt_with).await?;
@@ -111,7 +115,7 @@ pub(super) async fn copy_workspace_files(
             EntryOutcome::Skipped(reason) => reason.into(),
             EntryOutcome::Gone => continue,
         };
-        let statement = record_file_statement(folders.session_id, &entry.key, recorded);
+        let statement = record_file_statement(folders.session_id, entry, recorded);
         let writer = Arc::clone(writer);
         records.spawn(async move { writer.write(vec![statement]).await.map(drop) });
         if records.len() >= RECORDS_IN_FLIGHT_MAX
@@ -136,7 +140,7 @@ pub(super) async fn copy_workspace_files(
 /// copy never got a record, so it sits in the folder of one of the files not yet dealt with.
 pub(super) async fn remove_stopped_copy(
     folders: &ConversionFolders,
-    dealt_with: &HashSet<String>,
+    dealt_with: &HashSet<Vec<u8>>,
 ) -> Result<(), SessionConversionError> {
     let pending = list_pending_entries(folders, dealt_with).await?;
     remove_copies_beside(folders, &pending).await
@@ -159,7 +163,7 @@ fn note_record(
 // The workspace's files the conversion has yet to deal with, in name order.
 async fn list_pending_entries(
     folders: &ConversionFolders,
-    dealt_with: &HashSet<String>,
+    dealt_with: &HashSet<Vec<u8>>,
 ) -> Result<Vec<WorkspaceEntry>, SessionConversionError> {
     let workspace_root = folders.workspace_root.clone();
     let working_tree = folders.working_tree.clone();
@@ -197,7 +201,7 @@ async fn remove_copies_beside(
     .await
 }
 
-// Every entry of the workspace but its folders, in name order: files, links and special files
+// Every entry of the workspace but its folders, in key order: files, links and special files
 // alike, each left to the copy to tell apart on the opened entry. The walk never descends through
 // a link, so nothing outside the workspace is listed, and it leaves out the workspace's own
 // repository at its root and the working tree when that sits inside the workspace, so the
@@ -207,8 +211,8 @@ fn list_workspace_entries(
     working_tree: &Path,
 ) -> io::Result<Vec<WorkspaceEntry>> {
     let mut entries = Vec::new();
-    let mut folders = vec![(PathBuf::new(), String::new())];
-    while let Some((folder, folder_key)) = folders.pop() {
+    let mut folders = vec![(PathBuf::new(), Vec::new(), String::new())];
+    while let Some((folder, folder_key, folder_shown)) = folders.pop() {
         let listing = match fs::read_dir(workspace_root.join(&folder)) {
             Ok(listing) => listing,
             Err(error) if is_gone(&error) => continue,
@@ -222,31 +226,42 @@ fn list_workspace_entries(
             }
             let relative = folder.join(&name);
             let key = record_key(&folder_key, &name);
+            let shown = shown_path(&folder_shown, &name);
             if listed.file_type()?.is_dir() {
                 if workspace_root.join(&relative) != working_tree {
-                    folders.push((relative, key));
+                    folders.push((relative, key, shown));
                 }
             } else {
-                entries.push(WorkspaceEntry { relative, key });
+                entries.push(WorkspaceEntry {
+                    relative,
+                    key,
+                    shown,
+                });
             }
         }
     }
-    entries.sort_by(|left, right| left.key.encode_utf16().cmp(right.key.encode_utf16()));
+    entries.sort_by(|left, right| left.key.cmp(&right.key));
     Ok(entries)
 }
 
-// The record key of `name` in the folder keyed `folder_key`. A name that is not Unicode is keyed by
-// base64url of its own bytes, never its lossy form, so two names that differ only in a byte that is
-// not Unicode take two keys.
-fn record_key(folder_key: &str, name: &OsStr) -> String {
-    let name = match name.to_str() {
-        Some(name) => name.to_owned(),
-        None => URL_SAFE_NO_PAD.encode(name.as_encoded_bytes()),
-    };
-    if folder_key.is_empty() {
-        name
+// The record key of `name` in the folder keyed `folder_key`: the name's stable bytes, never a text
+// form, so two names take two keys whatever they hold and the same name keeps its key across
+// builds.
+fn record_key(folder_key: &[u8], name: &OsStr) -> Vec<u8> {
+    let mut key = folder_key.to_vec();
+    if !key.is_empty() {
+        key.extend_from_slice(&os_text_stable_bytes(OsStr::new("/")));
+    }
+    key.extend_from_slice(&os_text_stable_bytes(name));
+    key
+}
+
+fn shown_path(folder_shown: &str, name: &OsStr) -> String {
+    let name = name.to_string_lossy();
+    if folder_shown.is_empty() {
+        name.into_owned()
     } else {
-        format!("{folder_key}/{name}")
+        format!("{folder_shown}/{name}")
     }
 }
 
@@ -287,9 +302,10 @@ async fn copy_entry(
     }
 }
 
-// Opens the source through no link in its path under the workspace, and writes its bytes to a new file named
-// `copy_name` in the target's folder, each folder on the way a real folder of the repository, made
-// when missing. A failed write removes the copy, so the repository keeps no part of the file.
+// Opens the source through no link in its path under the workspace, and writes its bytes to a new
+// file named `copy_name` in the target's folder, each folder on the way a real folder of the
+// repository, made when missing. A failed write removes the copy, so the repository keeps no part
+// of the file.
 fn write_copy(
     workspace_root: &Path,
     working_tree: &Path,
@@ -360,12 +376,17 @@ fn copy_name_of(session_id: SessionId) -> String {
     )
 }
 
-fn record_file_statement(session_id: SessionId, path: &str, outcome: &str) -> WriteStatement {
+fn record_file_statement(
+    session_id: SessionId,
+    entry: &WorkspaceEntry,
+    outcome: &str,
+) -> WriteStatement {
     WriteStatement {
         sql: RECORD_FILE_SQL.into(),
         bindings: StatementBindings::Named(vec![
             text_binding("@session_id", session_id.text().as_str()),
-            text_binding("@path", path),
+            (Cow::Borrowed("@path_key"), Value::Blob(entry.key.clone())),
+            text_binding("@path", &entry.shown),
             text_binding("@outcome", outcome),
         ]),
         expected_row_count: Some(1),
@@ -383,19 +404,30 @@ async fn on_blocking_thread<Output: Send + 'static>(
 
 #[cfg(test)]
 mod tests {
-    use sidekicks_platforms::non_unicode_name;
+    use std::ffi::OsStr;
+
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use sidekicks_platforms::{non_unicode_name, os_text_stable_bytes};
 
     use super::record_key;
 
-    // Fails with the name keyed by its lossy form: both names then read as one key, and the second
+    // Fails with a name keyed by a text form: two names differing only in a byte that is not
+    // Unicode read as one key under the lossy form, and a name that is not Unicode shares its key
+    // with the Unicode name spelling its base64url under the encoded form. Either way the second
     // file's record is refused, which leaves the conversion incomplete on every resume.
     #[test]
-    fn two_names_differing_only_in_a_byte_that_is_not_unicode_take_two_keys() {
-        let first = record_key("notes", &non_unicode_name("caf", 0));
-        let second = record_key("notes", &non_unicode_name("caf", 1));
+    fn every_two_names_in_a_folder_take_two_keys() {
+        let folder = record_key(&[], OsStr::new("notes"));
+        let not_unicode = non_unicode_name("caf", 0);
+        let spelled = URL_SAFE_NO_PAD.encode(os_text_stable_bytes(&not_unicode));
 
-        assert_ne!(first, second);
-        assert!(first.starts_with("notes/"), "{first}");
-        assert_eq!(record_key("", "plain.txt".as_ref()), "plain.txt");
+        let first = record_key(&folder, &not_unicode);
+        assert_ne!(first, record_key(&folder, &non_unicode_name("caf", 1)));
+        assert_ne!(first, record_key(&folder, OsStr::new(&spelled)));
+        assert_eq!(
+            record_key(&folder, OsStr::new("plain.txt")),
+            os_text_stable_bytes(OsStr::new("notes/plain.txt")).into_owned()
+        );
     }
 }
