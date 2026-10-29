@@ -238,6 +238,7 @@ pub(super) const DESCRIPTOR: ProviderDescriptor = ProviderDescriptor {
     // Its memories stay each home's own, read in by the memory import.
     account_home_memory_folder: None,
     shell_prefix_command: None,
+    token_limits_read_by_turn: false,
 };
 
 /// Builds the Codex driver over the shared services; it stores handles and does no I/O.

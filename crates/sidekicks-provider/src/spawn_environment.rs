@@ -387,6 +387,7 @@ mod tests {
         account_home_conversation_folders: &[],
         account_home_memory_folder: None,
         shell_prefix_command: None,
+        token_limits_read_by_turn: false,
     };
 
     /// A second registered provider, whose credential home no row may set either, and whose

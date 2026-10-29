@@ -33,7 +33,7 @@ const PROVIDER: &str = "claude";
 
 // An in-memory keychain service that answers a write with the refusal a test sets.
 #[derive(Default)]
-struct ScriptedKeychain {
+pub(crate) struct ScriptedKeychain {
     items: Mutex<BTreeMap<String, String>>,
     write_refusal: Mutex<Option<KeychainRefusalCause>>,
 }

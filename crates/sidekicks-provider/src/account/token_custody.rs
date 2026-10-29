@@ -63,6 +63,12 @@ pub enum TokenCustodyError {
     /// The keychain could not list or destroy the sealed items.
     #[error("the sealed tokens could not be swept")]
     Sweep(#[source] KeychainRefusal),
+    /// The keychain could not read the account's sealed token.
+    #[error("the sealed token could not be read")]
+    Unsealing(#[source] KeychainRefusal),
+    /// The keychain holds no token for the account.
+    #[error("no token is sealed for the account")]
+    NotSealed,
     /// The registry could not read or write the account.
     #[error(transparent)]
     Registry(#[from] ProviderAccountRegistryError),
@@ -85,9 +91,10 @@ impl From<TokenCustodyError> for HandlerError {
             )),
             TokenCustodyError::StatusRead(failure) => failure.into(),
             TokenCustodyError::Registry(failure) => failure.into(),
-            error @ (TokenCustodyError::NoStatusRead | TokenCustodyError::Sweep(_)) => {
-                Self::Internal(Box::new(error))
-            }
+            error @ (TokenCustodyError::NoStatusRead
+            | TokenCustodyError::Sweep(_)
+            | TokenCustodyError::Unsealing(_)
+            | TokenCustodyError::NotSealed) => Self::Internal(Box::new(error)),
         }
     }
 }
@@ -178,6 +185,20 @@ impl ProviderTokenCustody {
             .await?)
     }
 
+    /// The token sealed for `account_id`, which only the provider's own child is handed. Fails
+    /// with [`TokenCustodyError::NotSealed`] when none is sealed, and with
+    /// [`TokenCustodyError::Unsealing`] when the keychain refuses the read.
+    pub async fn read_token(
+        &self,
+        account_id: &ProviderAccountId,
+    ) -> Result<SecretString, TokenCustodyError> {
+        self.keychain
+            .read(account_id.as_str())
+            .await
+            .map_err(TokenCustodyError::Unsealing)?
+            .ok_or(TokenCustodyError::NotSealed)
+    }
+
     /// The start's sweep: destroys every sealed item no registered row names, then deletes each
     /// row whose removal has begun, leaving its home on disk. Fails when the keychain or the
     /// registry cannot be read or written; what it finished stays finished, and the next start
@@ -262,4 +283,4 @@ async fn read_token_status(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -14,6 +14,8 @@
 //!   `indeterminate`; anything else stores nothing, so no failed read reads as a reading.
 //! - Only `Check now` writes as the probe; every other read writes as the background observer,
 //!   which never moves the generation, and a read that cannot tell never does either.
+//! - A pasted token whose own scope cannot read its limits is read by a turn instead, and each
+//!   account's closed usage windows are started by one, each turn written as a usage row of its own.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -28,18 +30,26 @@ use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_platforms::WallClock;
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::{ScheduleError, Scheduler};
+use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
+use sidekicks_store::database::writer::DatabaseWriter;
 
 use crate::account::errors::ProviderAccountRegistryError;
 use crate::account::home_lock::{AccountHomeActEnded, AccountHomeFlights, AccountHomeLock};
 use crate::account::observer::schedule::ObservationSchedule;
+use crate::account::observer::window_start::WindowStartTimers;
 use crate::account::registry::{
     HealthObservation, HealthObserver, ProviderAccountRegistry, RegisteredAccount,
 };
-use crate::driver::contract::account::{ProviderObservation, ProviderObserveLegs};
-use crate::driver::{AccountFoldersError, ProviderAccountReader};
+use crate::account::token_custody::{ProviderTokenCustody, TokenCustodyError};
+use crate::driver::contract::account::{
+    ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs,
+};
+use crate::driver::{AccountFoldersError, ProviderAccountFolders, ProviderAccountReader};
 
 mod ladder;
 mod schedule;
+mod token_read;
+mod window_start;
 
 // How long a read may take before it counts as one with no answer; the legs set no bound.
 const READ_BOUND: Duration = Duration::from_mins(1);
@@ -64,11 +74,19 @@ pub struct ProviderAccountObserverDeps {
     pub account_reader: Arc<dyn ProviderAccountReader>,
     /// Each provider's limits read; an account of a provider with none is not observed.
     pub legs: HashMap<ProviderId, Arc<dyn ProviderObserveLegs>>,
+    /// Each provider's smallest turns; an account of a provider with none starts no window.
+    pub window_turn_legs: HashMap<ProviderId, Arc<dyn ProviderWindowTurnLegs>>,
+    /// The sealed pasted tokens, one of which a turn that reads its limits is handed.
+    pub token_custody: Arc<ProviderTokenCustody>,
+    /// The daemon's read connections, which read each account's windows.
+    pub database_reads: Arc<DatabaseReadPool>,
+    /// The daemon's database writer, which writes each turn's usage row.
+    pub database_writer: Arc<DatabaseWriter>,
     /// Whether a turn is live on an account.
     pub live_turns: Arc<dyn AccountLiveTurns>,
     /// The lock every act in an account's home takes.
     pub home_lock: Arc<AccountHomeLock>,
-    /// The daemon's scheduler, which runs each account's job.
+    /// The daemon's scheduler, which runs each account's job and tells each wake.
     pub scheduler: Arc<Scheduler>,
     /// The clock a reading's time, the minute's floor and a hold's end are read on.
     pub wall_clock: Arc<dyn WallClock>,
@@ -116,6 +134,12 @@ pub enum ProviderAccountObserverError {
     /// The read in flight on the account failed.
     #[error("the account's read failed")]
     ReadFailed(#[source] Arc<ProviderAccountObserverError>),
+    /// The window start in flight on the account failed.
+    #[error("the account's window start failed")]
+    WindowStartFailed(#[source] Arc<ProviderAccountObserverError>),
+    /// The account's pasted token could not be read.
+    #[error(transparent)]
+    Token(#[from] TokenCustodyError),
     /// The read in flight ended without an answer.
     #[error(transparent)]
     ReadEnded(#[from] AccountHomeActEnded),
@@ -151,6 +175,8 @@ struct AccountMemory {
 
 type SharedReading = Result<AccountReading, Arc<ProviderAccountObserverError>>;
 
+type SharedWindowStart = Result<(), Arc<ProviderAccountObserverError>>;
+
 /// The background observer; see the module doc.
 pub struct ProviderAccountObserver {
     shared: Arc<ObserverShared>,
@@ -160,13 +186,21 @@ struct ObserverShared {
     registry: Arc<ProviderAccountRegistry>,
     account_reader: Arc<dyn ProviderAccountReader>,
     legs: HashMap<ProviderId, Arc<dyn ProviderObserveLegs>>,
-    // One per provider whose reads run one at a time.
+    window_turn_legs: HashMap<ProviderId, Arc<dyn ProviderWindowTurnLegs>>,
+    token_custody: Arc<ProviderTokenCustody>,
+    database_reads: Arc<DatabaseReadPool>,
+    database_writer: Arc<DatabaseWriter>,
+    // One per provider whose reads run one at a time; its window turns take it too.
     one_reader_at_a_time: HashMap<ProviderId, Arc<tokio::sync::Mutex<()>>>,
     live_turns: Arc<dyn AccountLiveTurns>,
+    scheduler: Arc<Scheduler>,
     wall_clock: Arc<dyn WallClock>,
     reads: AccountHomeFlights<SharedReading>,
+    window_starts: AccountHomeFlights<SharedWindowStart>,
     accounts: Mutex<HashMap<ProviderAccountId, AccountMemory>>,
     schedule: ObservationSchedule,
+    window_timers: WindowStartTimers,
+    wake_watch: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl ProviderAccountObserver {
@@ -179,32 +213,47 @@ impl ProviderAccountObserver {
             .map(|(provider, _)| (provider.clone(), Arc::default()))
             .collect();
         let shared = Arc::new_cyclic(|this: &Weak<ObserverShared>| {
-            let this = this.clone();
+            let (read_due, window_due) = (this.clone(), this.clone());
             ObserverShared {
                 registry: deps.registry,
                 account_reader: deps.account_reader,
                 legs: deps.legs,
+                window_turn_legs: deps.window_turn_legs,
+                token_custody: deps.token_custody,
+                database_reads: deps.database_reads,
+                database_writer: deps.database_writer,
                 one_reader_at_a_time,
                 live_turns: deps.live_turns,
+                scheduler: Arc::clone(&deps.scheduler),
                 wall_clock: deps.wall_clock,
-                reads: AccountHomeFlights::new(deps.home_lock),
+                reads: AccountHomeFlights::new(Arc::clone(&deps.home_lock)),
+                window_starts: AccountHomeFlights::new(deps.home_lock),
                 accounts: Mutex::default(),
                 schedule: ObservationSchedule::new(
-                    deps.scheduler,
+                    Arc::clone(&deps.scheduler),
                     Arc::new(move |account_id| {
-                        if let Some(shared) = this.upgrade() {
+                        if let Some(shared) = read_due.upgrade() {
                             shared.spawn_read(account_id, ReadAsker::Cadence);
                         }
                     }),
                 ),
+                window_timers: WindowStartTimers::new(
+                    deps.scheduler,
+                    Arc::new(move |account_id| {
+                        if let Some(shared) = window_due.upgrade() {
+                            shared.spawn_window_start(account_id);
+                        }
+                    }),
+                ),
+                wake_watch: Mutex::default(),
             }
         });
         Self { shared }
     }
 
     /// Schedules every registered account of an observed provider, each provider's first reads
-    /// spread across the interval. Fails when the accounts cannot be listed or the scheduler has
-    /// stopped.
+    /// spread across the interval, looks at every account's windows now and at each wake. Fails
+    /// when the accounts cannot be listed or the scheduler has stopped.
     pub async fn start(&self) -> Result<(), ProviderAccountObserverError> {
         let mut by_provider: HashMap<ProviderId, Vec<ProviderAccountId>> = HashMap::new();
         for account in self.shared.registry.list(None).await? {
@@ -221,30 +270,42 @@ impl ProviderAccountObserver {
                 self.shared.schedule.watch(account_id, first_delay)?;
             }
         }
+        if let Some(replaced) =
+            lock(&self.shared.wake_watch).replace(self.shared.spawn_wake_watch())
+        {
+            replaced.abort();
+        }
+        Arc::clone(&self.shared).spawn_every_window_start();
         Ok(())
     }
 
-    /// Schedules `account`, newly registered, its first read a whole interval away, since its
-    /// sign-in just read it; an account of a provider with no limits read is not scheduled.
-    /// Refused once the scheduler has stopped.
+    /// Schedules `account`, newly signed in, its first read a whole interval away, since its
+    /// sign-in just read it, and looks at its windows now; an account of a provider with no limits
+    /// read is not scheduled. Refused once the scheduler has stopped.
     pub fn watch(&self, account: &RegisteredAccount) -> Result<(), ProviderAccountObserverError> {
         if self.shared.legs.contains_key(&account.provider) {
             self.shared
                 .schedule
                 .watch(account.account_id.clone(), schedule::OBSERVATION_INTERVAL)?;
         }
+        Arc::clone(&self.shared).spawn_window_start(account.account_id.clone());
         Ok(())
     }
 
     /// Stops observing `provider_account_id`, removed, and forgets its last read.
     pub fn forget(&self, provider_account_id: &ProviderAccountId) {
         self.shared.schedule.forget(provider_account_id);
+        self.shared.window_timers.forget(provider_account_id);
         lock(&self.shared.accounts).remove(provider_account_id);
     }
 
-    /// Stops every account's job; a read under way finishes.
+    /// Stops every account's job, timer and the wake watch; a read or turn under way finishes.
     pub fn stop(&self) {
         self.shared.schedule.forget_all();
+        self.shared.window_timers.forget_all();
+        if let Some(wake_watch) = lock(&self.shared.wake_watch).take() {
+            wake_watch.abort();
+        }
     }
 
     /// `Check now`: the last read while under a minute old, else a read now, written as the probe
@@ -341,7 +402,7 @@ impl ObserverShared {
         let shared = Arc::clone(self);
         let answer = self
             .reads
-            .run_if_free(provider_account_id, move || {
+            .run_if_free(provider_account_id.clone(), move || {
                 async move {
                     shared
                         .take_reading(account, legs, asker.writer())
@@ -353,7 +414,10 @@ impl ObserverShared {
             .await?;
         match answer {
             None => Ok(AccountReadAnswer::NotNow { last }),
-            Some(Ok(reading)) => Ok(AccountReadAnswer::Read(reading)),
+            Some(Ok(reading)) => {
+                Arc::clone(self).spawn_window_start(provider_account_id);
+                Ok(AccountReadAnswer::Read(reading))
+            }
             Some(Err(error)) => Err(ProviderAccountObserverError::ReadFailed(error)),
         }
     }
@@ -384,7 +448,28 @@ impl ObserverShared {
             .resolve_account_folders(account.account_id.clone())
             .await
             .map_err(ProviderAccountObserverError::Folders)?;
-        let observation = match tokio::time::timeout(
+        let observation = if token_read::reads_limits_by_turn(&account) {
+            self.read_token_limits(&account, folders).await?
+        } else {
+            self.observe(&account, &*legs, folders).await
+        };
+        let now = self.wall_clock.now();
+        let reading = AccountReading {
+            observation,
+            read_at: ladder::wire_instant(now),
+        };
+        self.store(&account.account_id, &reading, writer).await?;
+        Ok(reading)
+    }
+
+    // The provider's limits read, bounded; `None` where it failed or took too long.
+    async fn observe(
+        &self,
+        account: &RegisteredAccount,
+        legs: &dyn ProviderObserveLegs,
+        folders: ProviderAccountFolders,
+    ) -> Option<ProviderObservation> {
+        match tokio::time::timeout(
             READ_BOUND,
             legs.observe(account.account_id.clone(), folders),
         )
@@ -402,14 +487,7 @@ impl ObserverShared {
                 tracing::warn!("an account's limits read took too long");
                 None
             }
-        };
-        let now = self.wall_clock.now();
-        let reading = AccountReading {
-            observation,
-            read_at: ladder::wire_instant(now),
-        };
-        self.store(&account.account_id, &reading, writer).await?;
-        Ok(reading)
+        }
     }
 
     // Stores what `reading` says of the account's health and its place on the ladder.

@@ -152,6 +152,9 @@ pub struct ProviderDescriptor {
     /// handed over as the link's one argument; `None` where the provider starts its commands
     /// through the daemon's relay instead.
     pub(crate) shell_prefix_command: Option<ShellPrefixCommand>,
+    /// Whether a pasted token's limits are read by a turn, since the token's own scope cannot read
+    /// them; the turn's answer is the reading.
+    pub(crate) token_limits_read_by_turn: bool,
 }
 
 /// A provider's contract with the command wrapper's link when it prefixes every shell command it

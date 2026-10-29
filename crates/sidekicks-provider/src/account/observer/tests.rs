@@ -8,13 +8,18 @@ use std::time::{Duration, SystemTime};
 use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use rstest::rstest;
+use secrecy::{ExposeSecret as _, SecretString};
 use sidekicks_contracts::provider::account::record::{
     BillingMode, CredentialGeneration, ProviderAccountHealthState, ProviderAccountId,
+    ProviderAuthMode,
 };
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_platforms::{WallClock, WallClockWait};
 use sidekicks_std::mutex_lock::lock;
 use sidekicks_std::scheduler::Scheduler;
+use sidekicks_store::credential_store::SecretKeychain;
 use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::writer::test_file::TestDatabase;
 use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
@@ -29,7 +34,12 @@ use crate::account::registry::{
     AccountAdmission, HealthObservation, PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
     ProviderAccountRegistry, RegisteredAccount,
 };
-use crate::driver::contract::account::{ProviderObservation, ProviderObserveLegs};
+use crate::account::token_custody::ProviderTokenCustody;
+use crate::account::token_custody::tests::ScriptedKeychain;
+use crate::driver::contract::account::{
+    ProviderObservation, ProviderObserveLegs, ProviderWindowTurnLegs, TokenLimitsReading,
+    WindowTurnAnswer, WindowTurnSpend,
+};
 use crate::driver::contract::error::DriverError;
 use crate::driver::schema::schema_parts;
 use crate::driver::{
@@ -37,10 +47,10 @@ use crate::driver::{
 };
 
 // A wall clock the test sets; nothing here arms its timer.
-struct TestClock(Mutex<SystemTime>);
+pub(super) struct TestClock(Mutex<SystemTime>);
 
 impl TestClock {
-    fn advance(&self, by: Duration) {
+    pub(super) fn advance(&self, by: Duration) {
         *lock(&self.0) += by;
     }
 }
@@ -66,7 +76,7 @@ impl WallClock for TestClock {
 // Limits reads answering the scripted answers in turn, `None` a read that failed; with a gate, each
 // read tells `entered` and waits for a permit.
 #[derive(Default)]
-struct ScriptedLegs {
+pub(super) struct ScriptedLegs {
     answers: Mutex<VecDeque<Option<ProviderObservation>>>,
     read_count: AtomicUsize,
     reading_now: AtomicUsize,
@@ -82,8 +92,66 @@ impl ScriptedLegs {
         }
     }
 
-    fn reads(&self) -> usize {
+    pub(super) fn reads(&self) -> usize {
         self.read_count.load(Ordering::SeqCst)
+    }
+}
+
+// What each scripted smallest turn spends.
+pub(super) fn turn_spend() -> WindowTurnSpend {
+    let count = |count| SafeInt::new(count);
+    WindowTurnSpend {
+        model_id: Some(FreeFormText::new("haiku".to_owned()).expect("a model id")),
+        input_tokens: count(395),
+        output_tokens: count(51),
+        cache_read_tokens: None,
+        cache_write_tokens: None,
+        reasoning_tokens: None,
+    }
+}
+
+// Smallest turns that each spend `turn_spend()`, counting the window starts and keeping each
+// token a limits read was handed.
+#[derive(Default)]
+pub(super) struct ScriptedTurns {
+    window_starts: AtomicUsize,
+    tokens_read: Mutex<Vec<String>>,
+}
+
+impl ScriptedTurns {
+    pub(super) fn window_starts(&self) -> usize {
+        self.window_starts.load(Ordering::SeqCst)
+    }
+
+    pub(super) fn tokens_read(&self) -> Vec<String> {
+        lock(&self.tokens_read).clone()
+    }
+}
+
+impl ProviderWindowTurnLegs for ScriptedTurns {
+    fn start_window(
+        &self,
+        _provider_account_id: ProviderAccountId,
+        _folders: ProviderAccountFolders,
+    ) -> BoxFuture<'_, Result<WindowTurnAnswer, DriverError>> {
+        self.window_starts.fetch_add(1, Ordering::SeqCst);
+        async { Ok(WindowTurnAnswer::Spent(turn_spend())) }.boxed()
+    }
+
+    fn read_token_limits<'call>(
+        &'call self,
+        _provider_account_id: &'call ProviderAccountId,
+        _folders: &'call ProviderAccountFolders,
+        token: &'call SecretString,
+    ) -> BoxFuture<'call, Result<TokenLimitsReading, DriverError>> {
+        lock(&self.tokens_read).push(token.expose_secret().to_owned());
+        async {
+            Ok(TokenLimitsReading {
+                observation: ProviderObservation::Figures,
+                spend: Some(turn_spend()),
+            })
+        }
+        .boxed()
     }
 }
 
@@ -124,7 +192,7 @@ impl ProviderObserveLegs for ScriptedLegs {
 }
 
 #[derive(Default)]
-struct TestLiveTurns(AtomicBool);
+pub(super) struct TestLiveTurns(pub(super) AtomicBool);
 
 impl AccountLiveTurns for TestLiveTurns {
     fn has_live_turn(&self, _provider_account_id: &ProviderAccountId) -> bool {
@@ -168,22 +236,31 @@ impl ProviderAccountReader for HomeFolders {
     }
 }
 
-fn claude() -> ProviderId {
+pub(super) fn claude() -> ProviderId {
     ProviderId::new("claude".to_owned()).expect("the Claude Code provider id")
 }
 
-struct Fixture {
-    registry: Arc<ProviderAccountRegistry>,
-    home_lock: Arc<AccountHomeLock>,
-    live_turns: Arc<TestLiveTurns>,
-    clock: Arc<TestClock>,
-    legs: Arc<ScriptedLegs>,
-    observer: ProviderAccountObserver,
+pub(super) fn codex() -> ProviderId {
+    ProviderId::new("codex".to_owned()).expect("the Codex provider id")
+}
+
+pub(super) struct Fixture {
+    pub(super) registry: Arc<ProviderAccountRegistry>,
+    pub(super) writer: Arc<DatabaseWriter>,
+    pub(super) home_lock: Arc<AccountHomeLock>,
+    pub(super) live_turns: Arc<TestLiveTurns>,
+    pub(super) clock: Arc<TestClock>,
+    pub(super) scheduler: Arc<Scheduler>,
+    pub(super) keychain: Arc<ScriptedKeychain>,
+    pub(super) legs: Arc<ScriptedLegs>,
+    pub(super) turns: HashMap<ProviderId, Arc<ScriptedTurns>>,
+    pub(super) observer: ProviderAccountObserver,
 }
 
 impl Fixture {
-    // An observer over `database` reading through `legs`, on `clock`.
-    async fn open(
+    // An observer over `database` reading through `legs`, on `clock`, with scripted turns on
+    // Claude Code and Codex.
+    pub(super) async fn open(
         database: &TestDatabase,
         data_folder: &Path,
         clock: Arc<TestClock>,
@@ -194,44 +271,80 @@ impl Fixture {
                 .await
                 .expect("the writer opens its database"),
         );
-        let reads = DatabaseReadPool::new(
+        let reads = Arc::new(DatabaseReadPool::new(
             database.path(),
             PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY,
-        );
+        ));
         let registry = Arc::new(ProviderAccountRegistry::new(
-            Arc::new(reads),
-            writer,
+            Arc::clone(&reads),
+            Arc::clone(&writer),
             data_folder.to_owned(),
         ));
         let home_lock = Arc::new(AccountHomeLock::default());
         let live_turns = Arc::new(TestLiveTurns::default());
+        let scheduler = Arc::new(Scheduler::start(
+            Arc::clone(&clock) as Arc<dyn WallClock>,
+            None,
+            watch::channel(0).1,
+        ));
+        let keychain = Arc::new(ScriptedKeychain::default());
         let legs = Arc::new(legs);
+        let turns: HashMap<ProviderId, Arc<ScriptedTurns>> = [claude(), codex()]
+            .into_iter()
+            .map(|provider| (provider, Arc::default()))
+            .collect();
+        let window_turn_legs = turns
+            .iter()
+            .map(|(provider, turns)| {
+                (
+                    provider.clone(),
+                    Arc::clone(turns) as Arc<dyn ProviderWindowTurnLegs>,
+                )
+            })
+            .collect();
         let observer = ProviderAccountObserver::new(ProviderAccountObserverDeps {
             registry: Arc::clone(&registry),
             account_reader: Arc::new(HomeFolders(Arc::clone(&registry))),
             legs: HashMap::from([(claude(), Arc::clone(&legs) as Arc<dyn ProviderObserveLegs>)]),
+            window_turn_legs,
+            token_custody: Arc::new(ProviderTokenCustody::new(
+                Arc::clone(&registry),
+                Arc::clone(&keychain) as Arc<dyn SecretKeychain>,
+                HashMap::new(),
+            )),
+            database_reads: reads,
+            database_writer: Arc::clone(&writer),
             live_turns: Arc::clone(&live_turns) as Arc<dyn AccountLiveTurns>,
             home_lock: Arc::clone(&home_lock),
-            scheduler: Arc::new(Scheduler::start(
-                Arc::clone(&clock) as Arc<dyn WallClock>,
-                None,
-                watch::channel(0).1,
-            )),
+            scheduler: Arc::clone(&scheduler),
             wall_clock: Arc::clone(&clock) as Arc<dyn WallClock>,
         });
         Self {
             registry,
+            writer,
             home_lock,
             live_turns,
             clock,
+            scheduler,
+            keychain,
             legs,
+            turns,
             observer,
         }
     }
 
     // Admits a signed-in Claude Code account, observed at the clock's time.
-    async fn register(&self) -> RegisteredAccount {
-        let minted = self.registry.mint(claude()).expect("the account is minted");
+    pub(super) async fn register(&self) -> RegisteredAccount {
+        self.register_on(claude(), None).await
+    }
+
+    // Admits a signed-in `provider` account whose status read reported `observed_auth_mode`.
+    pub(super) async fn register_on(
+        &self,
+        provider: ProviderId,
+        observed_auth_mode: Option<ProviderAuthMode>,
+    ) -> RegisteredAccount {
+        let minted = self.registry.mint(provider).expect("the account is minted");
         self.registry
             .admit(
                 &minted,
@@ -242,14 +355,18 @@ impl Fixture {
                         state: ProviderAccountHealthState::Authenticated,
                         observed_at: super::ladder::wire_instant(self.clock.now()),
                     },
-                    observed_auth_mode: None,
+                    observed_auth_mode,
                 },
             )
             .await
             .expect("the account is admitted")
     }
 
-    async fn read(&self, account: &RegisteredAccount, asker: ReadAsker) -> AccountReadAnswer {
+    pub(super) async fn read(
+        &self,
+        account: &RegisteredAccount,
+        asker: ReadAsker,
+    ) -> AccountReadAnswer {
         self.observer
             .shared
             .read(account.account_id.clone(), asker)
@@ -258,7 +375,28 @@ impl Fixture {
     }
 }
 
-fn new_clock() -> Arc<TestClock> {
+// Each usage row of `account`: its session and the generation it was charged to.
+pub(super) fn usage_rows(
+    database: &TestDatabase,
+    account: &RegisteredAccount,
+) -> Vec<(Option<String>, i64)> {
+    let connection = rusqlite::Connection::open(database.path()).expect("the database opens");
+    let mut statement = connection
+        .prepare(
+            "SELECT session_id, observed_credential_generation
+               FROM provider_account_usage_turns WHERE account_id = ?",
+        )
+        .expect("the rows' query prepares");
+    statement
+        .query_map([account.account_id.as_str()], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("the rows read")
+        .collect::<Result<_, _>>()
+        .expect("each row reads")
+}
+
+pub(super) fn new_clock() -> Arc<TestClock> {
     Arc::new(TestClock(Mutex::new(SystemTime::now())))
 }
 
@@ -266,7 +404,7 @@ fn generation(value: u64) -> CredentialGeneration {
     serde_json::from_value(value.into()).expect("a test generation")
 }
 
-fn read_reading(answer: AccountReadAnswer) -> super::AccountReading {
+pub(super) fn read_reading(answer: AccountReadAnswer) -> super::AccountReading {
     match answer {
         AccountReadAnswer::Read(reading) => reading,
         other @ (AccountReadAnswer::Held { .. } | AccountReadAnswer::NotNow { .. }) => {

@@ -2,7 +2,8 @@
 //! keyed by its id, charged to the account and credential generation the event itself names, which
 //! is the account the run's binding held when the turn was metered. A turn that spans a switch
 //! therefore lands as one row per account. Rows the observer writes for a turn no session owns
-//! carry no session, so a session's rebuild never clears them.
+//! carry no session, so a session's rebuild never clears them, and are charged to the generation
+//! the account holds at the write.
 
 use std::borrow::Cow;
 
@@ -12,13 +13,20 @@ use sidekicks_contracts::event::envelope::EventEnvelope;
 use sidekicks_contracts::event::registry::SessionEventType;
 use sidekicks_contracts::event::session::SessionEvent;
 use sidekicks_contracts::event::usage::UsageTokenCountRecordedPayload;
+use sidekicks_contracts::event::version::EVENT_FIELD_MAX_LEN;
+use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use sidekicks_contracts::session::id::SessionId;
+use sidekicks_contracts::wire::id::mint_uuid_v7;
+use sidekicks_contracts::wire::instant::WireInstant;
 use sidekicks_contracts::wire::integer::SafeInt;
+use sidekicks_contracts::wire::text::FreeFormText;
 use sidekicks_store::database::statement::{StatementBindings, WriteStatement, text_binding};
 use sidekicks_store::events::projection::{
     ProjectionContradiction, SessionProjection, SessionProjectionFold,
 };
 use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+
+use crate::driver::contract::account::WindowTurnSpend;
 
 // The provider column is the account's own, so a row is written only while its account is held:
 // a rebuild after the account's removal writes nothing for it, as the removal's cascade left it.
@@ -30,6 +38,14 @@ SELECT @turn_id, account_id, provider, @occurred_at, @session_id, @run_id, @mode
   @input_tokens, @output_tokens, @cache_read_tokens, @cache_write_tokens, @reasoning_tokens,
   @observed_credential_generation
 FROM provider_accounts WHERE account_id = @account_id";
+
+// A turn no session owns: no session or run, and the generation the account's row holds now.
+const INSERT_SESSIONLESS_USAGE_TURN_SQL: &str = "INSERT INTO provider_account_usage_turns
+  (turn_id, account_id, provider, occurred_at, model_id, input_tokens, output_tokens,
+   cache_read_tokens, cache_write_tokens, reasoning_tokens, observed_credential_generation)
+SELECT @turn_id, account_id, provider, @occurred_at, @model_id, @input_tokens, @output_tokens,
+  @cache_read_tokens, @cache_write_tokens, @reasoning_tokens, credential_generation
+FROM provider_accounts WHERE account_id = @account_id AND removal_intent = 0";
 
 // Only the session's own rows: a turn no session owns has no session and survives.
 const CLEAR_USAGE_TURNS_SQL: &str = "DELETE FROM provider_account_usage_turns WHERE session_id = ?";
@@ -109,12 +125,6 @@ fn insert_usage_turn_statement(
     session_id: SessionId,
     recorded: &UsageTokenCountRecordedPayload,
 ) -> WriteStatement {
-    let count = |name: &'static str, count: Option<SafeInt<0>>| {
-        (
-            Cow::Borrowed(name),
-            count.map_or(Value::Null, |count| Value::Integer(i64::from(count))),
-        )
-    };
     WriteStatement {
         sql: Cow::Borrowed(INSERT_USAGE_TURN_SQL),
         bindings: StatementBindings::Named(vec![
@@ -130,20 +140,12 @@ fn insert_usage_turn_statement(
                         .map(|run_id| run_id.text().as_str().to_owned()),
                 ),
             ),
-            (
-                Cow::Borrowed("@model_id"),
-                Value::from(
-                    recorded
-                        .model_id
-                        .as_ref()
-                        .map(|model_id| model_id.as_str().to_owned()),
-                ),
-            ),
-            count("@input_tokens", recorded.input_tokens),
-            count("@output_tokens", recorded.output_tokens),
-            count("@cache_read_tokens", recorded.cache_read_tokens),
-            count("@cache_write_tokens", recorded.cache_write_tokens),
-            count("@reasoning_tokens", recorded.reasoning_tokens),
+            model_binding(recorded.model_id.as_ref()),
+            count_binding("@input_tokens", recorded.input_tokens),
+            count_binding("@output_tokens", recorded.output_tokens),
+            count_binding("@cache_read_tokens", recorded.cache_read_tokens),
+            count_binding("@cache_write_tokens", recorded.cache_write_tokens),
+            count_binding("@reasoning_tokens", recorded.reasoning_tokens),
             (
                 Cow::Borrowed("@observed_credential_generation"),
                 Value::Integer(
@@ -158,11 +160,52 @@ fn insert_usage_turn_statement(
     }
 }
 
+/// The statement that writes one turn no session owns, spent on `provider_account_id`'s account
+/// at `occurred_at`: keyed by a daemon-minted turn id and charged to the account's generation as
+/// its row stands at the write. Refused by its row count for an account not registered.
+pub fn sessionless_usage_turn_statement(
+    provider_account_id: &ProviderAccountId,
+    occurred_at: &WireInstant,
+    spend: &WindowTurnSpend,
+) -> WriteStatement {
+    WriteStatement {
+        sql: Cow::Borrowed(INSERT_SESSIONLESS_USAGE_TURN_SQL),
+        bindings: StatementBindings::Named(vec![
+            text_binding("@turn_id", &mint_uuid_v7().to_string()),
+            text_binding("@account_id", provider_account_id.as_str()),
+            text_binding("@occurred_at", occurred_at.as_str()),
+            model_binding(spend.model_id.as_ref()),
+            count_binding("@input_tokens", spend.input_tokens),
+            count_binding("@output_tokens", spend.output_tokens),
+            count_binding("@cache_read_tokens", spend.cache_read_tokens),
+            count_binding("@cache_write_tokens", spend.cache_write_tokens),
+            count_binding("@reasoning_tokens", spend.reasoning_tokens),
+        ]),
+        expected_row_count: Some(1),
+    }
+}
+
+fn model_binding(
+    model_id: Option<&FreeFormText<EVENT_FIELD_MAX_LEN>>,
+) -> (Cow<'static, str>, Value) {
+    (
+        Cow::Borrowed("@model_id"),
+        Value::from(model_id.map(|model_id| model_id.as_str().to_owned())),
+    )
+}
+
+// A count the provider reported, or NULL where it reported none.
+fn count_binding(name: &'static str, count: Option<SafeInt<0>>) -> (Cow<'static, str>, Value) {
+    (
+        Cow::Borrowed(name),
+        count.map_or(Value::Null, |count| Value::Integer(i64::from(count))),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use rusqlite::{Connection, params, params_from_iter};
     use serde_json::{Value as Json, json};
-    use sidekicks_contracts::wire::id::mint_uuid_v7;
     use sidekicks_store::database::schema::schema_parts;
     use sidekicks_store::database::statement::named_bindings;
     use sidekicks_store::database::writer::test_file::test_envelope;

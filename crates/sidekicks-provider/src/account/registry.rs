@@ -44,10 +44,10 @@ use crate::account::credential_home::{
 };
 use crate::account::errors::ProviderAccountRegistryError;
 
-/// The statements a [`ProviderAccountRegistry`] prepares on a read connection: every account, a
-/// provider's accounts, one account, every account id with its removal intent, and one account's
-/// read hold.
-pub const PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY: usize = 5;
+/// The statements the account plane prepares on a read connection: every account, a provider's
+/// accounts, one account, every account id with its removal intent, one account's read hold, and
+/// the window start's two, an account's window resets and its last window-start turn.
+pub const PROVIDER_ACCOUNT_REGISTRY_STATEMENT_CAPACITY: usize = 7;
 
 // The random bytes of a minted account id, written as hexadecimal.
 const ACCOUNT_ID_BYTES: usize = 16;
@@ -768,7 +768,7 @@ impl ProviderAccountRegistry {
 }
 
 // A statement that matched no registered account, or the write's own failure.
-fn refusal_or_failure(error: WriteError) -> ProviderAccountRegistryError {
+pub(super) fn refusal_or_failure(error: WriteError) -> ProviderAccountRegistryError {
     if error.refused_statement_index().is_some() {
         ProviderAccountRegistryError::NotFound
     } else {
