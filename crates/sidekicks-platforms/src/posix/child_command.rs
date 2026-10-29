@@ -97,18 +97,19 @@ pub fn wrap_group_child_command(mut command: Command, daemon_pid: u32) -> Comman
     wrap
 }
 
-/// Starts `command` as a child that outlives the daemon, then pins it and reads its record: it
-/// leads a session of its own, so neither a terminal's hangup nor a signal to the daemon's group
+/// Starts `command` as a child that outlives its starter, then pins it and reads its record: it
+/// leads a session of its own, so neither a terminal's hangup nor a signal to the starter's group
 /// reaches it, and its whole group can be killed; it arms no parent-death signal, and on Linux
 /// clears the huge-page switch the daemon set for itself. On macOS it starts through
 /// `posix_spawn`, for the reason [`prepare_child_command`] gives, and its exit reaps it once its
-/// end is seen. Runs on the daemon's spawner thread. Fails with the system's error from the start,
-/// a refused session among them, or from the pin, which kills the child first and reaps it, on a
-/// blocking thread where a runtime is current, leaving it unreaped only where the kill is refused.
+/// end is seen. Runs on the caller's blocking thread: the daemon's spawner thread or the
+/// `sidekicks` command's. Fails with the system's error from the start, a refused session among
+/// them, or from the pin, which kills the child first and reaps it, on a blocking thread where a
+/// runtime is current, leaving it unreaped only where the kill is refused.
 #[cfg(target_os = "macos")]
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let id = spawn_lasting_child_process(&command)?;
-    // The daemon's copy of the error output closes here; the child holds its own.
+    // The starter's copy of the error output closes here; the child holds its own.
     drop(command);
     let pinned = pin_child_process(id).and_then(|process| {
         let record = process
@@ -138,10 +139,10 @@ pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> 
     }
 }
 
-/// Starts `command` as a child that outlives the daemon, as the macOS start does but through
-/// `Command`, prepared by [`prepare_lasting_child_command`]. Runs on the daemon's spawner thread.
-/// Fails with the system's error from the start, a refused session among them, or from the pin,
-/// which kills the child first.
+/// Starts `command` as a child that outlives its starter, as the macOS start does but through
+/// `Command`, prepared by [`prepare_lasting_child_command`]. Runs on the caller's blocking thread:
+/// the daemon's spawner thread or the `sidekicks` command's. Fails with the system's error from the
+/// start, a refused session among them, or from the pin, which kills the child first.
 #[cfg(target_os = "linux")]
 pub fn spawn_lasting_child(command: LastingCommand) -> io::Result<LastingChild> {
     let mut child_command = Command::new(&command.program);
@@ -362,7 +363,9 @@ fn signal_name(number: i32) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsString;
     use std::fs::File;
+    use std::os::unix::ffi::OsStringExt as _;
     use std::os::unix::process::ExitStatusExt as _;
     use std::time::Duration;
 
@@ -401,6 +404,50 @@ mod tests {
         assert_eq!(session.expect("the child's session reads"), pid);
         assert_eq!(group.expect("the child's group reads"), pid);
         assert_eq!(status.signal(), Some(Signal::SIGTERM as i32));
+    }
+
+    // Fails when the start converts the environment lossily, which writes `EF BF BD` in place of
+    // each byte that is not UTF-8.
+    #[tokio::test]
+    async fn a_lasting_child_takes_an_environment_value_that_is_not_utf8() {
+        let value = vec![0xff, b'a', 0xfe];
+        let folder = tempfile::tempdir().expect("a scratch folder");
+        let error_output_path = folder.path().join("error output");
+        let error_output = File::create(&error_output_path).expect("the file");
+        // The child stays after writing, so its start pins it before it ends and the stop below
+        // lands only once the value is written.
+        let child = spawn_lasting_child(LastingCommand {
+            program: "/bin/sh".into(),
+            arguments: vec![
+                "-c".to_owned(),
+                r#"printf %s "$SIDEKICKS_TEST_BYTES" >&2; exec sleep 30"#.to_owned(),
+            ],
+            environment: vec![(
+                OsString::from("SIDEKICKS_TEST_BYTES"),
+                OsString::from_vec(value.clone()),
+            )],
+            working_folder: folder.path().to_path_buf(),
+            error_output,
+        })
+        .expect("the child starts");
+
+        let written = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let written = std::fs::read(&error_output_path).expect("the file reads");
+                if written.len() >= value.len() {
+                    return written;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        let process = child.process.clone();
+        tokio::task::spawn_blocking(move || process.stop(Duration::from_secs(5)))
+            .await
+            .expect("the stop runs")
+            .expect("the test ends its own child");
+        child.exit.await.expect("the child is reaped");
+        assert_eq!(written.expect("the child writes the value"), value);
     }
 
     // Fails when a signal number missing from `Signal`'s list gets no name, as Linux's real-time

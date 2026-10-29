@@ -383,7 +383,11 @@ pub(crate) async fn start_lasting_codex_service(
     let command = LastingCommand {
         program: launch.program,
         arguments: launch.arguments,
-        environment: launch.environment,
+        environment: launch
+            .environment
+            .into_iter()
+            .map(|(name, value)| (name.into(), value.into()))
+            .collect(),
         working_folder: launch.working_folder,
         error_output,
     };

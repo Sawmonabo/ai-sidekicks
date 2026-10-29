@@ -1,6 +1,7 @@
-//! A child that outlives the daemon: what it runs, and the pinned process, record and exit its
-//! start answers.
+//! A lasting child, one that outlives its starter (the daemon or the `sidekicks` command): what it
+//! runs, and the pinned process, record and exit its start answers.
 
+use std::ffi::OsString;
 use std::fs::File;
 use std::future::Future;
 use std::io;
@@ -18,8 +19,9 @@ pub struct LastingCommand {
     pub program: PathBuf,
     /// The arguments after the program.
     pub arguments: Vec<String>,
-    /// The whole environment; nothing is inherited from the daemon.
-    pub environment: Vec<(String, String)>,
+    /// The whole environment, each name and value as the caller's own `vars_os` gives them, so a
+    /// value that is not UTF-8 passes unchanged; nothing is inherited from the starter.
+    pub environment: Vec<(OsString, OsString)>,
     /// The folder the child starts in.
     pub working_folder: PathBuf,
     /// The file the child's error output is written to.

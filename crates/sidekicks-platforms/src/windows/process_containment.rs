@@ -8,7 +8,9 @@
 //! refuses a nested job, the daemon runs without either, which its start logs once.
 
 use std::io;
-use std::os::windows::io::{AsRawHandle as _, FromRawHandle as _, OwnedHandle};
+use std::os::windows::io::{
+    AsHandle as _, AsRawHandle as _, BorrowedHandle, FromRawHandle as _, OwnedHandle,
+};
 use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, FALSE};
@@ -109,6 +111,16 @@ fn create_kill_on_close_job(limit_flags: JOB_OBJECT_LIMIT) -> io::Result<OwnedHa
     }
     // SAFETY: the handle was just opened and is owned by nothing else.
     let job = unsafe { OwnedHandle::from_raw_handle(raw_job) };
+    set_job_limits(job.as_handle(), limit_flags)?;
+    Ok(job)
+}
+
+/// Sets `job`'s limits to `limit_flags` alone, every other limit cleared. Fails with the system's
+/// error.
+pub(crate) fn set_job_limits(
+    job: BorrowedHandle<'_>,
+    limit_flags: JOB_OBJECT_LIMIT,
+) -> io::Result<()> {
     let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
     limits.BasicLimitInformation.LimitFlags = limit_flags;
     let length = u32::try_from(size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
@@ -125,7 +137,7 @@ fn create_kill_on_close_job(limit_flags: JOB_OBJECT_LIMIT) -> io::Result<OwnedHa
     if is_set == FALSE {
         return Err(io::Error::last_os_error());
     }
-    Ok(job)
+    Ok(())
 }
 
 #[cfg(test)]

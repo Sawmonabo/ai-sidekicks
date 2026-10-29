@@ -21,7 +21,14 @@ pub(crate) fn spawn_lasting_child_process(command: &LastingCommand) -> io::Resul
         environment: command
             .environment
             .iter()
-            .map(|(name, value)| OsString::from(format!("{name}={value}")))
+            .map(|(name, value)| {
+                // Built from the bytes, so a name or value that is not UTF-8 passes unchanged.
+                let mut entry = OsString::with_capacity(name.len() + 1 + value.len());
+                entry.push(name);
+                entry.push("=");
+                entry.push(value);
+                entry
+            })
             .collect(),
         working_folder: Some(&command.working_folder),
         streams: [

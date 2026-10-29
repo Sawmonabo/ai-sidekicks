@@ -636,7 +636,7 @@ mod tests {
                 .iter()
                 .map(|&argument| argument.to_owned())
                 .collect(),
-            environment: std::env::vars().collect(),
+            environment: std::env::vars_os().collect(),
             working_folder: std::env::temp_dir(),
             error_output: tempfile::tempfile().expect("the error output file is made"),
         })

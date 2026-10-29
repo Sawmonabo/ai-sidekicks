@@ -1,10 +1,12 @@
-//! A child that outlives the daemon on Windows, started with `CreateProcessW` itself, since std's
-//! process attributes are not stable: it breaks away from any job the daemon runs in, joins a new
+//! A child that outlives its starter on Windows, started with `CreateProcessW` itself, since std's
+//! process attributes are not stable: it breaks away from any job its starter runs in, joins a new
 //! job of its own whose random name its record keeps, so a later daemon can end its whole tree,
-//! and inherits no handle but the standard ones it is given.
+//! and inherits no handle but the standard ones it is given. That job lets a child leave it, since
+//! the daemon the `sidekicks` command starts is itself a lasting child and starts lasting children
+//! of its own with `CREATE_BREAKAWAY_FROM_JOB`, which a job without that allowance refuses.
 
 use std::collections::BTreeMap;
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fmt::Write as _;
 use std::fs::OpenOptions;
 use std::io::{self, ErrorKind};
@@ -21,7 +23,7 @@ use windows_sys::Win32::Foundation::{
     SetLastError, TRUE,
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
-use windows_sys::Win32::System::JobObjects::CreateJobObjectW;
+use windows_sys::Win32::System::JobObjects::{CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK};
 use windows_sys::Win32::System::Threading::{
     CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW, CREATE_UNICODE_ENVIRONMENT, CreateProcessW,
     DeleteProcThreadAttributeList, EXTENDED_STARTUPINFO_PRESENT, InitializeProcThreadAttributeList,
@@ -38,6 +40,7 @@ use crate::windows::null_device::NULL_DEVICE_PATH;
 use crate::windows::pinned_process::{
     PinnedProcess, current_process, is_process_in_job, read_exit_code,
 };
+use crate::windows::process_containment::set_job_limits;
 use crate::windows::process_user::UserOnlyDescriptor;
 use crate::windows::wide_text::{refuse_nul, wide_text};
 
@@ -47,17 +50,17 @@ const JOB_NAME_PREFIX: &str = "ai-sidekicks-lasting-";
 // The random bytes in a job name.
 const JOB_NAME_RANDOM_BYTES: usize = 16;
 
-/// Starts `command` as a child that outlives the daemon, then pins it and reads its record: it
-/// breaks away from any job the daemon runs in and joins a new job of its own, named at random in
+/// Starts `command` as a child that outlives its starter, then pins it and reads its record: it
+/// breaks away from any job its starter runs in and joins a new job of its own, named at random in
 /// its record and open only to this user, with no kill on its handle's close, so a later daemon
 /// opens it by name and ends the whole tree; it has a console of its own with no window, which a
 /// console program it starts inherits, and inherits only its standard handles, so it never holds a
-/// pipe the daemon's starter waits on. Runs on the daemon's one spawner thread, the `spawner`
-/// module's [`crate::Spawner`]: the two inheritable copies of those handles live in the daemon
-/// until this returns, and a start on another thread meanwhile would inherit them. Fails with the
-/// system's error from the start, a refused breakaway among them, never retried inside the
-/// daemon's job; with `AlreadyExists` when a job of the drawn name exists; or from the pin, which
-/// ends the job first.
+/// pipe the daemon's starter waits on. Runs on the caller's one blocking thread for starts: the
+/// daemon's spawner thread, the `spawner` module's [`crate::Spawner`], or the `sidekicks`
+/// command's; the two inheritable copies of those handles live in the starter until this returns,
+/// and a start on another thread meanwhile would inherit them. Fails with the system's error from
+/// the start, a refused breakaway among them, never retried inside the daemon's job; with
+/// `AlreadyExists` when a job of the drawn name exists; or from the pin, which ends the job first.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "every system takes the command by value, and the macOS and Linux start consumes it"
@@ -175,8 +178,9 @@ pub(crate) fn is_lasting_job_name(name: &str) -> bool {
     })
 }
 
-// Makes a new job named at random, open only to this user; refuses a name that already exists,
-// which a job of another owner could hold.
+// Makes a new job named at random, open only to this user, that lets a child started with
+// `CREATE_BREAKAWAY_FROM_JOB` leave it, so a lasting daemon in it can start lasting children of its
+// own; refuses a name that already exists, which a job of another owner could hold.
 fn create_named_job() -> io::Result<(OwnedHandle, String)> {
     let mut random = [0_u8; JOB_NAME_RANDOM_BYTES];
     getrandom::fill(&mut random).map_err(io::Error::other)?;
@@ -214,6 +218,7 @@ fn create_named_job() -> io::Result<(OwnedHandle, String)> {
             "a job of the drawn name already exists",
         ));
     }
+    set_job_limits(job.as_handle(), JOB_OBJECT_LIMIT_BREAKAWAY_OK)?;
     Ok((job, name))
 }
 
@@ -322,25 +327,36 @@ fn compose_checked_command_line(program: &[u16], arguments: &[String]) -> io::Re
 // keeps it, then one more NUL. Names that share their environment key are one variable, as std's
 // `Command` folds them: the first spelling with the last value. Fails with `InvalidInput` for a
 // name that is empty or holds `=`, or text holding a NUL.
-fn compose_environment_block(environment: &[(String, String)]) -> io::Result<Vec<u16>> {
-    let mut variables: BTreeMap<String, (&str, &str)> = BTreeMap::new();
+fn compose_environment_block(environment: &[(OsString, OsString)]) -> io::Result<Vec<u16>> {
+    let mut variables: BTreeMap<OsString, (&OsStr, &OsStr)> = BTreeMap::new();
     for (name, value) in environment {
-        if name.is_empty() || name.contains('=') {
+        // In the WTF-8 bytes Windows text is kept in, a `=` byte is only ever `=`.
+        if name.is_empty() || name.as_encoded_bytes().contains(&b'=') {
             return Err(io::Error::new(
                 ErrorKind::InvalidInput,
                 "an environment name is empty or holds `=`",
             ));
         }
+        // A name that is not UTF-8 is keyed as it stands, as a path component is compared.
+        let key = name.to_str().map_or_else(
+            || name.clone(),
+            |text| {
+                PathRules::Windows
+                    .environment_name_key(text)
+                    .into_owned()
+                    .into()
+            },
+        );
         variables
-            .entry(PathRules::Windows.environment_name_key(name).into_owned())
+            .entry(key)
             .and_modify(|(_, kept_value)| *kept_value = value)
             .or_insert((name, value));
     }
     let mut block = Vec::new();
     for (name, value) in variables.into_values() {
-        block.extend(wide_text(OsStr::new(name))?);
+        block.extend(wide_text(name)?);
         block.push(u16::from(b'='));
-        block.extend(wide_text(OsStr::new(value))?);
+        block.extend(wide_text(value)?);
         block.push(0);
     }
     if block.is_empty() {
@@ -388,7 +404,7 @@ mod tests {
     #[test]
     fn a_lasting_child_environment_keeps_one_variable_per_name_without_case() {
         let environment = [("Path", "first"), ("ONE", "1"), ("PATH", "last")]
-            .map(|(name, value)| (name.to_owned(), value.to_owned()));
+            .map(|(name, value)| (name.into(), value.into()));
 
         let block = compose_environment_block(&environment).expect("the block is composed");
 
