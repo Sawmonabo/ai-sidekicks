@@ -14,14 +14,14 @@
 //! A provider build's line moved to retires on its day: the service keeps the earliest due
 //! retirement armed on the wall clock's timer, which fires across sleep, and arms it again at the
 //! start, after each advance and whenever a build is recorded, never on another attention change.
+//! A slot left empty by a refused timer or a failed retirement is tried again a minute later on the
+//! monotonic clock, and again each minute while it keeps failing.
 
 use std::collections::HashMap;
 use std::error::Error;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
 
-use futures::FutureExt as _;
-use futures::future::BoxFuture;
 use jiff::Timestamp;
 use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension as _, Row};
@@ -35,8 +35,7 @@ use sidekicks_contracts::trust_statement::DeviceId;
 use sidekicks_contracts::workflow::run::id::WorkflowRunId;
 use sidekicks_ipc::presence::PresenceRegister;
 use sidekicks_ipc::registry::HandlerError;
-use sidekicks_std::mutex_lock::lock;
-use sidekicks_std::scheduler::{JobCondition, ScheduledJobHandle, Scheduler};
+use sidekicks_std::scheduler::Scheduler;
 use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
@@ -63,10 +62,10 @@ use crate::attention::read::{
     ATTENTION_STATEMENT_CAPACITY, AttentionReadError, read_attention_projection,
 };
 use crate::attention::retention::{
-    ENTRY_SEQUENCE, advance_retention_statements, next_provider_build_retirement,
-    provider_build_retirement_statements,
+    ENTRY_SEQUENCE, advance_retention_statements, provider_build_retirement_statements,
 };
 use crate::attention::seen::write_seen;
+use crate::attention::service::build_retirement::RetirementSlot;
 use crate::directory::lookups::SessionWriteError;
 
 /// The statements the service prepares on a read connection: the undecided entries, the sessions
@@ -76,8 +75,6 @@ pub const ATTENTION_SERVICE_STATEMENT_CAPACITY: usize = 4 + ATTENTION_STATEMENT_
 
 /// How long a subject's first undecided entry waits for the entries that follow it.
 const MERGE_WINDOW: Duration = Duration::from_millis(500);
-
-const PROVIDER_BUILD_RETIREMENT_JOB: &str = "attention provider build retirement";
 
 // Every entry whose banner is undecided, with no delivery row or a banner handed back, with its
 // source event's sequence and its session's mute, read in one snapshot.
@@ -177,13 +174,7 @@ pub struct AttentionService {
     machine_device_id: DeviceId,
     scheduler: Arc<Scheduler>,
     // The retirement of the next provider build line, armed on the wall clock.
-    armed_retirement: Mutex<Option<ArmedRetirement>>,
-}
-
-// A provider build line's retirement the scheduler holds, and the instant it fires at.
-struct ArmedRetirement {
-    instant: SystemTime,
-    job: ScheduledJobHandle,
+    retirement: Mutex<RetirementSlot>,
 }
 
 /// Why the attention service could not read or write its rows.
@@ -299,7 +290,7 @@ impl AttentionService {
             launcher: dependencies.launcher,
             machine_device_id: dependencies.machine_device_id,
             scheduler: dependencies.scheduler,
-            armed_retirement: Mutex::new(None),
+            retirement: Mutex::new(RetirementSlot::default()),
         }
     }
 
@@ -528,94 +519,6 @@ impl AttentionService {
         Ok(())
     }
 
-    // Arms the retirement of the next provider build line due on the wall clock's timer, in place
-    // of the one armed. A fired retirement takes its own slot first, then advances for its instant,
-    // which arms the next; an instant the scheduler refuses, at once or later, leaves the slot
-    // empty, so the next recorded build, advance or start arms again. A failed read is logged and
-    // keeps the slot as it was. Boxed, since the fired retirement's advance awaits it in turn.
-    fn arm_provider_build_retirement(self: &Arc<Self>) -> BoxFuture<'_, ()> {
-        async move {
-            let next = match self
-                .pool
-                .read(ReadLength::Short, |connection| {
-                    Ok::<_, AttentionServiceError>(next_provider_build_retirement(connection)?)
-                })
-                .await
-            {
-                Ok(next) => next.map(SystemTime::from),
-                Err(error) => {
-                    tracing::warn!(
-                        error = &error as &(dyn Error + 'static),
-                        "the next provider build's retirement was not read; the next recorded \
-                         build, advance or start arms it"
-                    );
-                    return;
-                }
-            };
-            let mut armed = lock(&self.armed_retirement);
-            if armed.as_ref().map(|armed| armed.instant) == next {
-                return;
-            }
-            if let Some(previous) = armed.take() {
-                previous.job.cancel();
-            }
-            let Some(instant) = next else {
-                return;
-            };
-            let retiring = Arc::downgrade(self);
-            let scheduled = self.scheduler.schedule_at(
-                PROVIDER_BUILD_RETIREMENT_JOB,
-                JobCondition::Always,
-                instant,
-                move |_| {
-                    let retiring = retiring.clone();
-                    async move {
-                        let Some(service) = retiring.upgrade() else {
-                            return Ok(());
-                        };
-                        service.disarm_provider_build_retirement(instant);
-                        service
-                            .advance_retention(Vec::new(), Timestamp::try_from(instant)?)
-                            .await?;
-                        Ok(())
-                    }
-                    .boxed()
-                },
-            );
-            match scheduled {
-                Ok(mut job) => {
-                    let refusal = job.refusal();
-                    *armed = Some(ArmedRetirement { instant, job });
-                    drop(armed);
-                    let refused = Arc::downgrade(self);
-                    // Settles once the job runs, is canceled or is refused; the scheduler logs a
-                    // refusal.
-                    tokio::spawn(async move {
-                        if refusal.await.is_some()
-                            && let Some(service) = refused.upgrade()
-                        {
-                            service.disarm_provider_build_retirement(instant);
-                        }
-                    });
-                }
-                Err(error) => tracing::warn!(
-                    error = &error as &(dyn Error + 'static),
-                    "a provider build's retirement could not be armed; the next recorded build, \
-                     advance or start arms it"
-                ),
-            }
-        }
-        .boxed()
-    }
-
-    // Empties the retirement slot while it still holds the retirement armed for `instant`.
-    fn disarm_provider_build_retirement(&self, instant: SystemTime) {
-        let mut armed = lock(&self.armed_retirement);
-        if armed.as_ref().is_some_and(|armed| armed.instant == instant) {
-            *armed = None;
-        }
-    }
-
     async fn read_undecided(&self) -> Result<Vec<UndecidedEntry>, AttentionServiceError> {
         self.pool
             .read(ReadLength::Short, |connection| {
@@ -805,5 +708,6 @@ async fn run_decisions(mut task: DecisionTask, mut wakes: DecisionWakes, stop: C
     }
 }
 
+mod build_retirement;
 #[cfg(test)]
 mod tests;

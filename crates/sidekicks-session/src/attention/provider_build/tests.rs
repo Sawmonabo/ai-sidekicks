@@ -51,10 +51,11 @@ fn machine_version(log: &AttentionTestLog) -> i64 {
         .expect("the machine's count has a row")
 }
 
-// The whole projection lists each recorded build as the third arm, the address only on a build
-// moved to and minted from the new build, and no read narrowed by a session holds one. Killed by
-// the session filter missing from a narrowed read, by the address minted from `fromVersion`, by an
-// address on an available build, and by a record write that bumps no count.
+// The whole projection lists each recorded build of a provider a driver describes as the third
+// arm, the address only on a build moved to and minted from the new build, and no read narrowed by
+// a session holds one. Killed by the session filter missing from a narrowed read, by the address
+// minted from `fromVersion`, by an address on an available build, by a record write that bumps no
+// count, and by a build of a provider no driver describes failing the read.
 #[tokio::test]
 async fn the_whole_projection_lists_each_recorded_build_and_a_sessions_read_none() {
     let log = AttentionTestLog::new().await;
@@ -86,9 +87,19 @@ async fn the_whole_projection_lists_each_recorded_build_and_a_sessions_read_none
         },
     )
     .await;
+    record(
+        &log,
+        RecordedProviderBuild {
+            provider: provider("departed"),
+            version: "1.0.0".to_owned(),
+            from_version: Some("0.9.0".to_owned()),
+            recorded_at: instant("2026-10-28T13:00:00.000Z"),
+        },
+    )
+    .await;
     assert_eq!(
         machine_version(&log),
-        2,
+        3,
         "each record write wakes the followers"
     );
 

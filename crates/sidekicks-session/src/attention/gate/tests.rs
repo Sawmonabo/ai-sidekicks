@@ -272,3 +272,36 @@ async fn a_mute_after_the_decision_read_withholds_the_end_it_decided() {
     );
     assert_eq!(harness.delivery_of("finished"), (Some(withheld), None));
 }
+
+// A decision written for a session purged after its entries were read writes no delivery row and
+// no count row for it. Killed by the bump's entries guard dropped.
+#[tokio::test]
+async fn a_decision_for_a_session_purged_after_the_read_writes_no_count() {
+    let harness = Harness::new().await;
+    let purged = test_session_id();
+    let settings = MachineSettings::default().notifications;
+
+    write_decisions(
+        &harness.writer,
+        &[decided(
+            "purged",
+            purged,
+            Some(&settings),
+            AttentionTrigger::RunCompleted,
+            None,
+        )],
+    )
+    .await
+    .expect("the decisions are written");
+
+    let count_rows: i64 = harness
+        .database
+        .reader()
+        .query_row(
+            "SELECT count(*) FROM attention_versions WHERE scope_key = ?1",
+            [purged.to_string()],
+            |row| row.get(0),
+        )
+        .expect("the count rows are counted");
+    assert_eq!(count_rows, 0);
+}

@@ -48,8 +48,8 @@ impl BuildRecordReaders for AttentionChanges {
 
 /// One entry per build the record lists of a provider a driver describes, the newest recorded
 /// first, each named by its driver's descriptor; a build of a provider no driver describes is left
-/// out, and to the retention. Fails when the read fails, or when a listed version is one the wire
-/// cannot carry.
+/// out; a moved-to one still retires on its day, an only-available one stays. Fails when the read
+/// fails, or when a listed version is one the wire cannot carry.
 pub(crate) fn provider_build_items(
     reader: &Connection,
 ) -> Result<Vec<AttentionProviderBuildItem>, AttentionReadError> {

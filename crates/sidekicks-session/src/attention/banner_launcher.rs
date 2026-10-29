@@ -230,9 +230,11 @@ mod tests {
     enum Answer {
         Unwatched,
         Watched,
+        Stuck,
     }
 
-    // Counts each start and hands back `answer`, a watched start's exit held until `exit_all`.
+    // Counts each start and hands back `answer`, a watched start's exit held until `exit_all` and a
+    // stuck start never answering.
     struct RecordingStarter {
         answer: Answer,
         launches: AtomicUsize,
@@ -257,6 +259,7 @@ mod tests {
         fn launch_app(&self) -> BoxFuture<'static, io::Result<WindowlessLaunch>> {
             self.launches.fetch_add(1, Ordering::SeqCst);
             let launch = match self.answer {
+                Answer::Stuck => return Box::pin(future::pending()),
                 Answer::Unwatched => WindowlessLaunch::Unwatched,
                 Answer::Watched => {
                     let (exited, exit) = oneshot::channel();
@@ -311,19 +314,23 @@ mod tests {
         SubscriptionOpens,
         FallbackPasses,
         ProcessExits,
+        BoundPasses,
     }
 
     // Killed by a guard never lifted: by the subscription's open, by the fallback hold (or one
-    // shorter than it), or by the watched process's exit.
+    // shorter than it), by the watched process's exit, or by a stuck start's bound and the hold
+    // after it.
     #[rstest]
     #[case::a_subscription_opens(Lift::SubscriptionOpens)]
     #[case::the_fallback_passes(Lift::FallbackPasses)]
     #[case::the_process_exits(Lift::ProcessExits)]
+    #[case::a_stuck_start_passes_its_bound(Lift::BoundPasses)]
     #[tokio::test(start_paused = true)]
     async fn the_next_request_starts_again_once_the_guard_lifts(#[case] lift: Lift) {
         let answer = match lift {
             Lift::SubscriptionOpens | Lift::FallbackPasses => Answer::Unwatched,
             Lift::ProcessExits => Answer::Watched,
+            Lift::BoundPasses => Answer::Stuck,
         };
         let (starter, launcher) = launcher_over(answer);
         launcher.request_start();
@@ -352,6 +359,16 @@ mod tests {
                 );
                 starter.exit_all();
                 sleep(Duration::from_millis(1)).await;
+            }
+            Lift::BoundPasses => {
+                sleep(START_BOUND + Duration::from_millis(627)).await;
+                launcher.request_start();
+                assert_eq!(
+                    starter.launches(),
+                    1,
+                    "the guard lifted before the bound and the hold passed"
+                );
+                sleep(Duration::from_millis(3)).await;
             }
         }
         launcher.request_start();
