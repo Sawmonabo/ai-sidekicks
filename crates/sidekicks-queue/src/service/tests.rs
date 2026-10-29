@@ -66,7 +66,9 @@ use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
 use sidekicks_store::database::schema::session_directory::insert_session_row;
 use sidekicks_store::database::writer::test_file::{TestDatabase, insert_lead, test_session_id};
 use sidekicks_store::events::log_service::test_fixture::{TestLog, open_log};
+use sidekicks_store::events::session::appender::SessionEventAppender;
 use sidekicks_store::events::session::read::DamagedFromSequenceReader;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tempfile::TempDir;
 
 use super::{EMPTIED_RUN_DETAIL, RunQueue, RunQueueDeps};
@@ -308,7 +310,10 @@ fn queue_over(
     ));
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&pool),
-        writer: Arc::clone(&log.writer),
+        appender: Arc::new(SessionEventAppender::new(
+            Arc::clone(&log.service),
+            SESSION_EVENT_VERSION.clone(),
+        )),
         binding_cursors,
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),

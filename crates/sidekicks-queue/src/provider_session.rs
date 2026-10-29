@@ -16,6 +16,7 @@ use std::error::Error;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use futures::FutureExt as _;
 use futures::future::BoxFuture;
 use serde_json::Map;
 use sidekicks_contracts::free_form_string::FilesystemPath;
@@ -37,6 +38,7 @@ use sidekicks_provider::driver::contract::{
 };
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::session_control::{CloseSessionParams, CreateSessionParams};
+use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::run::posture::{ExecutionPostureRejection, ExecutionPostureService};
 use sidekicks_provider::runtime_binding::resume::{ResumeFunctionLegs, RuntimeBindingNotResumable};
 use sidekicks_provider::runtime_binding::store::{
@@ -45,7 +47,6 @@ use sidekicks_provider::runtime_binding::store::{
 };
 use sidekicks_session::changes::refuse_unchangeable_session;
 use sidekicks_session::console_state::read_session_mode;
-use sidekicks_session::directory::lookups::SessionWriteError;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_session::run::agent::{RunAgentReadError, RunAgentReader};
 use sidekicks_session::run::binding_cursors::{RunBindingCursorError, RunBindingCursors};
@@ -57,7 +58,9 @@ use sidekicks_store::database::connection::read_pool::{
     DatabaseReadError, DatabaseReadPool, ReadLength,
 };
 use sidekicks_store::database::schema::session_directory::read_session_state_through;
-use sidekicks_store::database::writer::DatabaseWriter;
+use sidekicks_store::events::session::appender::SessionEventAppender;
+
+use crate::provider_session::controls::MoveRecordError;
 
 pub mod controls;
 pub mod resume;
@@ -101,8 +104,9 @@ pub type ProviderSessionOpeningComposer = Arc<
 pub struct ProviderSessionsDeps {
     /// The read pool every read of a session's bindings, mode and level goes through.
     pub pool: Arc<DatabaseReadPool>,
-    /// The writer a level or mode move is stored through.
-    pub writer: Arc<DatabaseWriter>,
+    /// The appender a level or mode move is stored through, with the notice that tells every
+    /// client of it.
+    pub appender: Arc<SessionEventAppender>,
     /// Records each binding with its epoch cursor open: a new session's, opened before its
     /// provider runs, a run's on the session's leg, and the one a resume minted.
     pub binding_cursors: Arc<RunBindingCursors>,
@@ -230,9 +234,10 @@ pub enum ProviderSessionError {
     LevelNotStored {
         /// The session.
         session_id: SessionId,
-        /// Why the store failed: `session.notFound` for a session gone meanwhile, else a fault.
+        /// Why the store failed: a refusal for a session gone meanwhile or whose history takes no
+        /// write, else a fault.
         #[source]
-        cause: SessionWriteError,
+        cause: MoveRecordError,
     },
     /// The level was not stored, and the process could not move back to the one stored.
     #[error(
@@ -243,7 +248,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: SessionWriteError,
+        stored: MoveRecordError,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -253,9 +258,10 @@ pub enum ProviderSessionError {
     ModeNotStored {
         /// The session.
         session_id: SessionId,
-        /// Why the store failed: `session.notFound` for a session gone meanwhile, else a fault.
+        /// Why the store failed: a refusal for a session gone meanwhile or whose history takes no
+        /// write, else a fault.
         #[source]
-        cause: SessionWriteError,
+        cause: MoveRecordError,
     },
     /// The mode was not stored, and the process could not move back to the one stored.
     #[error(
@@ -266,7 +272,7 @@ pub enum ProviderSessionError {
         /// The session.
         session_id: SessionId,
         /// Why the store failed.
-        stored: SessionWriteError,
+        stored: MoveRecordError,
         /// Why the move back failed.
         #[source]
         moved_back: DriverError,
@@ -283,16 +289,17 @@ impl From<ProviderSessionError> for HandlerError {
     /// No driver for the session's provider answers its refusal, a driver's failure answers as the
     /// driver's own, a closed or purging session answers `session.alreadyClosed` or
     /// `session.changeRefused`, and a level or mode store refused for a session gone meanwhile
-    /// answers `session.notFound`; anything else, a resume refused among them, is a fault.
+    /// answers `session.notFound`, or by its history's own code while that is rebuilt or damaged;
+    /// anything else, a resume refused among them, is a fault.
     fn from(error: ProviderSessionError) -> Self {
         match error {
             ProviderSessionError::Provider(refusal)
             | ProviderSessionError::LevelNotStored {
-                cause: SessionWriteError::Refused(refusal),
+                cause: MoveRecordError::Refused(refusal),
                 ..
             }
             | ProviderSessionError::ModeNotStored {
-                cause: SessionWriteError::Refused(refusal),
+                cause: MoveRecordError::Refused(refusal),
                 ..
             } => Self::Refused(refusal),
             ProviderSessionError::Driver(driver) => driver.into(),
@@ -315,12 +322,12 @@ impl From<ProviderSessionError> for HandlerError {
             | ProviderSessionError::Store(_)
             | ProviderSessionError::PostureRefused { .. }
             | ProviderSessionError::LevelNotStored {
-                cause: SessionWriteError::Write(_),
+                cause: MoveRecordError::Emit(_),
                 ..
             }
             | ProviderSessionError::LevelNotMovedBack { .. }
             | ProviderSessionError::ModeNotStored {
-                cause: SessionWriteError::Write(_),
+                cause: MoveRecordError::Emit(_),
                 ..
             }
             | ProviderSessionError::ModeNotMovedBack { .. }
@@ -676,6 +683,20 @@ impl ProviderSessions {
     fn lock_opened(&self) -> MutexGuard<'_, HashMap<SessionId, OpenedSession>> {
         // No code panics while it holds the map, so a poisoned lock still holds a whole one.
         lock(&self.opened)
+    }
+}
+
+impl SessionLevelFollower for ProviderSessions {
+    fn follow_reported_level(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        async move {
+            self.follow_reported_level(session_id)
+                .await
+                .map_err(|failure| Box::new(failure) as Box<dyn Error + Send + Sync>)
+        }
+        .boxed()
     }
 }
 

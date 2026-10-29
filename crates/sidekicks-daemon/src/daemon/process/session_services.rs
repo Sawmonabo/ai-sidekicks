@@ -387,7 +387,7 @@ pub(crate) fn build_session_services(
     });
     let provider_sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
         pool: Arc::clone(&reads),
-        writer: Arc::clone(&writer),
+        appender: Arc::clone(&appender),
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,

@@ -53,8 +53,9 @@ use sidekicks_store::events::log_service::{
     EVENT_LOG_STATEMENT_CAPACITY, EventLogService, EventLogServiceDependencies,
     SessionAppendRefusal,
 };
-use sidekicks_store::events::session::appender::UnsequencedEventEnvelope;
+use sidekicks_store::events::session::appender::{SessionEventAppender, UnsequencedEventEnvelope};
 use sidekicks_store::events::session::followers::SessionEventFollowers;
+use sidekicks_store::events::session::version::SESSION_EVENT_VERSION;
 use tokio::sync::Notify;
 use tokio::time::timeout;
 
@@ -244,13 +245,16 @@ impl Opening {
                 database.path(),
                 SESSION_CHANGES_STATEMENT_CAPACITY,
             )),
-            event_log,
+            Arc::clone(&event_log),
             Arc::clone(&providers),
         ));
         let following = Arc::new(RecordedProcessFollowing::default());
         let sessions = Arc::new(ProviderSessions::new(ProviderSessionsDeps {
             pool,
-            writer,
+            appender: Arc::new(SessionEventAppender::new(
+                event_log,
+                SESSION_EVENT_VERSION.clone(),
+            )),
             binding_cursors,
             providers,
             compose_opening: recording_composer(&handed_ids, &git_folder),

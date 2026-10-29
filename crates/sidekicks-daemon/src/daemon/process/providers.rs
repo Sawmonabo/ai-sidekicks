@@ -47,6 +47,7 @@ use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
 use sidekicks_provider::spawn_environment::ReservedEnvironmentNames;
 use sidekicks_queue::admission::QueueAdmission;
 use sidekicks_queue::delivery::QueueDelivery;
+use sidekicks_queue::provider_session::ProviderSessions;
 use sidekicks_session::addresses::{ForeignPlaceError, SessionInboxAddresses};
 use sidekicks_session::console_state::ConsoleStateAdvisors;
 use sidekicks_session::idle_sleep::SessionIdleSleep;
@@ -280,6 +281,8 @@ pub(crate) struct DriverPortOwners {
     pub(crate) idle_sleep: Arc<SessionIdleSleep>,
     /// The stored resume of a sleeping session a driver holds nothing for.
     pub(crate) session_resumes: Arc<StoredSessionResumes>,
+    /// Each session's provider session, which follows a level or mode its provider reported.
+    pub(crate) provider_sessions: Arc<ProviderSessions>,
 }
 
 /// The places the daemon runs sessions in: this computer's own system alone, its login shell's
@@ -343,6 +346,9 @@ pub(crate) fn register_driver_ports(
     ports
         .callback_tool_host
         .register(owners.callback_tool_host)?;
+    ports
+        .session_level_followers
+        .register(owners.provider_sessions)?;
     ports.run_pauses.register(owners.run_pauses)
 }
 
