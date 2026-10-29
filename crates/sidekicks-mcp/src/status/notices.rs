@@ -11,7 +11,7 @@ use sidekicks_ipc::stream::latest_value::{
 };
 use sidekicks_std::mutex_lock::lock;
 
-use crate::binding_store::McpBindingKey;
+use crate::binding::store::McpBindingKey;
 
 /// Which notice a key holds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

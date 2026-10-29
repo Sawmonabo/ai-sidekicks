@@ -1,26 +1,36 @@
 //! The binding store: each MCP server binding's governance row, keyed by the binding's whole
-//! identity, written when a binding is first observed.
+//! identity, written when a binding is first observed and read with its switch and tool overrides.
 
 use std::borrow::Cow;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
 
+use rusqlite::named_params;
+use sidekicks_contracts::free_form_string::FilesystemPath;
+use sidekicks_contracts::mcp::server::inventory::McpToolOverride;
 use sidekicks_contracts::mcp::server::{
-    McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName,
+    McpBindingScope, McpServerBindingId, McpServerBindingRef, McpServerName, McpToolName,
 };
-use sidekicks_contracts::place::WslPlace;
+use sidekicks_contracts::place::{DistroName, WslPlace};
 use sidekicks_contracts::provider::id::ProviderId;
 use sidekicks_ipc::stream::latest_value::{KeyedLatestValueFeed, KeyedLatestValueOutlet};
+use sidekicks_store::database::connection::read_pool::{
+    DatabaseReadError, DatabaseReadPool, ReadLength,
+};
 use sidekicks_store::database::statement::{
     DATABASE_NOW_SQL, StatementBindings, WriteStatement, text_binding,
 };
+use sidekicks_store::database::stored_column::{closed_word, optional_text_column, text_column};
 use sidekicks_store::database::writer::{DatabaseWriter, WriteError};
+
+/// The distinct statements the binding store keeps prepared on each read connection.
+pub const MCP_BINDING_STORE_STATEMENT_CAPACITY: usize = 2;
 
 /// A binding's whole identity as the store keys it: provider, scope, the scope's reference and the
 /// distribution a project root is in (each `''` where the scope has none), and the server's name.
 /// One path in two distributions is two keys, and same-named servers in two scopes stay two keys.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct McpBindingKey {
+pub struct McpBindingKey {
     /// The provider's id.
     pub(crate) provider: ProviderId,
     /// The binding's scope.
@@ -136,29 +146,52 @@ impl McpBindingKey {
     }
 }
 
-/// Why a binding's first observation was not recorded.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first-observation drain records each binding through it"
-    )
-)]
+/// Why the binding store did not record a binding's first observation or answer a read.
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum McpBindingStoreError {
     /// The row's write failed.
     #[error("the MCP binding's first observation could not be recorded")]
     Write(#[source] WriteError),
+    /// SQLite refused the read, or a stored column does not read as its type.
+    #[error("the MCP binding rows could not be read")]
+    Database(#[from] rusqlite::Error),
+    /// The read pool is closed, a connection did not open, or the read's task did not finish.
+    #[error(transparent)]
+    Pool(#[from] DatabaseReadError),
 }
 
+/// What the store keeps for one binding: the daemon's switch and the person's tool overrides.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct McpStoredBinding {
+    /// The daemon's switch over the binding; `None` where the provider's own value stands.
+    pub(crate) enabled_override: Option<bool>,
+    /// The tool overrides, in tool-name order.
+    pub(crate) tool_overrides: Vec<McpToolOverride>,
+}
+
+/// What the store keeps for one provider's bindings.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct McpStoredBindings {
+    /// Each binding with a row, by its key.
+    pub(crate) bindings: HashMap<McpBindingKey, McpStoredBinding>,
+    /// Each `local` binding with a row, in the store's order.
+    pub(crate) local_bindings: Vec<McpServerBindingRef>,
+}
+
+static PROVIDER_BINDINGS_SQL: &str =
+    "SELECT scope, scope_ref, scope_place, server_name, enabled_override
+  FROM mcp_server_bindings
+  WHERE provider = @provider
+  ORDER BY scope, scope_ref, scope_place, server_name";
+
+static PROVIDER_TOOL_OVERRIDES_SQL: &str =
+    "SELECT scope, scope_ref, scope_place, server_name, tool_name, enabled, approval_mode,
+    idempotency_class
+  FROM mcp_tool_overrides
+  WHERE provider = @provider
+  ORDER BY scope, scope_ref, scope_place, server_name, tool_name";
+
 // A row already present is left as it is, its switch and baseline kept.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first-observation drain records each binding through it"
-    )
-)]
 static RECORD_FIRST_OBSERVATION_SQL: LazyLock<String> = LazyLock::new(|| {
     format!(
         "INSERT INTO mcp_server_bindings
@@ -169,41 +202,75 @@ static RECORD_FIRST_OBSERVATION_SQL: LazyLock<String> = LazyLock::new(|| {
     )
 });
 
-/// Writes the bindings' governance rows.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the first-observation drain records each binding through it"
-    )
-)]
-pub(crate) struct McpBindingStore {
+/// Writes the bindings' governance rows and reads them back.
+#[derive(Clone)]
+pub struct McpBindingStore {
     /// The writer every row goes through.
     writer: Arc<DatabaseWriter>,
+    /// The read pool every read borrows a connection from.
+    reads: Arc<DatabaseReadPool>,
 }
 
 impl McpBindingStore {
-    /// A store writing through `writer`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the first-observation drain records each binding through it"
-        )
-    )]
-    pub(crate) fn new(writer: Arc<DatabaseWriter>) -> Self {
-        Self { writer }
+    /// A store writing through `writer` and reading on `reads`.
+    pub fn new(writer: Arc<DatabaseWriter>, reads: Arc<DatabaseReadPool>) -> Self {
+        Self { writer, reads }
+    }
+
+    /// Reads every row `provider`'s bindings hold: each binding's switch, its tool overrides and
+    /// the `local` bindings, in one short read. Fails with [`McpBindingStoreError::Database`] or
+    /// [`McpBindingStoreError::Pool`] as the read fails.
+    #[expect(dead_code, reason = "the inventory service and the producer wiring")]
+    pub(crate) async fn read_provider_bindings(
+        &self,
+        provider: &ProviderId,
+    ) -> Result<McpStoredBindings, McpBindingStoreError> {
+        let provider = provider.clone();
+        self.reads
+            .read(ReadLength::Short, move |connection| {
+                let mut stored = McpStoredBindings::default();
+                let mut statement = connection.prepare_cached(PROVIDER_BINDINGS_SQL)?;
+                let mut rows = statement.query(named_params! { "@provider": provider.as_str() })?;
+                while let Some(row) = rows.next()? {
+                    let key = read_key(&provider, row)?;
+                    if key.scope == McpBindingScope::Local {
+                        stored.local_bindings.push(McpServerBindingRef::Local {
+                            provider: provider.clone(),
+                            scope_ref: text_column(row, 1, FilesystemPath::new)?,
+                            place: text_column(row, 2, read_place)?,
+                            server_name: key.server_name.clone(),
+                        });
+                    }
+                    let binding = McpStoredBinding {
+                        enabled_override: row.get(4)?,
+                        tool_overrides: Vec::new(),
+                    };
+                    stored.bindings.insert(key, binding);
+                }
+                let mut statement = connection.prepare_cached(PROVIDER_TOOL_OVERRIDES_SQL)?;
+                let mut rows = statement.query(named_params! { "@provider": provider.as_str() })?;
+                while let Some(row) = rows.next()? {
+                    let tool_override = McpToolOverride {
+                        tool_name: text_column(row, 4, McpToolName::new)?,
+                        enabled: row.get(5)?,
+                        approval_mode: optional_text_column(row, 6, closed_word)?,
+                        idempotency_class: optional_text_column(row, 7, closed_word)?,
+                    };
+                    // Every override row has its binding's row, which its foreign key holds.
+                    stored
+                        .bindings
+                        .entry(read_key(&provider, row)?)
+                        .or_default()
+                        .tool_overrides
+                        .push(tool_override);
+                }
+                Ok(stored)
+            })
+            .await
     }
 
     /// Records `binding`'s row the first time it is observed; a binding that already has a row
     /// keeps it untouched. Fails with [`McpBindingStoreError::Write`] as the write fails.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the first-observation drain records each binding through it"
-        )
-    )]
     pub(crate) async fn record_first_observation(
         &self,
         binding: &McpServerBindingRef,
@@ -227,19 +294,38 @@ impl McpBindingStore {
     }
 }
 
+// The key the first four columns of a binding's or an override's row name.
+fn read_key(provider: &ProviderId, row: &rusqlite::Row<'_>) -> rusqlite::Result<McpBindingKey> {
+    Ok(McpBindingKey {
+        provider: provider.clone(),
+        scope: text_column(row, 0, closed_word)?,
+        scope_ref: row.get(1)?,
+        scope_place: row.get(2)?,
+        server_name: text_column(row, 3, McpServerName::new)?,
+    })
+}
+
+/// A stored distribution that is not a WSL distribution's name.
+#[derive(Debug, thiserror::Error)]
+#[error("a stored distribution is not a WSL distribution's name")]
+struct StoredDistroNameFault;
+
+// A stored distribution, `''` for a root outside one.
+fn read_place(text: String) -> Result<Option<WslPlace>, StoredDistroNameFault> {
+    if text.is_empty() {
+        return Ok(None);
+    }
+    DistroName::new(text)
+        .map(|distro| Some(WslPlace { distro }))
+        .ok_or(StoredDistroNameFault)
+}
+
 /// Opens the drain that records each binding the status tracker hands it: answers the outlet the
 /// tracker is built with and the drain's run, which writes each binding's row through `store` once
 /// in this process and ends once the tracker, holding the outlet, is dropped. A binding whose
 /// write fails is logged and not marked recorded, so its next reading, a leg's or the probe's,
 /// tries again.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "the daemon's start builds the status tracker over it and spawns the run"
-    )
-)]
-pub(crate) async fn open_first_observation_drain(
+pub async fn open_first_observation_drain(
     store: McpBindingStore,
 ) -> (
     KeyedLatestValueOutlet<McpBindingKey, McpServerBindingRef>,
@@ -301,11 +387,14 @@ mod tests {
     use sidekicks_provider::driver::mcp_server::status::{
         McpServerReading, McpServerStatusEmission,
     };
+    use sidekicks_store::database::connection::read_pool::DatabaseReadPool;
     use sidekicks_store::database::writer::test_file::TestDatabase;
     use sidekicks_store::database::writer::{DatabaseWriter, DatabaseWriterOptions};
     use tokio::task::JoinHandle;
 
-    use super::{McpBindingStore, open_first_observation_drain};
+    use super::{
+        MCP_BINDING_STORE_STATEMENT_CAPACITY, McpBindingStore, open_first_observation_drain,
+    };
     use crate::schema::schema_parts;
     use crate::status::McpServerStatusTracker;
     use crate::status::notices::McpNoticeBoard;
@@ -334,10 +423,20 @@ mod tests {
                 .await
                 .expect("the writer opens its database"),
         );
-        let (outlet, run) =
-            open_first_observation_drain(McpBindingStore::new(Arc::clone(&writer))).await;
+        let (outlet, run) = open_first_observation_drain(McpBindingStore::new(
+            Arc::clone(&writer),
+            reads(&database),
+        ))
+        .await;
         let tracker = McpServerStatusTracker::new(Arc::new(McpNoticeBoard::default()), outlet);
         (database, writer, tracker, tokio::spawn(run))
+    }
+
+    fn reads(database: &TestDatabase) -> Arc<DatabaseReadPool> {
+        Arc::new(DatabaseReadPool::new(
+            database.path(),
+            MCP_BINDING_STORE_STATEMENT_CAPACITY,
+        ))
     }
 
     /// The recorded bindings' server names, in name order.
@@ -451,7 +550,7 @@ mod tests {
         let writer = DatabaseWriter::open(database.opener(), DatabaseWriterOptions::default())
             .await
             .expect("the writer opens its database");
-        let store = McpBindingStore::new(Arc::new(writer));
+        let store = McpBindingStore::new(Arc::new(writer), reads(&database));
         let binding = user_binding("github");
 
         store
