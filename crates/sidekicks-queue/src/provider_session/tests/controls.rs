@@ -20,7 +20,7 @@ use sidekicks_ipc::registry::HandlerError;
 use sidekicks_provider::driver::contract::{
     DriverError, ProviderReportedLevel, SessionProcessState,
 };
-use sidekicks_provider::run::posture::compose_execution_posture;
+use sidekicks_provider::run::posture::{compose_execution_posture, resolve_posture};
 use sidekicks_session::console_state::read_session_mode;
 use sidekicks_session::permission_level::read_session_permission_level;
 use sidekicks_session::run::session_posture::SessionPostureSource as _;
@@ -132,28 +132,34 @@ async fn a_level_move_re_postures_a_live_run() {
 
 // A mode move on a session whose process is down only stores it, leaving the driver alone; on one
 // whose process runs or whose driver brings it back, the driver moves first, and its refusal
-// leaves the stored mode as it was. Killed by storing before the move, and by a restarting process
-// that skips the driver.
+// leaves the stored mode as it was. A stored move tells every client in its write. Killed by
+// storing before the move, by a restarting process that skips the driver, and by a move stored
+// with no notice.
 #[rstest]
-#[case::live(SessionProcessState::Live)]
-#[case::restarting(SessionProcessState::Restarting)]
-#[case::down(SessionProcessState::Down)]
+#[case::live(SessionProcessState::Live, true)]
+#[case::restarting(SessionProcessState::Restarting, true)]
+#[case::down(SessionProcessState::Down, false)]
+#[case::live_taken(SessionProcessState::Live, false)]
 #[tokio::test]
 async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
     #[case] state: SessionProcessState,
+    #[case] is_refused: bool,
 ) {
     let is_down = state == SessionProcessState::Down;
-    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), move |driver, _| {
         driver.expect_session_process_state().return_const(state);
         driver
             .expect_update_session_mode()
             .times(usize::from(!is_down))
-            .returning(|_params| {
-                async {
-                    Err(DriverError::Refused(DomainError::new(
-                        "The provider refused the mode.",
-                        RefusalCode::SessionModeNotOffered,
-                    )))
+            .returning(move |_params| {
+                async move {
+                    if is_refused {
+                        return Err(DriverError::Refused(DomainError::new(
+                            "The provider refused the mode.",
+                            RefusalCode::SessionModeNotOffered,
+                        )));
+                    }
+                    Ok(())
                 }
                 .boxed()
             });
@@ -164,6 +170,8 @@ async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
         .open(opening.session_id, opening.run_id)
         .await
         .expect("the conversation resumes");
+    let level = read_session_permission_level(&opening.database.reader(), &opening.session_id)
+        .expect("the stored level reads");
 
     let moved = opening
         .sessions
@@ -172,15 +180,20 @@ async fn a_mode_move_reaches_the_driver_first_unless_the_process_is_down(
 
     let stored = read_session_mode(&opening.database.reader(), &opening.session_id)
         .expect("the stored mode reads");
-    if is_down {
-        assert!(moved.is_ok(), "{moved:?}");
-        assert_eq!(stored, SessionMode::Plan);
-    } else {
+    if is_refused {
         assert!(
             matches!(moved, Err(ProviderSessionError::Driver(_))),
             "{moved:?}"
         );
         assert_eq!(stored, SessionMode::Build);
+        assert_eq!(posted_notices(&opening), Vec::new());
+    } else {
+        assert!(moved.is_ok(), "{moved:?}");
+        assert_eq!(stored, SessionMode::Plan);
+        assert_eq!(
+            posted_notices(&opening),
+            vec![controls_moved(&opening, level, SessionMode::Plan)]
+        );
     }
 }
 
@@ -262,18 +275,7 @@ async fn a_followed_level_moves_a_live_session() {
     })
     .await;
     store_level(&opening, PermissionLevel::Readonly);
-    opening
-        .database
-        .reader()
-        .execute(
-            "INSERT INTO session_console_state (session_id, session_mode, updated_at)
-              VALUES (?1, 'plan', ?2)",
-            params![
-                opening.session_id.text().as_str(),
-                WireInstant::now().as_str()
-            ],
-        )
-        .expect("the test stores the mode");
+    store_plan_mode(&opening);
     opening
         .sessions
         .open(opening.session_id, opening.run_id)
@@ -371,10 +373,17 @@ async fn a_report_during_a_move_is_followed_after_it() {
             .await
     });
     entered.notified().await;
+    let transition_lock = Arc::clone(opening.changes.transition_lock());
+    let held_alone = transition_lock.queue_handle_count(session_id);
     let sessions = Arc::clone(&opening.sessions);
     let followed = tokio::spawn(async move { sessions.follow_reported_level(session_id).await });
-    // Long enough for a follow that took no lock to finish before the person's move is stored.
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while transition_lock.queue_handle_count(session_id) == held_alone {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the follow waits on the session's lock");
     release.notify_one();
     moved
         .await
@@ -446,6 +455,22 @@ fn store_level(opening: &Opening, level: PermissionLevel) {
         .expect("the test stores the level");
 }
 
+// Stores Plan as the session's mode, as a move before the test would have.
+fn store_plan_mode(opening: &Opening) {
+    opening
+        .database
+        .reader()
+        .execute(
+            "INSERT INTO session_console_state (session_id, session_mode, updated_at)
+              VALUES (?1, 'plan', ?2)",
+            params![
+                opening.session_id.text().as_str(),
+                WireInstant::now().as_str()
+            ],
+        )
+        .expect("the test stores the mode");
+}
+
 // Every notice the session's log holds, in log order.
 fn posted_notices(opening: &Opening) -> Vec<SessionNoticePostedPayload> {
     opening
@@ -472,10 +497,19 @@ fn posted_notices(opening: &Opening) -> Vec<SessionNoticePostedPayload> {
 
 // The notice of the session moved to `level`, its mode the stored Build.
 fn level_moved(opening: &Opening, level: PermissionLevel) -> SessionNoticePostedPayload {
+    controls_moved(opening, level, SessionMode::Build)
+}
+
+// The notice of the session standing at `level` and `session_mode` after a move.
+fn controls_moved(
+    opening: &Opening,
+    level: PermissionLevel,
+    session_mode: SessionMode,
+) -> SessionNoticePostedPayload {
     SessionNoticePostedPayload::Notice(SessionNotice::LevelMoved {
         session_id: opening.session_id,
         level,
-        session_mode: SessionMode::Build,
+        session_mode,
     })
 }
 
@@ -494,20 +528,34 @@ fn slash() -> FilesystemPath {
     FilesystemPath::new("/".to_owned()).expect("the root is a path")
 }
 
-// A level move whose store fails moves the driver back and puts the session's live runs back at
-// the postures the move replaced, holding no moved posture after, without resolving the old level
-// again. Killed by a move back that leaves the runs at the new level, and by one that keeps the
-// new level as the session's moved posture.
+// A level move whose store fails moves the driver back, and a run gated while it moves back runs
+// at the stored level, as the session's live run does: no run holds a posture its session never
+// stored. Killed by moving the session's runs before the store.
 #[tokio::test]
-async fn a_level_move_whose_store_fails_puts_the_runs_back() {
-    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), |driver, _| {
+async fn a_run_gated_while_a_failed_move_settles_runs_at_the_stored_level() {
+    let moving_back = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let (driver_moving_back, driver_release) = (Arc::clone(&moving_back), Arc::clone(&release));
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), move |driver, _| {
         driver
             .expect_session_process_state()
             .return_const(SessionProcessState::Live);
         driver
             .expect_update_permission_level()
             .times(2)
-            .returning(|_params| async { Ok(()) }.boxed());
+            .returning(move |params| {
+                let (moving_back, release) =
+                    (Arc::clone(&driver_moving_back), Arc::clone(&driver_release));
+                async move {
+                    // The move back, once the store failed, waits for the test's gate.
+                    if params.execution_posture.permission_level() == PermissionLevel::Readonly {
+                        moving_back.notify_one();
+                        release.notified().await;
+                    }
+                    Ok(())
+                }
+                .boxed()
+            });
     })
     .await;
     opening
@@ -525,7 +573,6 @@ async fn a_level_move_whose_store_fails_puts_the_runs_back() {
         ))
         .await
         .expect("the run's posture resolves");
-    store_level(&opening, PermissionLevel::Readonly);
     opening
         .database
         .reader()
@@ -535,22 +582,34 @@ async fn a_level_move_whose_store_fails_puts_the_runs_back() {
         )
         .expect("the test refuses every stored level");
 
-    let moved = opening
-        .sessions
-        .change_level(opening.session_id, PermissionLevel::Yolo)
-        .await;
+    let sessions = Arc::clone(&opening.sessions);
+    let session_id = opening.session_id;
+    let moved = tokio::spawn(async move {
+        sessions
+            .change_level(session_id, PermissionLevel::Yolo)
+            .await
+    });
+    moving_back.notified().await;
+    let window = new_run_id();
+    opening
+        .execution_postures
+        .assert_run_ready(&gated_at(&opening, window, PermissionLevel::Readonly))
+        .await
+        .expect("the window's run's posture resolves");
+    release.notify_one();
+    let moved = moved.await.expect("the move's task ends");
 
     assert!(
         matches!(moved, Err(ProviderSessionError::LevelNotStored { .. })),
         "{moved:?}"
     );
     let readonly = compose_execution_posture(PermissionLevel::Readonly, slash());
-    assert_eq!(
-        opening
-            .execution_postures
-            .resolved_posture_for(&opening.run_id),
-        Some(readonly.clone())
-    );
+    for run_id in [opening.run_id, window] {
+        assert_eq!(
+            opening.execution_postures.resolved_posture_for(&run_id),
+            Some(readonly.clone())
+        );
+    }
     let next = new_run_id();
     opening
         .execution_postures
@@ -560,6 +619,73 @@ async fn a_level_move_whose_store_fails_puts_the_runs_back() {
     assert_eq!(
         opening.execution_postures.resolved_posture_for(&next),
         Some(readonly)
+    );
+}
+
+// A report of a mode alone moves the stored mode and tells every client, the level kept, the
+// driver told the move is the provider's own: Claude Code's own `plan` on a Build session, and its
+// leaving Plan reported at the stored level. Killed by a follow that moves nothing on a report
+// with no level move.
+#[rstest]
+#[case::plan_reported(false, None, SessionMode::Plan)]
+#[case::build_reported_at_the_stored_level(
+    true,
+    Some(PermissionLevel::Readonly),
+    SessionMode::Build
+)]
+#[tokio::test]
+async fn a_reported_mode_alone_moves_the_stored_mode(
+    #[case] is_stored_plan: bool,
+    #[case] reported_level: Option<PermissionLevel>,
+    #[case] reported_mode: SessionMode,
+) {
+    let opening = Opening::new(Box::new(|_| {}), Box::new(|| {}), move |driver, _| {
+        driver
+            .expect_session_process_state()
+            .return_const(SessionProcessState::Live);
+        driver
+            .expect_reported_level()
+            .return_const(Some(ProviderReportedLevel {
+                level: reported_level,
+                session_mode: reported_mode,
+            }));
+        driver.expect_update_permission_level().never();
+        driver
+            .expect_update_session_mode()
+            .withf(move |params| params.is_provider_reported && params.mode == reported_mode)
+            .times(1)
+            .returning(|_params| async { Ok(()) }.boxed());
+    })
+    .await;
+    store_level(&opening, PermissionLevel::Readonly);
+    if is_stored_plan {
+        store_plan_mode(&opening);
+    }
+    opening
+        .sessions
+        .open(opening.session_id, opening.run_id)
+        .await
+        .expect("the conversation resumes");
+
+    opening
+        .sessions
+        .follow_reported_level(opening.session_id)
+        .await
+        .expect("the reported mode is followed");
+
+    let stored_mode = read_session_mode(&opening.database.reader(), &opening.session_id)
+        .expect("the stored mode reads");
+    assert_eq!(stored_mode, reported_mode);
+    let stored = read_session_permission_level(&opening.database.reader(), &opening.session_id)
+        .expect("the stored level reads");
+    assert_eq!(stored, PermissionLevel::Readonly);
+    assert_eq!(
+        posted_notices(&opening),
+        vec![controls_moved(
+            &opening,
+            PermissionLevel::Readonly,
+            reported_mode
+        )]
     );
 }
 
@@ -654,7 +780,13 @@ async fn a_gone_process_keeps_no_moved_posture() {
         .execution_postures
         .resolved_posture_for(&opening.run_id)
         .expect("the run holds a posture");
-    assert_eq!(resolved.permission_level(), PermissionLevel::Sandboxed);
+    let over_next_folder = resolve_posture(&compose_execution_posture(
+        PermissionLevel::Sandboxed,
+        path_of(next_folder.path()),
+    ))
+    .await
+    .expect("the next opening's folder resolves");
+    assert_eq!(resolved, over_next_folder);
 }
 
 // A level stored while the session's process is down, the driver to bring it back, is the posture

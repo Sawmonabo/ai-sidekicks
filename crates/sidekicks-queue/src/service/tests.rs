@@ -77,7 +77,7 @@ use crate::error::QueueError;
 use crate::memory_gate::{MemoryGate, MemoryGateFigures};
 use crate::provider_session::test_opening::{
     RecordedProcessFollowing, record_first_provider_capabilities, test_execution_postures,
-    test_opening_composer,
+    test_git_folder_reader, test_opening_composer,
 };
 use crate::provider_session::{ProviderSessions, ProviderSessionsDeps};
 use crate::run_token_limit::RunTokenLimitReader;
@@ -317,6 +317,7 @@ fn queue_over(
         binding_cursors,
         providers: Arc::clone(&providers),
         compose_opening: test_opening_composer(),
+        read_git_folder: test_git_folder_reader(),
         transition_lock: Arc::new(KeyedLock::new()),
         process_follower: Arc::new(RecordedProcessFollowing::default()),
         execution_postures: test_execution_postures(),

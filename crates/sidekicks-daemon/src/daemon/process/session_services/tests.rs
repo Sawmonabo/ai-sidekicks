@@ -34,7 +34,9 @@ use sidekicks_provider::runtime_binding::test_store::{
     binding_input, spawn_config_on, spawned_build, test_provider_account_id,
 };
 use sidekicks_queue::memory_gate::{MemoryGate, MemoryGateFigures};
-use sidekicks_queue::provider_session::test_opening::test_opening_composer;
+use sidekicks_queue::provider_session::test_opening::{
+    test_git_folder_reader, test_opening_composer,
+};
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_session::directory::list_feed::SessionListFeed;
 use sidekicks_session::plan_holds::PlanHolds;
@@ -193,6 +195,7 @@ async fn fixture() -> Fixture {
         )),
         epochs: Arc::clone(&epochs),
         compose_opening: test_opening_composer(),
+        read_git_folder: test_git_folder_reader(),
         processes: Arc::new(NoProcess),
         memory_gate: Arc::new(MemoryGate::new(
             MemoryGateFigures {

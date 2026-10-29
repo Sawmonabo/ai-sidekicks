@@ -104,6 +104,14 @@ pub type ProviderSessionOpeningComposer = Arc<
         + Sync,
 >;
 
+/// Reads the git folder of a session's repository, which the posture of each level is built on.
+/// Fails when the session has no workspace or git cannot read the folder.
+pub type ProviderSessionGitFolderReader = Arc<
+    dyn Fn(SessionId) -> BoxFuture<'static, Result<FilesystemPath, Box<dyn Error + Send + Sync>>>
+        + Send
+        + Sync,
+>;
+
 /// What the provider sessions read, write and call.
 pub struct ProviderSessionsDeps {
     /// The read pool every read of a session's bindings, mode and level goes through.
@@ -118,6 +126,8 @@ pub struct ProviderSessionsDeps {
     pub providers: Arc<ProviderRegistry>,
     /// Composes a session's opening from its lead.
     pub compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder, where no process of the session is open to name it.
+    pub read_git_folder: ProviderSessionGitFolderReader,
     /// The session-wide transition lock, which a session's close holds from its driver's close
     /// until its `session.closed` write; each opening, run binding, level or mode move and the
     /// forgetting of a process gone takes it.
@@ -233,6 +243,15 @@ pub enum ProviderSessionError {
         #[source]
         cause: ExecutionPostureRejection,
     },
+    /// The git folder the posture of the session's level is built on could not be read.
+    #[error("the git folder of session {session_id} could not be read")]
+    GitFolder {
+        /// The session.
+        session_id: SessionId,
+        /// Why.
+        #[source]
+        cause: Box<dyn Error + Send + Sync>,
+    },
     /// The level the session moved to was not stored, and a process it runs moved back.
     #[error("the level session {session_id} moved to was not stored")]
     LevelNotStored {
@@ -318,6 +337,7 @@ impl From<ProviderSessionError> for HandlerError {
                 Self::Refused(posture_refusal(&session_id, cause))
             }
             fault @ (ProviderSessionError::Compose { .. }
+            | ProviderSessionError::GitFolder { .. }
             | ProviderSessionError::AdmittedAccount(_)
             | ProviderSessionError::NoPosture { .. }
             | ProviderSessionError::NoContractVersion { .. }
@@ -496,8 +516,8 @@ impl ProviderSessions {
         }
     }
 
-    /// Forgets a closed session's provider session, whose process its close ended, with its moved
-    /// posture, and has the idle sleep forget it too.
+    /// Forgets a closed session's provider session, whose process its close ended, with what the
+    /// posture service kept for it, and has the idle sleep forget it too.
     pub(crate) fn forget(&self, session_id: SessionId) {
         self.lock_opened().remove(&session_id);
         self.deps.execution_postures.forget_session(&session_id);
@@ -525,7 +545,9 @@ impl ProviderSessions {
             // The session is not closed, so the idle sleep keeps its stored timed fires.
             Some(SessionProcessState::Down) => {
                 self.lock_opened().remove(&session_id);
-                self.deps.execution_postures.forget_session(&session_id);
+                self.deps
+                    .execution_postures
+                    .forget_moved_posture(&session_id);
             }
             Some(SessionProcessState::Live | SessionProcessState::Restarting) | None => {}
         }
@@ -702,6 +724,23 @@ impl ProviderSessions {
         }))
     }
 
+    // The git folder of the session's opened process, else as read now. Fails as the read fails.
+    async fn git_folder(
+        &self,
+        session_id: SessionId,
+    ) -> Result<FilesystemPath, ProviderSessionError> {
+        let opened_folder = self
+            .lock_opened()
+            .get(&session_id)
+            .map(|opened| opened.git_folder.clone());
+        match opened_folder {
+            Some(git_folder) => Ok(git_folder),
+            None => (self.deps.read_git_folder)(session_id)
+                .await
+                .map_err(|cause| ProviderSessionError::GitFolder { session_id, cause }),
+        }
+    }
+
     fn set_posture(&self, session_id: SessionId, posture: ExecutionPosture) {
         if let Some(opened) = self.lock_opened().get_mut(&session_id) {
             opened.execution_posture = posture;
@@ -729,12 +768,11 @@ impl SessionLevelFollower for ProviderSessions {
 }
 
 impl StoredSessionPosture for ProviderSessions {
-    /// The stored level's posture over the opened process's git folder, or over the folder the
-    /// session's next opening composes for the account `run_id` was admitted against.
+    /// The stored level's posture over the opened process's git folder, or over the session's git
+    /// folder as read now.
     fn stored_posture<'a>(
         &'a self,
         session_id: SessionId,
-        run_id: RunId,
         requested: &'a ExecutionPosture,
     ) -> BoxFuture<'a, Result<Option<ExecutionPosture>, Box<dyn Error + Send + Sync>>> {
         async move {
@@ -742,16 +780,7 @@ impl StoredSessionPosture for ProviderSessions {
             if level == requested.permission_level() {
                 return Ok(None);
             }
-            let opened_folder = self
-                .lock_opened()
-                .get(&session_id)
-                .map(|opened| opened.git_folder.clone());
-            let git_folder = if let Some(git_folder) = opened_folder {
-                git_folder
-            } else {
-                let account = self.read_admitted_account(session_id, run_id).await?;
-                self.compose(session_id, account).await?.git_folder
-            };
+            let git_folder = self.git_folder(session_id).await?;
             Ok(Some(compose_execution_posture(level, git_folder)))
         }
         .map(|read: Result<_, ProviderSessionError>| {

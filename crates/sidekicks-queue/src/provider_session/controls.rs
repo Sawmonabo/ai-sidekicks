@@ -59,12 +59,14 @@ pub enum MoveRecordError {
 
 impl ProviderSessions {
     /// Moves the session to `level` and stores it with the `LevelMoved` notice, unless it stands
-    /// there already. A process that runs, or that its driver brings back, is moved first, so the
-    /// record never names a level the provider refused, and its live runs move with it; a store
-    /// that fails then moves both back, to the postures the move replaced, and fails. A session
-    /// with no process stores the level, which its next process opens at and its runs gate at.
-    /// Fails with [`ProviderSessionError::PostureRefused`] for a level whose posture does not
-    /// resolve and as the driver's move fails, both with nothing changed, with
+    /// there already. The level's posture is resolved first, over the session's git folder, so a
+    /// level whose folder is gone is refused before anything moves. A process that runs, or that
+    /// its driver brings back, is moved next, so the record never names a level the provider
+    /// refused; a store that fails then moves it back and fails. Only a stored level moves the
+    /// process's posture and its live runs, so no run holds a posture its session never stored. A
+    /// session with no process stores the level, which its next process opens at and its runs
+    /// gate at. Fails with [`ProviderSessionError::PostureRefused`] for a level whose posture does
+    /// not resolve and as the driver's move fails, both with nothing changed, with
     /// [`ProviderSessionError::Closed`] or [`ProviderSessionError::BeingDeleted`] for a closed
     /// session, and with [`ProviderSessionError::LevelNotStored`] carrying `session.notFound` for
     /// one gone meanwhile.
@@ -79,6 +81,10 @@ impl ProviderSessions {
         if stored == level {
             return Ok(());
         }
+        let posture = compose_execution_posture(level, self.git_folder(session_id).await?);
+        let resolved = resolve_posture(&posture)
+            .await
+            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
         let (opened, driver) = match self.process_state(session_id)? {
             Some(OpenedProcess {
                 state: SessionProcessState::Live | SessionProcessState::Restarting,
@@ -94,54 +100,40 @@ impl ProviderSessions {
                     .await
                     .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })?;
                 // A process gone but kept opened brings its runs back at the stored level.
-                if let Some(OpenedProcess { opened, .. }) = down {
-                    self.set_posture(
-                        session_id,
-                        compose_execution_posture(level, opened.git_folder),
-                    );
+                if down.is_some() {
+                    self.set_posture(session_id, posture);
                 }
                 // Its next process opens at the stored level, which its runs gate at.
                 self.deps.execution_postures.note_level_stored(&session_id);
                 return Ok(());
             }
         };
-        let posture = compose_execution_posture(level, opened.git_folder.clone());
-        let resolved = resolve_posture(&posture)
-            .await
-            .map_err(|cause| ProviderSessionError::PostureRefused { session_id, cause })?;
         let moved = UpdatePermissionLevelParams {
             session_id,
             execution_posture: posture.clone(),
             is_provider_reported: false,
         };
         driver.update_permission_level(moved).await?;
-        self.set_posture(session_id, posture);
-        let replaced = self
-            .deps
-            .execution_postures
-            .move_session(&session_id, resolved);
         let Err(stored_error) = self
             .record_move(session_id, level, session_mode, MovedControls::Level)
             .await
         else {
+            self.set_posture(session_id, posture);
+            self.deps
+                .execution_postures
+                .move_session(&session_id, resolved);
             return Ok(());
         };
         let back = UpdatePermissionLevelParams {
             session_id,
-            execution_posture: opened.execution_posture.clone(),
+            execution_posture: opened.execution_posture,
             is_provider_reported: false,
         };
         match driver.update_permission_level(back).await {
-            Ok(()) => {
-                self.deps
-                    .execution_postures
-                    .move_back(&session_id, replaced);
-                self.set_posture(session_id, opened.execution_posture);
-                Err(ProviderSessionError::LevelNotStored {
-                    session_id,
-                    cause: stored_error,
-                })
-            }
+            Ok(()) => Err(ProviderSessionError::LevelNotStored {
+                session_id,
+                cause: stored_error,
+            }),
             Err(moved_back) => Err(ProviderSessionError::LevelNotMovedBack {
                 session_id,
                 stored: stored_error,
@@ -218,16 +210,17 @@ impl ProviderSessions {
 
     /// Follows the level or mode the session's live process reported moving to on its own, read
     /// from its driver's newest report under the session's transition lock, so a report that lands
-    /// during another move is read once that move is stored. A reported level moves the process's
-    /// posture, its live runs and the stored level as [`ProviderSessions::change_level`] does, the
-    /// driver told the move is the provider's own; a reported mode moves the stored mode the same
-    /// way, with the level or alone. A report is followed whole: what it moves is stored in one
-    /// write with the `LevelMoved` notice of the level and mode it names. A report the store
-    /// already matches, none, or a process no longer live moves nothing: a process gone takes the
-    /// stored level when it opens again. Fails as [`ProviderSessions::change_level`] fails before
-    /// its driver moves, as the driver's move fails, and with
-    /// [`ProviderSessionError::LevelNotStored`] or [`ProviderSessionError::ModeNotStored`] when the
-    /// store fails, the process left where the provider moved it.
+    /// during another move is read once that move is stored. A reported level moves the stored
+    /// level, then the process's posture and its live runs, as [`ProviderSessions::change_level`]
+    /// does, the driver told the move, and the mode it moves with, as the provider's own before
+    /// either; a reported mode moves the stored mode the same way, with the level or alone. A
+    /// report is followed whole: what it moves is stored in one write with the `LevelMoved` notice
+    /// of the level and mode it names. A report the store already matches, none, or a process no
+    /// longer live moves nothing: a process gone takes the stored level when it opens again. Fails
+    /// as [`ProviderSessions::change_level`] fails before its driver moves, as the driver's move
+    /// fails, and with [`ProviderSessionError::LevelNotStored`] or
+    /// [`ProviderSessionError::ModeNotStored`] when the store fails, the process left where the
+    /// provider moved it and its posture and runs where the store stands.
     pub async fn follow_reported_level(
         &self,
         session_id: SessionId,
@@ -279,11 +272,6 @@ impl ProviderSessions {
                 is_provider_reported: true,
             })
             .await?;
-        self.set_posture(session_id, posture);
-        // Never moved back: the provider runs where it reported moving.
-        self.deps
-            .execution_postures
-            .move_session(&session_id, resolved);
         // The report is followed whole, so the mode it names moves with the level.
         let moved = if is_mode_moved {
             driver
@@ -297,9 +285,15 @@ impl ProviderSessions {
         } else {
             MovedControls::Level
         };
+        // Never moved back: the provider runs where it reported moving.
         self.record_move(session_id, level, reported.session_mode, moved)
             .await
-            .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })
+            .map_err(|cause| ProviderSessionError::LevelNotStored { session_id, cause })?;
+        self.set_posture(session_id, posture);
+        self.deps
+            .execution_postures
+            .move_session(&session_id, resolved);
+        Ok(())
     }
 
     /// What a side question's throwaway copy is forked from and recorded on: the session's newest

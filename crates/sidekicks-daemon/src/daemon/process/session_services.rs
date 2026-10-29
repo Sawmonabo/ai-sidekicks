@@ -29,7 +29,8 @@ use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_queue::changes::QueueChangeSignals;
 use sidekicks_queue::memory_gate::MemoryGate;
 use sidekicks_queue::provider_session::{
-    ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
+    ProviderSessionGitFolderReader, ProviderSessionOpeningComposer, ProviderSessions,
+    ProviderSessionsDeps,
 };
 use sidekicks_queue::run_token_limit::RunTokenLimitReader;
 use sidekicks_queue::service::{RunQueue, RunQueueDeps};
@@ -108,6 +109,8 @@ pub(crate) struct SessionServiceStart {
     pub(crate) epochs: Arc<Mutex<ExecutionEpochs>>,
     /// Composes a session's opening from its lead.
     pub(crate) compose_opening: ProviderSessionOpeningComposer,
+    /// Reads a session's git folder.
+    pub(crate) read_git_folder: ProviderSessionGitFolderReader,
     /// The identity of each session's provider process.
     pub(crate) processes: Arc<dyn ProviderProcessIds>,
     /// The gate every start waits its turn at.
@@ -264,6 +267,7 @@ pub(crate) fn build_session_services(
         binding_cursors,
         epochs,
         compose_opening,
+        read_git_folder,
         processes,
         memory_gate,
         machine,
@@ -391,6 +395,7 @@ pub(crate) fn build_session_services(
         binding_cursors: Arc::clone(&binding_cursors),
         providers: Arc::clone(&providers),
         compose_opening,
+        read_git_folder,
         transition_lock: Arc::clone(changes.transition_lock()),
         process_follower: Arc::clone(&idle_sleep) as Arc<dyn SessionProcessFollower>,
         execution_postures: Arc::clone(&execution_postures),

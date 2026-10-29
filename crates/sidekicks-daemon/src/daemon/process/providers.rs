@@ -4,11 +4,13 @@
 //! lasting service answers by connecting to it.
 
 use std::collections::BTreeSet;
+use std::error::Error;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
-use futures::future::join_all;
+use futures::FutureExt as _;
+use futures::future::{BoxFuture, join_all};
 use serde_json::{Map, Value};
 use sidekicks_approval::permission_asks::PermissionAsks;
 use sidekicks_approval::reviewer_denials::ReviewerDenials;
@@ -18,6 +20,7 @@ use sidekicks_contracts::machine::settings::{ProviderRowValue, ProviderSettingVa
 use sidekicks_contracts::place::Place;
 use sidekicks_contracts::provider::declaration::{ProviderDeclarationId, ProviderValue};
 use sidekicks_contracts::provider::id::ProviderId;
+use sidekicks_contracts::session::id::SessionId;
 use sidekicks_ipc::caller_process::contract::CallerProcessReader;
 use sidekicks_ipc::caller_process::provider_services::ProviderServiceProcesses;
 use sidekicks_platforms::{PathRules, Spawner, current_user_id};
@@ -41,6 +44,7 @@ use sidekicks_provider::driver::diagnostics::{
 use sidekicks_provider::driver::ports::{DriverPorts, ProcessGoneListener, SessionPlace};
 use sidekicks_provider::driver::registry::ProviderRegistry;
 use sidekicks_provider::driver::{DriverServices, ProviderDescriptor, ProviderRegistration};
+use sidekicks_provider::port::session_level_follower::SessionLevelFollower;
 use sidekicks_provider::process_registry::ProviderProcessRegistry;
 use sidekicks_provider::run::posture::ExecutionPostureService;
 use sidekicks_provider::runtime_binding::store::RuntimeBindingStore;
@@ -348,8 +352,34 @@ pub(crate) fn register_driver_ports(
         .register(owners.callback_tool_host)?;
     ports
         .session_level_followers
-        .register(owners.provider_sessions)?;
+        .register(Arc::new(WeakLevelFollower(Arc::downgrade(
+            &owners.provider_sessions,
+        ))))?;
     ports.run_pauses.register(owners.run_pauses)
+}
+
+/// The provider sessions as the drivers' level follower, held weakly: they hold the registry whose
+/// drivers hold this port, so a strong hold would keep both alive for good.
+#[expect(
+    dead_code,
+    reason = "the daemon's start registers the ports, this follower among them"
+)]
+struct WeakLevelFollower(Weak<ProviderSessions>);
+
+impl SessionLevelFollower for WeakLevelFollower {
+    /// Follows the report through the provider sessions; fails once they are gone, as while the
+    /// daemon stops.
+    fn follow_reported_level(
+        &self,
+        session_id: SessionId,
+    ) -> BoxFuture<'_, Result<(), Box<dyn Error + Send + Sync>>> {
+        let sessions = self.0.upgrade();
+        async move {
+            let sessions = sessions.ok_or("the provider sessions are gone")?;
+            SessionLevelFollower::follow_reported_level(sessions.as_ref(), session_id).await
+        }
+        .boxed()
+    }
 }
 
 /// Why no session's inbox addresses can be composed.

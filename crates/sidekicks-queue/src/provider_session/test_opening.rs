@@ -33,7 +33,9 @@ use sidekicks_provider::runtime_binding::resume::ResumeFunctionLegs;
 use sidekicks_session::idle_sleep::openings::SessionProcessFollower;
 use sidekicks_std::mutex_lock::lock;
 
-use crate::provider_session::{ProviderSessionOpening, ProviderSessionOpeningComposer};
+use crate::provider_session::{
+    ProviderSessionGitFolderReader, ProviderSessionOpening, ProviderSessionOpeningComposer,
+};
 
 /// The table's first provider.
 pub(crate) fn first_provider() -> ProviderId {
@@ -75,6 +77,13 @@ pub fn test_opening_composer() -> ProviderSessionOpeningComposer {
             })
         }
         .boxed()
+    })
+}
+
+/// Reads every session's git folder as the root, as [`test_opening_composer`] composes it.
+pub fn test_git_folder_reader() -> ProviderSessionGitFolderReader {
+    Arc::new(|_session_id| {
+        async { Ok(FilesystemPath::new("/".to_owned()).expect("the root is a path")) }.boxed()
     })
 }
 

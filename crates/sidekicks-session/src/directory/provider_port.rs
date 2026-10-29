@@ -299,11 +299,24 @@ impl SessionDirectoryProviderPort {
     // What an opening and a resume take from the session's records and the settings file now: the
     // git folder of the repository its runs work in, the posture of its level there, its mode,
     // and every provider's row values.
+    /// The common git folder of the repository `session_id` runs in, which the posture of each
+    /// level is built on. Fails for a session with no workspace, and as the reads or git fail.
+    pub async fn read_git_folder(
+        &self,
+        session_id: SessionId,
+    ) -> Result<FilesystemPath, SessionDirectoryProviderPortError> {
+        let (place, run_folder) = self.read_run_folder(session_id).await?;
+        let git_folder = read_git_common_folder(&self.deps.git, place.as_ref(), &run_folder, None)
+            .await
+            .map_err(SessionDirectoryProviderPortError::from)?;
+        FilesystemPath::new(git_folder.to_string_lossy().into_owned())
+            .map_err(SessionDirectoryProviderPortError::GitFolderPath)
+    }
+
     async fn read_standing_opening(
         &self,
         session_id: SessionId,
     ) -> Result<StandingOpening, SessionDirectoryProviderPortError> {
-        let (place, run_folder) = self.read_run_folder(session_id).await?;
         let (level, mode) = self
             .deps
             .pool
@@ -314,16 +327,8 @@ impl SessionDirectoryProviderPort {
                 ))
             })
             .await?;
-        let (git_folder, settings) = tokio::try_join!(
-            async {
-                read_git_common_folder(&self.deps.git, place.as_ref(), &run_folder, None)
-                    .await
-                    .map_err(SessionDirectoryProviderPortError::from)
-            },
-            self.read_settings(),
-        )?;
-        let git_folder = FilesystemPath::new(git_folder.to_string_lossy().into_owned())
-            .map_err(SessionDirectoryProviderPortError::GitFolderPath)?;
+        let (git_folder, settings) =
+            tokio::try_join!(self.read_git_folder(session_id), self.read_settings())?;
         Ok(StandingOpening {
             execution_posture: compose_execution_posture(level, git_folder.clone()),
             git_folder,

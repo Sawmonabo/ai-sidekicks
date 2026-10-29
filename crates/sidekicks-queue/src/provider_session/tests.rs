@@ -64,7 +64,8 @@ use super::test_opening::{
     test_opening_composer,
 };
 use super::{
-    ProviderSessionError, ProviderSessionOpeningComposer, ProviderSessions, ProviderSessionsDeps,
+    ProviderSessionError, ProviderSessionGitFolderReader, ProviderSessionOpeningComposer,
+    ProviderSessions, ProviderSessionsDeps,
 };
 
 /// The statements the test's read pool prepares.
@@ -258,6 +259,7 @@ impl Opening {
             binding_cursors,
             providers,
             compose_opening: recording_composer(&handed_ids, &git_folder),
+            read_git_folder: recording_git_folder(&git_folder),
             transition_lock: Arc::clone(changes.transition_lock()),
             process_follower: Arc::clone(&following) as Arc<dyn SessionProcessFollower>,
             execution_postures: Arc::clone(&execution_postures),
@@ -351,6 +353,19 @@ fn recording_composer(
             Ok(opening)
         }
         .boxed()
+    })
+}
+
+// Reads every session's git folder as `git_folder` names it once one is set, else the root.
+fn recording_git_folder(
+    git_folder: &Arc<Mutex<Option<FilesystemPath>>>,
+) -> ProviderSessionGitFolderReader {
+    let git_folder = Arc::clone(git_folder);
+    Arc::new(move |_session_id| {
+        let git_folder = lock(&git_folder)
+            .clone()
+            .unwrap_or_else(|| FilesystemPath::new("/".to_owned()).expect("the root is a path"));
+        async move { Ok(git_folder) }.boxed()
     })
 }
 
