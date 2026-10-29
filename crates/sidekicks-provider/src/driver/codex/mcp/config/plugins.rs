@@ -157,6 +157,8 @@ pub(crate) async fn read_plugin_server_entries(plugin_home: &Path) -> Vec<CodexP
                         disabled_in: Vec::new(),
                         is_read_only: true,
                         sign_in_client: declared.sign_in_client,
+                        is_switch_kept_by_daemon: true,
+                        tool_defaults: declared.tool_defaults,
                     },
                     entry,
                     plugin_root: plugin_root.clone(),

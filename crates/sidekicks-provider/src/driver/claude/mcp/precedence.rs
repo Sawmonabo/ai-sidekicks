@@ -2,14 +2,26 @@
 //! server takes another's place at each attached root, and what a root's sessions load by Claude
 //! Code's own config.
 
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
+use std::collections::BTreeMap;
+
+use sidekicks_contracts::mcp::server::{McpApprovalMode, McpServerBindingRef, McpServerName};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 
 use crate::driver::claude::mcp::config::{ClaudeMcpConfigReading, ClaudeMcpServer};
-use crate::driver::mcp_server::read::{McpAccountServers, McpRootReading, McpServerDeclaration};
+use crate::driver::claude::session::transport::control::ClaudeToolServerEntry;
+use crate::driver::mcp_server::read::{
+    McpAccountServers, McpProbeReading, McpRootReading, McpServerDeclaration, McpServerToolDefaults,
+};
 
-/// The servers one account brings: its organization's servers and its connectors.
+/// The approval mode a server's tools read with no override: Claude Code asks before a tool call
+/// none of its permission rules allows, and has no per-server or per-tool approval setting.
+const CLAUDE_TOOL_APPROVAL_MODE: McpApprovalMode = McpApprovalMode::Prompt;
+
+/// The servers one account brings: its organization's servers and its connectors, with what the
+/// account's own process reported of each connector and each organization server a probe can send.
+/// It derives no `Debug`, since an organization entry carries its headers' values.
+#[derive(Clone)]
 pub(crate) struct ClaudeMcpAccountServers {
     /// The account.
     pub(crate) provider_account_id: ProviderAccountId,
@@ -17,6 +29,11 @@ pub(crate) struct ClaudeMcpAccountServers {
     pub(crate) organization_servers: Vec<ClaudeMcpServer>,
     /// Its connectors.
     pub(crate) connectors: Vec<ClaudeMcpServer>,
+    /// What the account's process reported of each connector: its status, error text and tools.
+    pub(crate) connector_readings: Vec<McpProbeReading>,
+    /// Each organization server as `mcp_set_servers` takes it, by its name, where the account's
+    /// managed settings declare it whole.
+    pub(crate) organization_entries: BTreeMap<McpServerName, ClaudeToolServerEntry>,
 }
 
 /// The servers one root's sessions would see from each source, which Claude Code ranks in this
@@ -113,6 +130,8 @@ pub(crate) fn rank_claude_mcp_servers(
             .collect(),
         is_read_only: !is_writable(&server.binding),
         sign_in_client: None,
+        is_switch_kept_by_daemon: true,
+        tool_defaults: McpServerToolDefaults::with_approval_mode(CLAUDE_TOOL_APPROVAL_MODE),
     };
 
     let declarations = reading
@@ -285,6 +304,8 @@ fn is_declared_at(binding: &McpServerBindingRef, root: &PlacedPath) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use sidekicks_contracts::free_form_string::FilesystemPath;
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
     use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerName};
@@ -390,6 +411,8 @@ mod tests {
                     "https://docs.example.com/mcp?team=b",
                 ),
             ],
+            connector_readings: Vec::new(),
+            organization_entries: BTreeMap::new(),
         }];
 
         let ranking = rank_claude_mcp_servers(&reading, &accounts, true);

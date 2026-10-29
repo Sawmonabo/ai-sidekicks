@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::Value;
-use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus, McpToolName};
+use sidekicks_contracts::mcp::server::{
+    McpServerBindingRef, McpServerName, McpServerStatus, McpToolName,
+};
 use sidekicks_contracts::place::PlacedPath;
 use sidekicks_contracts::provider::account::record::ProviderAccountId;
 use tokio::time::Instant;
@@ -23,7 +25,9 @@ use crate::driver::claude::session::transport::channel::ClaudeProcessChannel;
 use crate::driver::claude::session::transport::control::{
     ClaudeControlRequest, ClaudeMcpSetServersReply, ClaudeToolServerEntry,
 };
-use crate::driver::claude::session::transport::mcp_status::ClaudeMcpStatusReply;
+use crate::driver::claude::session::transport::mcp_status::{
+    ClaudeMcpServerStatusRow, ClaudeMcpStatusReply,
+};
 use crate::driver::claude::spawn::launch::control_only::compose_claude_control_only_arguments;
 use crate::driver::claude::spawn::launch::installed_build::ClaudeProcessStarts;
 use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
@@ -71,6 +75,8 @@ pub(crate) struct ClaudeMcpProbeSources<'sources> {
     pub(crate) plugin_home: &'sources Path,
     /// The attached project roots, in the order the probe goes through them.
     pub(crate) attached_roots: &'sources [PlacedPath],
+    /// Each organization server of the account as `mcp_set_servers` takes it, by its name.
+    pub(crate) organization_entries: &'sources BTreeMap<McpServerName, ClaudeToolServerEntry>,
 }
 
 // One process's worth of targets: the root it runs in, and each target with the name it is sent
@@ -90,10 +96,12 @@ struct ProbeStatus {
 }
 
 /// Probes `targets` through `sources`, one process per attached root in turn: a `project` or
-/// `local` binding at its own root, every other binding at the first attached root. A target sent
-/// with its declaration whose entry is gone, or that no config file declares (a connector or an
-/// organization's server), gets no reading; one the status never names reads `starting` with no
-/// tools. Fails as the config read, a start or a request does, the process then closed.
+/// `local` binding at its own root, every other binding at the first attached root. An
+/// organization's server is sent as its managed settings declare it, and every other declaration
+/// is re-read from the person's config. A target sent with its declaration whose entry is gone, or
+/// that nothing declares in a form the set takes, gets no reading; one the status never names
+/// reads `starting` with no tools. Fails as the config read, a start or a request does, the
+/// process then closed.
 pub(crate) async fn probe_claude_mcp_servers(
     sources: &ClaudeMcpProbeSources<'_>,
     targets: &[McpProbeTarget],
@@ -105,14 +113,18 @@ pub(crate) async fn probe_claude_mcp_servers(
         let mut asked: Vec<(&McpProbeTarget, String)> = Vec::new();
         for (target, name) in batch.targets {
             if target.start != McpProbeStart::LoadedByProvider {
-                let entry = read_claude_mcp_server_entry(
-                    sources.home,
-                    sources.plugin_home,
-                    &target.binding,
-                )
-                .await
-                .map_err(|error| DriverError::Internal(Box::new(error)))?;
-                let Some(entry) = entry.and_then(compose_tool_server_entry) else {
+                let entry = match &target.binding {
+                    McpServerBindingRef::Managed { server_name, .. } => {
+                        sources.organization_entries.get(server_name).cloned()
+                    }
+                    binding => {
+                        read_claude_mcp_server_entry(sources.home, sources.plugin_home, binding)
+                            .await
+                            .map_err(|error| DriverError::Internal(Box::new(error)))?
+                            .and_then(compose_tool_server_entry)
+                    }
+                };
+                let Some(entry) = entry else {
                     continue;
                 };
                 servers.insert(name.clone(), entry);
@@ -361,14 +373,7 @@ fn record_status_reply(
         let tool_names = rows
             .clone()
             .find(|row| row.name.as_deref() == Some(name))
-            .and_then(|row| row.tools.as_ref())
-            .map(|tools| {
-                tools
-                    .0
-                    .iter()
-                    .filter_map(|tool| McpToolName::new(tool.name.clone()?).ok())
-                    .collect()
-            })
+            .map(ClaudeMcpServerStatusRow::tool_names)
             .unwrap_or_default();
         statuses.insert(
             name.to_owned(),
@@ -384,6 +389,7 @@ fn record_status_reply(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::time::Duration;
@@ -450,6 +456,7 @@ mod tests {
                 home,
                 plugin_home: &home.join("plugin-home"),
                 attached_roots: &[],
+                organization_entries: &BTreeMap::new(),
             },
             targets,
         )

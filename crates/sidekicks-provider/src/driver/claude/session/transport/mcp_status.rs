@@ -8,6 +8,7 @@ use std::fmt;
 use serde::de::IntoDeserializer;
 use serde::{Deserialize, Deserializer};
 use serde_json::value::RawValue;
+use sidekicks_contracts::mcp::server::McpToolName;
 use sidekicks_contracts::wire::text::is_ecmascript_whitespace;
 use sidekicks_ipc::redaction::scrub_credentials;
 
@@ -63,6 +64,17 @@ pub(crate) struct ClaudeMcpServerStatusRow {
     /// The server's tools, each by name; sent while it is connected.
     #[serde(default, deserialize_with = "read_lenient")]
     pub(crate) tools: Option<LenientList<ClaudeMcpServerTool>>,
+}
+
+impl ClaudeMcpServerStatusRow {
+    /// The names of the row's tools that pass the wire bound; empty where it sends none.
+    pub(crate) fn tool_names(&self) -> Vec<McpToolName> {
+        self.tools
+            .iter()
+            .flat_map(|tools| &tools.0)
+            .filter_map(|tool| McpToolName::new(tool.name.clone()?).ok())
+            .collect()
+    }
 }
 
 /// One tool of an `mcp_status` row, by name; its description, annotations and metadata are left

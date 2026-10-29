@@ -1,8 +1,9 @@
 //! The account read of Claude Code's claude.ai connectors and its organization's servers: one
 //! process that keeps nothing, started under the account without `--strict-mcp-config` in an
 //! empty folder under the account's home, so nothing of the person's loads, answers `mcp_status`
-//! and `get_settings`, and each `claudeai` row becomes a read-only connector of the account while
-//! the organization's rows and `managedMcpServers` become read-only managed servers. Budget: one
+//! and `get_settings`, and each `claudeai` row becomes a read-only connector of the account, with
+//! the status and tools the row reports, while the organization's rows and `managedMcpServers`
+//! become read-only managed servers. Budget: one
 //! such process of about 140 to 150 MB per account at a time, run at the account's first session
 //! after the daemon starts and again only on a refresh, never on a poll.
 
@@ -28,6 +29,9 @@ use crate::driver::claude::session::transport::mcp_status::{
 };
 use crate::driver::claude::spawn::launch::control_only::ClaudeShortProcess;
 use crate::driver::claude::spawn::launch::{ClaudeLaunchError, ClaudeProcessLauncher};
+use crate::driver::claude::tools::normalize_claude_mcp_status_reply;
+use crate::driver::mcp_server::read::McpProbeReading;
+use crate::driver::mcp_server::status::McpServerStatusEmission;
 use crate::spawned_version::ResolvedProviderExecutable;
 
 /// Where one account's read runs: the account's process environment, the account, and the empty
@@ -92,24 +96,54 @@ pub(crate) async fn read_claude_account_answers(
 }
 
 /// The servers `provider_account_id` brings, read from its process's `answers`: each `claudeai`
-/// row as a connector named by its display name, and the organization's servers. Every other row
-/// is the person's own config, which the config read lists.
+/// row as a connector named by its display name, with the status, error text and tools the row
+/// reports, and the organization's servers. Every other row is the person's own config, which the
+/// config read lists.
 pub(crate) fn read_claude_account_servers(
     provider_account_id: &ProviderAccountId,
     answers: &ClaudeAccountServerAnswers,
 ) -> ClaudeMcpAccountServers {
     let reply = ClaudeMcpStatusReply::read(answers.mcp_status.as_deref());
+    let emissions = normalize_claude_mcp_status_reply(&reply)
+        .map(|read| read.emissions)
+        .unwrap_or_default();
     let rows = reply.servers.map(|rows| rows.0).unwrap_or_default();
     let settings = ClaudeSettingsReply::read(answers.settings.as_deref());
+    let organization = read_claude_organization_servers(&rows, settings.effective.as_ref());
+    let (connectors, connector_readings) = rows
+        .iter()
+        .filter(|row| row.source.as_deref().or(row.scope.as_deref()) == Some("claudeai"))
+        .filter_map(|row| {
+            let connector = read_connector(provider_account_id, row)?;
+            let reading = read_connector_reading(&connector, row, &emissions)?;
+            Some((connector, reading))
+        })
+        .unzip();
     ClaudeMcpAccountServers {
         provider_account_id: provider_account_id.clone(),
-        organization_servers: read_claude_organization_servers(&rows, settings.effective.as_ref()),
-        connectors: rows
-            .iter()
-            .filter(|row| row.source.as_deref().or(row.scope.as_deref()) == Some("claudeai"))
-            .filter_map(|row| read_connector(provider_account_id, row))
-            .collect(),
+        organization_servers: organization.servers,
+        connectors,
+        connector_readings,
+        organization_entries: organization.entries,
     }
+}
+
+// What the account's process reported of `connector` through `row`: the row's reading and error
+// text through the one status mapping, and its tools; `None` for a row the mapping refused.
+fn read_connector_reading(
+    connector: &ClaudeMcpServer,
+    row: &ClaudeMcpServerStatusRow,
+    emissions: &[McpServerStatusEmission],
+) -> Option<McpProbeReading> {
+    let emission = emissions
+        .iter()
+        .find(|emission| Some(emission.server_name.as_str()) == row.name.as_deref())?;
+    Some(McpProbeReading {
+        binding: connector.binding.clone(),
+        reading: emission.reading,
+        failure_text: emission.failure_text.clone(),
+        tool_names: row.tool_names(),
+    })
 }
 
 // A `claudeai` row as the account's connector, reached at its own address; `None` for a row with
@@ -142,8 +176,8 @@ mod tests {
 
     use serde_json::json;
     use serde_json::value::{RawValue, to_raw_value};
-    use sidekicks_contracts::mcp::server::McpServerBindingRef;
     use sidekicks_contracts::mcp::server::config::McpServerConfigView;
+    use sidekicks_contracts::mcp::server::{McpServerBindingRef, McpServerStatus};
     use sidekicks_platforms::{ProgramStart, Spawner};
     use tokio::runtime::Handle;
 
@@ -164,6 +198,7 @@ mod tests {
         CLAUDE_CONTROL_ONLY_ARGUMENTS, ClaudeShortProcess,
     };
     use crate::driver::mcp_server::read::McpServerPolicy;
+    use crate::driver::mcp_server::status::McpServerReading;
     use crate::process_registry::ProviderProcessRegistry;
     use crate::runtime_binding::test_store::test_provider_account_id;
     use crate::spawned_version::ResolvedProviderExecutable;
@@ -182,11 +217,13 @@ mod tests {
         }
     }
 
-    // A `claudeai` row becomes a read-only connector of the account under its display name, and
-    // the `managed` row and the `managedMcpServers` entry read-only organization servers served
-    // with their host alone; the person's own `user` row is left to the config read. Killed by a
-    // connector bound in a writable scope, by an organization address kept with its path or
-    // query, and by a `managedMcpServers` entry listed twice.
+    // A `claudeai` row becomes a read-only connector of the account under its display name, read
+    // with the status and tools its row reports, and the `managed` row and the
+    // `managedMcpServers` entry read-only organization servers served with their host alone, the
+    // entry kept whole only in the form a probe sends; the person's own `user` row is left to the
+    // config read. Killed by a connector bound in a writable scope, by a connector's reading
+    // dropped, by an organization address kept with its path or query, by a `managedMcpServers`
+    // entry listed twice, and by its address or headers lost from the form a probe sends.
     #[test]
     fn an_accounts_rows_become_read_only_connectors_and_host_only_organization_servers() {
         let account = test_provider_account_id();
@@ -202,7 +239,8 @@ mod tests {
                             "type": "claudeai-proxy",
                             "url": "https://mcp.slack.example.com/mcp?team=t-secret",
                             "id": "connector-id-secret"
-                        }
+                        },
+                        "tools": [{ "name": "send_message" }]
                     },
                     {
                         "name": "tracker",
@@ -255,6 +293,39 @@ mod tests {
         assert_eq!(
             remote_url(&connector.config),
             "https://mcp.slack.example.com/mcp"
+        );
+        let [reading] = servers.connector_readings.as_slice() else {
+            panic!("one connector reading: {:?}", servers.connector_readings);
+        };
+        assert_eq!(reading.binding, connector.binding);
+        assert_eq!(
+            reading.reading,
+            McpServerReading::Observed(McpServerStatus::Connected)
+        );
+        let tool_names: Vec<&str> = reading
+            .tool_names
+            .iter()
+            .map(|name| name.as_str())
+            .collect();
+        assert_eq!(tool_names, ["send_message"]);
+        let sendable: Vec<(&str, &ClaudeToolServerEntry)> = servers
+            .organization_entries
+            .iter()
+            .map(|(name, entry)| (name.as_str(), entry))
+            .collect();
+        assert_eq!(
+            sendable,
+            [(
+                "docs",
+                &ClaudeToolServerEntry::Sse {
+                    url: "https://docs.example.com/v1/sse?key=organization-secret".to_owned(),
+                    headers: [(
+                        "Authorization".to_owned(),
+                        "Bearer header-secret".to_owned()
+                    )]
+                    .into(),
+                }
+            )]
         );
         let organization: Vec<(&str, &str)> = servers
             .organization_servers

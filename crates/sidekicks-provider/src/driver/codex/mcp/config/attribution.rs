@@ -135,6 +135,8 @@ pub(crate) fn attribute_codex_mcp_servers(reads: &[CodexRootConfigRead]) -> Code
                             disabled_in,
                             is_read_only: layer.role == LayerRole::Administrator,
                             sign_in_client: declared.sign_in_client,
+                            is_switch_kept_by_daemon: false,
+                            tool_defaults: declared.tool_defaults,
                         },
                         is_view_outside_projects,
                     },
