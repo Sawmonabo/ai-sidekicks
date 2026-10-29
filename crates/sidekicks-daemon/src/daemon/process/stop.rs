@@ -16,7 +16,6 @@ use tokio::task::JoinError;
 
 use crate::daemon::process::database::{DatabaseFileCloseFailure, close_database_file};
 use crate::daemon::process::providers::{ProvidersRegistrationStopFailure, shut_down_drivers};
-use crate::daemon::process::repo_services::store_managed_writes_watermark;
 use crate::daemon::process::{DAEMON_STOP_DRAIN_BOUND, DaemonProcess};
 use crate::daemon::stop_drain::describe_drain;
 
@@ -189,13 +188,13 @@ pub(crate) async fn stop_work(
     ) {
         (Some(attachments), Some(session), Some(repo)) => {
             let ended = attachments.stop(session, &repo.workspaces).await;
-            // Every write the watch sent was recorded, so the next start walks from here.
+            // Every write the watch sent was taken, so the next start walks from here once each
+            // report held behind an open tool call is recorded too.
             if ended.is_empty() {
-                store_managed_writes_watermark(
-                    &repo.managed_writes_watermark,
-                    repo.workspaces.whole_since(),
-                )
-                .await;
+                session
+                    .chat_versions
+                    .keep_caught_up(repo.workspaces.whole_since())
+                    .await;
             }
             failures.extend(ended.into_iter().map(DaemonStopFailure::from));
         }

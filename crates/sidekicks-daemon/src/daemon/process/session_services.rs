@@ -126,7 +126,7 @@ pub(crate) struct SessionServiceStart {
     /// The chats' writes the managed workspaces' watch reports.
     pub(crate) workspace_writes: mpsc::Receiver<ManagedWorkspaceReport>,
     /// Where the recording of those writes keeps each instant the watch's walk caught up to, once
-    /// every write sent ahead of it is recorded.
+    /// every write sent ahead of it is recorded, a write held behind a tool call included.
     pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
     /// The daemon's wall clock.
     pub(crate) clock: Arc<dyn WallClock>,
@@ -373,13 +373,12 @@ pub(crate) fn build_session_services(
         spool_folder,
         workspaces_folder,
         clock,
+        managed_writes_watermark,
     ));
     let chat_version_recording = {
         let chat_versions = Arc::clone(&chat_versions);
         tokio::spawn(async move {
-            chat_versions
-                .record_reported_writes(workspace_writes, &*managed_writes_watermark)
-                .await;
+            chat_versions.record_reported_writes(workspace_writes).await;
         })
     };
     Ok(SessionServices {

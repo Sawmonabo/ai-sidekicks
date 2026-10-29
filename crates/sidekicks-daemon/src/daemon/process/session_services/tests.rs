@@ -64,9 +64,7 @@ use tokio_util::sync::CancellationToken;
 use super::{
     SessionServiceStart, SessionServices, build_session_services, start_session_attachments,
 };
-use crate::daemon::process::repo_services::{
-    ManagedWritesWatermarkFile, RepoServiceStart, RepoServices, build_repo_services,
-};
+use crate::daemon::process::repo_services::{RepoServiceStart, RepoServices, build_repo_services};
 use crate::daemon::schema::schema_parts;
 
 // The statements the tests' read pool prepares, every reader's together.
@@ -225,9 +223,7 @@ async fn fixture() -> Fixture {
         spool_folder,
         workspaces_folder: managed_workspaces_folder(home.path()),
         workspace_writes,
-        managed_writes_watermark: Arc::new(ManagedWritesWatermarkFile {
-            path: managed_writes_watermark,
-        }),
+        managed_writes_watermark,
         clock,
         spawner,
         daemon_program,

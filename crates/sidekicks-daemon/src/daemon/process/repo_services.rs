@@ -140,10 +140,10 @@ pub(crate) struct RepoServices {
     pub(crate) occupancy: MountOccupancyReader,
     /// The daemon's worktrees folder, its links resolved.
     pub(crate) worktrees_folder: PathBuf,
-    /// The record of the instant the chats' write watch walks from at the next start, which the
-    /// recording of the chats' writes stores once it has recorded every write the watch's walk
-    /// sent, and the clean stop stores again.
-    pub(crate) managed_writes_watermark: PathBuf,
+    /// The one keeper of the instant the chats' write watch walks from at the next start, through
+    /// which the recording of the chats' writes stores each instant once every write reported
+    /// before it is recorded, the clean stop's instant included.
+    pub(crate) managed_writes_watermark: Arc<dyn ManagedWritesWatermark>,
 }
 
 /// Why the repository services could not be built.
@@ -184,7 +184,10 @@ pub(crate) fn build_repo_services(
         machine_id,
     ));
     let (writes, workspace_writes) = mpsc::channel(MANAGED_WORKSPACE_WRITE_CAPACITY);
-    let managed_writes_watermark = managed_writes_watermark_path(&home_folder);
+    let managed_writes_watermark: Arc<dyn ManagedWritesWatermark> =
+        Arc::new(ManagedWritesWatermarkFile {
+            path: managed_writes_watermark_path(&home_folder),
+        });
     let workspaces = Arc::new(ManagedWorkspaceService::new(
         &home_folder,
         // A folder in WSL or on Windows itself is the Windows build's to place.
@@ -307,34 +310,35 @@ pub(crate) async fn read_managed_writes_watermark(path: &Path) -> SystemTime {
     }
 }
 
-/// The record the recording of the chats' writes stores each instant their watch's walk caught up
-/// to in.
-pub(crate) struct ManagedWritesWatermarkFile {
-    /// The record's file, [`managed_writes_watermark_path`] under the daemon's home.
-    pub(crate) path: PathBuf,
+/// The record at `path`, [`managed_writes_watermark_path`] under the daemon's home, that keeps the
+/// instant the next start's walk of the chats' writes begins at.
+struct ManagedWritesWatermarkFile {
+    path: PathBuf,
 }
 
 impl ManagedWritesWatermark for ManagedWritesWatermarkFile {
+    // A failure is logged, and the next start walks from the instant stored before.
     fn store(&self, instant: SystemTime) -> BoxFuture<'_, ()> {
-        store_managed_writes_watermark(&self.path, instant).boxed()
-    }
-}
-
-/// Stores `instant` as the one the next start's walk of the chats' writes begins at; a failure is
-/// logged, and the next start walks from the instant stored before.
-pub(crate) async fn store_managed_writes_watermark(path: &Path, instant: SystemTime) {
-    // An instant before the epoch is stored as the epoch.
-    let nanoseconds = instant.duration_since(UNIX_EPOCH).map_or(0, |since| {
-        u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
-    });
-    if let Err(error) =
-        write_file_atomically(path, nanoseconds.to_string(), MANAGED_WRITES_WATERMARK_MODE).await
-    {
-        tracing::warn!(
-            error = &error as &(dyn Error + 'static),
-            "the chats' write watermark could not be stored, so the next start walks from an \
-             earlier instant"
-        );
+        async move {
+            // An instant before the epoch is stored as the epoch.
+            let nanoseconds = instant.duration_since(UNIX_EPOCH).map_or(0, |since| {
+                u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
+            });
+            if let Err(error) = write_file_atomically(
+                &self.path,
+                nanoseconds.to_string(),
+                MANAGED_WRITES_WATERMARK_MODE,
+            )
+            .await
+            {
+                tracing::warn!(
+                    error = &error as &(dyn Error + 'static),
+                    "the chats' write watermark could not be stored, so the next start walks from \
+                     an earlier instant"
+                );
+            }
+        }
+        .boxed()
     }
 }
 
