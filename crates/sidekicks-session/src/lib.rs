@@ -11,6 +11,7 @@ pub mod auto_title;
 pub mod changes;
 pub mod console_state;
 pub mod conversation_purge;
+pub mod convert;
 pub mod directory;
 pub mod draft_store;
 pub mod driver_resolution;

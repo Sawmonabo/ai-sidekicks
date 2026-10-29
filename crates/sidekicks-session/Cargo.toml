@@ -11,6 +11,8 @@ publish.workspace = true
 doctest = false
 
 [dependencies]
+# The skipped-file cursor's base64url encoding.
+base64.workspace = true
 # The wire message other crates' tests split into its attachments.
 bytes = { workspace = true, optional = true }
 diffy.workspace = true
